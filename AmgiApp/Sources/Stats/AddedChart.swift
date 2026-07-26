@@ -78,9 +78,7 @@ private extension AddedChart {
 
 // MARK: - Preview
 
-#if DEBUG
 #Preview {
     AddedChart(added: .sample, period: .month)
         .padding()
 }
-#endif

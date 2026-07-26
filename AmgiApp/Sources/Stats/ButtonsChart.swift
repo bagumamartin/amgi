@@ -85,9 +85,7 @@ struct ButtonsChart: View {
 
 // MARK: - Preview
 
-#if DEBUG
 #Preview {
     ButtonsChart(buttons: .sample, period: .month)
         .padding()
 }
-#endif

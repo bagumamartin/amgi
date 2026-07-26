@@ -73,9 +73,7 @@ struct IntervalsChart: View {
 
 // MARK: - Preview
 
-#if DEBUG
 #Preview {
     IntervalsChart(intervals: .sample)
         .padding()
 }
-#endif

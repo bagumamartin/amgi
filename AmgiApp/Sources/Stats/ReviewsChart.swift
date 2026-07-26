@@ -107,9 +107,7 @@ private extension ReviewsChart {
 
 // MARK: - Preview
 
-#if DEBUG
 #Preview {
     ReviewsChart(reviews: .sampleYear, period: .month)
         .padding()
 }
-#endif

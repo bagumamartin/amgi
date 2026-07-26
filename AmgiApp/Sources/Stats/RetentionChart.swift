@@ -88,9 +88,7 @@ private extension RetentionChart {
 
 // MARK: - Preview
 
-#if DEBUG
 #Preview {
     RetentionChart(trueRetention: .sample)
         .padding()
 }
-#endif

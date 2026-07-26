@@ -69,9 +69,7 @@ struct CardCountsChart: View {
 
 // MARK: - Preview
 
-#if DEBUG
 #Preview {
     CardCountsChart(cardCounts: .sample)
         .padding()
 }
-#endif

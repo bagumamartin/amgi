@@ -235,9 +235,7 @@ private extension RetrievabilityChart {
 
 // MARK: - Preview
 
-#if DEBUG
 #Preview {
     RetrievabilityChart(retrievability: .sample)
         .padding()
 }
-#endif
