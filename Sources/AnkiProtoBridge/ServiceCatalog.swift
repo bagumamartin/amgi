@@ -95,7 +95,7 @@ enum ImportExportMethod {
 enum NotesMethod {
     static let newNote: UInt32 = 0
     static let addNote: UInt32 = 1
-    static let removeNotes: UInt32 = 3
+    static let removeNotes: UInt32 = 7
     static let updateNotes: UInt32 = 5
     static let getNote: UInt32 = 6
 }
