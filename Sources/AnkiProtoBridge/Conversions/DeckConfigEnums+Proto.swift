@@ -93,6 +93,7 @@ package extension Anki_DeckConfig_DeckConfig.Config.ReviewCardOrder {
         case .random: self = .random
         case .added: self = .added
         case .reverseAdded: self = .reverseAdded
+        case .relativeOverdueness: self = .relativeOverdueness
         }
     }
 }
@@ -112,6 +113,7 @@ package extension ReviewCardOrder {
         case .random: self = .random
         case .added: self = .added
         case .reverseAdded: self = .reverseAdded
+        case .relativeOverdueness: self = .relativeOverdueness
         case .UNRECOGNIZED: self = .day
         }
     }

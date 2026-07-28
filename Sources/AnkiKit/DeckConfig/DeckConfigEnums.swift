@@ -42,6 +42,7 @@ public enum ReviewCardOrder: Int, Sendable, Hashable, Codable, CaseIterable {
     case added = 9
     case reverseAdded = 10
     case retrievabilityDescending = 11
+    case relativeOverdueness = 12
 }
 
 public enum ReviewMix: Int, Sendable, Hashable, Codable, CaseIterable {

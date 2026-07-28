@@ -31,6 +31,7 @@ public struct BackendError: Error, LocalizedError, CustomStringConvertible, Send
         case osError
         case schedulerUpgradeRequired
         case invalidCertificateFormat
+        case invalidChecksum
         case unrecognized(Int)
     }
 
@@ -91,6 +92,7 @@ public struct BackendError: Error, LocalizedError, CustomStringConvertible, Send
         case .osError: return "os error"
         case .schedulerUpgradeRequired: return "scheduler upgrade required"
         case .invalidCertificateFormat: return "invalid certificate"
+        case .invalidChecksum: return "invalid checksum"
         case .unrecognized(let n): return "kind=\(n)"
         }
     }
@@ -125,6 +127,7 @@ extension BackendError.Kind {
         case .osError:                  self = .osError
         case .schedulerUpgradeRequired: self = .schedulerUpgradeRequired
         case .invalidCertificateFormat: self = .invalidCertificateFormat
+        case .invalidChecksum:          self = .invalidChecksum
         case .UNRECOGNIZED(let v):      self = .unrecognized(v)
         }
     }

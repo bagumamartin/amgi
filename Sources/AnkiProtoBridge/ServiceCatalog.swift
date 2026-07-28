@@ -15,11 +15,11 @@ enum ServiceID {
     static let deckConfig: UInt32 = 11
     static let cardRendering: UInt32 = 27
     static let search: UInt32 = 29
-    static let imageOcclusion: UInt32 = 35
-    static let importExport: UInt32 = 37
-    static let media: UInt32 = 39
-    static let stats: UInt32 = 41
-    static let tags: UInt32 = 43
+    static let imageOcclusion: UInt32 = 37
+    static let importExport: UInt32 = 39
+    static let media: UInt32 = 41
+    static let stats: UInt32 = 43
+    static let tags: UInt32 = 45
 }
 
 /// BackendCollectionService (2) — undo/redo and integrity helpers.
@@ -67,7 +67,7 @@ enum DeckConfigMethod {
     static let getDeckConfig: UInt32 = 1
     static let getDeckConfigsForUpdate: UInt32 = 6
     static let updateDeckConfigs: UInt32 = 7
-    static let getRetentionWorkload: UInt32 = 11
+    static let getRetentionWorkload: UInt32 = 9
 }
 
 enum NotetypesMethod {
@@ -115,7 +115,7 @@ enum SyncMethod {
     static let fullUploadOrDownload: UInt32 = 6
 }
 
-/// BackendTagsService (43).
+/// BackendTagsService (45).
 enum TagsMethod {
     static let clearUnusedTags: UInt32 = 0
     static let allTags: UInt32 = 1
@@ -130,7 +130,7 @@ enum TagsMethod {
     static let completeTag: UInt32 = 10
 }
 
-/// BackendImageOcclusionService (35).
+/// BackendImageOcclusionService (37).
 enum ImageOcclusionMethod {
     static let getImageForOcclusion: UInt32 = 0
     static let getImageOcclusionNote: UInt32 = 1
@@ -140,7 +140,7 @@ enum ImageOcclusionMethod {
     static let updateImageOcclusionNote: UInt32 = 5
 }
 
-/// BackendMediaService (39).
+/// BackendMediaService (41).
 enum MediaMethod {
     static let checkMedia: UInt32 = 0
     static let addMediaFile: UInt32 = 1
