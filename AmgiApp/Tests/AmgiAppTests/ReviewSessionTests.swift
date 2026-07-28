@@ -22,6 +22,21 @@ import AnkiServices
         session = ReviewSession(deckId: DeckID(1))
     }
 
+    /// Polls `condition` instead of racing a fixed sleep against
+    /// `ReviewSession.start()`'s off-main-actor async chain — avoids
+    /// flaking when that chain takes longer than a hardcoded delay.
+    private func pollUntil(
+        timeout: Duration = .milliseconds(2000),
+        interval: Duration = .milliseconds(5),
+        _ condition: @MainActor () -> Bool
+    ) async throws {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while !condition() {
+            if ContinuousClock.now >= deadline { return }
+            try await Task.sleep(for: interval)
+        }
+    }
+
     // MARK: - Deferred from fork
 
     // DEFERRED: fork's testCurrentCardInitiallyNil / testCurrentCardPublicAccess /
@@ -199,10 +214,11 @@ import AnkiServices
                 RenderedCard(frontHTML: "<p>front</p>", backHTML: "<p>back</p>", cardCSS: "")
             }
             $0.decksService.setCurrentDeck = { _ in }
+            $0.decksService.getCurrentDeck = { DeckInfo(id: DeckID(1), name: "Deck") }
         } operation: {
             let session = ReviewSession(deckId: DeckID(1))
             session.start()
-            try await Task.sleep(for: .milliseconds(50))
+            try await pollUntil { session.currentNote != nil }
             #expect(session.currentNote == stubNote)
             #expect(callCounter.value == 1, "getNote should be called exactly once per advance")
 
