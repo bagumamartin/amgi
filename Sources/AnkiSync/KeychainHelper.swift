@@ -1,12 +1,25 @@
 public import Foundation
 import Security
 
+/// Sync identity (endpoint, host key, username, shard) is **per-profile**:
+/// every item is stored under `<base>__<profileID>`, where the profile id is
+/// the same `amgi.selectedUser` anchor that scopes sync prefs. Processes
+/// without a profile registry (the watch app) resolve to "default".
 public enum KeychainHelper: Sendable {
     private static let service = "com.ankiapp.sync"
     private static let hostKeyAccount = "sync-host-key"
     private static let usernameAccount = "sync-username"
     private static let endpointAccount = "sync-endpoint"
     private static let currentEndpointAccount = "sync-current-endpoint"
+    private static let defaultProfileID = "default"
+
+    private static func currentProfileID() -> String {
+        UserDefaults.standard.string(forKey: "amgi.selectedUser") ?? defaultProfileID
+    }
+
+    private static func scoped(_ base: String) -> String {
+        "\(base)__\(currentProfileID())"
+    }
 
     // MARK: - Host Key
 
@@ -73,9 +86,29 @@ public enum KeychainHelper: Sendable {
     // MARK: - Internal
 
     private static func save(account: String, value: String) throws {
+        try saveRaw(account: scoped(account), value: value)
+    }
+
+    private static func load(account: String) -> String? {
+        if let value = loadRaw(account: scoped(account)) { return value }
+        // Legacy migration: pre-profile items were stored unscoped and belong
+        // to the original "default" profile. Move on first read from default;
+        // other profiles must not inherit them — that was the shared-login bug.
+        guard currentProfileID() == defaultProfileID,
+              let legacy = loadRaw(account: account) else { return nil }
+        try? saveRaw(account: scoped(account), value: legacy)
+        deleteRaw(account: account)
+        return legacy
+    }
+
+    private static func delete(account: String) {
+        deleteRaw(account: scoped(account))
+    }
+
+    private static func saveRaw(account: String, value: String) throws {
         let data = Data(value.utf8)
         // Delete existing item first to avoid duplicates
-        delete(account: account)
+        deleteRaw(account: account)
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -89,7 +122,7 @@ public enum KeychainHelper: Sendable {
         }
     }
 
-    private static func load(account: String) -> String? {
+    private static func loadRaw(account: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -103,7 +136,7 @@ public enum KeychainHelper: Sendable {
         return String(data: data, encoding: .utf8)
     }
 
-    private static func delete(account: String) {
+    private static func deleteRaw(account: String) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
