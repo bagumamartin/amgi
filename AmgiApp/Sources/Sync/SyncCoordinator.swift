@@ -69,6 +69,9 @@ final class SyncCoordinator {
                     self.$needsFullSyncFlag.withLock { $0 = false }
                     self.activeTask = nil
                 }
+                // Sync can change counts without any review — refresh widgets
+                // or they keep showing the pre-sync collection.
+                await writeWidgetSnapshot()
             } catch let error as SyncError where error == .fullSyncRequired {
                 await MainActor.run {
                     self.appendLog("Server requires a full sync", level: .warning)
@@ -121,6 +124,9 @@ final class SyncCoordinator {
                     self.$needsFullSyncFlag.withLock { $0 = false }
                     self.activeTask = nil
                 }
+                // A full download replaces the whole collection — widgets are
+                // guaranteed stale without a rewrite.
+                await writeWidgetSnapshot()
             } catch {
                 await MainActor.run {
                     guard self.activeTask != nil else { return }
