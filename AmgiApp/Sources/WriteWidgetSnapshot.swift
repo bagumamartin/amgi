@@ -37,40 +37,106 @@ func writeWidgetSnapshot() async {
 
         let reviewedToday = graphs.today.answerCount
         let now = Date()
+        let rolloverHour = graphs.rolloverHour
+        let dayZero = AnkiDay.start(of: now, rolloverHour: rolloverHour)
 
         // 5. Write all-decks aggregate snapshot (deckId = 0)
+        let aggregateBase = WidgetSnapshot.DayCounts(
+            newCount: decks.reduce(0) { $0 + $1.counts.newCount },
+            learnCount: decks.reduce(0) { $0 + $1.counts.learnCount },
+            reviewCount: decks.reduce(0) { $0 + $1.counts.reviewCount }
+        )
         let allDecksSnapshot = WidgetSnapshot(
             deckId: 0,
             deckName: "All Decks",
-            newCount: decks.reduce(0) { $0 + $1.counts.newCount },
-            learnCount: decks.reduce(0) { $0 + $1.counts.learnCount },
-            reviewCount: decks.reduce(0) { $0 + $1.counts.reviewCount },
+            newCount: aggregateBase.newCount,
+            learnCount: aggregateBase.learnCount,
+            reviewCount: aggregateBase.reviewCount,
             reviewedToday: reviewedToday,
             streak: streak,
             lastSevenDays: lastSevenDays,
-            snapshotDate: now
+            snapshotDate: now,
+            forecast: WidgetSnapshot.Forecast(
+                rolloverHour: rolloverHour,
+                dayZero: dayZero,
+                days: forecastDays(base: aggregateBase, futureDue: graphs.futureDue.futureDue)
+            )
         )
         try WidgetSnapshotStore.write(allDecksSnapshot)
 
-        // 6. Write per-deck snapshots
+        // 6. Write per-deck snapshots. Each deck needs its own future-due
+        // histogram for the forecast; a failed per-deck fetch degrades to a
+        // forecast-less snapshot rather than failing the whole write.
+        // ponytail: one graphs RPC per deck on every foreground; batch or
+        // trim the fetch if this ever measurably lags on large collections.
         for deck in decks {
+            let base = WidgetSnapshot.DayCounts(
+                newCount: deck.counts.newCount,
+                learnCount: deck.counts.learnCount,
+                reviewCount: deck.counts.reviewCount
+            )
+            let deckFutureDue = (try? await statsClient.fetchGraphs(deckSearch(deck.name), 1))?
+                .futureDue.futureDue
             let snapshot = WidgetSnapshot(
                 deckId: deck.id.rawValue,
                 deckName: deck.name,
-                newCount: deck.counts.newCount,
-                learnCount: deck.counts.learnCount,
-                reviewCount: deck.counts.reviewCount,
+                newCount: base.newCount,
+                learnCount: base.learnCount,
+                reviewCount: base.reviewCount,
                 reviewedToday: reviewedToday,
                 streak: streak,
                 lastSevenDays: lastSevenDays,
-                snapshotDate: now
+                snapshotDate: now,
+                forecast: deckFutureDue.map { futureDue in
+                    WidgetSnapshot.Forecast(
+                        rolloverHour: rolloverHour,
+                        dayZero: dayZero,
+                        days: forecastDays(base: base, futureDue: futureDue)
+                    )
+                }
             )
             try WidgetSnapshotStore.write(snapshot)
         }
 
-        // 7. Tell WidgetKit to reload all widget timelines
+        // 7. Sweep snapshots for decks that no longer exist (deleted decks,
+        // other profiles) so the container mirrors the active collection.
+        WidgetSnapshotStore.removeSnapshots(notIn: Set([0] + decks.map(\.id.rawValue)))
+
+        // 8. Tell WidgetKit to reload all widget timelines
         WidgetCenter.shared.reloadAllTimelines()
     } catch {
         print("[writeWidgetSnapshot] Failed: \(error)")
     }
+}
+
+/// Due counts for the write day plus the next `horizon` Anki-days, assuming
+/// no reviews happen in between: unfinished learn/review cards carry over,
+/// and each day adds its future-due bucket.
+private func forecastDays(
+    base: WidgetSnapshot.DayCounts,
+    futureDue: [Int: Int],
+    horizon: Int = 7
+) -> [WidgetSnapshot.DayCounts] {
+    var days = [base]
+    var carriedReviews = base.learnCount + base.reviewCount
+    for day in 1...horizon {
+        carriedReviews += futureDue[day] ?? 0
+        // ponytail: future newCount = today's remaining new; ignores the
+        // daily new-limit reset. Upgrade path: surface the deck's new/day
+        // limit through DeckInfo if the approximation ever bothers anyone.
+        days.append(WidgetSnapshot.DayCounts(
+            newCount: base.newCount,
+            learnCount: 0,
+            reviewCount: carriedReviews
+        ))
+    }
+    return days
+}
+
+/// Anki search string matching one deck (and its subdecks) by name.
+private func deckSearch(_ name: String) -> String {
+    let escaped = name
+        .replacingOccurrences(of: "\\", with: "\\\\")
+        .replacingOccurrences(of: "\"", with: "\\\"")
+    return "deck:\"\(escaped)\""
 }
