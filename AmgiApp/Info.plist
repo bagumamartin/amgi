@@ -37,14 +37,6 @@
         <string>Fonts/NanumMyeongjo-Regular.ttf</string>
         <string>Fonts/NanumGothic-Regular.ttf</string>
     </array>
-    <key>UIBackgroundModes</key>
-    <array>
-        <string>fetch</string>
-    </array>
-    <key>BGTaskSchedulerPermittedIdentifiers</key>
-    <array>
-        <string>com.amgiapp.AmgiApp.widget-refresh</string>
-    </array>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>

@@ -1,5 +1,4 @@
 // AmgiApp/Sources/AmgiAppApp.swift
-import BackgroundTasks
 import SwiftUI
 import AmgiReader
 import AmgiReaderDictionary
@@ -31,14 +30,6 @@ struct AnkiAppApp: App {
 //            $onboardingCompleted.withLock { $0 = true }
 //        }
         #endif
-
-        BGTaskScheduler.shared.register(
-            forTaskWithIdentifier: "com.amgiapp.AmgiApp.widget-refresh",
-            using: nil
-        ) { @Sendable task in
-            handleWidgetRefreshTask(task)
-        }
-        scheduleWidgetRefreshTask()
 
         // Multi-profile bootstrap: migrate legacy single-collection
         // layout into the default profile, then resolve the active
@@ -112,31 +103,4 @@ private extension AnkiAppApp {
         case onboarding
         case main
     }
-}
-
-private struct UncheckedSendableBox<T>: @unchecked Sendable { let value: T }
-
-private func handleWidgetRefreshTask(_ task: BGTask) {
-    let box = UncheckedSendableBox(value: task)
-    let work = Task {
-        await writeWidgetSnapshot()
-        box.value.setTaskCompleted(success: true)
-        scheduleWidgetRefreshTask()
-    }
-    task.expirationHandler = {
-        work.cancel()
-        box.value.setTaskCompleted(success: false)
-    }
-}
-
-/// Schedules a BGAppRefreshTask to fire shortly after the next midnight.
-/// The task writes a fresh widget snapshot so the widget shows today's counts
-/// even if the user hasn't opened the app yet.
-private func scheduleWidgetRefreshTask() {
-    let request = BGAppRefreshTaskRequest(identifier: "com.amgiapp.AmgiApp.widget-refresh")
-    let cal = Calendar.current
-    let tomorrow = cal.startOfDay(for: cal.date(byAdding: .day, value: 1, to: Date()) ?? Date())
-    // Fire 5 minutes after midnight so Anki's day rollover has settled.
-    request.earliestBeginDate = cal.date(byAdding: .minute, value: 5, to: tomorrow) ?? tomorrow
-    try? BGTaskScheduler.shared.submit(request)
 }
