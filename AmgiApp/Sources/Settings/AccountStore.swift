@@ -25,13 +25,13 @@ struct AmgiAccount: Identifiable, Hashable, Codable {
 
 /// Persistent profile registry. The list of accounts and the current
 /// selection both live in `UserDefaults`; per-profile state (collection,
-/// sync prefs) lives elsewhere and is keyed off `AmgiAccount.id`.
+/// sync prefs, keychain sync identity) lives elsewhere and is keyed off
+/// `AmgiAccount.id` via the `amgi.selectedUser` anchor.
 ///
-/// Switching active profiles requires a relaunch — the app's
-/// `AnkiBackend` is wired at startup with one collection path, and
-/// rewiring all `@Dependency`-injected clients mid-session is fraught.
-/// `pendingSwitchID` records the user's choice; on next cold start the
-/// bootstrap reads it and opens the corresponding collection.
+/// Switching is in-app: `switchProfile(to:)` (AmgiAppApp.swift) swaps the
+/// open collection on the shared backend, calls `select(_:)` to flip the
+/// scoping anchor, and the root view re-ids on `selectedID` so the whole
+/// UI rebuilds against the new collection.
 @MainActor
 @Observable
 final class AccountStore {
@@ -39,13 +39,9 @@ final class AccountStore {
 
     private static let accountsKey = "amgi.accounts"
     private static let selectedKey = "amgi.selectedUser"
-    private static let pendingKey = "amgi.pendingSelectedUser"
 
     private(set) var accounts: [AmgiAccount]
     private(set) var selectedID: String
-    /// When set, the next cold start switches to this profile and
-    /// clears the pending value. UI shows a "restart to apply" banner.
-    private(set) var pendingSwitchID: String?
 
     private init() {
         let defaults = UserDefaults.standard
@@ -58,7 +54,6 @@ final class AccountStore {
             self.accounts = [.newDefault()]
         }
         self.selectedID = defaults.string(forKey: Self.selectedKey) ?? AmgiAccount.defaultID
-        self.pendingSwitchID = defaults.string(forKey: Self.pendingKey)
 
         // Backfill: ensure the selected ID exists in the list.
         if !accounts.contains(where: { $0.id == selectedID }) {
@@ -105,30 +100,13 @@ final class AccountStore {
         }
     }
 
-    /// Schedules a profile switch to apply on next cold start.
-    /// `clearPending()` aborts.
-    func scheduleSwitch(to account: AmgiAccount) {
-        pendingSwitchID = account.id
-        UserDefaults.standard.set(account.id, forKey: Self.pendingKey)
-    }
-
-    func clearPending() {
-        pendingSwitchID = nil
-        UserDefaults.standard.removeObject(forKey: Self.pendingKey)
-    }
-
-    /// Called once at app bootstrap. If a pending switch is queued,
-    /// promotes it to the active selection and clears the pending key.
-    /// Returns the profile to open this launch.
-    func consumePendingSwitch() -> AmgiAccount {
-        if let pending = pendingSwitchID,
-           let target = accounts.first(where: { $0.id == pending }) {
-            selectedID = target.id
-            persistSelection()
-            clearPending()
-            return target
-        }
-        return current
+    /// Marks `account` as the active profile and persists the selection —
+    /// this flips the scoping anchor for sync prefs and keychain identity.
+    /// Collection close/reopen is the caller's job (`switchProfile(to:)`).
+    func select(_ account: AmgiAccount) {
+        guard accounts.contains(where: { $0.id == account.id }) else { return }
+        selectedID = account.id
+        persistSelection()
     }
 
     // MARK: - Filesystem helpers

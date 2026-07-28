@@ -2,9 +2,8 @@ import SwiftUI
 import AmgiTheme
 
 /// Profile picker / manager. Each row is one `AmgiAccount`; the active
-/// row shows a checkmark, others can be tapped to schedule a switch on
-/// next cold start. Add via `+`, swipe to delete (with optional
-/// "delete files" prompt).
+/// row shows a checkmark, tapping any other switches immediately. Add
+/// via `+`, swipe to delete (with optional "delete files" prompt).
 struct AccountsSettingsView: View {
     @State private var store = AccountStore.shared
     @State private var showAddSheet = false
@@ -17,7 +16,6 @@ struct AccountsSettingsView: View {
 
     var body: some View {
         Form {
-            pendingBanner
             profilesSection
             addSection
         }
@@ -54,25 +52,6 @@ struct AccountsSettingsView: View {
         }
     }
 
-    @ViewBuilder
-    private var pendingBanner: some View {
-        if let pending = store.pendingSwitchID,
-           let target = store.accounts.first(where: { $0.id == pending }),
-           target.id != store.selectedID {
-            Section {
-                VStack(alignment: .leading, spacing: 6) {
-                    Label("Restart to switch to \(target.displayName)", systemImage: "arrow.triangle.2.circlepath")
-                        .foregroundStyle(palette.warning)
-                    Text("Force-quit and relaunch the app to apply.")
-                        .amgiFont(.caption)
-                        .foregroundStyle(palette.textSecondary)
-                    Button("Cancel switch") { store.clearPending() }
-                        .amgiFont(.caption)
-                }
-            }
-        }
-    }
-
     private var profilesSection: some View {
         Section("Profiles") {
             ForEach(store.accounts) { account in
@@ -91,7 +70,7 @@ struct AccountsSettingsView: View {
                 Label("New profile", systemImage: "plus")
             }
         } footer: {
-            Text("Each profile keeps its own collection, sync login, and review history. Switching takes effect after a relaunch.")
+            Text("Each profile keeps its own collection, sync login, and review history. Switching applies immediately.")
         }
     }
 
@@ -127,11 +106,8 @@ private extension AccountsSettingsView {
     @ViewBuilder
     func profileRow(_ account: AmgiAccount) -> some View {
         Button {
-            if account.id == store.selectedID {
-                store.clearPending()
-            } else {
-                store.scheduleSwitch(to: account)
-            }
+            guard account.id != store.selectedID else { return }
+            Task { await switchProfile(to: account) }
         } label: {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
@@ -143,8 +119,6 @@ private extension AccountsSettingsView {
                 Spacer()
                 if account.id == store.selectedID {
                     Image(systemName: "checkmark").foregroundStyle(palette.accent)
-                } else if account.id == store.pendingSwitchID {
-                    Image(systemName: "arrow.triangle.2.circlepath").foregroundStyle(palette.warning)
                 }
             }
         }

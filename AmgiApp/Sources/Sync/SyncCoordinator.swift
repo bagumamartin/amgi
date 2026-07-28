@@ -5,7 +5,6 @@ import AnkiClients
 import AnkiKit
 import AnkiSync
 import Dependencies
-import Sharing
 
 @Observable @MainActor
 final class SyncCoordinator {
@@ -31,13 +30,18 @@ final class SyncCoordinator {
     @ObservationIgnored private var activeTask: Task<Void, Never>?
     @ObservationIgnored private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
 
-    @ObservationIgnored
-    @Shared(.appStorage(SyncPreferences.Keys.lastCollectionSyncedAtForCurrentUser()))
-    private var lastSyncedAtUnix: Double = 0
+    // Profile-scoped persisted state. Computed per access — the key embeds
+    // the active profile id, and this coordinator is a singleton that
+    // outlives in-app profile switches, so the key must never be captured.
+    private var lastSyncedAtUnix: Double {
+        get { UserDefaults.standard.double(forKey: SyncPreferences.Keys.lastCollectionSyncedAtForCurrentUser()) }
+        set { UserDefaults.standard.set(newValue, forKey: SyncPreferences.Keys.lastCollectionSyncedAtForCurrentUser()) }
+    }
 
-    @ObservationIgnored
-    @Shared(.appStorage(SyncPreferences.Keys.needsFullSyncForCurrentUser()))
-    private var needsFullSyncFlag: Bool = false
+    private var needsFullSyncFlag: Bool {
+        get { UserDefaults.standard.bool(forKey: SyncPreferences.Keys.needsFullSyncForCurrentUser()) }
+        set { UserDefaults.standard.set(newValue, forKey: SyncPreferences.Keys.needsFullSyncForCurrentUser()) }
+    }
 
     private static let logCap = 100
 
@@ -65,8 +69,8 @@ final class SyncCoordinator {
                 await MainActor.run {
                     self.appendLog("Sync complete: \(summary.cardsPushed) pushed, \(summary.cardsPulled) pulled")
                     self.state = .success(summary)
-                    self.$lastSyncedAtUnix.withLock { $0 = Date().timeIntervalSince1970 }
-                    self.$needsFullSyncFlag.withLock { $0 = false }
+                    self.lastSyncedAtUnix = Date().timeIntervalSince1970
+                    self.needsFullSyncFlag = false
                     self.activeTask = nil
                 }
                 // Sync can change counts without any review — refresh widgets
@@ -79,7 +83,7 @@ final class SyncCoordinator {
                         reason: "Schema mismatch — choose upload or download",
                         localIsEmpty: false
                     ))
-                    self.$needsFullSyncFlag.withLock { $0 = true }
+                    self.needsFullSyncFlag = true
                     self.activeTask = nil
                 }
             } catch let error as SyncError where error == .authFailed {
@@ -120,8 +124,8 @@ final class SyncCoordinator {
                 await MainActor.run {
                     self.appendLog("Full sync complete")
                     self.state = .success(SyncSummary())
-                    self.$lastSyncedAtUnix.withLock { $0 = Date().timeIntervalSince1970 }
-                    self.$needsFullSyncFlag.withLock { $0 = false }
+                    self.lastSyncedAtUnix = Date().timeIntervalSince1970
+                    self.needsFullSyncFlag = false
                     self.activeTask = nil
                 }
                 // A full download replaces the whole collection — widgets are
@@ -147,6 +151,23 @@ final class SyncCoordinator {
         appendLog("Signed out")
         state = .noServer
         requiresLogin = false
+    }
+
+    /// Called after an in-app profile switch, once the scoping anchor has
+    /// flipped: drop the old profile's transient state and re-derive from
+    /// the new profile's persisted flags.
+    func resetForProfileSwitch() {
+        cancel()
+        clearLog()
+        requiresLogin = false
+        if needsFullSyncFlag {
+            state = .needsFullSync(SyncFullSyncRequirement(
+                reason: "A full sync was requested previously and not yet completed",
+                localIsEmpty: false
+            ))
+        } else {
+            state = .idle
+        }
     }
 
     func cancel() {
