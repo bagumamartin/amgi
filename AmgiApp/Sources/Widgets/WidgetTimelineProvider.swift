@@ -16,55 +16,42 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
     }
 
     func snapshot(for configuration: AmgiWidgetIntent, in context: Context) async -> WidgetEntry {
-        let deckId = Int64(configuration.deck?.id ?? "0") ?? 0
-        let snapshot = WidgetSnapshotStore.read(deckId: deckId) ?? .placeholder
-        return WidgetEntry(date: Date(), snapshot: snapshot)
+        if context.isPreview {
+            return WidgetEntry(date: Date(), snapshot: .placeholder)
+        }
+        return WidgetEntry(date: Date(), snapshot: read(configuration) ?? .placeholder)
     }
 
     func timeline(for configuration: AmgiWidgetIntent, in context: Context) async -> Timeline<WidgetEntry> {
-        let deckId = Int64(configuration.deck?.id ?? "0") ?? 0
-        // Distinguish between "found a snapshot" and "fell back to placeholder".
-        // Freshness / reload policy must be based on the real snapshot date, not
-        // the placeholder's Date() which would always look like "today".
-        let maybeSnapshot = WidgetSnapshotStore.read(deckId: deckId)
-        let snapshot = maybeSnapshot ?? .placeholder
-        let cal = Calendar.current
         let now = Date()
-
-        var entries: [WidgetEntry] = [WidgetEntry(date: now, snapshot: snapshot)]
-
-        // Generate a midnight entry so reviewedToday corrects to 0 when the day rolls over,
-        // and the bar chart shifts forward by one day without requiring an app open.
-        // Only add this entry when we have a real, fresh snapshot — not for the placeholder.
-        let nextMidnight = cal.startOfDay(
-            for: cal.date(byAdding: .day, value: 1, to: now) ?? now
-        )
-        if let real = maybeSnapshot, cal.isDateInToday(real.snapshotDate) {
-            let shiftedDays = Array(real.lastSevenDays.dropFirst()) + [0]
-            let midnightSnapshot = WidgetSnapshot(
-                deckId: real.deckId,
-                deckName: real.deckName,
-                newCount: real.newCount,
-                learnCount: real.learnCount,
-                reviewCount: real.reviewCount,
-                reviewedToday: 0,
-                streak: real.streak,
-                lastSevenDays: shiftedDays,
-                snapshotDate: nextMidnight
+        guard let snapshot = read(configuration) else {
+            // No snapshot at all — the app has never written one, so nothing
+            // to poll for. Retry occasionally in case it launches.
+            return Timeline(
+                entries: [WidgetEntry(date: now, snapshot: .placeholder)],
+                policy: .after(now.addingTimeInterval(3600))
             )
-            entries.append(WidgetEntry(date: nextMidnight, snapshot: midnightSnapshot))
         }
 
-        // Request a full reload 15 minutes after midnight when we have a fresh snapshot.
-        // Poll every 5 minutes if there is no snapshot yet or the snapshot is stale,
-        // so the widget self-corrects quickly once the app writes fresh data.
-        let reloadAfter: Date
-        if let real = maybeSnapshot, cal.isDateInToday(real.snapshotDate) {
-            reloadAfter = cal.date(byAdding: .minute, value: 15, to: nextMidnight) ?? nextMidnight
-        } else {
-            reloadAfter = cal.date(byAdding: .minute, value: 5, to: now) ?? now
+        // The snapshot carries a per-Anki-day forecast; replay it as one
+        // entry per rollover boundary. No background execution needed, and a
+        // stale file still yields a correct entry for the current Anki-day.
+        let entries = snapshot.projectedEntries(now: now).map {
+            WidgetEntry(date: $0.date, snapshot: $0.snapshot)
         }
+        // With a single entry (no forecast / forecast exhausted) .atEnd would
+        // re-invoke immediately in a loop — back off instead.
+        let policy: TimelineReloadPolicy =
+            entries.count > 1 ? .atEnd : .after(now.addingTimeInterval(3600))
+        return Timeline(entries: entries, policy: policy)
+    }
+}
 
-        return Timeline(entries: entries, policy: .after(reloadAfter))
+private extension WidgetTimelineProvider {
+    /// Configured deck's snapshot; falls back to the All Decks aggregate when
+    /// that deck no longer exists (deleted, or a profile switch).
+    func read(_ configuration: AmgiWidgetIntent) -> WidgetSnapshot? {
+        let deckId = Int64(configuration.deck?.id ?? "0") ?? 0
+        return WidgetSnapshotStore.read(deckId: deckId) ?? WidgetSnapshotStore.read(deckId: 0)
     }
 }
