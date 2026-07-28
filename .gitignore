@@ -22,3 +22,6 @@ design/
 
 # Working files
 *.pdf
+
+# Serena MCP cache
+.serena/
