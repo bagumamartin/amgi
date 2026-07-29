@@ -110,44 +110,54 @@ The four C symbols (in `anki-bridge-rs/src/lib.rs`) are stable: `anki_open_backe
 symbols unless absolutely necessary — prefer routing through `anki_run_method`
 with a new service/method pair.
 
-## Build & Run — Xcode MCP, not shell
+## Build & Run — MCP, not shell
 
-All builds, previews, and tests go through the Xcode MCP server. Do NOT use
+All builds, previews, and tests go through an MCP server. Do NOT hand-roll
 `xcodebuild` or `swift build` to verify changes — the only shell steps are the
 Rust/proto scripts and `xcodegen` below.
 
-### Build flow
+Two servers may be connected; pick the branch by what's available this session:
+
+### Branch A — XcodeBuildMCP connected (`mcp__XcodeBuildMCP__*`) — preferred
+- Call `session_show_defaults` once, then `build_sim` / `test_sim` — this is
+  the ground truth for "it builds" / "tests pass". Works headlessly (no Xcode
+  window needed) and is immune to the run-destination gotcha below.
+- Simulator work: `install_app_sim`, `launch_app_sim`; drive the UI with
+  `snapshot_ui` → `tap`/`batch`/`type_text` (never osascript — see memory).
+- IDE-only tools (need Xcode.app open) go through the bridge:
+  `xcode_ide_call_tool` exposes the full built-in set — `RenderPreview`,
+  `DocumentationSearch`, `GetBuildLog`, `XcodeListNavigatorIssues`, etc.
+  First bridge call after Xcode starts may time out; retry with
+  `xcode_ide_list_tools({refresh: true})`.
+
+### Branch B — only built-in Xcode MCP connected (`mcp__xcode__*`)
 1. If `AmgiApp/project.yml` changed: `cd AmgiApp && xcodegen generate` (shell).
 2. `XcodeListWindows` — get the `tabIdentifier` for AmgiApp.xcodeproj
    (open the project in Xcode first if no window is listed).
-3. `BuildProject` with that tab — compiles the AmgiApp scheme, resolves SPM
-   deps, returns structured errors. This is the ground truth for "it builds".
-4. On failure, `GetBuildLog` for detail beyond the returned error summary.
+3. `BuildProject` with that tab — ground truth for "it builds".
+4. On failure, `GetBuildLog`. Previews via `RenderPreview`, docs via
+   `DocumentationSearch`, tests via `RunSomeTests` (suite names in
+   `Tests/README.md`).
 
-**Gotcha — `xcodegen generate` resets the run destination.** Regenerating the
-project recreates the scheme, which can leave the active run destination unset;
-`BuildProject` then fails with a spurious "requires a development team" signing
-error (no team is configured — this repo builds for the simulator). Fix by
-re-selecting a simulator, either in Xcode's toolbar or headlessly:
-```bash
-osascript -e 'tell application "Xcode"
-  set ws to first workspace document
-  repeat with d in run destinations of ws
-    if (name of d) is "iPhone 17 Pro" then set active run destination of ws to d
-  end repeat
-end tell'
-```
-Then rerun `BuildProject`. A signing error right after regeneration is this,
-not a real signing problem.
+**Branch-B gotchas:**
+- `xcodegen generate` resets the run destination; `BuildProject` then fails
+  with a spurious "requires a development team" signing error (no team is
+  configured — this repo builds for the simulator). Re-select a simulator in
+  Xcode's toolbar or headlessly:
+  ```bash
+  osascript -e 'tell application "Xcode"
+    set ws to first workspace document
+    repeat with d in run destinations of ws
+      if (name of d) is "iPhone 17 Pro" then set active run destination of ws to d
+    end repeat
+  end tell'
+  ```
+- `RunSomeTests` reports tests as "not run" until a simulator is booted AND
+  the active run destination is set; freshly added test files may still show
+  "No result" — fall back to `xcodebuild test -only-testing:` to confirm.
 
-### Other Xcode MCP tools
-- `RenderPreview` — render a SwiftUI `#Preview` without launching the simulator.
-- `RunAllTests` / `RunSomeTests` — run XCTest targets. Use the latter when you
-  know the suite name (see `Tests/README.md`). Note: SPM tests are
-  compile-verified only because `AnkiRustLib` is iOS-only (see memory).
-- `DocumentationSearch` — search Apple docs + indexed WWDC transcripts before
-  guessing API shapes.
-- `mcpbridge` — escape hatch for less common Xcode MCP calls.
+Either branch: SPM tests are compile-verified only under `swift test` because
+`AnkiRustLib` is iOS-only (see memory) — run them on a simulator destination.
 
 ### Shell (scripts only — not for build verification)
 ```bash
