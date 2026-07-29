@@ -25,3 +25,6 @@ design/
 
 # Serena MCP cache
 .serena/
+
+# XcodeBuildMCP cache
+.xcodebuildmcp/
