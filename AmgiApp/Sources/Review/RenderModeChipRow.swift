@@ -35,7 +35,7 @@ struct RenderModeChipRow: View {
                     .foregroundStyle(palette.textTertiary)
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AmgiPressDimButtonStyle())
         .accessibilityLabel("Rendering: \(isNative ? "Native" : "HTML")\(isAuto ? ", automatic" : "")")
     }
 

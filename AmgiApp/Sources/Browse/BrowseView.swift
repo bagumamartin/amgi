@@ -341,6 +341,7 @@ struct BrowseContent: View {
                 tagChipRow
             }
         }
+        .background(.bar)
     }
 
     private var tagChipRow: some View {
@@ -410,7 +411,6 @@ struct BrowseContent: View {
                 }
             }
         }
-        .background(.bar)
     }
 }
 
@@ -430,7 +430,7 @@ private extension BrowseContent {
                 .foregroundStyle(isSelected ? .white : palette.textPrimary)
                 .clipShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AmgiPressDimButtonStyle())
     }
 
     func shortName(_ fullName: String) -> String {

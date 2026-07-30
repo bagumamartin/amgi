@@ -48,33 +48,35 @@ struct LookupEntryHeaderView: View {
                     .padding(.horizontal, 6).padding(.vertical, 2)
                     .background(palette.separator, in: Capsule())
             }
-            Button {
-                Task { await playAudio() }
-            } label: {
-                if isResolvingAudio {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Image(systemName: "speaker.wave.2.fill").amgiFont(.cardTitle)
+            HStack(spacing: 16) {
+                Button {
+                    Task { await playAudio() }
+                } label: {
+                    if isResolvingAudio {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "speaker.wave.2.fill").amgiFont(.cardTitle)
+                    }
                 }
+                .buttonStyle(AmgiPressDimButtonStyle())
+                .disabled(isResolvingAudio)
+                .accessibilityLabel("Play pronunciation")
+                Button {
+                    ReaderTTS.shared.speak(term, languageHint: languageHint)
+                } label: {
+                    Image(systemName: "waveform.badge.mic").amgiFont(.cardTitle)
+                }
+                .buttonStyle(AmgiPressDimButtonStyle())
+                .accessibilityLabel("Speak with TTS")
+                Button {
+                    onMakeNote()
+                } label: {
+                    Image(systemName: "plus.circle")
+                        .amgiFont(.cardTitle)
+                }
+                .buttonStyle(AmgiPressDimButtonStyle())
+                .accessibilityLabel("Make note from this entry")
             }
-            .buttonStyle(.plain)
-            .disabled(isResolvingAudio)
-            .accessibilityLabel("Play pronunciation")
-            Button {
-                ReaderTTS.shared.speak(term, languageHint: languageHint)
-            } label: {
-                Image(systemName: "waveform.badge.mic").amgiFont(.cardTitle)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Speak with TTS")
-            Button {
-                onMakeNote()
-            } label: {
-                Image(systemName: "plus.circle")
-                    .amgiFont(.cardTitle)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Make note from this entry")
         }
     }
 

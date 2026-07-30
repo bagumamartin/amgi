@@ -10,4 +10,9 @@ public enum AmgiSpacing {
     public static let lg: CGFloat = 16
     public static let xl: CGFloat = 24
     public static let xxl: CGFloat = 32
+
+    /// `AmgiCard`'s default content inset — off the main scale by design
+    /// (card breathing room reads better slightly looser than `xl`), named
+    /// so it isn't a bare magic number at the shared card primitive.
+    public static let cardInset: CGFloat = 20
 }

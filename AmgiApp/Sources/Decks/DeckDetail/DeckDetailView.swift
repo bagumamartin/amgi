@@ -180,6 +180,8 @@ struct DeckDetailView: View {
                     .font(.system(size: 16, weight: .semibold))
                     .frame(width: 30, height: 30)
                     .background(.regularMaterial, in: Circle())
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .accessibilityLabel("More")
         }

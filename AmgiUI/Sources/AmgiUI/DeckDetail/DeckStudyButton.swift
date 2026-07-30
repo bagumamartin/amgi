@@ -39,7 +39,7 @@ public struct DeckStudyButton: View {
                 radius: 8, x: 0, y: 6
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressScale)
         .disabled(isDisabled)
         .accessibilityLabel("Study now")
         .accessibilityHint(isDisabled ? disabledHint : "Start a review session")

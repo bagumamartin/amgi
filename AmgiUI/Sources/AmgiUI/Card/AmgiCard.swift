@@ -30,7 +30,10 @@ public struct AmgiCard<Content: View>: View {
         background: AmgiCardBackground = .surface,
         shadow: ShadowSpec? = nil,
         cornerRadius: CGFloat = AmgiRadius.hero,
-        contentInsets: EdgeInsets = EdgeInsets(top: 20, leading: 20, bottom: 20, trailing: 20),
+        contentInsets: EdgeInsets = EdgeInsets(
+            top: AmgiSpacing.cardInset, leading: AmgiSpacing.cardInset,
+            bottom: AmgiSpacing.cardInset, trailing: AmgiSpacing.cardInset
+        ),
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.background = background

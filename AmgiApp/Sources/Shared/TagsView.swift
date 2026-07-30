@@ -224,7 +224,7 @@ private extension TagsView {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AmgiPressDimButtonStyle())
         .swipeActions(edge: .trailing) {
             if isNoteMode {
                 Button {

@@ -1586,7 +1586,7 @@ struct ImageOcclusionMaskSummaryCard: View {
             }
         }
         .padding(12)
-        .background(palette.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .background(palette.surface, in: RoundedRectangle(cornerRadius: AmgiRadius.pill, style: .continuous))
     }
 }
 
@@ -2101,7 +2101,7 @@ private extension ImageOcclusionWorkspaceView {
         Button(action: action) {
             ioPaletteChip(title: title, systemImage: systemImage, isSelected: isSelected)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AmgiPressDimButtonStyle())
     }
 
     @ViewBuilder
@@ -2130,7 +2130,7 @@ private extension ImageOcclusionWorkspaceView {
         Button(action: action) {
             toolbarIcon(systemImage: systemImage, fallbackSystemImage: fallbackSystemImage)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AmgiPressDimButtonStyle())
     }
 
     @ViewBuilder

@@ -18,7 +18,7 @@ public struct DeckCountBadges: View {
     }
 
     public var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: AmgiSpacing.sm) {
             if newCount > 0 {
                 badge(newCount, color: palette.cardStateNew)
             }

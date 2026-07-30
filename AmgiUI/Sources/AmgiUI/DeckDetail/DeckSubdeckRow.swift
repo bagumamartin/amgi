@@ -26,17 +26,27 @@ public struct DeckSubdeckRow: View {
     public var body: some View {
         Button(action: onTap) {
             HStack(spacing: 14) {
-                ZStack {
+                ZStack(alignment: .bottomTrailing) {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(palette.textPrimary.opacity(0.05))
-                    Image(systemName: "rectangle.stack")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(palette.textSecondary)
+                        .overlay(
+                            Image(systemName: "rectangle.stack")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(palette.textSecondary)
+                        )
+                    if data.isFiltered {
+                        Image(systemName: "bolt.fill")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 12, height: 12)
+                            .background(palette.customStudyBadge, in: Circle())
+                            .offset(x: 3, y: 3)
+                    }
                 }
                 .frame(width: 30, height: 30)
 
                 Text(data.name)
-                    .font(.system(size: 16))
+                    .amgiFont(size: 16, weight: .regular)
                     .foregroundStyle(palette.textPrimary)
                     .lineLimit(1)
 

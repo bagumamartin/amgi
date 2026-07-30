@@ -13,6 +13,7 @@ struct RenameDeckSheet: View {
     @Dependency(\.collectionStore) var store
     @State private var name: String
     @State private var isSaving = false
+    @State private var errorMessage: String?
     @Environment(\.dismiss) private var dismiss
 
     init(deckId: DeckID, currentName: String, onDone: @escaping () -> Void) {
@@ -42,6 +43,15 @@ struct RenameDeckSheet: View {
                     .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || isSaving)
                 }
             }
+            .alert(
+                "Couldn't rename deck",
+                isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } }),
+                presenting: errorMessage
+            ) { _ in
+                Button("OK") {}
+            } message: { message in
+                Text(message)
+            }
         }
     }
 
@@ -55,7 +65,7 @@ private extension RenameDeckSheet {
             store.apply(changes)
             onDone()
         } catch {
-            print("[RenameDeckSheet] Rename failed: \(error)")
+            errorMessage = "Failed to rename deck: \(error.localizedDescription)"
         }
         isSaving = false
     }

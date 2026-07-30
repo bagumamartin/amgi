@@ -9,6 +9,7 @@ public struct StudyReadingRec: View {
     public let onTap: () -> Void
 
     @Environment(\.palette) private var palette
+    @Environment(\.colorScheme) private var colorScheme
 
     private let cardWidth: CGFloat = 120
     private let cardHeight: CGFloat = 170
@@ -24,7 +25,7 @@ public struct StudyReadingRec: View {
             tile
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressScale)
     }
 
     // MARK: - Tile
@@ -51,6 +52,10 @@ public struct StudyReadingRec: View {
                 .scaledToFill()
                 .frame(width: cardWidth, height: cardHeight)
                 .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .stroke(colorScheme == .dark ? .white.opacity(0.1) : .black.opacity(0.1), lineWidth: 1)
+                )
         }
     }
 

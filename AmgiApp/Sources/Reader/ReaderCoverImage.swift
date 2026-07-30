@@ -26,6 +26,7 @@ struct ReaderCoverImage<Placeholder: View>: View {
     @ViewBuilder let placeholder: () -> Placeholder
 
     @Environment(\.palette) private var palette
+    @Environment(\.colorScheme) private var colorScheme
 
     init(path: String?, isEPUB: Bool = false, @ViewBuilder placeholder: @escaping () -> Placeholder) {
         self.source = .ankiMediaPath(path)
@@ -63,6 +64,7 @@ struct ReaderCoverImage<Placeholder: View>: View {
                     switch phase {
                     case .success(let image):
                         image.resizable().scaledToFill()
+                            .overlay(Rectangle().stroke(imageOutlineColor, lineWidth: 1))
                     default:
                         placeholder()
                     }
@@ -73,10 +75,15 @@ struct ReaderCoverImage<Placeholder: View>: View {
         case .fileURL(let url):
             if let url, let image = UIImage(contentsOfFile: url.path) {
                 Image(uiImage: image).resizable().scaledToFill()
+                    .overlay(Rectangle().stroke(imageOutlineColor, lineWidth: 1))
             } else {
                 placeholder()
             }
         }
+    }
+
+    private var imageOutlineColor: Color {
+        colorScheme == .dark ? .white.opacity(0.1) : .black.opacity(0.1)
     }
 
 }

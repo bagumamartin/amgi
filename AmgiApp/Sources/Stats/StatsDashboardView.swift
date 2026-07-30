@@ -25,7 +25,7 @@ struct StatsDashboardView: View {
                     )
                 } else if let graphs = model.graphs {
                     // Filters row
-                    HStack(spacing: AmgiSpacing.sm) {
+                    HStack(spacing: AmgiSpacing.md) {
                         deckMenu
                         periodMenu
                         Spacer()
@@ -119,14 +119,12 @@ private extension StatsDashboardView {
                 .amgiFont(.caption)
             Text(label)
                 .fontWeight(.medium)
+                .lineLimit(1)
             Image(systemName: "chevron.up.chevron.down")
                 .font(.system(size: 8))
         }
         .amgiFont(.body)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(palette.surface)
-        .clipShape(Capsule())
+        .amgiCapsuleControl()
     }
 
     /// Bridge the view's filter state into the model's stats load.

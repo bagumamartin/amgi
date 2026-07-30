@@ -32,6 +32,8 @@ struct RatingBar: View {
                     Text(intervals[rating] ?? " ")
                         .amgiFont(.caption)
                         .foregroundStyle(palette.textSecondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
                 }
                 Text(label)
                     .amgiFont(.bodyEmphasis)
@@ -50,8 +52,9 @@ struct RatingBar: View {
                     .strokeBorder(palette.separator, lineWidth: 1)
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AmgiPressDimButtonStyle())
         .disabled(isDisabled)
+        .opacity(isDisabled ? 0.4 : 1.0)
         .accessibilityLabel("\(label)\(showIntervals ? ", next in \(intervals[rating] ?? "")" : "")")
     }
 }
@@ -66,6 +69,8 @@ struct RatingToastView: View {
         Text("\(label) · next in \(toast.interval)")
             .amgiFont(.bodyEmphasis)
             .foregroundStyle(palette.textPrimary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
             .padding(.horizontal, 20)
             .padding(.vertical, 10)
             .background(palette.surfaceElevated, in: Capsule())

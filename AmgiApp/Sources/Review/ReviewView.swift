@@ -208,7 +208,7 @@ private struct ReviewContent: View {
     private var toastOverlay: some View {
         if let toast = session.pendingToast {
             RatingToastView(toast: toast)
-                .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
         }
     }
 
@@ -527,6 +527,7 @@ private struct ReviewCardArea: View {
                 Text(name)
                     .font(.caption.monospaced())
                     .foregroundStyle(palette.textTertiary)
+                    .lineLimit(1)
             }
             Spacer()
             Text("sandboxed")

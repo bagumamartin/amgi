@@ -192,7 +192,7 @@ private struct ThemeSwatchButton: View {
                     .foregroundStyle(palette.textPrimary)
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AmgiPressDimButtonStyle())
         .accessibilityLabel(Text(theme.label))
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }

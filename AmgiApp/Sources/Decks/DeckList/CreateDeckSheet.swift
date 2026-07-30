@@ -14,6 +14,7 @@ struct CreateDeckSheet: View {
     @Dependency(\.collectionStore) var store
     @State private var name = ""
     @State private var isSaving = false
+    @State private var errorMessage: String?
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -37,6 +38,15 @@ struct CreateDeckSheet: View {
                     .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || isSaving)
                 }
             }
+            .alert(
+                "Couldn't create deck",
+                isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } }),
+                presenting: errorMessage
+            ) { _ in
+                Button("OK") {}
+            } message: { message in
+                Text(message)
+            }
         }
     }
 
@@ -50,7 +60,7 @@ private extension CreateDeckSheet {
             store.apply(creation.changes)
             onDone()
         } catch {
-            print("[CreateDeckSheet] Create failed: \(error)")
+            errorMessage = "Failed to create deck: \(error.localizedDescription)"
         }
         isSaving = false
     }

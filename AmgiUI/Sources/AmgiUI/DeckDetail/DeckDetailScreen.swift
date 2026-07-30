@@ -61,7 +61,8 @@ public struct DeckDetailScreen<HeatmapSlot: View>: View {
     private var heroSection: some View {
         switch state {
         case .loading:
-            DeckHero(title: "…", subtitle: "Loading…", tone: palette.border, deckName: "📚", isFiltered: false)
+            DeckHero(title: "Deck name", subtitle: "Last studied recently", tone: palette.border, deckName: "📚", isFiltered: false)
+                .redacted(reason: .placeholder)
         case .loaded(let data):
             DeckHero(
                 title: data.title,
@@ -98,7 +99,7 @@ public struct DeckDetailScreen<HeatmapSlot: View>: View {
     private var customStudySection: some View {
         if case .loaded(let data) = state, data.isFiltered {
             VStack(alignment: .leading, spacing: 6) {
-                sectionHeader("CUSTOM STUDY")
+                sectionHeader("Custom study")
                 DeckCustomStudyCard(
                     isActionInFlight: data.isActionInFlight,
                     onRebuild: { onAction(.rebuild) },
@@ -112,7 +113,7 @@ public struct DeckDetailScreen<HeatmapSlot: View>: View {
     private var subdecksSection: some View {
         if case .loaded(let data) = state, !data.subdecks.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
-                sectionHeader("SUBDECKS")
+                sectionHeader("Subdecks")
                 DeckSubdecksCard(rows: data.subdecks) { row in
                     onAction(.subdeckSelected(row))
                 }
@@ -131,7 +132,7 @@ public struct DeckDetailScreen<HeatmapSlot: View>: View {
     private var insightsSection: some View {
         if case .loaded(let data) = state {
             VStack(alignment: .leading, spacing: 6) {
-                sectionHeader("INSIGHTS")
+                sectionHeader("Insights")
                 InsightsCard(data: data.insights)
             }
         }
@@ -141,8 +142,8 @@ public struct DeckDetailScreen<HeatmapSlot: View>: View {
 
     private func sectionHeader(_ text: String) -> some View {
         Text(text)
-            .font(.caption.weight(.semibold))
-            .tracking(0.4)
+            .amgiFont(size: 12, weight: .semibold, tracking: 0.4)
+            .textCase(.uppercase)
             .foregroundStyle(palette.textTertiary)
             .padding(.leading, 4)
             .padding(.top, 6)

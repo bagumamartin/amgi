@@ -20,6 +20,7 @@ public struct LibraryListContent: View {
     let onTapDeck: (DeckRowViewData) -> Void
     let onDeleteDeck: (Int64) async -> Void
     let onRenameDeck: (DeckRowViewData) -> Void
+    let onCreateDeck: () -> Void
 
     @Environment(\.palette) private var palette
 
@@ -29,7 +30,8 @@ public struct LibraryListContent: View {
         onStartReview: @escaping () -> Void,
         onTapDeck: @escaping (DeckRowViewData) -> Void,
         onDeleteDeck: @escaping (Int64) async -> Void,
-        onRenameDeck: @escaping (DeckRowViewData) -> Void
+        onRenameDeck: @escaping (DeckRowViewData) -> Void,
+        onCreateDeck: @escaping () -> Void
     ) {
         self.state = state
         self.onRefresh = onRefresh
@@ -37,6 +39,7 @@ public struct LibraryListContent: View {
         self.onTapDeck = onTapDeck
         self.onDeleteDeck = onDeleteDeck
         self.onRenameDeck = onRenameDeck
+        self.onCreateDeck = onCreateDeck
     }
 
     public var body: some View {
@@ -44,11 +47,14 @@ public struct LibraryListContent: View {
         case .loading:
             ProgressView()
         case .empty:
-            ContentUnavailableView(
-                "No Decks",
-                systemImage: "rectangle.stack",
-                description: Text("Sync with your server to get your decks.")
-            )
+            ContentUnavailableView {
+                Label("No Decks", systemImage: "rectangle.stack")
+            } description: {
+                Text("Sync with your server, or create a deck to get started.")
+            } actions: {
+                Button("Create Deck", action: onCreateDeck)
+                    .buttonStyle(.borderedProminent)
+            }
         case .loaded(let rows, let hero, let heatmap):
             loadedList(rows: rows, hero: hero, heatmap: heatmap)
         }
@@ -151,7 +157,7 @@ private extension HeroData {
                 heatmap: .dense
             ),
             onRefresh: {}, onStartReview: {},
-            onTapDeck: { _ in }, onDeleteDeck: { _ in }, onRenameDeck: { _ in }
+            onTapDeck: { _ in }, onDeleteDeck: { _ in }, onRenameDeck: { _ in }, onCreateDeck: {}
         )
         .navigationTitle("Library")
     }
@@ -168,7 +174,7 @@ private extension HeroData {
                 heatmap: .sparse
             ),
             onRefresh: {}, onStartReview: {},
-            onTapDeck: { _ in }, onDeleteDeck: { _ in }, onRenameDeck: { _ in }
+            onTapDeck: { _ in }, onDeleteDeck: { _ in }, onRenameDeck: { _ in }, onCreateDeck: {}
         )
         .navigationTitle("Library")
     }
@@ -180,7 +186,7 @@ private extension HeroData {
         LibraryListContent(
             state: .loading,
             onRefresh: {}, onStartReview: {},
-            onTapDeck: { _ in }, onDeleteDeck: { _ in }, onRenameDeck: { _ in }
+            onTapDeck: { _ in }, onDeleteDeck: { _ in }, onRenameDeck: { _ in }, onCreateDeck: {}
         )
         .navigationTitle("Library")
     }
@@ -192,7 +198,7 @@ private extension HeroData {
         LibraryListContent(
             state: .empty,
             onRefresh: {}, onStartReview: {},
-            onTapDeck: { _ in }, onDeleteDeck: { _ in }, onRenameDeck: { _ in }
+            onTapDeck: { _ in }, onDeleteDeck: { _ in }, onRenameDeck: { _ in }, onCreateDeck: {}
         )
         .navigationTitle("Library")
     }

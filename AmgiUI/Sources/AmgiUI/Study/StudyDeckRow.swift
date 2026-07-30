@@ -39,7 +39,7 @@ public struct StudyDeckRow: View {
             .frame(minHeight: 56)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressScale)
     }
 }
 

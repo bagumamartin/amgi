@@ -88,7 +88,7 @@ public struct DeckCustomStudyActionRow: View {
                 }
                 .frame(width: 30, height: 30)
                 Text(label)
-                    .font(.system(size: 16, weight: .semibold))
+                    .amgiFont(size: 16, weight: .semibold)
                     .foregroundStyle(tone)
                 Spacer()
             }
@@ -96,7 +96,7 @@ public struct DeckCustomStudyActionRow: View {
             .padding(.vertical, 12)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressScale)
         .disabled(isDisabled)
         .opacity(isDisabled ? 0.4 : 1.0)
         .overlay(alignment: .bottom) {

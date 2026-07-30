@@ -30,7 +30,7 @@ struct AllBooksSection: View {
                         } label: {
                             AllBooksCell(item: item)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(AmgiPressDimButtonStyle())
                     } else {
                         AllBooksCell(item: item)
                     }

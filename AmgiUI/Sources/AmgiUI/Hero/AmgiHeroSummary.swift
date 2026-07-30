@@ -55,6 +55,7 @@ public struct AmgiHeroSummary<Decoration: View, Footer: View>: View {
                                 .foregroundStyle(.white.opacity(0.85))
                         }
                     }
+                    .layoutPriority(1)
                     Spacer(minLength: 12)
                     decoration()
                 }

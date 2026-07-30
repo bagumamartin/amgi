@@ -74,51 +74,39 @@ struct PeriodStatsCard: View {
 
     @ViewBuilder
     private var statsContent: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             Text(periodTitle)
                 .amgiFont(.captionBold)
                 .foregroundStyle(palette.textSecondary)
                 .textCase(.uppercase)
 
             if period == .day {
-                HStack {
+                HStack(spacing: AmgiSpacing.sm) {
                     statItem(title: "Reviewed", value: "\(today.answerCount)", color: palette.textPrimary)
-                    Spacer()
                     statItem(title: "Time", value: formatMillis(UInt64(today.answerMillis)), color: palette.textPrimary)
-                    Spacer()
                     statItem(title: "Correct", value: todayAccuracy, color: palette.positive)
-                    Spacer()
                     statItem(title: "Mature%", value: todayMatureAccuracy, color: palette.cardStateMature)
                 }
                 Divider()
-                HStack {
+                HStack(spacing: AmgiSpacing.sm) {
                     statBadge("New", count: today.learnCount, color: palette.cardStateNew)
-                    Spacer()
                     statBadge("Relearn", count: today.relearnCount, color: palette.cardStateRelearn)
-                    Spacer()
                     statBadge("Review", count: today.reviewCount, color: palette.cardStateLearning)
-                    Spacer()
                     statBadge("Again", count: today.answerCount - today.correctCount, color: palette.danger)
                 }
             } else {
                 let agg = aggregated
-                HStack {
+                HStack(spacing: AmgiSpacing.sm) {
                     statItem(title: "Reviewed", value: "\(agg.total)", color: palette.textPrimary)
-                    Spacer()
                     statItem(title: "Time", value: formatMillis(agg.timeMillis), color: palette.textPrimary)
-                    Spacer()
                     statItem(title: "Young", value: "\(agg.young)", color: palette.cardStateLearning)
-                    Spacer()
                     statItem(title: "Mature", value: "\(agg.mature)", color: palette.cardStateMature)
                 }
                 Divider()
-                HStack {
+                HStack(spacing: AmgiSpacing.sm) {
                     statBadge("New", count: agg.learn, color: palette.cardStateNew)
-                    Spacer()
                     statBadge("Relearn", count: agg.relearn, color: palette.cardStateRelearn)
-                    Spacer()
                     statBadge("Young", count: agg.young, color: palette.cardStateLearning)
-                    Spacer()
                     statBadge("Mature", count: agg.mature, color: palette.cardStateMature)
                 }
             }
@@ -132,6 +120,7 @@ private extension PeriodStatsCard {
             Text(value).amgiFont(.sectionHeading).foregroundStyle(color)
             Text(title).amgiFont(.caption).foregroundStyle(palette.textSecondary)
         }
+        .frame(maxWidth: .infinity)
     }
 
     func statBadge(_ title: String, count: Int, color: Color) -> some View {
@@ -139,6 +128,7 @@ private extension PeriodStatsCard {
             Text("\(count)").amgiFont(.bodyEmphasis).foregroundStyle(color)
             Text(title).amgiFont(.micro).foregroundStyle(palette.textSecondary)
         }
+        .frame(maxWidth: .infinity)
     }
 
     func formatMillis(_ ms: UInt64) -> String {

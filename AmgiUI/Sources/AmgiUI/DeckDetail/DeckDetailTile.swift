@@ -42,12 +42,12 @@ public struct DeckDetailTile: View {
 
     private func countColumn(label: String, value: Int, color: Color) -> some View {
         VStack(spacing: 4) {
-            Text(label.uppercased())
-                .font(.system(size: 12, weight: .semibold))
-                .tracking(0.4)
+            Text(label)
+                .amgiFont(size: 12, weight: .semibold, tracking: 0.4)
+                .textCase(.uppercase)
                 .foregroundStyle(palette.textSecondary)
             Text("\(value)")
-                .font(.system(size: 32, weight: .bold))
+                .amgiFont(size: 32, weight: .bold)
                 .foregroundStyle(color)
                 .monospacedDigit()
         }

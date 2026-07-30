@@ -136,7 +136,7 @@ struct HeatmapChartOptimized: View {
 
 private extension HeatmapChartOptimized {
     func heatmapContent() -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("Reviews")
                     .amgiFont(.sectionHeading)

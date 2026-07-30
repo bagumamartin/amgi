@@ -46,28 +46,32 @@ struct OnboardingView: View {
                         .disabled(serverURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
                         Button("Back") {
-                            showServerSetup = false
+                            withAnimation(.easeInOut) { showServerSetup = false }
                         }
                         .amgiFont(.caption)
                         .foregroundStyle(palette.textSecondary)
                     }
+                    .transition(.opacity)
                 } else {
-                    Button {
-                        showServerSetup = true
-                    } label: {
-                        Label("Custom Server", systemImage: "server.rack")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(AmgiPrimaryButtonStyle())
+                    VStack(spacing: AmgiSpacing.md) {
+                        Button {
+                            withAnimation(.easeInOut) { showServerSetup = true }
+                        } label: {
+                            Label("Custom Server", systemImage: "server.rack")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(AmgiPrimaryButtonStyle())
 
-                    Button {
-                        $syncMode.withLock { $0 = .local }
-                        $onboardingCompleted.withLock { $0 = true }
-                    } label: {
-                        Label("Use Locally", systemImage: "iphone")
-                            .frame(maxWidth: .infinity)
+                        Button {
+                            $syncMode.withLock { $0 = .local }
+                            $onboardingCompleted.withLock { $0 = true }
+                        } label: {
+                            Label("Use Locally", systemImage: "iphone")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(AmgiSecondaryButtonStyle())
                     }
-                    .buttonStyle(AmgiSecondaryButtonStyle())
+                    .transition(.opacity)
                 }
             }
             .padding(.horizontal, 32)

@@ -74,4 +74,23 @@ public extension View {
     func amgiFont(_ style: AmgiFont) -> some View {
         modifier(AmgiFontModifier(style: style))
     }
+
+    /// One-off text sizing that still resolves `design` from `\.appFont`.
+    /// Prefer `.amgiFont(_:)` when an existing role's size/weight fits.
+    func amgiFont(size: CGFloat, weight: Font.Weight, tracking: CGFloat = 0) -> some View {
+        modifier(AmgiCustomFontModifier(size: size, weight: weight, tracking: tracking))
+    }
+}
+
+private struct AmgiCustomFontModifier: ViewModifier {
+    let size: CGFloat
+    let weight: Font.Weight
+    let tracking: CGFloat
+    @Environment(\.appFont) private var appFont
+
+    func body(content: Content) -> some View {
+        content
+            .font(.system(size: size, weight: weight, design: appFont == .serif ? .serif : .default))
+            .tracking(tracking)
+    }
 }

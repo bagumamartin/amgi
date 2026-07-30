@@ -129,6 +129,7 @@ public struct StudyLandingContent: View {
                 in: RoundedRectangle(cornerRadius: AmgiRadius.control, style: .continuous)
             )
         }
+        .buttonStyle(.pressScale)
         .disabled(totalDue == 0)
         .animation(.easeInOut(duration: 0.2), value: totalDue)
     }
@@ -155,29 +156,21 @@ public struct StudyLandingContent: View {
             VStack(alignment: .leading, spacing: 0) {
                 sectionHeader("Up Next")
                     .padding(.bottom, 4)
-                VStack(spacing: 0) {
-                    ForEach(decks) { deck in
-                        StudyDeckRow(data: deck) { onSelectDeck(deck.id) }
-                            .padding(.horizontal, 12)
-                        if deck.id != decks.last?.id {
-                            Divider()
-                                .padding(.leading, 64)
+                AmgiCard(
+                    background: .surfaceElevated,
+                    shadow: palette.shadows.sm,
+                    cornerRadius: AmgiRadius.inset,
+                    contentInsets: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0)
+                ) {
+                    VStack(spacing: 0) {
+                        ForEach(decks) { deck in
+                            StudyDeckRow(data: deck) { onSelectDeck(deck.id) }
+                                .padding(.horizontal, 12)
+                            if deck.id != decks.last?.id {
+                                Divider()
+                                    .padding(.leading, 64)
+                            }
                         }
-                    }
-                }
-                .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous))
-                .background(
-                    RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous)
-                        .fill(palette.surfaceElevated)
-                        .shadow(
-                            color: palette.elevation == .ring ? .clear : .black.opacity(0.06),
-                            radius: 4, x: 0, y: 2
-                        )
-                )
-                .overlay {
-                    if palette.elevation == .ring {
-                        RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous)
-                            .strokeBorder(palette.separator, lineWidth: 1)
                     }
                 }
             }

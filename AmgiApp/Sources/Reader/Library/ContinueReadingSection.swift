@@ -24,7 +24,7 @@ struct ContinueReadingSection: View {
                                 } label: {
                                     ContinueReadingCard(item: item)
                                 }
-                                .buttonStyle(.plain)
+                                .buttonStyle(AmgiPressDimButtonStyle())
                             } else {
                                 ContinueReadingCard(item: item)
                             }

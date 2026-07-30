@@ -353,13 +353,15 @@ private struct HeatmapCell: View {
     }()
 
     var body: some View {
-        RoundedRectangle(cornerRadius: 2, style: .continuous)
-            .fill(cellColor)
-            .frame(width: cellSize, height: cellSize)
-            .onTapGesture {
-                tooltipOffset = isShowingTooltip ? nil : offset
-            }
-            .popover(isPresented: Binding(
+        Button {
+            tooltipOffset = isShowingTooltip ? nil : offset
+        } label: {
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .fill(cellColor)
+                .frame(width: cellSize, height: cellSize)
+        }
+        .buttonStyle(.pressScale)
+        .popover(isPresented: Binding(
                 get: { isShowingTooltip },
                 set: { if !$0 { tooltipOffset = nil } }
             )) {

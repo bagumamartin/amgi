@@ -38,7 +38,7 @@ public struct DeckHero: View {
     private var titleRow: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Text(title)
-                .font(.system(size: 32, weight: .bold))
+                .amgiFont(size: 32, weight: .bold)
                 .lineSpacing(2)
                 .foregroundStyle(palette.textPrimary)
             if isFiltered {
@@ -53,7 +53,7 @@ public struct DeckHero: View {
             Image(systemName: "bolt.fill")
                 .font(.caption.weight(.semibold))
             Text("Custom Study")
-                .font(.caption2.weight(.semibold))
+                .amgiFont(size: 11, weight: .semibold)
         }
         .foregroundStyle(.white)
         .padding(.horizontal, 8)
@@ -64,9 +64,8 @@ public struct DeckHero: View {
 
     private var subtitleText: some View {
         Text(subtitle)
-            .font(.subheadline)
+            .amgiFont(size: 15, weight: .regular, tracking: -0.24)
             .foregroundStyle(palette.textSecondary)
-            .tracking(-0.24)
     }
 }
 

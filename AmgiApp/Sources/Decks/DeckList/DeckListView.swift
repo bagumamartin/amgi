@@ -28,7 +28,8 @@ struct DeckListView: View {
             onStartReview: { pendingDeck = model.firstReviewableDeck() },
             onTapDeck: { row in pendingDeck = row.asDeckInfo },
             onDeleteDeck: { rawID in await model.delete(DeckID(rawID)) },
-            onRenameDeck: { row in renameTarget = row }
+            onRenameDeck: { row in renameTarget = row },
+            onCreateDeck: { showCreateSheet = true }
         )
         .navigationTitle("Library")
         .navigationDestination(item: $pendingDeck) { deck in
@@ -57,10 +58,10 @@ struct DeckListView: View {
             ProfilePickerMenu()
         }
         ToolbarItem(placement: .topBarTrailing) {
-            // Browse entry — TODO: wire navigation when Browse is reachable from Library.
-            Button("Browse", systemImage: "square.stack.3d.up") {
-                // No-op for now; existing surface kept to match the design's two pill buttons.
-            }
+            // Browse entry — disabled until wired to the Browse feature; a live
+            // but no-op button was indistinguishable from a broken one.
+            Button("Browse", systemImage: "square.stack.3d.up") {}
+                .disabled(true)
         }
         ToolbarItem(placement: .topBarTrailing) {
             Button("New Deck", systemImage: "plus") {

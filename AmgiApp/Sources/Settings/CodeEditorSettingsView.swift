@@ -27,9 +27,21 @@ struct CodeEditorSettingsView: View {
     }
 
     private var fontSizeRow: some View {
+        ViewThatFits {
+            HStack(spacing: 12) {
+                Label("Size", systemImage: "textformat.size")
+                Spacer()
+                fontSizeStepper
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Size", systemImage: "textformat.size")
+                fontSizeStepper
+            }
+        }
+    }
+
+    private var fontSizeStepper: some View {
         HStack(spacing: 12) {
-            Label("Size", systemImage: "textformat.size")
-            Spacer()
             Button {
                 fontSize = max(minFontSize, fontSize - 1)
             } label: {
@@ -38,7 +50,7 @@ struct CodeEditorSettingsView: View {
                     .background(palette.surfaceElevated)
                     .clipShape(Circle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(AmgiPressDimButtonStyle())
             .disabled(fontSize <= minFontSize)
             .accessibilityLabel("Decrease font size")
 
@@ -55,7 +67,7 @@ struct CodeEditorSettingsView: View {
                     .background(palette.surfaceElevated)
                     .clipShape(Circle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(AmgiPressDimButtonStyle())
             .disabled(fontSize >= maxFontSize)
             .accessibilityLabel("Increase font size")
         }
