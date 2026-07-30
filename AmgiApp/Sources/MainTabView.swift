@@ -61,11 +61,13 @@ struct MainTabView: View {
             Button(action: onSync) {
                 Image(systemName: "arrow.triangle.2.circlepath")
             }
+            .accessibilityLabel("Sync")
         }
         ToolbarItem(placement: .topBarTrailing) {
             Button(action: onImport) {
                 Image(systemName: "square.and.arrow.down")
             }
+            .accessibilityLabel("Import deck")
         }
     }
 }

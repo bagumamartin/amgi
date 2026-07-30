@@ -33,6 +33,7 @@ public struct DeckSubdeckRow: View {
                             Image(systemName: "rectangle.stack")
                                 .font(.system(size: 14, weight: .medium))
                                 .foregroundStyle(palette.textSecondary)
+                                .accessibilityHidden(true)
                         )
                     if data.isFiltered {
                         Image(systemName: "bolt.fill")

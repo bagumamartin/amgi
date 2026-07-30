@@ -30,7 +30,7 @@ public struct LibraryHeroCard: View {
                     Button(action: onStartReview) {
                         Label("Start today's review", systemImage: "play.fill")
                             .frame(maxWidth: .infinity)
-                            .font(.system(size: 16, weight: .semibold))
+                            .amgiFont(size: 16, weight: .semibold, relativeTo: .body)
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
@@ -67,9 +67,9 @@ private struct StreakBadge: View {
         if days > 0 {
             HStack(spacing: 4) {
                 Image(systemName: "flame.fill")
-                    .font(.system(size: 12, weight: .bold))
+                    .amgiFont(size: 12, weight: .bold, relativeTo: .footnote)
                 Text("\(days)")
-                    .font(.system(size: 14, weight: .semibold))
+                    .amgiFont(size: 14, weight: .semibold, relativeTo: .footnote)
                     .monospacedDigit()
             }
             .padding(.horizontal, 10)

@@ -25,17 +25,18 @@ struct RenderModeChipRow: View {
                 }
                 if let templateName {
                     Text(templateName)
-                        .font(.caption.monospaced())
+                        .amgiFont(.micro, .monospaced)
                         .foregroundStyle(palette.textTertiary)
                         .lineLimit(1)
                 }
                 Spacer()
                 Image(systemName: "chevron.up.chevron.down")
-                    .font(.caption2)
+                    .amgiFont(.micro)
                     .foregroundStyle(palette.textTertiary)
+                    .accessibilityHidden(true)
             }
         }
-        .buttonStyle(AmgiPressDimButtonStyle())
+        .buttonStyle(.pressScale)
         .accessibilityLabel("Rendering: \(isNative ? "Native" : "HTML")\(isAuto ? ", automatic" : "")")
     }
 

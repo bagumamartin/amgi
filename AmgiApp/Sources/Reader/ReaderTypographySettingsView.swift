@@ -67,9 +67,10 @@ struct ReaderTypographySettingsView: View {
                 }
                 .buttonStyle(.bordered)
                 .disabled(fontSize <= 12)
+                .accessibilityLabel("Decrease text size")
 
                 Text("\(fontSize) pt")
-                    .font(.system(size: AmgiFont.body.size, weight: AmgiFont.body.weight).monospacedDigit())
+                    .amgiFont(.body, .monospacedDigits)
                     .frame(width: 64)
 
                 Button { increaseFontSize() } label: {
@@ -79,6 +80,7 @@ struct ReaderTypographySettingsView: View {
                 }
                 .buttonStyle(.bordered)
                 .disabled(fontSize >= 28)
+                .accessibilityLabel("Increase text size")
             }
         } header: {
             Label("Font Size", systemImage: "textformat.size")
@@ -105,7 +107,7 @@ struct ReaderTypographySettingsView: View {
                     Text("Line Height")
                     Spacer()
                     Text(String(format: "%.1f", lineHeight))
-                        .font(.system(size: AmgiFont.body.size, weight: AmgiFont.body.weight).monospacedDigit())
+                        .amgiFont(.body, .monospacedDigits)
                         .foregroundStyle(palette.textSecondary)
                 }
             }
@@ -192,7 +194,7 @@ private struct ThemeSwatchButton: View {
                     .foregroundStyle(palette.textPrimary)
             }
         }
-        .buttonStyle(AmgiPressDimButtonStyle())
+        .buttonStyle(.pressScale)
         .accessibilityLabel(Text(theme.label))
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }

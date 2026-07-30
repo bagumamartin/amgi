@@ -113,8 +113,8 @@ struct DeckDetailView: View {
             ))
             .overlay(alignment: .top) { ImportInProgressBanner(visible: model.importInProgress) }
             .overlay(alignment: .bottom) { RebuildFeedbackBanner(feedback: model.rebuildFeedback) }
-            .animation(.easeInOut(duration: 0.2), value: model.rebuildFeedback)
-            .animation(.easeInOut(duration: 0.2), value: model.importInProgress)
+            .animation(AmgiMotion.momentum, value: model.rebuildFeedback)
+            .animation(AmgiMotion.momentum, value: model.importInProgress)
             // Keyed on the store's generation so mutations (subdeck create,
             // rebuild/empty, import) reload this screen via Invalidation.
             .task(id: store.generation) {
@@ -179,7 +179,7 @@ struct DeckDetailView: View {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 16, weight: .semibold))
                     .frame(width: 30, height: 30)
-                    .background(.regularMaterial, in: Circle())
+                    .amgiMaterial(.regular, in: Circle())
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
             }

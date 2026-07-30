@@ -28,7 +28,7 @@ struct SyncToast: View {
         .amgiFont(.body)
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(.thinMaterial, in: Capsule())
+        .amgiMaterial(.light, in: Capsule())
         .overlay(Capsule().stroke(.quaternary, lineWidth: 0.5))
         .amgiChromeShadow(Capsule(), radius: 8, y: 2, opacity: 0.12)
         .padding(.bottom, 12)

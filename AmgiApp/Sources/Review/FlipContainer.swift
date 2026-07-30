@@ -1,3 +1,4 @@
+import AmgiTheme
 import SwiftUI
 
 /// Answer reveal for the native card surface (R12).
@@ -22,10 +23,10 @@ struct FlipContainer<Content: View>: View {
     var body: some View {
         content(displayedBack)
             .id(displayedBack)
-            .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            .transition(AmgiMotion.reveal)
             .onChange(of: showBack) { _, newValue in
                 if newValue {
-                    withAnimation(.easeInOut(duration: 0.22)) { displayedBack = true }
+                    withAnimation(AmgiMotion.quick) { displayedBack = true }
                 } else {
                     var snap = Transaction()
                     snap.disablesAnimations = true

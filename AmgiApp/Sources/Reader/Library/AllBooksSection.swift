@@ -13,6 +13,9 @@ struct AllBooksSection: View {
     )
 
     @Environment(\.palette) private var palette
+    /// Anchors each book's detail push to the cover the user tapped, so the
+    /// screen grows out of that cover instead of cutting in from the edge.
+    @Namespace private var coverTransition
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -27,10 +30,12 @@ struct AllBooksSection: View {
                     if let book = bookForId(item.id) {
                         NavigationLink {
                             ReaderBookDetailView(book: book, progress: progress)
+                                .navigationTransition(.zoom(sourceID: item.id, in: coverTransition))
                         } label: {
                             AllBooksCell(item: item)
                         }
-                        .buttonStyle(AmgiPressDimButtonStyle())
+                        .buttonStyle(.pressScale)
+                        .matchedTransitionSource(id: item.id, in: coverTransition)
                     } else {
                         AllBooksCell(item: item)
                     }

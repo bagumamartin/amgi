@@ -14,9 +14,9 @@ struct ImportInProgressBanner: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(.ultraThinMaterial, in: Capsule())
+            .amgiMaterial(.light, in: Capsule())
             .padding(.top, 8)
-            .transition(.move(edge: .top).combined(with: .opacity))
+            .transition(AmgiMotion.slide(from: .top))
         }
     }
 }
@@ -37,7 +37,7 @@ struct RebuildFeedbackBanner: View {
                 .padding(.vertical, 10)
                 .background(palette.accent, in: Capsule())
                 .padding(.bottom, 24)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .transition(AmgiMotion.slide(from: .bottom))
                 .accessibilityAddTraits(.isStaticText)
         }
     }

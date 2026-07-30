@@ -13,17 +13,7 @@ struct AmgiPrimaryButtonStyle: ButtonStyle {
             .padding(.vertical, AmgiSpacing.sm)
             .padding(.horizontal, 20)
             .background(palette.accent, in: Capsule())
-            .opacity(configuration.isPressed ? 0.85 : 1.0)
-    }
-}
-
-/// Press feedback only — no chrome. For buttons whose label already owns its
-/// full visual treatment (background, border, padding) and just needs the
-/// project's standard 0.85 press-dim rather than a competing idiom.
-struct AmgiPressDimButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .opacity(configuration.isPressed ? 0.85 : 1.0)
+            .amgiPressFeedback(configuration.isPressed)
     }
 }
 
@@ -39,7 +29,7 @@ struct AmgiSecondaryButtonStyle: ButtonStyle {
             .background(
                 Capsule().stroke(palette.accent, lineWidth: 1)
             )
-            .opacity(configuration.isPressed ? 0.85 : 1.0)
+            .amgiPressFeedback(configuration.isPressed)
     }
 }
 
@@ -101,7 +91,7 @@ struct AmgiStatusMessageView: View {
 
 extension View {
     /// Styles a toolbar icon's chip chrome (size, background, border). Content-only —
-    /// pair the enclosing `Button` with `.buttonStyle(AmgiPressDimButtonStyle())` for
+    /// pair the enclosing `Button` with `.buttonStyle(.pressScale)` for
     /// press feedback; a `ViewModifier` applied to the label can't see `isPressed`.
     func amgiToolbarIconButton(size: CGFloat = 32) -> some View {
         modifier(AmgiToolbarIconButtonModifier(size: size))

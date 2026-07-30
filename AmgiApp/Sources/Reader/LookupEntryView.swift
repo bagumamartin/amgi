@@ -58,7 +58,7 @@ struct LookupEntryHeaderView: View {
                         Image(systemName: "speaker.wave.2.fill").amgiFont(.cardTitle)
                     }
                 }
-                .buttonStyle(AmgiPressDimButtonStyle())
+                .buttonStyle(.pressScale)
                 .disabled(isResolvingAudio)
                 .accessibilityLabel("Play pronunciation")
                 Button {
@@ -66,7 +66,7 @@ struct LookupEntryHeaderView: View {
                 } label: {
                     Image(systemName: "waveform.badge.mic").amgiFont(.cardTitle)
                 }
-                .buttonStyle(AmgiPressDimButtonStyle())
+                .buttonStyle(.pressScale)
                 .accessibilityLabel("Speak with TTS")
                 Button {
                     onMakeNote()
@@ -74,7 +74,7 @@ struct LookupEntryHeaderView: View {
                     Image(systemName: "plus.circle")
                         .amgiFont(.cardTitle)
                 }
-                .buttonStyle(AmgiPressDimButtonStyle())
+                .buttonStyle(.pressScale)
                 .accessibilityLabel("Make note from this entry")
             }
         }

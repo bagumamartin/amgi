@@ -238,7 +238,7 @@ private struct ContinueBlock<Destination: View>: View {
                     .padding(.vertical, 14)
                     .background(palette.accent, in: RoundedRectangle(cornerRadius: AmgiRadius.inset))
             }
-            .buttonStyle(AmgiPressDimButtonStyle())
+            .buttonStyle(.pressScale)
 
             ProgressView(value: Double(percent), total: 100)
                 .progressViewStyle(.linear)
@@ -279,7 +279,7 @@ private struct ChaptersSection<Destination: View>: View {
                             isCurrent: currentIndex == index
                         )
                     }
-                    .buttonStyle(AmgiPressDimButtonStyle())
+                    .buttonStyle(.pressScale)
                     if index < book.chapters.count - 1 {
                         Divider().padding(.leading, 48)
                     }

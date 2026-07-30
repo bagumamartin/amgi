@@ -46,7 +46,7 @@ struct OnboardingView: View {
                         .disabled(serverURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
                         Button("Back") {
-                            withAnimation(.easeInOut) { showServerSetup = false }
+                            withAnimation(AmgiMotion.standard) { showServerSetup = false }
                         }
                         .amgiFont(.caption)
                         .foregroundStyle(palette.textSecondary)
@@ -55,7 +55,7 @@ struct OnboardingView: View {
                 } else {
                     VStack(spacing: AmgiSpacing.md) {
                         Button {
-                            withAnimation(.easeInOut) { showServerSetup = true }
+                            withAnimation(AmgiMotion.standard) { showServerSetup = true }
                         } label: {
                             Label("Custom Server", systemImage: "server.rack")
                                 .frame(maxWidth: .infinity)

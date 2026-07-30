@@ -52,7 +52,7 @@ struct RatingBar: View {
                     .strokeBorder(palette.separator, lineWidth: 1)
             }
         }
-        .buttonStyle(AmgiPressDimButtonStyle())
+        .buttonStyle(.pressScale)
         .disabled(isDisabled)
         .opacity(isDisabled ? 0.4 : 1.0)
         .accessibilityLabel("\(label)\(showIntervals ? ", next in \(intervals[rating] ?? "")" : "")")

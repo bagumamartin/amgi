@@ -21,6 +21,10 @@ public struct LibraryListContent: View {
     let onDeleteDeck: (Int64) async -> Void
     let onRenameDeck: (DeckRowViewData) -> Void
     let onCreateDeck: () -> Void
+    /// Namespace the container's deck-detail push zooms from. Optional
+    /// because the row rendering is useful in previews and tests that have
+    /// no navigation stack to anchor to.
+    let deckTransition: Namespace.ID?
 
     @Environment(\.palette) private var palette
 
@@ -31,8 +35,10 @@ public struct LibraryListContent: View {
         onTapDeck: @escaping (DeckRowViewData) -> Void,
         onDeleteDeck: @escaping (Int64) async -> Void,
         onRenameDeck: @escaping (DeckRowViewData) -> Void,
-        onCreateDeck: @escaping () -> Void
+        onCreateDeck: @escaping () -> Void,
+        deckTransition: Namespace.ID? = nil
     ) {
+        self.deckTransition = deckTransition
         self.state = state
         self.onRefresh = onRefresh
         self.onStartReview = onStartReview
@@ -81,6 +87,7 @@ public struct LibraryListContent: View {
                     .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
                     .listRowBackground(palette.surfaceElevated)
                     .listRowSeparatorTint(palette.separator)
+                    .modifier(DeckTransitionSource(id: row.id, namespace: deckTransition))
                 }
             }
 
@@ -94,6 +101,21 @@ public struct LibraryListContent: View {
         .libraryListStyle()
         .scrollContentBackground(.hidden)
         .refreshable { await onRefresh() }
+    }
+}
+
+/// Anchors a deck row as the zoom source for the detail push, when the
+/// container supplied a namespace to anchor into.
+private struct DeckTransitionSource: ViewModifier {
+    let id: Int64
+    let namespace: Namespace.ID?
+
+    func body(content: Content) -> some View {
+        if let namespace {
+            content.matchedTransitionSource(id: id, in: namespace)
+        } else {
+            content
+        }
     }
 }
 

@@ -93,7 +93,7 @@ private struct ThemeCard: View {
                     .stroke(isSelected ? preview.accent : preview.border, lineWidth: isSelected ? 2 : 1)
             )
         }
-        .buttonStyle(AmgiPressDimButtonStyle())
+        .buttonStyle(.pressScale)
     }
 }
 

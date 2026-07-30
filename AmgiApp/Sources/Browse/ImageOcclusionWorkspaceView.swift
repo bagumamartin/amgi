@@ -2101,7 +2101,7 @@ private extension ImageOcclusionWorkspaceView {
         Button(action: action) {
             ioPaletteChip(title: title, systemImage: systemImage, isSelected: isSelected)
         }
-        .buttonStyle(AmgiPressDimButtonStyle())
+        .buttonStyle(.pressScale)
     }
 
     @ViewBuilder
@@ -2130,7 +2130,7 @@ private extension ImageOcclusionWorkspaceView {
         Button(action: action) {
             toolbarIcon(systemImage: systemImage, fallbackSystemImage: fallbackSystemImage)
         }
-        .buttonStyle(AmgiPressDimButtonStyle())
+        .buttonStyle(.pressScale)
     }
 
     @ViewBuilder

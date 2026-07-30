@@ -289,7 +289,7 @@ private struct SyncSheetContent: View {
                         ForEach(logEntries) { entry in
                             HStack(alignment: .top, spacing: 8) {
                                 Text(entry.timestamp, format: .dateTime.hour().minute().second())
-                                    .font(.system(size: AmgiFont.micro.size, weight: AmgiFont.micro.weight, design: .monospaced))
+                                    .amgiFont(.micro, .monospaced)
                                     .foregroundStyle(palette.textSecondary)
                                 Text(entry.message)
                                     .amgiFont(.caption)
@@ -306,7 +306,7 @@ private struct SyncSheetContent: View {
                 .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.small))
                 .onChange(of: logEntries.count) { _, _ in
                     if let last = logEntries.last {
-                        withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
+                        withAnimation(AmgiMotion.standard) { proxy.scrollTo(last.id, anchor: .bottom) }
                     }
                 }
             }

@@ -131,7 +131,7 @@ public struct StudyLandingContent: View {
         }
         .buttonStyle(.pressScale)
         .disabled(totalDue == 0)
-        .animation(.easeInOut(duration: 0.2), value: totalDue)
+        .animation(AmgiMotion.standard, value: totalDue)
     }
 
     // MARK: - Loaded content body

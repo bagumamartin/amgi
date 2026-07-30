@@ -106,7 +106,7 @@ struct NewCardsSection: View {
             LabeledContent("Learning steps") {
                 TextField("1m 10m", text: $learningStepsText)
                     .multilineTextAlignment(.trailing)
-                    .font(.system(size: AmgiFont.body.size, weight: AmgiFont.body.weight, design: .monospaced))
+                    .amgiFont(.body, .monospaced)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
             }
@@ -126,7 +126,7 @@ struct LapsesSection: View {
             LabeledContent("Relearning steps") {
                 TextField("10m", text: $relearningStepsText)
                     .multilineTextAlignment(.trailing)
-                    .font(.system(size: AmgiFont.body.size, weight: AmgiFont.body.weight, design: .monospaced))
+                    .amgiFont(.body, .monospaced)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
             }
@@ -334,7 +334,7 @@ struct FsrsSection: View {
                         axis: .vertical
                     )
                     .lineLimit(2...6)
-                    .font(.system(size: AmgiFont.caption.size, weight: AmgiFont.caption.weight, design: .monospaced))
+                    .amgiFont(.caption, .monospaced)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
                 }

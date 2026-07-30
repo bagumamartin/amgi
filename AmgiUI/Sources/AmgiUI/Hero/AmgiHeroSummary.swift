@@ -42,16 +42,15 @@ public struct AmgiHeroSummary<Decoration: View, Footer: View>: View {
                     VStack(alignment: .leading, spacing: 0) {
                         if let eyebrow {
                             Text(eyebrow.uppercased())
-                                .font(.system(size: 13, weight: .semibold))
-                                .tracking(0.4)
+                                .amgiFont(size: 13, weight: .semibold, tracking: 0.4, relativeTo: .footnote)
                                 .foregroundStyle(.white.opacity(0.8))
                         }
                         Text(bigNumber)
-                            .font(.system(size: 56, weight: .bold))
+                            .amgiFont(size: 56, weight: .bold, tracking: -1.2, relativeTo: .largeTitle)
                             .foregroundStyle(.white)
                         if let subtitle {
                             Text(subtitle)
-                                .font(.system(size: 15))
+                                .amgiFont(size: 15, weight: .regular, relativeTo: .subheadline)
                                 .foregroundStyle(.white.opacity(0.85))
                         }
                     }

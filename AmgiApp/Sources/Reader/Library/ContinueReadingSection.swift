@@ -8,6 +8,8 @@ struct ContinueReadingSection: View {
     let progress: ReaderProgressCoordinator
 
     @Environment(\.palette) private var palette
+    /// See `AllBooksSection` — the detail push grows from the tapped card.
+    @Namespace private var coverTransition
 
     var body: some View {
         if items.isEmpty {
@@ -21,10 +23,12 @@ struct ContinueReadingSection: View {
                             if let book = bookForId(item.id) {
                                 NavigationLink {
                                     ReaderBookDetailView(book: book, progress: progress)
+                                        .navigationTransition(.zoom(sourceID: item.id, in: coverTransition))
                                 } label: {
                                     ContinueReadingCard(item: item)
                                 }
-                                .buttonStyle(AmgiPressDimButtonStyle())
+                                .buttonStyle(.pressScale)
+                                .matchedTransitionSource(id: item.id, in: coverTransition)
                             } else {
                                 ContinueReadingCard(item: item)
                             }

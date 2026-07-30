@@ -132,7 +132,22 @@ private struct ReviewContent: View {
                 // card swap on advance (content lands in the same transaction
                 // as `pendingToast → nil`), producing a jumpy cross-fade.
                 toastOverlay
-                    .animation(.easeInOut(duration: 0.15), value: session.pendingToast)
+                    .animation(AmgiMotion.quick, value: session.pendingToast)
+            }
+            // Haptics fire on the causal event, not on its consequences: the
+            // rating tap (which is what sets `pendingToast`), and the undo
+            // actually landing. `.again` gets a firmer tap than the other
+            // three — it's the one answer that costs the user something, and
+            // matching the feedback's character to the action is the point.
+            .sensoryFeedback(trigger: session.pendingToast) { _, toast in
+                guard let toast else { return nil }
+                return toast.rating == .again
+                    ? .impact(weight: .medium)
+                    : .impact(weight: .light)
+            }
+            .sensoryFeedback(.success, trigger: session.undoneCount)
+            .sensoryFeedback(trigger: session.isFinished) { _, finished in
+                finished ? .success : nil
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -208,7 +223,7 @@ private struct ReviewContent: View {
     private var toastOverlay: some View {
         if let toast = session.pendingToast {
             RatingToastView(toast: toast)
-                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                .transition(AmgiMotion.reveal)
         }
     }
 
@@ -246,7 +261,7 @@ private struct ReviewContent: View {
         .padding(.horizontal)
         .padding(.top, 6)
         .padding(.bottom, 2)
-        .animation(.easeInOut(duration: 0.3), value: progressFraction)
+        .animation(AmgiMotion.standard, value: progressFraction)
     }
 
     // MARK: - Card actions
@@ -326,6 +341,7 @@ private struct ReviewContent: View {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 64))
                 .foregroundStyle(palette.positive)
+                .accessibilityHidden(true)   // "Congratulations!" below says it
             Text("Congratulations!")
                 .amgiFont(.sectionHeading)
                 .foregroundStyle(palette.textPrimary)
@@ -525,7 +541,7 @@ private struct ReviewCardArea: View {
                 .foregroundStyle(palette.warning)
             if let name = session.templateName {
                 Text(name)
-                    .font(.caption.monospaced())
+                    .amgiFont(.micro, .monospaced)
                     .foregroundStyle(palette.textTertiary)
                     .lineLimit(1)
             }

@@ -48,7 +48,7 @@ struct ReaderCoverImage<Placeholder: View>: View {
                     .font(.system(size: 9, weight: .heavy))
                     .padding(.horizontal, 5)
                     .padding(.vertical, 2)
-                    .background(.thinMaterial, in: Capsule())
+                    .amgiMaterial(.light, in: Capsule())
                     .foregroundStyle(palette.textPrimary)
                     .padding(4)
             }

@@ -19,7 +19,6 @@ struct EPUBChapterReaderView: View {
     @State var chapterIndex: Int
     let progressCoordinator: ReaderProgressCoordinator
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dismiss) private var dismiss
     @Environment(\.palette) private var palette
 
@@ -34,6 +33,7 @@ struct EPUBChapterReaderView: View {
     @State private var chromeVisible: Bool = true
     @State private var endOfBookToastVisible: Bool = false
     @State private var didShowEndOfBookToast: Bool = false
+    @State private var endOfBookToastDismiss: Task<Void, Never>?
 
     @Shared(.appStorage(ReaderPreferences.Keys.verticalLayout))
     private var verticalLayout: Bool = false
@@ -119,7 +119,13 @@ struct EPUBChapterReaderView: View {
             )
             .presentationDetents([.fraction(0.45), .large])
         }
-        .onDisappear { flushProgress() }
+        .sensoryFeedback(trigger: endOfBookToastVisible) { _, visible in
+            visible ? .success : nil
+        }
+        .onDisappear {
+            endOfBookToastDismiss?.cancel()
+            flushProgress()
+        }
     }
 
     // MARK: - Subviews
@@ -181,7 +187,7 @@ struct EPUBChapterReaderView: View {
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(palette.textSecondary)
                 .frame(width: 44, height: 44)
-                .background(.regularMaterial, in: Circle())
+                .amgiMaterial(.regular, in: Circle())
                 .amgiChromeShadow(Circle())
         }
         .accessibilityLabel("Close")
@@ -198,7 +204,7 @@ struct EPUBChapterReaderView: View {
             .foregroundStyle(palette.textSecondary)
             .padding(.horizontal, 14)
             .padding(.vertical, 6)
-            .background(.regularMaterial, in: Capsule())
+            .amgiMaterial(.regular, in: Capsule())
             .amgiChromeShadow(Capsule())
             .padding(.top, 8)
             .opacity(chromeVisible ? 1 : 0)
@@ -208,11 +214,11 @@ struct EPUBChapterReaderView: View {
     @ViewBuilder
     private var pageNumberCapsule: some View {
         Text("\(pageIndex + 1) of \(pageCount)")
-            .font(.system(size: AmgiFont.caption.size, weight: AmgiFont.caption.weight).monospacedDigit())
+            .amgiFont(.caption, .monospacedDigits)
             .foregroundStyle(palette.textSecondary)
             .padding(.horizontal, 12)
             .padding(.vertical, 4)
-            .background(.regularMaterial, in: Capsule())
+            .amgiMaterial(.regular, in: Capsule())
             .amgiChromeShadow(Capsule())
             .allowsHitTesting(false)
     }
@@ -226,7 +232,7 @@ struct EPUBChapterReaderView: View {
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(palette.textPrimary)
                 .frame(width: 44, height: 44)
-                .background(.regularMaterial, in: Circle())
+                .amgiMaterial(.regular, in: Circle())
                 .amgiChromeShadow(Circle())
         }
         .accessibilityLabel("Reading Style")
@@ -255,13 +261,17 @@ struct EPUBChapterReaderView: View {
     @ViewBuilder
     private var endOfBookToast: some View {
         if endOfBookToastVisible {
-            Text("End of book")
-                .amgiFont(.captionBold)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(.thinMaterial, in: Capsule())
-                .padding(.bottom, 80)
-                .transition(.opacity)
+            Button(action: dismissEndOfBookToast) {
+                Text("End of book")
+                    .amgiFont(.captionBold)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .amgiMaterial(.light, in: Capsule())
+            }
+            .buttonStyle(.pressScale)
+            .accessibilityHint("Dismisses this message")
+            .padding(.bottom, 80)
+            .transition(AmgiMotion.slide(from: .bottom))
         }
     }
 
@@ -271,8 +281,9 @@ private extension EPUBChapterReaderView {
     // MARK: - Actions
 
     func toggleChrome() {
-        let duration = reduceMotion ? 0.1 : 0.2
-        withAnimation(.easeInOut(duration: duration)) {
+        // `AmgiMotion` already collapses to a cross-fade under Reduce Motion,
+        // so this no longer branches on `reduceMotion` itself.
+        withAnimation(AmgiMotion.standard) {
             chromeVisible.toggle()
         }
     }
@@ -280,13 +291,23 @@ private extension EPUBChapterReaderView {
     func showEndOfBookToast() {
         guard !didShowEndOfBookToast else { return }
         didShowEndOfBookToast = true
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation(AmgiMotion.momentum) {
             endOfBookToastVisible = true
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                endOfBookToastVisible = false
-            }
+        endOfBookToastDismiss = Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            guard !Task.isCancelled else { return }
+            dismissEndOfBookToast()
+        }
+    }
+
+    /// Also called by a tap on the toast — a timed message the user has
+    /// already read shouldn't make them wait out its timer.
+    func dismissEndOfBookToast() {
+        endOfBookToastDismiss?.cancel()
+        endOfBookToastDismiss = nil
+        withAnimation(AmgiMotion.standard) {
+            endOfBookToastVisible = false
         }
     }
 

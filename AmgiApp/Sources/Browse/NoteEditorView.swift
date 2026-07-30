@@ -25,9 +25,9 @@ struct NoteEditorView: View {
                     Button("Save") {
                         Task {
                             if await model.save() {
-                                withAnimation { showSavedConfirmation = true }
+                                withAnimation(AmgiMotion.momentum) { showSavedConfirmation = true }
                                 try? await Task.sleep(for: .seconds(1.5))
-                                withAnimation { showSavedConfirmation = false }
+                                withAnimation(AmgiMotion.standard) { showSavedConfirmation = false }
                                 onSave()
                             }
                         }
@@ -53,10 +53,10 @@ struct NoteEditorView: View {
                     .amgiFont(.bodyEmphasis)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
-                    .background(.ultraThinMaterial, in: Capsule())
+                    .amgiMaterial(.light, in: Capsule())
                     .padding(.bottom, 32)
             }
-            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .transition(AmgiMotion.slide(from: .bottom))
         }
     }
 }

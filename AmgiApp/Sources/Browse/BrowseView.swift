@@ -293,14 +293,24 @@ struct BrowseContent: View {
     private func noteRow(_ note: NoteRecord) -> some View {
         HStack {
             if selectionState.isSelectMode {
-                Image(systemName: selectionState.contains(note.id) ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(selectionState.contains(note.id) ? palette.accent : palette.textSecondary)
-                NoteRowView(note: note, notetypeName: model.notetypeNames[note.mid])
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        selectionState.toggle(note.id)
+                // A `Button`, not `.onTapGesture` — VoiceOver announces a
+                // tap gesture on a plain row as static text, so the row
+                // reads as unactionable and selection can't be reached at
+                // all with the screen reader on.
+                Button {
+                    selectionState.toggle(note.id)
+                } label: {
+                    HStack {
+                        Image(systemName: selectionState.contains(note.id) ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(selectionState.contains(note.id) ? palette.accent : palette.textSecondary)
+                            .accessibilityHidden(true)   // the .isSelected trait already says this
+                        NoteRowView(note: note, notetypeName: model.notetypeNames[note.mid])
                     }
-                    .onAppear { onRowAppear(note) }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.pressScale)
+                .accessibilityAddTraits(selectionState.contains(note.id) ? .isSelected : [])
+                .onAppear { onRowAppear(note) }
             } else {
                 HStack {
                     NavigationLink(value: note) {
@@ -313,6 +323,12 @@ struct BrowseContent: View {
                 }
                 .contentShape(Rectangle())
                 .onLongPressGesture(minimumDuration: 0.5) {
+                    selectionState.enterSelectMode(preselect: note.id)
+                }
+                // The long press is the only way into select mode, and it's
+                // not a gesture VoiceOver can perform — expose it as a named
+                // action in the rotor as well.
+                .accessibilityAction(named: "Select") {
                     selectionState.enterSelectMode(preselect: note.id)
                 }
             }
@@ -430,7 +446,7 @@ private extension BrowseContent {
                 .foregroundStyle(isSelected ? .white : palette.textPrimary)
                 .clipShape(Capsule())
         }
-        .buttonStyle(AmgiPressDimButtonStyle())
+        .buttonStyle(.pressScale)
     }
 
     func shortName(_ fullName: String) -> String {

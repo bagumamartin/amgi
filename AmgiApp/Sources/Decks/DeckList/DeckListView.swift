@@ -16,6 +16,9 @@ struct DeckListView: View {
     @State private var showCreateSheet = false
     @State private var renameTarget: DeckRowViewData?
     @State private var pendingDeck: DeckInfo?
+    /// Deck detail grows out of the row that was tapped, rather than cutting
+    /// in from the trailing edge — the row and the screen are the same thing.
+    @Namespace private var deckTransition
 
     init(model: DeckListModel = DeckListModel()) {
         _model = State(initialValue: model)
@@ -29,11 +32,13 @@ struct DeckListView: View {
             onTapDeck: { row in pendingDeck = row.asDeckInfo },
             onDeleteDeck: { rawID in await model.delete(DeckID(rawID)) },
             onRenameDeck: { row in renameTarget = row },
-            onCreateDeck: { showCreateSheet = true }
+            onCreateDeck: { showCreateSheet = true },
+            deckTransition: deckTransition
         )
         .navigationTitle("Library")
         .navigationDestination(item: $pendingDeck) { deck in
             DeckDetailView(deck: deck)
+                .navigationTransition(.zoom(sourceID: deck.id.rawValue, in: deckTransition))
         }
         .toolbar { toolbarContent }
         .sheet(isPresented: $showCreateSheet) {

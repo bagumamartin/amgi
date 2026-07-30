@@ -1,4 +1,5 @@
 // AmgiApp/Sources/Sync/SyncToastController.swift
+import AmgiTheme
 import SwiftUI
 
 /// Owns the bottom sync-toast state machine that used to live inline in
@@ -66,9 +67,18 @@ extension View {
         overlay(alignment: .bottom) {
             if let kind {
                 SyncToast(kind: kind)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .transition(AmgiMotion.slide(from: .bottom))
             }
         }
-        .animation(.snappy, value: kind)
+        // Sync finishes without the user watching for it, so the outcome is
+        // worth a haptic. Progress updates are not — they'd fire repeatedly
+        // and train the user to ignore the channel.
+        .sensoryFeedback(trigger: kind) { _, new in
+            if case .success = new { .success } else { nil }
+        }
+        // Momentum, not `standard` — the toast arrives from off-screen, so a
+        // little overshoot at the end of its travel reads as the thing having
+        // been thrown up from the edge rather than faded into place.
+        .animation(AmgiMotion.momentum, value: kind)
     }
 }

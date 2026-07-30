@@ -50,7 +50,7 @@ struct CodeEditorSettingsView: View {
                     .background(palette.surfaceElevated)
                     .clipShape(Circle())
             }
-            .buttonStyle(AmgiPressDimButtonStyle())
+            .buttonStyle(.pressScale)
             .disabled(fontSize <= minFontSize)
             .accessibilityLabel("Decrease font size")
 
@@ -67,7 +67,7 @@ struct CodeEditorSettingsView: View {
                     .background(palette.surfaceElevated)
                     .clipShape(Circle())
             }
-            .buttonStyle(AmgiPressDimButtonStyle())
+            .buttonStyle(.pressScale)
             .disabled(fontSize >= maxFontSize)
             .accessibilityLabel("Increase font size")
         }

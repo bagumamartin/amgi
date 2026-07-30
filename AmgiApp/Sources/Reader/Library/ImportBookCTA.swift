@@ -13,7 +13,7 @@ struct ImportBookCTA: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
         }
-        .buttonStyle(AmgiPressDimButtonStyle())
+        .buttonStyle(.pressScale)
         .background(palette.accent.opacity(0.15), in: RoundedRectangle(cornerRadius: AmgiRadius.hero))
         .foregroundStyle(.tint)
         .padding(.horizontal, 16)
