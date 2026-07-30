@@ -55,6 +55,10 @@ final class ReviewSession {
     private(set) var resolvedByAuto: Bool = false
     private(set) var templateName: String?
     private(set) var pendingToast: RatingToast?
+    /// Bumped once per *successful* undo. Exists so the view can fire haptic
+    /// feedback on the completion, which no other piece of state marks —
+    /// `canUndo` already reads false when an undo isn't available at all.
+    private(set) var undoneCount: Int = 0
 
     /// True while a card transition (start / answer / undo) has backend work
     /// in flight off the main actor. The view disables the answer + reveal
@@ -62,6 +66,9 @@ final class ReviewSession {
     private(set) var isAdvancing: Bool = false
 
     private var reviewStartTime: Date = .now
+    /// Auto-dismiss for `pendingToast`. Owned separately from the answer task
+    /// so the toast's lifetime never gates the next card.
+    private var toastDismiss: Task<Void, Never>?
     private var cardQueue: [QueuedReviewCard] = []
     /// Full notetypes fetched for template names; keyed by notetype id and
     /// kept for the session so each notetype is fetched once.
@@ -180,16 +187,10 @@ final class ReviewSession {
         let notetypesClient = self.notetypesClient
         let cardRendering = self.cardRendering
 
-        pendingToast = RatingToast(rating: rating, interval: queued.nextIntervals[rating] ?? "")
+        showToast(RatingToast(rating: rating, interval: queued.nextIntervals[rating] ?? ""))
 
         Task {
-            defer {
-                isAdvancing = false
-                pendingToast = nil
-            }
-            // The toast stays up at least this long; the next card appears
-            // after max(backend round-trip, toast display).
-            let minToastDisplay = Task { try? await Task.sleep(for: .milliseconds(450)) }
+            defer { isAdvancing = false }
             do {
                 let queue = try await Task.detached {
                     try scheduler.answerReviewCard(cardId, rating, timeSpent, states)
@@ -208,21 +209,41 @@ final class ReviewSession {
                     learnCount: queue.learningCount,
                     reviewCount: queue.reviewCount
                 )
-                await minToastDisplay.value
                 await advanceToNextCard(notes: notes, notetypes: notetypes, notetypesClient: notetypesClient, cardRendering: cardRendering)
             } catch {
                 print("[ReviewSession] Answer failed: \(error)")
                 if !cardQueue.isEmpty { cardQueue.removeFirst() }
-                await minToastDisplay.value
                 await advanceToNextCard(notes: notes, notetypes: notetypes, notetypesClient: notetypesClient, cardRendering: cardRendering)
             }
         }
     }
 
+    /// Shows the post-answer confirmation and schedules its own dismissal.
+    ///
+    /// Deliberately independent of the answer task: the toast reports what
+    /// just happened, so making the *next* card wait for it put a fixed stall
+    /// on the single most repeated action in the app. It now floats over the
+    /// card that has already arrived.
+    private func showToast(_ toast: RatingToast) {
+        toastDismiss?.cancel()
+        pendingToast = toast
+        toastDismiss = Task {
+            try? await Task.sleep(for: .milliseconds(900))
+            guard !Task.isCancelled else { return }
+            pendingToast = nil
+        }
+    }
+
+    private func clearToast() {
+        toastDismiss?.cancel()
+        toastDismiss = nil
+        pendingToast = nil
+    }
+
     func undo() {
         guard canUndo, !isAdvancing else { return }
         isAdvancing = true
-        pendingToast = nil
+        clearToast()
 
         let collection = self.collection
         let scheduler = self.scheduler
@@ -241,6 +262,7 @@ final class ReviewSession {
                 }.value
 
                 canUndo = false
+                undoneCount += 1
                 // Roll back session stats
                 sessionStats.reviewed -= 1
                 if let last = lastRating, last != .again {
