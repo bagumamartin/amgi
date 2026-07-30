@@ -53,9 +53,9 @@ struct DesignConformanceTests {
         "Settings/CodeEditorSettingsView.swift":
             "Radius literals with no AmgiRadius equivalent; changing them would be a layout change (R29 is no-layout).",
         "Review/ReviewView.swift":
-            "64pt display numeral; no AmgiFont role at this size.",
-        "Review/RenderModeChipRow.swift":
-            "Template-name chip renders code in .caption.monospaced(); AmgiFont has no monospaced role.",
+            "64pt success glyph in the session-finished empty state. A fixed-size SF Symbol, " +
+            "not text — it has no AmgiFont role because it isn't type, and scaling it with " +
+            "Dynamic Type would only push the message below it off-screen.",
         "Decks/DeckTemplateList/TemplateEditorView.swift":
             "Radius literals with no AmgiRadius equivalent; changing them would be a layout change (R29 is no-layout).",
         "Widgets/LargeWidgetView.swift":
@@ -98,6 +98,21 @@ struct DesignConformanceTests {
         ("raw corner radius", #"cornerRadius:\s*\d"#),
         ("shadow", #"\.shadow\("#),
         ("raw system font style", #"\.font\(\s*\.(largeTitle|title|title2|title3|headline|subheadline|body|callout|footnote|caption|caption2)\b"#),
+        // Motion is a design token like colour and radius. A curve spelled at
+        // a call site can't be interrupted, doesn't inherit velocity, and —
+        // the reason this is a *test* and not a style note — silently ignores
+        // Reduce Motion, which `AmgiMotion` handles for every role at once.
+        (
+            "raw animation curve (use AmgiMotion)",
+            #"(withAnimation|\.animation)\(\s*\.(easeInOut|easeIn|easeOut|linear|default|spring|smooth|snappy|bouncy|interactiveSpring)\b"#
+        ),
+        // `withAnimation { }` with no argument resolves to SwiftUI's default
+        // curve, which is the same problem spelled implicitly.
+        ("argument-less withAnimation (use AmgiMotion)", #"withAnimation\s*\{"#),
+        // Translucent chrome must route through `amgiMaterial(_:in:)` so it
+        // has a Reduce Transparency fallback. A bare material over card or
+        // book content is unreadable for the users that setting exists for.
+        ("raw material (use amgiMaterial)", #"\.(ultraThin|thin|regular|thick|ultraThick)Material\b"#),
     ]
 
     private static var sourceRoot: URL {
