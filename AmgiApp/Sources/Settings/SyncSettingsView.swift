@@ -14,48 +14,11 @@ struct SyncSettingsView: View {
     @Environment(\.palette) private var palette
 
     var body: some View {
-        Form {
+        SettingsPage {
             if let endpoint {
-                Section {
-                    AnkiMobileAttributionView()
-                }
-
-                Section("Server") {
-                    LabeledContent("URL") {
-                        Text(endpoint).truncationMode(.middle).lineLimit(1)
-                    }
-                }
-
-                Section("Account") {
-                    LabeledContent("Username") {
-                        Text(username ?? "Not signed in")
-                            .foregroundStyle(username == nil ? palette.textSecondary : palette.textPrimary)
-                    }
-                    LabeledContent("Credentials") {
-                        Text(isLoggedIn ? "Stored" : "Not signed in")
-                            .foregroundStyle(palette.textSecondary)
-                    }
-                }
-
-                Section {
-                    Button("Change Server") { showServerSetup = true }
-                    Button("Logout", role: .destructive) { logout() }
-                        .disabled(!isLoggedIn)
-                }
-
-                Section {
-                    Button("Disable Sync (Local Only)", role: .destructive) {
-                        showDisableConfirm = true
-                    }
-                } footer: {
-                    Text("Stops syncing. Your local collection is unaffected.")
-                }
+                configuredSections(endpoint: endpoint)
             } else {
-                Section {
-                    Label("Sync is disabled", systemImage: "iphone")
-                        .foregroundStyle(palette.textSecondary)
-                    Button("Set Up Server") { showServerSetup = true }
-                }
+                disabledSection
             }
         }
         .navigationTitle("Sync Server")
@@ -79,6 +42,104 @@ struct SyncSettingsView: View {
         }
     }
 
+    // MARK: - Configured
+
+    @ViewBuilder
+    private func configuredSections(endpoint: String) -> some View {
+        SettingsGroup {
+            AnkiMobileAttributionView()
+                .padding(.horizontal, AmgiSpacing.lg)
+                .padding(.vertical, AmgiSpacing.md)
+        }
+        .padding(.top, AmgiSpacing.lg)
+
+        SettingsSectionHeader(title: "Server")
+        SettingsGroup {
+            SettingsValueRow(
+                title: "URL",
+                value: endpoint,
+                systemImage: "link",
+                tone: .info,
+                truncation: .middle
+            )
+        }
+
+        SettingsSectionHeader(title: "Account")
+        SettingsGroup {
+            SettingsValueRow(
+                title: "Username",
+                value: username ?? "Not signed in",
+                systemImage: "person.crop.circle",
+                tone: .accent,
+                isMuted: username == nil
+            )
+            SettingsSeparator()
+            SettingsValueRow(
+                title: "Credentials",
+                value: isLoggedIn ? "Stored" : "Not signed in",
+                systemImage: "key",
+                tone: .neutral
+            )
+        }
+
+        SettingsSectionHeader(title: "Actions")
+        SettingsGroup {
+            SettingsButtonRow(
+                title: "Change Server",
+                systemImage: "arrow.triangle.2.circlepath",
+                tone: .info
+            ) {
+                showServerSetup = true
+            }
+            SettingsSeparator()
+            SettingsButtonRow(
+                title: "Logout",
+                systemImage: "rectangle.portrait.and.arrow.right",
+                tone: .danger,
+                isDestructive: true
+            ) {
+                logout()
+            }
+            .disabled(!isLoggedIn)
+        }
+
+        SettingsGroup {
+            SettingsButtonRow(
+                title: "Disable Sync (Local Only)",
+                systemImage: "iphone.slash",
+                tone: .danger,
+                isDestructive: true
+            ) {
+                showDisableConfirm = true
+            }
+        }
+        .padding(.top, AmgiSpacing.lg)
+        SettingsFootnote("Stops syncing. Your local collection is unaffected.")
+    }
+
+    // MARK: - Not configured
+
+    @ViewBuilder
+    private var disabledSection: some View {
+        SettingsGroup {
+            SettingsValueRow(
+                title: "Sync",
+                value: "Disabled",
+                systemImage: "iphone",
+                tone: .neutral
+            )
+            SettingsSeparator()
+            SettingsButtonRow(
+                title: "Set Up Server",
+                systemImage: "arrow.triangle.2.circlepath",
+                tone: .accent
+            ) {
+                showServerSetup = true
+            }
+        }
+        .padding(.top, AmgiSpacing.lg)
+        SettingsFootnote("Amgi works fully offline. Add a server only if you want to sync with AnkiWeb or a self-hosted instance.")
+    }
 }
 
 private extension SyncSettingsView {
@@ -102,28 +163,46 @@ private extension SyncSettingsView {
 
 private struct ServerSetupView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.palette) private var palette
     @Shared(.syncMode) private var syncMode
     @State private var url: String = KeychainHelper.loadEndpoint() ?? ""
     let onSave: () -> Void
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    TextField("https://sync.example.com", text: $url)
+            SettingsPage {
+                SettingsSectionHeader(title: "Sync Server URL")
+                SettingsGroup {
+                    TextField(
+                        "Sync server URL",
+                        text: $url,
+                        // Explicit prompt: the default placeholder picks up
+                        // the tint and renders accent-blue inside the group.
+                        prompt: Text("https://sync.example.com")
+                            .foregroundStyle(palette.textTertiary)
+                    )
+                        .amgiFont(.body)
+                        .foregroundStyle(palette.textPrimary)
+                        .labelsHidden()
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)
-                } header: {
-                    Text("Sync Server URL")
-                } footer: {
-                    Text("Enter the URL of your Anki-compatible sync server.")
+                        .padding(.horizontal, AmgiSpacing.lg)
+                        .padding(.vertical, AmgiSpacing.md)
+                        .frame(minHeight: 44)
                 }
+                SettingsFootnote("Enter the URL of your Anki-compatible sync server.")
 
-                Section {
-                    Button("Save", action: save)
-                        .disabled(trimmed.isEmpty)
+                SettingsGroup {
+                    SettingsButtonRow(
+                        title: "Save",
+                        systemImage: "checkmark",
+                        tone: .accent,
+                        action: save
+                    )
+                    .disabled(trimmed.isEmpty)
                 }
+                .padding(.top, AmgiSpacing.lg)
             }
             .navigationTitle("Sync Server")
             .navigationBarTitleDisplayMode(.inline)

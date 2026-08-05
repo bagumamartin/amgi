@@ -2,8 +2,6 @@ import SwiftUI
 import AmgiTheme
 
 struct AboutView: View {
-    @Environment(\.palette) private var palette
-
     private var appVersion: String {
         let bundle = Bundle.main
         let short = bundle.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
@@ -12,22 +10,41 @@ struct AboutView: View {
     }
 
     var body: some View {
-        Form {
-            Section("Amgi") {
-                LabeledContent("Version", value: appVersion)
-                LabeledContent("Korean origin", value: "암기 — memorization")
+        SettingsPage {
+            SettingsSectionHeader(title: "Amgi")
+            SettingsGroup {
+                SettingsValueRow(
+                    title: "Version",
+                    value: appVersion,
+                    systemImage: "number",
+                    tone: .info
+                )
+                SettingsSeparator()
+                SettingsValueRow(
+                    title: "Korean origin",
+                    value: "암기 — memorization",
+                    systemImage: "character.book.closed",
+                    tone: .mature
+                )
             }
 
-            Section("Acknowledgements") {
-                LabeledContent("Anki engine", value: "ankitects/anki")
-                LabeledContent("Community", value: "DreamAfar — fork contributor")
+            SettingsSectionHeader(title: "Acknowledgements")
+            SettingsGroup {
+                SettingsValueRow(
+                    title: "Anki engine",
+                    value: "ankitects/anki",
+                    systemImage: "shippingbox",
+                    tone: .accent
+                )
+                SettingsSeparator()
+                SettingsValueRow(
+                    title: "Community",
+                    value: "DreamAfar — fork contributor",
+                    systemImage: "person.2",
+                    tone: .learning
+                )
             }
-
-            Section {
-                Text("Amgi uses the official Anki Rust backend. The backend code is licensed under AGPL-3.0 and remains the work of its authors.")
-                    .amgiFont(.caption)
-                    .foregroundStyle(palette.textSecondary)
-            }
+            SettingsFootnote("Amgi uses the official Anki Rust backend. The backend code is licensed under AGPL-3.0 and remains the work of its authors.")
         }
         .navigationTitle("About")
         .navigationBarTitleDisplayMode(.inline)

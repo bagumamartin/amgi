@@ -13,36 +13,37 @@ struct CardRenderingSettingsView: View {
     @Shared(.appStorage(ReviewPreferences.Keys.templateRenderOverrides))
     private var overridesRaw: String = "{}"
 
-    @Environment(\.palette) private var palette
-
     var body: some View {
-        Form {
-            Section {
-                Picker("Engine", selection: engineBinding) {
+        SettingsPage {
+            // Headerless, like the mock's first group — a "Engine" header
+            // above a row also called Engine just says it twice.
+            SettingsGroup {
+                SettingsPickerRow(
+                    title: "Engine",
+                    systemImage: "cpu",
+                    tone: .accent,
+                    selection: engineBinding
+                ) {
                     ForEach(CardRenderEngine.allCases, id: \.self) { engine in
                         Text(engine.displayName).tag(engine)
                     }
                 }
-                .pickerStyle(.inline)
-                .labelsHidden()
-            } footer: {
-                Text(selectedEngine.summary)
             }
+            .padding(.top, AmgiSpacing.lg)
+            SettingsFootnote(selectedEngine.summary)
 
-            Section {
-                NavigationLink {
+            SettingsSectionHeader(title: "Overrides")
+            SettingsGroup {
+                SettingsRowLink(
+                    title: "Per-template overrides",
+                    systemImage: "arrow.turn.down.right",
+                    tone: .neutral,
+                    detail: "\(overrideCount) set"
+                ) {
                     TemplateOverridesView()
-                } label: {
-                    HStack {
-                        Text("Per-template overrides…")
-                        Spacer()
-                        Text("\(overrideCount) set")
-                            .foregroundStyle(palette.textSecondary)
-                    }
                 }
-            } footer: {
-                Text("Overrides pick an engine for every card of one template and beat the global choice. Stored on this device only.")
             }
+            SettingsFootnote("Overrides pick an engine for every card of one template and beat the global choice. Stored on this device only.")
         }
         .navigationTitle("Card Rendering")
         .navigationBarTitleDisplayMode(.inline)

@@ -6,40 +6,46 @@ struct AppearanceSettingsView: View {
     @AppStorage("appFont") private var appFontRaw: String = AppFont.system.rawValue
 
     var body: some View {
-        Form {
-            Section("Theme") {
-                themePickerRow
-            }
+        SettingsPage {
+            SettingsSectionHeader(title: "Theme")
+            themePickerRow
 
-            Section("Appearance") {
+            SettingsSectionHeader(title: "Appearance")
+            SettingsGroup {
                 Picker("Appearance", selection: $manager.appearance) {
                     Text("System").tag(Appearance.system)
                     Text("Light").tag(Appearance.light)
                     Text("Dark").tag(Appearance.dark)
                 }
                 .pickerStyle(.segmented)
+                .padding(AmgiSpacing.md)
             }
 
-            Section {
-                Picker("Font", selection: $appFontRaw) {
+            SettingsSectionHeader(title: "App Font")
+            SettingsGroup {
+                SettingsPickerRow(
+                    title: "Font",
+                    systemImage: "textformat",
+                    tone: .accent,
+                    selection: $appFontRaw
+                ) {
                     Text("System").tag(AppFont.system.rawValue)
                     Text("Serif").tag(AppFont.serif.rawValue)
                 }
-            } header: {
-                Text("App font")
-            } footer: {
-                Text("Changes the font used throughout the app. Card-template content and hero numbers stay in their own typeface.")
             }
+            SettingsFootnote("Changes the font used throughout the app. Card-template content and hero numbers stay in their own typeface.")
 
-            Section("Preview") {
-                PreviewCard()
-                    .listRowBackground(Color.clear)
-            }
+            SettingsSectionHeader(title: "Preview")
+            PreviewCard()
+                .padding(.horizontal, AmgiSpacing.lg)
         }
         .navigationTitle("Appearance")
         .navigationBarTitleDisplayMode(.inline)
     }
 
+    /// Theme cards draw their own selected/unselected frame, so they sit
+    /// directly on the page — nesting them in a `SettingsGroup` would put a
+    /// second border around every card.
     @ViewBuilder
     private var themePickerRow: some View {
         let themes = ThemeRegistry.shared.allThemes()
@@ -55,7 +61,7 @@ struct AppearanceSettingsView: View {
                 }
             }
         }
-        .padding(.vertical, AmgiSpacing.xs)
+        .padding(.horizontal, AmgiSpacing.lg)
     }
 }
 
@@ -77,7 +83,7 @@ private struct ThemeCard: View {
                     bar(color: preview.accent)
                 }
                 .padding(AmgiSpacing.sm)
-                .background(preview.surface, in: RoundedRectangle(cornerRadius: 8))
+                .background(preview.surface, in: RoundedRectangle(cornerRadius: AmgiRadius.small))
                 .frame(width: 80)
 
                 if isSelected {

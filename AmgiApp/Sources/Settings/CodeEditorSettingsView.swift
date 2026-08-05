@@ -15,86 +15,50 @@ struct CodeEditorSettingsView: View {
     private let maxFontSize: Double = 32
 
     var body: some View {
-        Form {
-            Section("Font") {
-                fontSizeRow
+        SettingsPage {
+            SettingsSectionHeader(title: "Font")
+            SettingsGroup {
+                SettingsStepperRow(
+                    title: "Size",
+                    systemImage: "textformat.size",
+                    tone: .accent,
+                    value: $fontSize,
+                    range: minFontSize...maxFontSize,
+                    step: 1
+                ) { "\(Int($0))pt" }
+                SettingsSeparator()
+                SettingsPickerRow(
+                    title: "Family",
+                    systemImage: "textformat",
+                    tone: .link,
+                    selection: $fontFamilyRaw
+                ) {
+                    ForEach(CodeFontFamily.allCases) { family in
+                        Text(family.displayName).tag(family.rawValue)
+                    }
+                }
+            }
+
+            SettingsSectionHeader(title: "Preview")
+            SettingsGroup {
                 previewRow
-                fontFamilyPicker
             }
         }
         .navigationTitle("Code Editor")
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    private var fontSizeRow: some View {
-        ViewThatFits {
-            HStack(spacing: 12) {
-                Label("Size", systemImage: "textformat.size")
-                Spacer()
-                fontSizeStepper
-            }
-            VStack(alignment: .leading, spacing: 8) {
-                Label("Size", systemImage: "textformat.size")
-                fontSizeStepper
-            }
-        }
-    }
-
-    private var fontSizeStepper: some View {
-        HStack(spacing: 12) {
-            Button {
-                fontSize = max(minFontSize, fontSize - 1)
-            } label: {
-                Image(systemName: "minus")
-                    .frame(width: 28, height: 28)
-                    .background(palette.surfaceElevated)
-                    .clipShape(Circle())
-            }
-            .buttonStyle(.pressScale)
-            .disabled(fontSize <= minFontSize)
-            .accessibilityLabel("Decrease font size")
-
-            Text("\(Int(fontSize))")
-                .font(.system(.body, design: .monospaced).weight(.semibold))
-                .frame(minWidth: 32, alignment: .center)
-                .monospacedDigit()
-
-            Button {
-                fontSize = min(maxFontSize, fontSize + 1)
-            } label: {
-                Image(systemName: "plus")
-                    .frame(width: 28, height: 28)
-                    .background(palette.surfaceElevated)
-                    .clipShape(Circle())
-            }
-            .buttonStyle(.pressScale)
-            .disabled(fontSize >= maxFontSize)
-            .accessibilityLabel("Increase font size")
-        }
-    }
-
     private var previewRow: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Preview")
-                .amgiFont(.caption)
-                .foregroundStyle(palette.textSecondary)
-            Text("{{Front}}")
-                .font(.system(size: fontSize, design: .monospaced))
-                .padding(8)
-                .background(palette.surfaceElevated)
-                .clipShape(.rect(cornerRadius: 4))
-        }
-        .padding(.vertical, 4)
+        Text("{{Front}}")
+            .font(selectedFamily.font(size: fontSize))
+            .foregroundStyle(palette.textPrimary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, AmgiSpacing.lg)
+            .padding(.vertical, AmgiSpacing.md)
     }
 
-    private var fontFamilyPicker: some View {
-        Picker("Family", selection: $fontFamilyRaw) {
-            ForEach(CodeFontFamily.allCases) { family in
-                Text(family.displayName)
-                    .font(.system(size: fontSize, design: .monospaced))
-                    .tag(family.rawValue)
-            }
-        }
+    private var selectedFamily: CodeFontFamily {
+        CodeFontFamily(rawValue: fontFamilyRaw) ?? .menlo
     }
 }
 

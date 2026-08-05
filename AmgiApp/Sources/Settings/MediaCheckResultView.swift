@@ -55,7 +55,7 @@ private extension MediaCheckResultView {
     }
 
     func summarySection(result: MediaCheckResult) -> some View {
-        Section("Summary") {
+        Section {
             Label(
                 "\(result.missing.count) missing files",
                 systemImage: "exclamationmark.triangle"
@@ -78,11 +78,13 @@ private extension MediaCheckResultView {
                 }
                 .listRowBackground(palette.surfaceElevated)
             }
+        } header: {
+            SettingsListHeader("Summary")
         }
     }
 
     func missingSection(result: MediaCheckResult) -> some View {
-        Section("Missing files") {
+        Section {
             ForEach(result.missing.prefix(200), id: \.self) { file in
                 Label(file, systemImage: "questionmark.circle")
                     .amgiStatusText(.danger, font: .caption)
@@ -94,11 +96,13 @@ private extension MediaCheckResultView {
                     .foregroundStyle(palette.textSecondary)
                     .listRowBackground(palette.surfaceElevated)
             }
+        } header: {
+            SettingsListHeader("Missing files")
         }
     }
 
     func unusedSection(result: MediaCheckResult) -> some View {
-        Section("Unused files") {
+        Section {
             ForEach(result.unused.prefix(200), id: \.self) { file in
                 Label(file, systemImage: "tray")
                     .amgiStatusText(.warning, font: .caption)
@@ -110,11 +114,13 @@ private extension MediaCheckResultView {
                     .foregroundStyle(palette.textSecondary)
                     .listRowBackground(palette.surfaceElevated)
             }
+        } header: {
+            SettingsListHeader("Unused files")
         }
     }
 
     func trashSection(result: MediaCheckResult) -> some View {
-        Section("Actions") {
+        Section {
             if !result.unused.isEmpty {
                 Button {
                     model.trashUnused(filenames: result.unused)
@@ -167,6 +173,8 @@ private extension MediaCheckResultView {
                 .disabled(model.isRestoringTrash)
                 .listRowBackground(palette.surfaceElevated)
             }
+        } header: {
+            SettingsListHeader("Actions")
         }
     }
 

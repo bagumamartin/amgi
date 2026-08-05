@@ -14,11 +14,18 @@ struct AccountsSettingsView: View {
 
     @Environment(\.palette) private var palette
 
+    // Stays a `List` rather than moving to `SettingsPage`: profile rows carry
+    // `swipeActions`, which only exist inside a List. The design chrome
+    // (palette background, elevated row surfaces, tinted tiles) is applied
+    // to the List instead, so it reads like the rest of Settings without
+    // losing swipe-to-delete.
     var body: some View {
-        Form {
+        List {
             profilesSection
             addSection
         }
+        .scrollContentBackground(.hidden)
+        .background(palette.background)
         .navigationTitle("Profiles")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showAddSheet) {
@@ -53,10 +60,13 @@ struct AccountsSettingsView: View {
     }
 
     private var profilesSection: some View {
-        Section("Profiles") {
+        Section {
             ForEach(store.accounts) { account in
                 profileRow(account)
+                    .listRowBackground(palette.surfaceElevated)
             }
+        } header: {
+            SettingsListHeader("Profiles")
         }
     }
 
@@ -67,23 +77,43 @@ struct AccountsSettingsView: View {
                 addError = nil
                 showAddSheet = true
             } label: {
-                Label("New profile", systemImage: "plus")
+                HStack(spacing: AmgiSpacing.md) {
+                    SettingsIconTile(systemImage: "plus", tone: .accent)
+                    Text("New profile")
+                        .amgiFont(.body)
+                        .foregroundStyle(palette.textPrimary)
+                }
             }
+            .listRowBackground(palette.surfaceElevated)
         } footer: {
             Text("Each profile keeps its own collection, sync login, and review history. Switching applies immediately.")
+                .amgiFont(.caption)
+                .foregroundStyle(palette.textSecondary)
         }
     }
 
     private var addProfileSheet: some View {
         NavigationStack {
-            Form {
-                Section("Name") {
-                    TextField("e.g. Korean", text: $newName)
+            SettingsPage {
+                SettingsSectionHeader(title: "Name")
+                SettingsGroup {
+                    TextField(
+                        "Profile name",
+                        text: $newName,
+                        prompt: Text("e.g. Korean").foregroundStyle(palette.textTertiary)
+                    )
+                        .amgiFont(.body)
+                        .foregroundStyle(palette.textPrimary)
+                        .labelsHidden()
                         .textInputAutocapitalization(.words)
                         .autocorrectionDisabled()
+                        .padding(.horizontal, AmgiSpacing.lg)
+                        .padding(.vertical, AmgiSpacing.md)
+                        .frame(minHeight: 44)
                 }
                 if let addError {
-                    Text(addError).foregroundStyle(palette.danger).amgiFont(.caption)
+                    SettingsFootnote(addError)
+                        .foregroundStyle(palette.danger)
                 }
             }
             .navigationTitle("New profile")
@@ -109,16 +139,21 @@ private extension AccountsSettingsView {
             guard account.id != store.selectedID else { return }
             Task { await switchProfile(to: account) }
         } label: {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(account.displayName).foregroundStyle(palette.textPrimary)
+            HStack(spacing: AmgiSpacing.md) {
+                ProfileMonogram(name: account.displayName)
+                VStack(alignment: .leading, spacing: AmgiSpacing.xxs) {
+                    Text(account.displayName)
+                        .amgiFont(.body)
+                        .foregroundStyle(palette.textPrimary)
                     Text("Created \(account.createdAt.formatted(date: .abbreviated, time: .omitted))")
                         .amgiFont(.caption)
                         .foregroundStyle(palette.textSecondary)
                 }
-                Spacer()
+                Spacer(minLength: AmgiSpacing.sm)
                 if account.id == store.selectedID {
-                    Image(systemName: "checkmark").foregroundStyle(palette.accent)
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(palette.accent)
                 }
             }
         }
@@ -148,6 +183,37 @@ private extension AccountsSettingsView {
             deleteError = error.localizedDescription
         }
         pendingDelete = nil
+    }
+}
+
+// MARK: - Monogram
+
+/// The design's gradient profile avatar, at row scale. Uses the same
+/// accent→link ramp as the mock's `linear-gradient(135deg,#0a84ff,#5e5ce6)`,
+/// resolved from the palette so it follows the active theme.
+private struct ProfileMonogram: View {
+    @Environment(\.palette) private var palette
+
+    let name: String
+
+    private var initial: String {
+        String(name.trimmingCharacters(in: .whitespaces).prefix(1)).uppercased()
+    }
+
+    var body: some View {
+        Text(initial)
+            .amgiFont(.caption)
+            .fontWeight(.semibold)
+            .foregroundStyle(.white)
+            .frame(width: 30, height: 30)
+            .background(
+                LinearGradient(
+                    colors: [palette.accent, palette.link],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                in: Circle()
+            )
     }
 }
 

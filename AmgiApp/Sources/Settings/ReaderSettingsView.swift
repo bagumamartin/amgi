@@ -95,49 +95,147 @@ struct ReaderSettingsView: View {
     @Environment(\.palette) private var palette
 
     var body: some View {
-        Form {
-            Section("Reader Tab") {
-                Toggle("Show Reader tab", isOn: Binding($showTab))
-            }
+        SettingsPage {
+            readerTabSection
+            displaySection
+            themeSection
+            toolbarSection
+            popupSection
+        }
+        .navigationTitle("Reader Display")
+        .navigationBarTitleDisplayMode(.inline)
+    }
 
-            Section("Lookup") {
-                Toggle("Tap word to look up", isOn: Binding($tapLookup))
-            }
+    // MARK: - Reader tab & lookup
 
-            Section("Display") {
-                Picker("Font", selection: Binding($selectedFontRaw)) {
+    /// "Reader Tab" and "Lookup" were a section each for one toggle apiece;
+    /// the design's grouping reads better with both under one header.
+    private var readerTabSection: some View {
+        Group {
+            SettingsSectionHeader(title: "Reader")
+            SettingsGroup {
+                SettingsToggleRow(
+                    title: "Show Reader tab",
+                    systemImage: "book",
+                    tone: .accent,
+                    isOn: Binding($showTab)
+                )
+                SettingsSeparator()
+                SettingsToggleRow(
+                    title: "Tap word to look up",
+                    systemImage: "hand.tap",
+                    tone: .info,
+                    isOn: Binding($tapLookup)
+                )
+            }
+        }
+    }
+
+    // MARK: - Display
+
+    private var displaySection: some View {
+        Group {
+            SettingsSectionHeader(title: "Display")
+            SettingsGroup {
+                SettingsPickerRow(
+                    title: "Font",
+                    systemImage: "textformat",
+                    tone: .accent,
+                    selection: Binding($selectedFontRaw)
+                ) {
                     ForEach(ReaderFontOption.allCases) { option in
                         Text(option.title).tag(option.rawValue)
                     }
                 }
-                LabeledContent("Font size") {
-                    Stepper("\(Int(fontSize))pt", value: Binding($fontSize), in: 12...32, step: 1)
-                }
-                LabeledContent("Line height") {
-                    Stepper(String(format: "%.1f", lineHeight), value: Binding($lineHeight), in: 1.0...2.5, step: 0.1)
-                }
-                LabeledContent("Horizontal padding") {
-                    Stepper("\(Int(horizontalPadding))pt", value: Binding($horizontalPadding), in: 0...64, step: 2)
-                }
-                LabeledContent("Vertical padding") {
-                    Stepper("\(Int(verticalPadding))pt", value: Binding($verticalPadding), in: 0...64, step: 2)
-                }
-                Toggle("Justify text", isOn: Binding($justifyText))
-                LabeledContent("Letter spacing") {
-                    Stepper(
-                        String(format: "%.2fem", characterSpacing / 100),
-                        value: Binding($characterSpacing),
-                        in: -5...20,
-                        step: 1
-                    )
-                }
-                Toggle("Avoid breaking paragraphs", isOn: Binding($avoidPageBreak))
-                Toggle("Hide furigana / ruby", isOn: Binding($hideFurigana))
-                Toggle("Vertical writing (CJK)", isOn: Binding($verticalLayout))
+                SettingsSeparator()
+                SettingsStepperRow(
+                    title: "Font size",
+                    systemImage: "textformat.size",
+                    tone: .accent,
+                    value: Binding($fontSize),
+                    range: 12...32,
+                    step: 1
+                ) { "\(Int($0))pt" }
+                SettingsSeparator()
+                SettingsStepperRow(
+                    title: "Line height",
+                    systemImage: "arrow.up.and.down.text.horizontal",
+                    tone: .link,
+                    value: Binding($lineHeight),
+                    range: 1.0...2.5,
+                    step: 0.1
+                ) { String(format: "%.1f", $0) }
+                SettingsSeparator()
+                SettingsStepperRow(
+                    title: "Horizontal padding",
+                    systemImage: "arrow.left.and.right",
+                    tone: .neutral,
+                    value: Binding($horizontalPadding),
+                    range: 0...64,
+                    step: 2
+                ) { "\(Int($0))pt" }
+                SettingsSeparator()
+                SettingsStepperRow(
+                    title: "Vertical padding",
+                    systemImage: "arrow.up.and.down",
+                    tone: .neutral,
+                    value: Binding($verticalPadding),
+                    range: 0...64,
+                    step: 2
+                ) { "\(Int($0))pt" }
+                SettingsSeparator()
+                SettingsStepperRow(
+                    title: "Letter spacing",
+                    systemImage: "character",
+                    tone: .link,
+                    value: Binding($characterSpacing),
+                    range: -5...20,
+                    step: 1
+                ) { String(format: "%.2fem", $0 / 100) }
+                SettingsSeparator()
+                SettingsToggleRow(
+                    title: "Justify text",
+                    systemImage: "text.justify",
+                    tone: .mature,
+                    isOn: Binding($justifyText)
+                )
+                SettingsSeparator()
+                SettingsToggleRow(
+                    title: "Avoid breaking paragraphs",
+                    systemImage: "paragraphsign",
+                    tone: .mature,
+                    isOn: Binding($avoidPageBreak)
+                )
+                SettingsSeparator()
+                SettingsToggleRow(
+                    title: "Hide furigana / ruby",
+                    systemImage: "eye.slash",
+                    tone: .learning,
+                    isOn: Binding($hideFurigana)
+                )
+                SettingsSeparator()
+                SettingsToggleRow(
+                    title: "Vertical writing (CJK)",
+                    systemImage: "character.textbox",
+                    tone: .learning,
+                    isOn: Binding($verticalLayout)
+                )
             }
+        }
+    }
 
-            Section("Theme") {
-                Picker("Theme", selection: Binding($themeModeRaw)) {
+    // MARK: - Theme
+
+    private var themeSection: some View {
+        Group {
+            SettingsSectionHeader(title: "Theme")
+            SettingsGroup {
+                SettingsPickerRow(
+                    title: "Theme",
+                    systemImage: "circle.lefthalf.filled",
+                    tone: .mature,
+                    selection: Binding($themeModeRaw)
+                ) {
                     ForEach(ReaderThemeMode.allCases) { mode in
                         Text(mode.label).tag(mode.rawValue)
                     }
@@ -148,62 +246,162 @@ struct ReaderSettingsView: View {
                     // Color, we round-trip through #RRGGBB so the value
                     // persists in @Shared and slots into the chapter
                     // reader's CSS without further conversion.
-                    ColorPicker(
-                        "Text colour",
-                        selection: hexBinding(for: $customTextColorHex, fallback: .primary),
-                        supportsOpacity: false
+                    SettingsSeparator()
+                    SettingsColorRow(
+                        title: "Text colour",
+                        systemImage: "paintbrush",
+                        tone: .link,
+                        color: hexBinding(for: $customTextColorHex, fallback: palette.textPrimary)
                     )
-                    ColorPicker(
-                        "Background colour",
-                        selection: hexBinding(for: $customBackgroundColorHex, fallback: palette.background),
-                        supportsOpacity: false
+                    SettingsSeparator()
+                    SettingsColorRow(
+                        title: "Background colour",
+                        systemImage: "paintpalette",
+                        tone: .neutral,
+                        color: hexBinding(for: $customBackgroundColorHex, fallback: palette.background)
                     )
                     if !hideFurigana {
-                        ColorPicker(
-                            "Furigana / hint colour",
-                            selection: hexBinding(for: $customHintColorHex, fallback: .secondary),
-                            supportsOpacity: false
+                        SettingsSeparator()
+                        SettingsColorRow(
+                            title: "Furigana / hint colour",
+                            systemImage: "eyedropper",
+                            tone: .info,
+                            color: hexBinding(for: $customHintColorHex, fallback: palette.textSecondary)
                         )
                     }
                 }
             }
+        }
+    }
 
-            Section("Toolbar") {
-                Toggle("Show chapter title", isOn: Binding($showTitle))
-                Toggle("Show percentage", isOn: Binding($showPercentage))
-                Toggle("Top progress bar", isOn: Binding($showProgressTop))
-                Toggle("Debug overlay", isOn: Binding($debugInfoEnabled))
-            }
+    // MARK: - Toolbar
 
-            Section("Lookup popup") {
-                Toggle("Full-screen popup", isOn: Binding($popupFullWidth))
-                if !popupFullWidth {
-                    LabeledContent("Popup height") {
-                        Stepper("\(Int(popupHeight))%", value: Binding($popupHeight), in: 30...95, step: 5)
-                    }
-                }
-                Toggle("Swipe-down handle", isOn: Binding($popupSwipeToDismiss))
-                Toggle("Collapse dictionaries", isOn: Binding($popupCollapseDictionaries))
-                Toggle("Compact glossaries", isOn: Binding($popupCompactGlossaries))
-                LabeledContent("Body font") {
-                    Stepper("\(Int(popupFontSize))pt", value: Binding($popupFontSize), in: 11...28, step: 1)
-                }
-                LabeledContent("Definition font") {
-                    Stepper("\(Int(popupContentFontSize))pt", value: Binding($popupContentFontSize), in: 11...28, step: 1)
-                }
-                LabeledContent("Reading font") {
-                    Stepper("\(Int(popupKanaFontSize))pt", value: Binding($popupKanaFontSize), in: 9...24, step: 1)
-                }
-                LabeledContent("Frequency font") {
-                    Stepper("\(Int(popupFrequencyFontSize))pt", value: Binding($popupFrequencyFontSize), in: 8...20, step: 1)
-                }
-                LabeledContent("Dictionary header") {
-                    Stepper("\(Int(popupDictionaryNameFontSize))pt", value: Binding($popupDictionaryNameFontSize), in: 8...20, step: 1)
-                }
+    private var toolbarSection: some View {
+        Group {
+            SettingsSectionHeader(title: "Toolbar")
+            SettingsGroup {
+                SettingsToggleRow(
+                    title: "Show chapter title",
+                    systemImage: "textformat",
+                    tone: .accent,
+                    isOn: Binding($showTitle)
+                )
+                SettingsSeparator()
+                SettingsToggleRow(
+                    title: "Show percentage",
+                    systemImage: "percent",
+                    tone: .review,
+                    isOn: Binding($showPercentage)
+                )
+                SettingsSeparator()
+                SettingsToggleRow(
+                    title: "Top progress bar",
+                    systemImage: "chart.bar",
+                    tone: .review,
+                    isOn: Binding($showProgressTop)
+                )
+                SettingsSeparator()
+                SettingsToggleRow(
+                    title: "Debug overlay",
+                    systemImage: "ladybug",
+                    tone: .danger,
+                    isOn: Binding($debugInfoEnabled)
+                )
             }
         }
-        .navigationTitle("Reader Display")
-        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    // MARK: - Lookup popup
+
+    private var popupSection: some View {
+        Group {
+            SettingsSectionHeader(title: "Lookup Popup")
+            SettingsGroup {
+                SettingsToggleRow(
+                    title: "Full-screen popup",
+                    systemImage: "arrow.up.left.and.arrow.down.right",
+                    tone: .accent,
+                    isOn: Binding($popupFullWidth)
+                )
+                if !popupFullWidth {
+                    SettingsSeparator()
+                    SettingsStepperRow(
+                        title: "Popup height",
+                        systemImage: "arrow.up.and.down",
+                        tone: .accent,
+                        value: Binding($popupHeight),
+                        range: 30...95,
+                        step: 5
+                    ) { "\(Int($0))%" }
+                }
+                SettingsSeparator()
+                SettingsToggleRow(
+                    title: "Swipe-down handle",
+                    systemImage: "hand.draw",
+                    tone: .info,
+                    isOn: Binding($popupSwipeToDismiss)
+                )
+                SettingsSeparator()
+                SettingsToggleRow(
+                    title: "Collapse dictionaries",
+                    systemImage: "rectangle.compress.vertical",
+                    tone: .neutral,
+                    isOn: Binding($popupCollapseDictionaries)
+                )
+                SettingsSeparator()
+                SettingsToggleRow(
+                    title: "Compact glossaries",
+                    systemImage: "list.bullet",
+                    tone: .neutral,
+                    isOn: Binding($popupCompactGlossaries)
+                )
+                SettingsSeparator()
+                SettingsStepperRow(
+                    title: "Body font",
+                    systemImage: "textformat.size",
+                    tone: .mature,
+                    value: Binding($popupFontSize),
+                    range: 11...28,
+                    step: 1
+                ) { "\(Int($0))pt" }
+                SettingsSeparator()
+                SettingsStepperRow(
+                    title: "Definition font",
+                    systemImage: "text.alignleft",
+                    tone: .mature,
+                    value: Binding($popupContentFontSize),
+                    range: 11...28,
+                    step: 1
+                ) { "\(Int($0))pt" }
+                SettingsSeparator()
+                SettingsStepperRow(
+                    title: "Reading font",
+                    systemImage: "quote.bubble",
+                    tone: .link,
+                    value: Binding($popupKanaFontSize),
+                    range: 9...24,
+                    step: 1
+                ) { "\(Int($0))pt" }
+                SettingsSeparator()
+                SettingsStepperRow(
+                    title: "Frequency font",
+                    systemImage: "number",
+                    tone: .review,
+                    value: Binding($popupFrequencyFontSize),
+                    range: 8...20,
+                    step: 1
+                ) { "\(Int($0))pt" }
+                SettingsSeparator()
+                SettingsStepperRow(
+                    title: "Dictionary header",
+                    systemImage: "character.book.closed",
+                    tone: .learning,
+                    value: Binding($popupDictionaryNameFontSize),
+                    range: 8...20,
+                    step: 1
+                ) { "\(Int($0))pt" }
+            }
+        }
     }
 }
 

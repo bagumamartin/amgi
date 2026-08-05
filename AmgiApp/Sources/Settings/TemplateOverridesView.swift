@@ -21,6 +21,9 @@ struct TemplateOverridesView: View {
     /// "mid:ord" → resolved "Notetype · Template" display name.
     @State private var displayNames: [String: String] = [:]
 
+    // Stays a `List` for `onDelete` — swipe-to-delete is the only way to
+    // clear an override, so the design chrome is applied to the List rather
+    // than moving these rows into a `SettingsGroup`.
     var body: some View {
         List {
             if entries.isEmpty {
@@ -29,13 +32,17 @@ struct TemplateOverridesView: View {
                     systemImage: "rectangle.on.rectangle.slash",
                     description: Text("Set one from the render-mode sheet while reviewing.")
                 )
+                .listRowBackground(Color.clear)
             } else {
                 ForEach(entries, id: \.key) { entry in
                     row(for: entry)
+                        .listRowBackground(palette.surfaceElevated)
                 }
                 .onDelete(perform: delete)
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(palette.background)
         .navigationTitle("Template Overrides")
         .navigationBarTitleDisplayMode(.inline)
         .task(id: overridesRaw) { await resolveNames() }
@@ -46,13 +53,15 @@ struct TemplateOverridesView: View {
     }
 
     private func row(for entry: (key: String, engine: CardRenderEngine)) -> some View {
-        HStack {
+        HStack(spacing: AmgiSpacing.md) {
+            SettingsIconTile(systemImage: "doc.text", tone: .neutral)
             Text(displayNames[entry.key] ?? entry.key)
+                .amgiFont(.body)
                 .foregroundStyle(palette.textPrimary)
                 .lineLimit(1)
-            Spacer()
+            Spacer(minLength: AmgiSpacing.sm)
             Text(entry.engine.displayName)
-                .amgiFont(.caption)
+                .amgiFont(.body)
                 .foregroundStyle(palette.textSecondary)
         }
     }

@@ -2,12 +2,6 @@ import SwiftUI
 import Sharing
 
 struct ReviewSettingsView: View {
-    @Shared(.appStorage(ReviewPreferences.Keys.showAudioReplayButton))
-    private var showAudioReplayButton: Bool = true
-
-    @Shared(.appStorage(ReviewPreferences.Keys.showContextMenuButton))
-    private var showContextMenuButton: Bool = true
-
     @Shared(.appStorage(ReviewPreferences.Keys.openLinksExternally))
     private var openLinksExternally: Bool = true
 
@@ -27,32 +21,79 @@ struct ReviewSettingsView: View {
     private var playAudioInSilentMode: Bool = false
 
     var body: some View {
-        Form {
-            Section("Toolbar") {
-                Toggle("Show audio replay button", isOn: Binding($showAudioReplayButton))
-                Toggle("Show context menu", isOn: Binding($showContextMenuButton))
-            }
+        SettingsPage {
+            cardDisplaySection
+            answerButtonsSection
+            audioSection
+        }
+        .navigationTitle("Review")
+        .navigationBarTitleDisplayMode(.inline)
+    }
 
-            Section("Card Display") {
-                Toggle("Match toolbar to card background", isOn: Binding($autoMatchCardBackground))
-                Toggle("Open links externally", isOn: Binding($openLinksExternally))
-                Picker("Content alignment", selection: Binding($cardContentAlignment)) {
+    private var cardDisplaySection: some View {
+        Group {
+            SettingsSectionHeader(title: "Card Display")
+            SettingsGroup {
+                SettingsToggleRow(
+                    title: "Match toolbar to card background",
+                    systemImage: "paintbrush",
+                    tone: .mature,
+                    isOn: Binding($autoMatchCardBackground)
+                )
+                SettingsSeparator()
+                SettingsToggleRow(
+                    title: "Open links externally",
+                    systemImage: "arrow.up.right.square",
+                    tone: .accent,
+                    isOn: Binding($openLinksExternally)
+                )
+                SettingsSeparator()
+                SettingsPickerRow(
+                    title: "Content alignment",
+                    systemImage: "arrow.up.and.down.text.horizontal",
+                    tone: .link,
+                    selection: Binding($cardContentAlignment)
+                ) {
                     Text("Center").tag(CardWebViewContentAlignment.center.rawValue)
                     Text("Top").tag(CardWebViewContentAlignment.top.rawValue)
                 }
             }
+        }
+    }
 
-            Section("Answer Buttons") {
-                Toggle("Show remaining counts", isOn: Binding($showRemainingDays))
-                Toggle("Show next review time", isOn: Binding($showNextReviewTime))
-            }
-
-            Section("Audio") {
-                Toggle("Play audio in silent mode", isOn: Binding($playAudioInSilentMode))
+    private var answerButtonsSection: some View {
+        Group {
+            SettingsSectionHeader(title: "Answer Buttons")
+            SettingsGroup {
+                SettingsToggleRow(
+                    title: "Show remaining counts",
+                    systemImage: "number",
+                    tone: .review,
+                    isOn: Binding($showRemainingDays)
+                )
+                SettingsSeparator()
+                SettingsToggleRow(
+                    title: "Show next review time",
+                    systemImage: "clock",
+                    tone: .info,
+                    isOn: Binding($showNextReviewTime)
+                )
             }
         }
-        .navigationTitle("Review")
-        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var audioSection: some View {
+        Group {
+            SettingsSectionHeader(title: "Audio")
+            SettingsGroup {
+                SettingsToggleRow(
+                    title: "Play audio in silent mode",
+                    systemImage: "speaker.wave.2",
+                    tone: .learning,
+                    isOn: Binding($playAudioInSilentMode)
+                )
+            }
+        }
     }
 }
 

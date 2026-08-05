@@ -11,6 +11,7 @@
 		01BBA23FD8A728553F6179CB /* EaseChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA7B1366ED7DF9A2977AC85B /* EaseChart.swift */; };
 		02CEE9B27A99ED4E31361BBD /* BookCoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEEFEFF49240640D62CEE23A /* BookCoverView.swift */; };
 		031AF93F320B7E29AC835AF7 /* StatsDualAxisSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FA551A94122B948800BA53 /* StatsDualAxisSupport.swift */; };
+		036A4625F27B308AC8035966 /* SettingsControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0DAB1812F24856DD3CC942C /* SettingsControls.swift */; };
 		044818E78C0D0052B0817B6A /* AddNoteModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91CBC60291E12D8CD15E768A /* AddNoteModel.swift */; };
 		0453D87A64F5D97716D53E90 /* CardWebViewCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 342022B67A1EDBA3B371E543 /* CardWebViewCoordinator.swift */; };
 		049D4E82AD8D2DD926E3BE97 /* ReaderDictionarySettingsModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 522511E7EC771CFB49023F9B /* ReaderDictionarySettingsModel.swift */; };
@@ -221,6 +222,7 @@
 		E73EF98873CC705B36CD1774 /* SharedKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = 230D9AB6235454610CDF182B /* SharedKeys.swift */; };
 		E8CE9276CD85FEC652968AA5 /* RenameDeckSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 171ECA86AAD36234799EBED9 /* RenameDeckSheet.swift */; };
 		ED773D0658D79BF857AC7E33 /* DeckDetailDestination.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45A39E0F75D5CDD329862A7E /* DeckDetailDestination.swift */; };
+		ED890DB131928B61AEA1551B /* SettingsRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C87EF9E38E61B70CF4113A4 /* SettingsRow.swift */; };
 		EF9AE5772C4EAA9AA7A33BEC /* MaintenanceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D38F9CB4658B665209B01BB2 /* MaintenanceView.swift */; };
 		F12D2524A2616E3735B61E6F /* AppearanceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 652D89BC805F4B74FCAB89D3 /* AppearanceSettingsView.swift */; };
 		F1BDD71EC7EFF9A9ECA8F980 /* ReaderLibraryContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 724EE9AA1730F39FDF095BBB /* ReaderLibraryContent.swift */; };
@@ -304,6 +306,7 @@
 		2A11DFFF9A3870EF818C896E /* ReaderProgressCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderProgressCoordinator.swift; sourceTree = "<group>"; };
 		2B60A11C277A30E8180CB0F1 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		2C32F2FF0EE183937B7EE822 /* FlipContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlipContainer.swift; sourceTree = "<group>"; };
+		2C87EF9E38E61B70CF4113A4 /* SettingsRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsRow.swift; sourceTree = "<group>"; };
 		2CF9227A3F798C67AD696F1A /* RatingBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RatingBar.swift; sourceTree = "<group>"; };
 		2E09DF2F9BCEDD04F59A90AA /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		308AC2057FB8232A7A730D15 /* mathjax */ = {isa = PBXFileReference; lastKnownFileType = folder; name = mathjax; path = Resources/mathjax; sourceTree = SOURCE_ROOT; };
@@ -436,6 +439,7 @@
 		DD38D99FF14674DC0A70D908 /* ReaderDictionarySettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderDictionarySettingsView.swift; sourceTree = "<group>"; };
 		DE61E854280804F08BB1DD31 /* AmgiApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AmgiApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DEB7C216105220809180B8CF /* WatchContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchContentView.swift; sourceTree = "<group>"; };
+		E0DAB1812F24856DD3CC942C /* SettingsControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsControls.swift; sourceTree = "<group>"; };
 		E15B27DFDDB066A4F26A2AC0 /* LoginSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginSheet.swift; sourceTree = "<group>"; };
 		E164CDFA0C6357AEFBD66E15 /* ReaderFontOption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderFontOption.swift; sourceTree = "<group>"; };
 		E265F3067C4AA7E4D05DD2FC /* CardWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardWebView.swift; sourceTree = "<group>"; };
@@ -665,6 +669,8 @@
 				BFDE1678CF021B6CF705D5CC /* ReaderSettingsView.swift */,
 				36D4DFA2DF34A6AD6A6A5366 /* ReviewPreferences.swift */,
 				00A7ECF267A21BE8F7DB66A2 /* ReviewSettingsView.swift */,
+				E0DAB1812F24856DD3CC942C /* SettingsControls.swift */,
+				2C87EF9E38E61B70CF4113A4 /* SettingsRow.swift */,
 				BFF13DB7D64E209817493CD6 /* SettingsView.swift */,
 				9B33C212E000026ABADB018F /* SyncSettingsView.swift */,
 				728F705D19CD3E981D1D63BD /* TemplateOverridesView.swift */,
@@ -1071,9 +1077,9 @@
 			projectRoot = "";
 			targets = (
 				95284AD6E89B9B84191749DE /* AmgiApp */,
-				EE6CF1FAA191BC2F0404B752 /* AmgiAppTests */,
-				D799962EF4F5CA4D32203063 /* AmgiWatchApp */,
 				9B3B324834735D7AA9620491 /* AmgiWidget */,
+				D799962EF4F5CA4D32203063 /* AmgiWatchApp */,
+				EE6CF1FAA191BC2F0404B752 /* AmgiAppTests */,
 			);
 		};
 /* End PBXProject section */
@@ -1286,6 +1292,8 @@
 				0F40C1E8847A0ABB57C180F5 /* ReviewView.swift in Sources */,
 				22002B3423A998AABA9D4255 /* ReviewsChart.swift in Sources */,
 				DE6304E4AC1A28DA10A62A53 /* RichNoteFieldEditor.swift in Sources */,
+				036A4625F27B308AC8035966 /* SettingsControls.swift in Sources */,
+				ED890DB131928B61AEA1551B /* SettingsRow.swift in Sources */,
 				6D783B1E6B06D55C4F3CDB41 /* SettingsView.swift in Sources */,
 				1A215EB46E5B321E13CB9CFB /* ShareSheet.swift in Sources */,
 				C982AAB082A6BE5BF81A38E0 /* SharedKeys.swift in Sources */,

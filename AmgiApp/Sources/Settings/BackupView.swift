@@ -59,17 +59,17 @@ struct BackupView: View {
             Button {
                 Task { await createBackup() }
             } label: {
-                if isCreating {
-                    HStack {
-                        Label("Creating backup…", systemImage: "externaldrive.badge.plus")
-                        Spacer()
-                        ProgressView()
-                    }
-                } else {
-                    Label("Create backup now", systemImage: "externaldrive.badge.plus")
+                HStack(spacing: AmgiSpacing.md) {
+                    SettingsIconTile(systemImage: "externaldrive.badge.plus", tone: .accent)
+                    Text(isCreating ? "Creating backup…" : "Create backup now")
+                        .amgiFont(.body)
+                        .foregroundStyle(palette.textPrimary)
+                    Spacer(minLength: AmgiSpacing.sm)
+                    if isCreating { ProgressView() }
                 }
             }
             .disabled(isCreating)
+            .listRowBackground(palette.surfaceElevated)
         } footer: {
             Text("Backups live in this device's Documents folder for the current profile. Use Share to copy a backup to Files, iCloud Drive, or another device.")
                 .amgiFont(.caption)
@@ -80,16 +80,19 @@ struct BackupView: View {
     private var emptySection: some View {
         Section {
             Text("No backups yet.")
+                .amgiFont(.body)
                 .foregroundStyle(palette.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.vertical, 8)
+                .padding(.vertical, AmgiSpacing.sm)
+                .listRowBackground(palette.surfaceElevated)
         }
     }
 
     private var listSection: some View {
-        Section("Available backups") {
+        Section {
             ForEach(backups) { entry in
                 BackupRow(entry: entry, accent: palette.accent)
+                    .listRowBackground(palette.surfaceElevated)
                     .swipeActions(edge: .trailing) {
                         Button(role: .destructive) {
                             backupToDelete = entry
@@ -99,6 +102,8 @@ struct BackupView: View {
                         }
                     }
             }
+        } header: {
+            SettingsListHeader("Available backups")
         }
     }
 
@@ -183,9 +188,11 @@ private struct BackupRow: View {
     @Environment(\.palette) private var palette
 
     var body: some View {
-        HStack {
+        HStack(spacing: AmgiSpacing.md) {
+            SettingsIconTile(systemImage: "clock.arrow.circlepath", tone: .mature)
             VStack(alignment: .leading, spacing: AmgiSpacing.xxs) {
                 Text(entry.formattedDate)
+                    .amgiFont(.body)
                     .foregroundStyle(palette.textPrimary)
                 Text(entry.fileSize)
                     .amgiFont(.caption)

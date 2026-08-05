@@ -161,7 +161,7 @@ struct EmptyCardsContent: View {
     }
 
     private var affectedNotesSection: some View {
-        Section("Affected notes") {
+        Section {
             ForEach(model.noteEntries) { entry in
                 Button {
                     onOpenNote(entry.id)
@@ -191,6 +191,8 @@ struct EmptyCardsContent: View {
                 .contentShape(Rectangle())
                 .listRowBackground(palette.surfaceElevated)
             }
+        } header: {
+            SettingsListHeader("Affected notes")
         }
     }
 

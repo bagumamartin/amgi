@@ -8,26 +8,41 @@ struct MaintenanceView: View {
     @Environment(\.palette) private var palette
 
     var body: some View {
-        Form {
-            Section {
-                Button("Check Database") { model.checkDatabase() }
-            } footer: {
-                Text("Verifies the integrity of your local Anki collection.")
+        SettingsPage {
+            SettingsSectionHeader(title: "Collection")
+            SettingsGroup {
+                SettingsButtonRow(
+                    title: "Check Database",
+                    systemImage: "stethoscope",
+                    tone: .info
+                ) {
+                    model.checkDatabase()
+                }
             }
+            SettingsFootnote("Verifies the integrity of your local Anki collection.")
 
-            Section {
-                Button("Reset Everything", role: .destructive) {
+            SettingsSectionHeader(title: "Danger Zone")
+            SettingsGroup {
+                SettingsButtonRow(
+                    title: "Reset Everything",
+                    systemImage: "trash",
+                    tone: .danger,
+                    isDestructive: true
+                ) {
                     showResetConfirm = true
                 }
-            } footer: {
-                Text("Deletes the local collection and credentials. You will need to sync or re-import after.")
             }
+            SettingsFootnote("Deletes the local collection and credentials. You will need to sync or re-import after.")
 
             if !model.statusMessage.isEmpty {
-                Section("Status") {
+                SettingsSectionHeader(title: "Status")
+                SettingsGroup {
                     Text(model.statusMessage)
                         .amgiFont(.caption)
                         .foregroundStyle(palette.textSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, AmgiSpacing.lg)
+                        .padding(.vertical, AmgiSpacing.md)
                 }
             }
         }
