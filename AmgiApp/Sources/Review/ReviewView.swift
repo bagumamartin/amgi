@@ -15,12 +15,6 @@ struct ReviewView: View {
     let deckId: DeckID
     let onDismiss: () -> Void
 
-    @Shared(.appStorage(ReviewPreferences.Keys.showAudioReplayButton))
-    private var showAudioReplayButton: Bool = true
-
-    @Shared(.appStorage(ReviewPreferences.Keys.showContextMenuButton))
-    private var showContextMenuButton: Bool = true
-
     @Shared(.appStorage(ReviewPreferences.Keys.openLinksExternally))
     private var openLinksExternally: Bool = true
 
@@ -57,8 +51,6 @@ struct ReviewView: View {
         ReviewContent(
             session: session,
             showRemainingDays: showRemainingDays,
-            showAudioReplayButton: showAudioReplayButton,
-            showContextMenuButton: showContextMenuButton,
             autoMatchCardBackground: autoMatchCardBackground,
             openLinksExternally: openLinksExternally,
             cardContentAlignment: cardContentAlignment,
@@ -91,8 +83,6 @@ struct ReviewView: View {
 private struct ReviewContent: View {
     let session: ReviewSession
     let showRemainingDays: Bool
-    let showAudioReplayButton: Bool
-    let showContextMenuButton: Bool
     let autoMatchCardBackground: Bool
     let openLinksExternally: Bool
     let cardContentAlignment: String
@@ -104,6 +94,8 @@ private struct ReviewContent: View {
     let onDismiss: () -> Void
 
     @Environment(\.palette) private var palette
+    @State private var cardActions = CardContextMenuModel()
+    @State private var confirmDeleteNote = false
 
     var body: some View {
         NavigationStack {
@@ -167,9 +159,24 @@ private struct ReviewContent: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        session.undo()
+                    } label: {
+                        Image(systemName: "arrow.uturn.backward")
+                    }
+                    .disabled(!session.canUndo)
+                    .accessibilityLabel("Undo")
+                }
+                ToolbarItem(placement: .topBarTrailing) {
                     cardActionsMenu
                 }
             }
+            .cardActionPresentations(
+                model: cardActions,
+                cardId: session.currentCardId,
+                noteId: session.currentNote?.id,
+                confirmDeleteNote: $confirmDeleteNote
+            )
             .toolbarBackground(
                 autoMatchCardBackground ? session.cardChromeColor : Color.clear,
                 for: .navigationBar
@@ -249,37 +256,45 @@ private struct ReviewContent: View {
 
     // MARK: - Card actions
 
-    /// The single overflow menu that replaces the row of toolbar icons:
-    /// undo, edit note, look up, replay audio, and card/template options.
-    /// Individual items carry their own disabled state so undo stays
-    /// reachable even when there's no current note (e.g. finished screen).
+    /// Every card action in one flat menu: the flag palette, this screen's own
+    /// edit/lookup/audio items, then the shared card and note sections. No
+    /// submenus and no duplicated Undo — Undo is a toolbar button of its own,
+    /// since it's the action a reviewer reaches for mid-session.
+    ///
+    /// The label keeps its `…` shape whatever the flag state; a flagged card
+    /// only tints it, so the "more actions" affordance never changes glyph
+    /// under the user.
     @ViewBuilder
     private var cardActionsMenu: some View {
         Menu {
-            Button {
-                session.undo()
-            } label: {
-                Label("Undo", systemImage: "arrow.uturn.backward")
-            }
-            .disabled(!session.canUndo)
-
-            Button {
-                editingNote = session.currentNote
-            } label: {
-                Label("Edit Note", systemImage: "pencil")
-            }
-            .disabled(session.currentNote == nil)
-
-            Button {
-                // Empty initial query opens the popup focused for typing.
-                // Future enhancement: forward CardWebView text-selection so
-                // the query is pre-populated.
-                lookupQuery = ""
-            } label: {
-                Label("Look Up", systemImage: "character.book.closed")
+            if let cardId = session.currentCardId {
+                CardFlagPicker(model: cardActions, cardId: cardId)
             }
 
-            if showAudioReplayButton {
+            Section {
+                Button {
+                    editingNote = session.currentNote
+                } label: {
+                    Label("Edit Note", systemImage: "pencil")
+                }
+                .disabled(session.currentNote == nil)
+
+                Button {
+                    editingTemplate = session.currentTemplateTarget
+                } label: {
+                    Label("Edit Template", systemImage: "square.and.pencil")
+                }
+                .disabled(session.currentTemplateTarget == nil)
+
+                Button {
+                    // Empty initial query opens the popup focused for typing.
+                    // Future enhancement: forward CardWebView text-selection so
+                    // the query is pre-populated.
+                    lookupQuery = ""
+                } label: {
+                    Label("Look Up", systemImage: "character.book.closed")
+                }
+
                 Button {
                     if session.isAudioPlaying {
                         session.bumpStopAudioRequest()
@@ -295,27 +310,23 @@ private struct ReviewContent: View {
                 .disabled(session.currentNote == nil)
             }
 
-            if showContextMenuButton {
-                Divider()
-                if let cardId = session.currentCardId {
-                    CardContextMenu(cardId: cardId, noteId: session.currentNote?.id)
-                }
-                Button {
-                    editingTemplate = session.currentTemplateTarget
-                } label: {
-                    Label("Edit Template", systemImage: "square.and.pencil")
-                }
-                .disabled(session.currentTemplateTarget == nil)
+            if let cardId = session.currentCardId {
+                CardActionSections(
+                    model: cardActions,
+                    cardId: cardId,
+                    noteId: session.currentNote?.id,
+                    confirmDeleteNote: $confirmDeleteNote
+                )
             }
         } label: {
-            if session.currentFlag != 0 {
-                Image(systemName: "flag.fill")
-                    .foregroundStyle(flagColor(for: session.currentFlag))
-            } else {
-                Image(systemName: "ellipsis.circle")
-            }
+            Image(systemName: "ellipsis.circle")
+                .foregroundStyle(
+                    cardActions.currentFlag == 0
+                        ? palette.accent
+                        : CardFlag.color(cardActions.currentFlag)
+                )
         }
-        .accessibilityLabel("Card options")
+        .accessibilityLabel("Card actions")
     }
 
     private var finishedView: some View {
@@ -340,21 +351,6 @@ private struct ReviewContent: View {
             Button("Done") { onDismiss() }
                 .buttonStyle(AmgiPrimaryButtonStyle())
                 .padding()
-        }
-    }
-}
-
-private extension ReviewContent {
-    func flagColor(for value: UInt32) -> Color {
-        switch value & 0b111 {
-        case 1: return .red
-        case 2: return .orange
-        case 3: return .green
-        case 4: return .blue
-        case 5: return .pink
-        case 6: return .cyan
-        case 7: return .purple
-        default: return .secondary
         }
     }
 }
@@ -589,8 +585,6 @@ private struct ReviewLookupQuery: Identifiable {
     ReviewContent(
         session: .preview(showAnswer: false),
         showRemainingDays: true,
-        showAudioReplayButton: true,
-        showContextMenuButton: true,
         autoMatchCardBackground: false,
         openLinksExternally: true,
         cardContentAlignment: CardWebViewContentAlignment.center.rawValue,
@@ -607,8 +601,6 @@ private struct ReviewLookupQuery: Identifiable {
     ReviewContent(
         session: .preview(showAnswer: true),
         showRemainingDays: true,
-        showAudioReplayButton: true,
-        showContextMenuButton: true,
         autoMatchCardBackground: false,
         openLinksExternally: true,
         cardContentAlignment: CardWebViewContentAlignment.center.rawValue,
@@ -625,8 +617,6 @@ private struct ReviewLookupQuery: Identifiable {
     ReviewContent(
         session: .preview(isFinished: true),
         showRemainingDays: true,
-        showAudioReplayButton: true,
-        showContextMenuButton: true,
         autoMatchCardBackground: false,
         openLinksExternally: true,
         cardContentAlignment: CardWebViewContentAlignment.center.rawValue,

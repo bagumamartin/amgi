@@ -1,22 +1,220 @@
 import SwiftUI
 import AmgiTheme
 import AnkiKit
-import UIKit
 
-/// Context menu for card operations (suspend, bury, flag, undo)
+/// Anki packs the flag into the low three bits of a card's `flags` field.
+enum CardFlag {
+    /// `0` is "no flag"; 1–7 are the seven colours, in Anki's order.
+    static let all: [UInt32] = [0, 1, 2, 3, 4, 5, 6, 7]
+
+    static func name(_ value: UInt32) -> String {
+        switch value & 0b111 {
+        case 1: return "Red"
+        case 2: return "Orange"
+        case 3: return "Green"
+        case 4: return "Blue"
+        case 5: return "Pink"
+        case 6: return "Cyan"
+        case 7: return "Purple"
+        default: return "No Flag"
+        }
+    }
+
+    static func color(_ value: UInt32) -> Color {
+        switch value & 0b111 {
+        case 1: return .red
+        case 2: return .orange
+        case 3: return .green
+        case 4: return .blue
+        case 5: return .pink
+        case 6: return .cyan
+        case 7: return .purple
+        default: return .secondary
+        }
+    }
+
+    static func symbol(_ value: UInt32) -> String {
+        value & 0b111 == 0 ? "flag.slash.fill" : "flag.fill"
+    }
+}
+
+// MARK: - Menu content
+
+/// The eight flags as an inline palette row rather than a submenu — the same
+/// shape Mail and Reminders use for flags and tags. One tap instead of two,
+/// and the current flag reads as a selection instead of a nested label.
+@MainActor
+struct CardFlagPicker: View {
+    let model: CardContextMenuModel
+    let cardId: CardID
+    var onAction: (_ shouldAdvance: Bool) -> Void = { _ in }
+
+    var body: some View {
+        Section {
+            Picker("Flag", selection: Binding(
+                get: { model.currentFlag & 0b111 },
+                set: { value in
+                    Task {
+                        if let advance = await model.flag(cardId, value) { onAction(advance) }
+                    }
+                }
+            )) {
+                ForEach(CardFlag.all, id: \.self) { value in
+                    Label(CardFlag.name(value), systemImage: CardFlag.symbol(value))
+                        .tint(CardFlag.color(value))
+                        .tag(value)
+                }
+            }
+            .pickerStyle(.palette)
+        }
+    }
+}
+
+/// Card and note operations as flat `Section`s — no submenus, so a host can
+/// drop them straight into its own `Menu` without nesting. Card-scope and
+/// note-scope actions are separated by section rather than by a "Note
+/// actions ▸" submenu, and the one destructive action sits alone at the end.
+///
+/// The error alert, the delete confirmation, and the initial state load live
+/// in `.cardActionPresentations`, which the host applies *outside* the
+/// enclosing `Menu`: presentations attached to menu content never show, and
+/// a `.task` there wouldn't run until the menu is opened.
+@MainActor
+struct CardActionSections: View {
+    let model: CardContextMenuModel
+    let cardId: CardID
+    var noteId: NoteID?
+    @Binding var confirmDeleteNote: Bool
+    var onRequestSetDueDate: ((_ cardId: CardID) -> Void)?
+    var onAction: (_ shouldAdvance: Bool) -> Void = { _ in }
+
+    var body: some View {
+        Section {
+            Button { act { await model.suspend(cardId) } } label: {
+                Label("Suspend Card", systemImage: "pause.circle")
+            }
+            Button { act { await model.bury(cardId) } } label: {
+                Label("Bury Card Until Tomorrow", systemImage: "books.vertical")
+            }
+            Button { act { await model.resetToNew(cardId) } } label: {
+                Label("Forget Card", systemImage: "arrow.counterclockwise")
+            }
+            if let onRequestSetDueDate {
+                Button { onRequestSetDueDate(cardId) } label: {
+                    Label("Set Due Date", systemImage: "calendar.badge.clock")
+                }
+            }
+        }
+
+        if let noteId {
+            Section {
+                Button { act { await model.toggleMarked(noteId) } } label: {
+                    Label(
+                        model.isMarkedNote ? "Unmark Note" : "Mark Note",
+                        systemImage: model.isMarkedNote ? "star.slash" : "star"
+                    )
+                }
+                Button { act { await model.suspendNote(noteId) } } label: {
+                    Label("Suspend Note", systemImage: "pause.circle.fill")
+                }
+                Button { act { await model.buryNote(noteId) } } label: {
+                    Label("Bury Note", systemImage: "books.vertical.fill")
+                }
+            }
+
+            Section {
+                Button(role: .destructive) { confirmDeleteNote = true } label: {
+                    Label("Delete Note", systemImage: "trash")
+                }
+            }
+        }
+    }
+
+    /// Run a model action and forward its outcome. `nil` means the action
+    /// failed and the model already raised the error alert.
+    private func act(_ body: @escaping () async -> Bool?) {
+        Task { if let shouldAdvance = await body() { onAction(shouldAdvance) } }
+    }
+}
+
+// MARK: - Presentations
+
+extension View {
+    /// Error alert, delete confirmation, and initial load for
+    /// `CardActionSections`/`CardFlagPicker`. Apply this to the view that
+    /// *hosts* the `Menu`, never inside the menu's content.
+    @MainActor
+    func cardActionPresentations(
+        model: CardContextMenuModel,
+        cardId: CardID?,
+        noteId: NoteID?,
+        confirmDeleteNote: Binding<Bool>,
+        onAction: @escaping (_ shouldAdvance: Bool) -> Void = { _ in }
+    ) -> some View {
+        modifier(CardActionPresentations(
+            model: model,
+            cardId: cardId,
+            noteId: noteId,
+            confirmDeleteNote: confirmDeleteNote,
+            onAction: onAction
+        ))
+    }
+}
+
+private struct CardActionPresentations: ViewModifier {
+    @Bindable var model: CardContextMenuModel
+    let cardId: CardID?
+    let noteId: NoteID?
+    @Binding var confirmDeleteNote: Bool
+    let onAction: (_ shouldAdvance: Bool) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .alert("Action failed", isPresented: $model.showError) {
+                Button("OK") { }
+            } message: {
+                Text(model.errorMessage ?? "An unknown error occurred.")
+            }
+            .confirmationDialog(
+                "Delete this note?",
+                isPresented: $confirmDeleteNote,
+                titleVisibility: .visible
+            ) {
+                Button("Delete", role: .destructive) {
+                    guard let noteId else { return }
+                    Task {
+                        if let advance = await model.deleteNote(noteId) { onAction(advance) }
+                    }
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("This deletes the note and all its cards. The action cannot be undone.")
+            }
+            .task(id: cardId) {
+                guard let cardId else { return }
+                await model.load(cardId: cardId, noteId: noteId)
+            }
+    }
+}
+
+// MARK: - Standalone button
+
+/// Self-contained `…` button wrapping the card actions — used by Browse,
+/// where the actions are the whole menu. Reviewing composes the same sections
+/// into its own toolbar menu instead, so nothing nests.
 @MainActor
 struct CardContextMenu: View {
     let cardId: CardID
-    let noteId: NoteID?
+    var noteId: NoteID?
     var onSuccess: (() -> Void)?
     var onActionSuccess: ((_ shouldAdvance: Bool) -> Void)?
     var onRequestSetDueDate: ((_ cardId: CardID) -> Void)?
 
-    @Environment(\.palette) private var palette
-
     @State private var model = CardContextMenuModel()
-    @State private var showDeleteConfirmation = false
+    @State private var confirmDeleteNote = false
 
+    // Explicit: the `private` state above would otherwise make the synthesized
+    // memberwise initializer private too, and Browse constructs this cross-file.
     init(
         cardId: CardID,
         noteId: NoteID? = nil,
@@ -33,157 +231,40 @@ struct CardContextMenu: View {
 
     var body: some View {
         Menu {
-            Button { Task { forward(await model.suspend(cardId)) } } label: {
-                Label("Suspend", systemImage: "pause.circle")
-            }
-
-            Button { Task { forward(await model.bury(cardId)) } } label: {
-                Label("Bury until tomorrow", systemImage: "books.vertical")
-            }
-
-            Button { Task { forward(await model.resetToNew(cardId)) } } label: {
-                Label("Forget", systemImage: "arrow.counterclockwise")
-            }
-
-            if let onRequestSetDueDate {
+            CardFlagPicker(model: model, cardId: cardId, onAction: forward)
+            CardActionSections(
+                model: model,
+                cardId: cardId,
+                noteId: noteId,
+                confirmDeleteNote: $confirmDeleteNote,
+                onRequestSetDueDate: onRequestSetDueDate,
+                onAction: forward
+            )
+            Section {
                 Button {
-                    onRequestSetDueDate(cardId)
+                    Task { if let advance = await model.undo(cardId) { forward(advance) } }
                 } label: {
-                    Label("Set due date", systemImage: "calendar.badge.clock")
+                    Label("Undo", systemImage: "arrow.uturn.backward")
                 }
+                .disabled(!model.canUndo || model.isUndoing)
             }
-
-            if let noteId {
-                Menu {
-                    Button { Task { forward(await model.toggleMarked(noteId)) } } label: {
-                        Label(
-                            model.isMarkedNote ? "Unmark note" : "Mark note",
-                            systemImage: model.isMarkedNote ? "star.slash" : "star"
-                        )
-                    }
-
-                    Button { Task { forward(await model.suspendNote(noteId)) } } label: {
-                        Label("Suspend note", systemImage: "pause.circle.fill")
-                    }
-
-                    Button { Task { forward(await model.buryNote(noteId)) } } label: {
-                        Label("Bury note", systemImage: "books.vertical.fill")
-                    }
-
-                    Button(role: .destructive) {
-                        showDeleteConfirmation = true
-                    } label: {
-                        Label("Delete note", systemImage: "trash")
-                    }
-                } label: {
-                    Label("Note actions", systemImage: "note.text")
-                }
-            }
-
-            Menu {
-                // Listed in reverse so iOS bottom-anchored menus display 1→7 top–to–bottom
-                flagButton(0)
-                flagButton(7)
-                flagButton(6)
-                flagButton(5)
-                flagButton(4)
-                flagButton(3)
-                flagButton(2)
-                flagButton(1)
-            } label: {
-                Label {
-                    Text("Flag")
-                } icon: {
-                    Image(systemName: model.currentFlag == 0 ? "flag.slash.fill" : "flag.fill")
-                        .foregroundStyle(flagColor(for: model.currentFlag))
-                }
-            }
-
-            Button {
-                Task { forward(await model.undo(cardId)) }
-            } label: {
-                Label("Undo", systemImage: "arrow.uturn.backward")
-            }
-            .disabled(!model.canUndo || model.isUndoing)
         } label: {
             Image(systemName: "ellipsis.circle")
                 .amgiFont(.bodyEmphasis)
         }
         .accessibilityLabel("Card actions")
-        .alert("Action failed", isPresented: $model.showError) {
-            Button("OK") { }
-        } message: {
-            Text(model.errorMessage ?? "An unknown error occurred.")
-        }
-        .confirmationDialog("Delete this note?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
-            Button("Delete", role: .destructive) {
-                if let noteId { Task { forward(await model.deleteNote(noteId)) } }
-            }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("This deletes the note and all its cards. The action cannot be undone.")
-        }
-        .task(id: cardId) {
-            await model.load(cardId: cardId, noteId: noteId)
-        }
+        .cardActionPresentations(
+            model: model,
+            cardId: cardId,
+            noteId: noteId,
+            confirmDeleteNote: $confirmDeleteNote,
+            onAction: forward
+        )
     }
 
-}
-
-private extension CardContextMenu {
-    /// Forward a model action outcome to the parent callbacks. `nil` means
-    /// the action failed (the model already surfaced the error alert).
-    func forward(_ shouldAdvance: Bool?) {
-        guard let shouldAdvance else { return }
+    private func forward(_ shouldAdvance: Bool) {
         onSuccess?()
         onActionSuccess?(shouldAdvance)
-    }
-
-    func flagButton(_ value: UInt32) -> some View {
-        let tint = flagColor(for: value)
-        return Button(action: { Task { forward(await model.flag(cardId, value)) } }) {
-            Label {
-                Text(flagDisplayName(for: value))
-                    .foregroundStyle(tint)
-            } icon: {
-                flagMenuIcon(for: value)
-            }
-        }
-    }
-
-    func flagDisplayName(for value: UInt32) -> String {
-        switch value & 0b111 {
-        case 1: return "Red"
-        case 2: return "Orange"
-        case 3: return "Green"
-        case 4: return "Blue"
-        case 5: return "Pink"
-        case 6: return "Cyan"
-        case 7: return "Purple"
-        default: return "None"
-        }
-    }
-
-    func flagMenuIcon(for value: UInt32) -> Image {
-        let symbolName = value == 0 ? "flag.slash.fill" : "flag.fill"
-        let tint = UIColor(flagColor(for: value))
-        if let image = UIImage(systemName: symbolName)?.withTintColor(tint, renderingMode: .alwaysOriginal) {
-            return Image(uiImage: image)
-        }
-        return Image(systemName: symbolName)
-    }
-
-    func flagColor(for value: UInt32) -> Color {
-        switch value & 0b111 {
-        case 1: return .red
-        case 2: return .orange
-        case 3: return .green
-        case 4: return .blue
-        case 5: return .pink
-        case 6: return .cyan
-        case 7: return .purple
-        default: return .secondary
-        }
     }
 }
 

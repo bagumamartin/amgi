@@ -12,8 +12,6 @@ enum ReaderThemeMode: String, CaseIterable, Identifiable {
 enum ReviewPreferences {
     enum Keys {
         static let playAudioInSilentMode = "review_pref_play_audio_in_silent_mode"
-        static let showContextMenuButton = "review_pref_show_context_menu_button"
-        static let showAudioReplayButton = "review_pref_show_audio_replay_button"
         static let showCorrectnessSymbols = "review_pref_show_correctness_symbols"
         static let showAnswerButtons = "review_pref_show_answer_buttons"
         static let cardRenderEngine = "review_pref_card_render_engine"
