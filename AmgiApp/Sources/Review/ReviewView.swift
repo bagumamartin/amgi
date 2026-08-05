@@ -126,22 +126,13 @@ private struct ReviewContent: View {
                 }
             }
             .background(palette.background)
-            .overlay {
-                // Scope the fade to the toast subtree only. Attaching
-                // `.animation(value:)` to the whole VStack also animated the
-                // card swap on advance (content lands in the same transaction
-                // as `pendingToast → nil`), producing a jumpy cross-fade.
-                toastOverlay
-                    .animation(AmgiMotion.quick, value: session.pendingToast)
-            }
             // Haptics fire on the causal event, not on its consequences: the
-            // rating tap (which is what sets `pendingToast`), and the undo
-            // actually landing. `.again` gets a firmer tap than the other
-            // three — it's the one answer that costs the user something, and
-            // matching the feedback's character to the action is the point.
-            .sensoryFeedback(trigger: session.pendingToast) { _, toast in
-                guard let toast else { return nil }
-                return toast.rating == .again
+            // rating tap itself, and the undo actually landing. `.again` gets
+            // a firmer tap than the other three — it's the one answer that
+            // costs the user something, and matching the feedback's character
+            // to the action is the point.
+            .sensoryFeedback(trigger: session.answerTapCount) { _, _ in
+                session.tappedRating == .again
                     ? .impact(weight: .medium)
                     : .impact(weight: .light)
             }
@@ -216,14 +207,6 @@ private struct ReviewContent: View {
                     lookupQuery = nil
                 }
             }
-        }
-    }
-
-    @ViewBuilder
-    private var toastOverlay: some View {
-        if let toast = session.pendingToast {
-            RatingToastView(toast: toast)
-                .transition(AmgiMotion.reveal)
         }
     }
 

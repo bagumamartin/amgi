@@ -16,13 +16,6 @@ enum ResolvedRenderMode: Equatable {
     case html
 }
 
-/// Feedback toast shown after rating a card ("Good · next in 10m") while the
-/// next card is prepared (R11 answer flow).
-struct RatingToast: Equatable {
-    let rating: Rating
-    let interval: String
-}
-
 @Observable @MainActor
 final class ReviewSession {
     let deckId: DeckID
@@ -54,7 +47,13 @@ final class ReviewSession {
     private(set) var resolvedMode: ResolvedRenderMode = .html
     private(set) var resolvedByAuto: Bool = false
     private(set) var templateName: String?
-    private(set) var pendingToast: RatingToast?
+    /// Bumped on each rating tap, before the backend round-trip — the view's
+    /// haptic trigger. `lastRating` can't serve: it lands after the round-trip
+    /// and doesn't change when the same rating is tapped twice in a row.
+    private(set) var answerTapCount: Int = 0
+    /// Rating of the most recent tap, paired with `answerTapCount` so the
+    /// haptic can be firmer for `.again`.
+    private(set) var tappedRating: Rating = .good
     /// Bumped once per *successful* undo. Exists so the view can fire haptic
     /// feedback on the completion, which no other piece of state marks —
     /// `canUndo` already reads false when an undo isn't available at all.
@@ -66,9 +65,6 @@ final class ReviewSession {
     private(set) var isAdvancing: Bool = false
 
     private var reviewStartTime: Date = .now
-    /// Auto-dismiss for `pendingToast`. Owned separately from the answer task
-    /// so the toast's lifetime never gates the next card.
-    private var toastDismiss: Task<Void, Never>?
     private var cardQueue: [QueuedReviewCard] = []
     /// Full notetypes fetched for template names; keyed by notetype id and
     /// kept for the session so each notetype is fetched once.
@@ -187,7 +183,8 @@ final class ReviewSession {
         let notetypesClient = self.notetypesClient
         let cardRendering = self.cardRendering
 
-        showToast(RatingToast(rating: rating, interval: queued.nextIntervals[rating] ?? ""))
+        answerTapCount += 1
+        tappedRating = rating
 
         Task {
             defer { isAdvancing = false }
@@ -218,32 +215,9 @@ final class ReviewSession {
         }
     }
 
-    /// Shows the post-answer confirmation and schedules its own dismissal.
-    ///
-    /// Deliberately independent of the answer task: the toast reports what
-    /// just happened, so making the *next* card wait for it put a fixed stall
-    /// on the single most repeated action in the app. It now floats over the
-    /// card that has already arrived.
-    private func showToast(_ toast: RatingToast) {
-        toastDismiss?.cancel()
-        pendingToast = toast
-        toastDismiss = Task {
-            try? await Task.sleep(for: .milliseconds(900))
-            guard !Task.isCancelled else { return }
-            pendingToast = nil
-        }
-    }
-
-    private func clearToast() {
-        toastDismiss?.cancel()
-        toastDismiss = nil
-        pendingToast = nil
-    }
-
     func undo() {
         guard canUndo, !isAdvancing else { return }
         isAdvancing = true
-        clearToast()
 
         let collection = self.collection
         let scheduler = self.scheduler

@@ -59,36 +59,6 @@ struct RatingBar: View {
     }
 }
 
-/// Centered post-answer toast — "Good · next in 10m" (R11 answer flow).
-struct RatingToastView: View {
-    let toast: RatingToast
-
-    @Environment(\.palette) private var palette
-
-    var body: some View {
-        Text("\(label) · next in \(toast.interval)")
-            .amgiFont(.bodyEmphasis)
-            .foregroundStyle(palette.textPrimary)
-            .lineLimit(1)
-            .minimumScaleFactor(0.75)
-            .padding(.horizontal, 20)
-            .padding(.vertical, 10)
-            .background(palette.surfaceElevated, in: Capsule())
-            .overlay {
-                Capsule().strokeBorder(palette.separator, lineWidth: 1)
-            }
-    }
-
-    private var label: String {
-        switch toast.rating {
-        case .again: "Again"
-        case .hard: "Hard"
-        case .good: "Good"
-        case .easy: "Easy"
-        }
-    }
-}
-
 #if DEBUG
 #Preview("Rating bar") {
     RatingBar(
@@ -97,9 +67,5 @@ struct RatingToastView: View {
         isDisabled: false,
         onRate: { _ in }
     )
-}
-
-#Preview("Toast") {
-    RatingToastView(toast: RatingToast(rating: .good, interval: "10m"))
 }
 #endif
