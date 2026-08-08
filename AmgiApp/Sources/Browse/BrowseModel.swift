@@ -14,7 +14,9 @@ import Foundation
 final class BrowseModel {
     var searchText = ""
     var allNotes: [NoteRecord] = []
-    var notes: [NoteRecord] = []
+    var notes: [NoteRecord] = [] {
+        didSet { resort() }
+    }
     var allDecks: [DeckInfo] = []
     /// The top-level parent deck selected (stays set even when drilling into subdecks).
     var parentDeck: DeckInfo?
@@ -24,8 +26,18 @@ final class BrowseModel {
     var hasMorePages = true
     var allTags: [String] = []
     var activeTag: String?
-    var sortOrder: BrowseSortOrder = .dateDesc
-    var notetypeNames: [NotetypeID: String] = [:]
+    var sortOrder: BrowseSortOrder = .dateDesc {
+        didSet { resort() }
+    }
+    var notetypeNames: [NotetypeID: String] = [:] {
+        didSet { if sortOrder == .templateAsc { resort() } }
+    }
+
+    /// First card of each note, resolved lazily by the row context menu.
+    /// Cached here rather than in per-row `@State` so a row scrolling out and
+    /// back doesn't re-issue the backend lookup.
+    private(set) var firstCardIDs: [NoteID: CardID] = [:]
+    private var pendingCardIDLookups: Set<NoteID> = []
 
     private let pageSize = 50
 
@@ -37,14 +49,21 @@ final class BrowseModel {
 
     // MARK: - Derived
 
-    var sortedNotes: [NoteRecord] {
+    /// Stored, not computed: `body` reads this on every pass, and a computed
+    /// property would re-sort the whole loaded list each time — including once
+    /// per row as `fetchNoteDetails` fills in stubs during a scroll.
+    private(set) var sortedNotes: [NoteRecord] = []
+
+    private func resort() {
         switch sortOrder {
         case .dateDesc:
-            return notes.sorted { $0.mod > $1.mod }
+            sortedNotes = notes.sorted { $0.mod > $1.mod }
         case .titleAsc:
-            return notes.sorted { $0.sfld.localizedCaseInsensitiveCompare($1.sfld) == .orderedAscending }
+            sortedNotes = notes.sorted {
+                $0.sfld.localizedCaseInsensitiveCompare($1.sfld) == .orderedAscending
+            }
         case .templateAsc:
-            return notes.sorted { (notetypeNames[$0.mid] ?? "") < (notetypeNames[$1.mid] ?? "") }
+            sortedNotes = notes.sorted { (notetypeNames[$0.mid] ?? "") < (notetypeNames[$1.mid] ?? "") }
         }
     }
 
@@ -114,6 +133,16 @@ final class BrowseModel {
         }
         if let idx = allNotes.firstIndex(where: { $0.id == id }) {
             allNotes[idx] = fullNote
+        }
+    }
+
+    /// Resolves (once) the first card of a note, for the row context menu.
+    func loadFirstCardID(for noteId: NoteID) async {
+        guard firstCardIDs[noteId] == nil, !pendingCardIDLookups.contains(noteId) else { return }
+        pendingCardIDLookups.insert(noteId)
+        defer { pendingCardIDLookups.remove(noteId) }
+        if let cardId = (try? await cardClient.fetchByNote(noteId))?.first?.id {
+            firstCardIDs[noteId] = cardId
         }
     }
 

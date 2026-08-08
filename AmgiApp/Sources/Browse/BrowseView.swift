@@ -1,7 +1,5 @@
 import SwiftUI
 import AnkiKit
-import AnkiClients
-import Dependencies
 import AmgiTheme
 
 enum BrowseSortOrder: String, CaseIterable, Sendable {
@@ -317,7 +315,7 @@ struct BrowseContent: View {
                         NoteRowView(note: note, notetypeName: model.notetypeNames[note.mid])
                             .onAppear { onRowAppear(note) }
                     }
-                    NoteContextMenuButton(noteId: note.id) {
+                    NoteContextMenuButton(model: model, noteId: note.id) {
                         Task { await model.performSearch() }
                     }
                 }
@@ -456,18 +454,19 @@ private extension BrowseContent {
 
 // MARK: - NoteContextMenuButton
 
-/// Resolves the first cardId for a note lazily on first appear, then shows CardContextMenu.
+/// Resolves the first cardId for a note lazily on first appear, then shows
+/// CardContextMenu. The resolved ID is cached on the model rather than in
+/// local `@State`, so scrolling a row out and back doesn't re-issue the
+/// backend lookup that populates it.
 @MainActor
 struct NoteContextMenuButton: View {
+    let model: BrowseModel
     let noteId: NoteID
     var onSuccess: (() -> Void)?
 
-    @Dependency(\.cardClient) var cardClient
-    @State private var firstCardId: CardID?
-
     var body: some View {
         Group {
-            if let cardId = firstCardId {
+            if let cardId = model.firstCardIDs[noteId] {
                 CardContextMenu(
                     cardId: cardId,
                     noteId: noteId,
@@ -480,8 +479,7 @@ struct NoteContextMenuButton: View {
             }
         }
         .task(id: noteId) {
-            guard firstCardId == nil else { return }
-            firstCardId = (try? await cardClient.fetchByNote(noteId))?.first?.id
+            await model.loadFirstCardID(for: noteId)
         }
     }
 }
