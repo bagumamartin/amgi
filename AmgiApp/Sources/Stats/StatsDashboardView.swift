@@ -75,7 +75,7 @@ struct StatsDashboardView: View {
                 else { Text("Whole Collection") }
             }
             Divider()
-            ForEach(model.decks.filter({ !$0.name.contains("::") })) { deck in
+            ForEach(model.topLevelDecks) { deck in
                 Button { selectedDeck = deck } label: {
                     if selectedDeck?.id == deck.id { Label(deck.name, systemImage: "checkmark") }
                     else { Text(deck.name) }
