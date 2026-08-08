@@ -32,6 +32,18 @@ settings:
     # cost: first cold build is ~20s slower while the CAS populates. No
     # incremental-build change. See .build-benchmark/optimization-plan.md.
     COMPILATION_CACHE_ENABLE_CACHING: YES
+    # The two "swift compiler caching requires explicit module build" warnings
+    # (targets AmgiApp and AmgiReaderDictionary) are expected and unfixable
+    # here: swift-build force-disables explicit modules — and therefore
+    # caching — for any target in the Cxx-interop chain, i.e. one whose
+    # OTHER_SWIFT_FLAGS mention -cxx-interoperability-mode or whose
+    # SWIFT_OBJC_INTEROP_MODE is objcxx (rdar://122829880, see
+    # SwiftCompiler.swift:swiftExplicitModuleBuildEnabled). The underscored
+    # _SWIFT_EXPLICIT_MODULES_ALLOW_CXX_INTEROP=YES escape hatch does silence
+    # them, but the build then fails scanning: "Module dependency cycle:
+    # '_DarwinFoundation3.swiftmodule -> CxxStdlib.swiftinterface ->
+    # _DarwinFoundation3.swiftmodule'" (verified 2026-08-06). Every other
+    # target still caches; leave these two alone.
   configs:
     Debug:
       # Eager linking: let downstream targets link against generated stubs
