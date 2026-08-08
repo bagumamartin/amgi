@@ -45,9 +45,13 @@ public struct StudyReadingRec: View {
 
     @ViewBuilder
     private var coverImage: some View {
-        if let path = data.coverImagePath,
-           let uiImage = UIImage(contentsOfFile: path) {
-            Image(uiImage: uiImage)
+        // Downsampled off the main thread — the source cover is far larger
+        // than the tile it's drawn into.
+        DownsampledImage(
+            url: data.coverImagePath.map { URL(fileURLWithPath: $0) },
+            maxPixelSize: AmgiImagePixelSize.cover
+        ) { image in
+            image
                 .resizable()
                 .scaledToFill()
                 .frame(width: cardWidth, height: cardHeight)
@@ -56,6 +60,8 @@ public struct StudyReadingRec: View {
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                         .stroke(colorScheme == .dark ? .white.opacity(0.1) : .black.opacity(0.1), lineWidth: 1)
                 )
+        } placeholder: {
+            EmptyView()
         }
     }
 

@@ -58,12 +58,18 @@ struct NativeCardView: View {
                     .foregroundStyle(palette.textPrimary)
             }
         case .image(let filename):
-            if let mediaFolder,
-               let image = UIImage(contentsOfFile: mediaFolder.appendingPathComponent(filename).path) {
-                Image(uiImage: image)
+            // Decoded and downsampled off the main thread — a full-resolution
+            // decode here lands squarely in the answer-reveal frame.
+            DownsampledImage(
+                url: mediaFolder?.appendingPathComponent(filename),
+                maxPixelSize: AmgiImagePixelSize.card
+            ) { image in
+                image
                     .resizable()
                     .scaledToFit()
                     .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.small, style: .continuous))
+            } placeholder: {
+                EmptyView()
             }
         case .divider:
             Rectangle()

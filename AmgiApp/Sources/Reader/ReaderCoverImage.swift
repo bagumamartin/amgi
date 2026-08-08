@@ -1,4 +1,5 @@
 import AmgiTheme
+import AmgiUI
 import AnkiBackend
 import Dependencies
 import Foundation
@@ -57,28 +58,39 @@ struct ReaderCoverImage<Placeholder: View>: View {
 
     @ViewBuilder
     private var content: some View {
-        switch source {
-        case .ankiMediaPath(let path):
-            if let url = resolveCoverURL(path) {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image.resizable().scaledToFill()
-                            .overlay(Rectangle().stroke(imageOutlineColor, lineWidth: 1))
-                    default:
-                        placeholder()
-                    }
+        switch resolved {
+        case .none:
+            placeholder()
+        case .remote(let url):
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    image.resizable().scaledToFill()
+                        .overlay(Rectangle().stroke(imageOutlineColor, lineWidth: 1))
+                default:
+                    placeholder()
                 }
-            } else {
-                placeholder()
             }
-        case .fileURL(let url):
-            if let url, let image = UIImage(contentsOfFile: url.path) {
-                Image(uiImage: image).resizable().scaledToFill()
+        case .local(let url):
+            // Downsampled off the main thread: covers are drawn at ~120pt but
+            // the source files are frequently thousands of pixels wide.
+            DownsampledImage(url: url, maxPixelSize: AmgiImagePixelSize.cover) { image in
+                image.resizable().scaledToFill()
                     .overlay(Rectangle().stroke(imageOutlineColor, lineWidth: 1))
-            } else {
+            } placeholder: {
                 placeholder()
             }
+        }
+    }
+
+    /// Resolution runs a regex and hits the filesystem, so it's memoized —
+    /// `body` re-runs often while the library grid scrolls.
+    private var resolved: ResolvedCover {
+        switch source {
+        case .fileURL(let url):
+            return url.map { .local($0) } ?? .none
+        case .ankiMediaPath(let path):
+            return CoverURLCache.shared.resolve(path)
         }
     }
 
@@ -88,13 +100,36 @@ struct ReaderCoverImage<Placeholder: View>: View {
 
 }
 
-private extension ReaderCoverImage {
-    func resolveCoverURL(_ raw: String?) -> URL? {
-        guard let raw, !raw.isEmpty else { return nil }
+/// Where a cover ended up resolving to, if anywhere.
+enum ResolvedCover {
+    case none
+    /// A URL with a scheme — fetched through `AsyncImage`.
+    case remote(URL)
+    /// A file on disk — decoded and downsampled locally.
+    case local(URL)
+}
 
+/// Memoizes cover-field resolution. Each miss runs a regex and a filesystem
+/// stat, and the same field is re-resolved on every `body` pass of every cell
+/// in the library grid, so the cache is what keeps that off the scroll path.
+@MainActor
+final class CoverURLCache {
+    static let shared = CoverURLCache()
+
+    private var entries: [String: ResolvedCover] = [:]
+
+    func resolve(_ raw: String?) -> ResolvedCover {
+        guard let raw, !raw.isEmpty else { return .none }
+        if let hit = entries[raw] { return hit }
+        let result = Self.resolveUncached(raw)
+        entries[raw] = result
+        return result
+    }
+
+    private static func resolveUncached(_ raw: String) -> ResolvedCover {
         // Case 1: already a real URL.
         if let url = URL(string: raw), url.scheme != nil {
-            return url
+            return url.isFileURL ? .local(url) : .remote(url)
         }
 
         // Case 2: HTML fragment with an <img src="…">.
@@ -102,19 +137,19 @@ private extension ReaderCoverImage {
 
         // Case 3: bare filename — resolve against Anki media folder.
         @Dependency(\.ankiBackend) var backend
-        guard let mediaPath = backend.currentMediaFolderPath else { return nil }
+        guard let mediaPath = backend.currentMediaFolderPath else { return .none }
         let mediaRoot = URL(fileURLWithPath: mediaPath)
         let candidate = mediaRoot.appendingPathComponent(
             filename.removingPercentEncoding ?? filename,
             isDirectory: false
         )
-        return FileManager.default.fileExists(atPath: candidate.path) ? candidate : nil
+        return FileManager.default.fileExists(atPath: candidate.path) ? .local(candidate) : .none
     }
 
     /// Pulls the first `src="…"` (or `src='…'`) value from an HTML
     /// fragment. Anki cover fields are typically a single `<img>`, so we
     /// don't need a real HTML parser here.
-    func extractImgSrc(from html: String) -> String? {
+    private static func extractImgSrc(from html: String) -> String? {
         guard html.contains("<img"), let match = html.range(
             of: #"src=["']([^"']+)["']"#,
             options: .regularExpression

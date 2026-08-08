@@ -18,7 +18,9 @@ struct ContinueReadingSection: View {
             VStack(alignment: .leading, spacing: 10) {
                 sectionHeader
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(alignment: .top, spacing: 14) {
+                    // Lazy: an eager HStack builds — and decodes the cover for
+                    // — every book in the row before any of it is on screen.
+                    LazyHStack(alignment: .top, spacing: 14) {
                         ForEach(items) { item in
                             if let book = bookForId(item.id) {
                                 NavigationLink {
