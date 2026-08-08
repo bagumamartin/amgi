@@ -188,7 +188,7 @@ struct EPUBChapterReaderView: View {
                 .foregroundStyle(palette.textSecondary)
                 .frame(width: 44, height: 44)
                 .amgiMaterial(.regular, in: Circle())
-                .amgiChromeShadow(Circle())
+                .amgiMaterialElevation(Circle())
         }
         .accessibilityLabel("Close")
         .padding(.top, 8)
@@ -205,7 +205,7 @@ struct EPUBChapterReaderView: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 6)
             .amgiMaterial(.regular, in: Capsule())
-            .amgiChromeShadow(Capsule())
+            .amgiMaterialElevation(Capsule())
             .padding(.top, 8)
             .opacity(chromeVisible ? 1 : 0)
             .allowsHitTesting(false)
@@ -219,7 +219,7 @@ struct EPUBChapterReaderView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 4)
             .amgiMaterial(.regular, in: Capsule())
-            .amgiChromeShadow(Capsule())
+            .amgiMaterialElevation(Capsule())
             .allowsHitTesting(false)
     }
 
@@ -233,7 +233,7 @@ struct EPUBChapterReaderView: View {
                 .foregroundStyle(palette.textPrimary)
                 .frame(width: 44, height: 44)
                 .amgiMaterial(.regular, in: Circle())
-                .amgiChromeShadow(Circle())
+                .amgiMaterialElevation(Circle())
         }
         .accessibilityLabel("Reading Style")
         .opacity(chromeVisible ? 1 : 0)

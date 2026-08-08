@@ -176,14 +176,68 @@ extension View {
     /// Lives here rather than at the call site because the design
     /// conformance guard bans raw `.shadow(` in every screen file — this
     /// is the one mechanism other views delegate to.
+    ///
+    /// `isEnabled: false` keeps the modifier applied and neutralises it, rather
+    /// than letting callers drop it — see `AmgiChromeShadowModifier`.
     func amgiChromeShadow<S: InsettableShape>(
+        _ shape: S,
+        radius: CGFloat = 4,
+        x: CGFloat = 0,
+        y: CGFloat = 2,
+        opacity: Double = 0.08,
+        isEnabled: Bool = true
+    ) -> some View {
+        modifier(
+            AmgiChromeShadowModifier(
+                shape: shape, radius: radius, x: x, y: y, opacity: opacity, isEnabled: isEnabled
+            )
+        )
+    }
+
+    /// `amgiChromeShadow`, but skipped on iOS 26 — the elevation partner for
+    /// surfaces backed by `amgiMaterial(_:in:)`.
+    ///
+    /// On iOS 26 that surface is Liquid Glass, which draws its own edge and
+    /// shading. Layering the elevation ring or drop shadow on top of it
+    /// double-draws the boundary and makes the control read as a sticker
+    /// pasted over the content rather than a lens onto it. Surfaces that are
+    /// *not* material-backed (cover art, the stats tooltip) keep calling
+    /// `amgiChromeShadow` directly — they need their elevation on every OS.
+    func amgiMaterialElevation<S: InsettableShape>(
         _ shape: S,
         radius: CGFloat = 4,
         x: CGFloat = 0,
         y: CGFloat = 2,
         opacity: Double = 0.08
     ) -> some View {
-        modifier(AmgiChromeShadowModifier(shape: shape, radius: radius, x: x, y: y, opacity: opacity))
+        modifier(AmgiMaterialElevationModifier(shape: shape, radius: radius, x: x, y: y, opacity: opacity))
+    }
+}
+
+private struct AmgiMaterialElevationModifier<S: InsettableShape>: ViewModifier {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    let shape: S
+    let radius: CGFloat
+    let x: CGFloat
+    let y: CGFloat
+    let opacity: Double
+
+    /// Mirrors `amgiMaterial`'s decision: Reduce Transparency swaps glass for
+    /// an opaque surface even on iOS 26, and an opaque chip with no edge is
+    /// exactly the legibility problem that setting exists to fix — so the ring
+    /// comes back with it. Only drop elevation where glass really drew.
+    ///
+    /// Both inputs collapse to a `Bool` here, so the elevation is switched by
+    /// *value*. Nothing in this file selects between two view structures.
+    private var isGlassBacked: Bool {
+        guard #available(iOS 26, *) else { return false }
+        return !reduceTransparency
+    }
+
+    func body(content: Content) -> some View {
+        content.amgiChromeShadow(
+            shape, radius: radius, x: x, y: y, opacity: opacity, isEnabled: !isGlassBacked
+        )
     }
 }
 
@@ -194,17 +248,27 @@ private struct AmgiChromeShadowModifier<S: InsettableShape>: ViewModifier {
     let x: CGFloat
     let y: CGFloat
     let opacity: Double
+    let isEnabled: Bool
+
+    private var isRing: Bool { palette.elevation == .ring }
+
+    private var ringColor: Color {
+        isEnabled && isRing ? palette.separator : .clear
+    }
+
+    private var shadowColor: Color {
+        isEnabled && !isRing ? .black.opacity(opacity) : .clear
+    }
 
     func body(content: Content) -> some View {
+        // Ring and shadow are both applied unconditionally and neutralised with
+        // `.clear`, rather than an `if` choosing which to attach. The shadow
+        // already worked this way; the overlay didn't, and `palette.elevation`
+        // flips whenever the user picks a theme — so that `if` was putting
+        // `content` inside a `_ConditionalContent` whose branch changes at
+        // runtime, discarding the subtree's identity for a decorative change.
         content
-            .overlay {
-                if palette.elevation == .ring {
-                    shape.strokeBorder(palette.separator, lineWidth: 1)
-                }
-            }
-            .shadow(
-                color: palette.elevation == .ring ? .clear : .black.opacity(opacity),
-                radius: radius, x: x, y: y
-            )
+            .overlay { shape.strokeBorder(ringColor, lineWidth: 1) }
+            .shadow(color: shadowColor, radius: radius, x: x, y: y)
     }
 }

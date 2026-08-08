@@ -30,7 +30,7 @@ struct SyncToast: View {
         .padding(.vertical, 10)
         .amgiMaterial(.light, in: Capsule())
         .overlay(Capsule().stroke(.quaternary, lineWidth: 0.5))
-        .amgiChromeShadow(Capsule(), radius: 8, y: 2, opacity: 0.12)
+        .amgiMaterialElevation(Capsule(), radius: 8, y: 2, opacity: 0.12)
         .padding(.bottom, 12)
     }
 }

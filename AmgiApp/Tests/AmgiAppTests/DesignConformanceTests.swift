@@ -113,6 +113,14 @@ struct DesignConformanceTests {
         // has a Reduce Transparency fallback. A bare material over card or
         // book content is unreadable for the users that setting exists for.
         ("raw material (use amgiMaterial)", #"\.(ultraThin|thin|regular|thick|ultraThick)Material\b"#),
+        // Liquid Glass is translucent chrome by another name, so it routes
+        // through the same seam for the same reason: `amgiMaterial(_:in:)`
+        // owns the Reduce Transparency fallback AND the iOS 26 availability
+        // branch. A `.glassEffect(` spelled at a call site has neither — it
+        // silently drops back to nothing on iOS 18 and ignores the setting.
+        // `GlassEffectContainer` and `glassEffectID` are deliberately NOT
+        // banned: they arrange and animate glass, they don't draw the surface.
+        ("raw glass effect (use amgiMaterial)", #"\.glassEffect\("#),
     ]
 
     private static var sourceRoot: URL {

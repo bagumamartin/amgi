@@ -176,10 +176,11 @@ struct DeckDetailView: View {
                 }
                 .disabled(model.exportInProgress)
             } label: {
+                // No hand-drawn material circle: on iOS 26 the toolbar draws
+                // its own Liquid Glass capsule behind the item, and a material
+                // inside it nests a second surface within the first.
                 Image(systemName: "ellipsis")
                     .font(.system(size: 16, weight: .semibold))
-                    .frame(width: 30, height: 30)
-                    .amgiMaterial(.regular, in: Circle())
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
             }
