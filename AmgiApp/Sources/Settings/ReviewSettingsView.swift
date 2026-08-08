@@ -1,4 +1,5 @@
 import SwiftUI
+import AmgiAppCore
 import Sharing
 
 struct ReviewSettingsView: View {

@@ -2,6 +2,7 @@
 import AppIntents
 import WidgetKit
 import Foundation
+import AmgiAppCore
 
 struct DeckEntity: AppEntity {
     var id: String        // String(deckId) — Int64 doesn't conform to EntityIdentifier

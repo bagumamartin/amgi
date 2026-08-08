@@ -1,5 +1,6 @@
 import SwiftUI
 import AmgiTheme
+import AmgiAppCore
 
 /// Profile picker / manager. Each row is one `AmgiAccount`; the active
 /// row shows a checkmark, tapping any other switches immediately. Add

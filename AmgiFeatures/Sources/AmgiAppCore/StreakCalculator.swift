@@ -1,4 +1,4 @@
-import AnkiKit
+public import AnkiKit
 
 /// Consecutive-day review-streak math. Pulled from `WriteWidgetSnapshot`
 /// so the widget writer and the Library hero card share one rule.
@@ -6,10 +6,10 @@ import AnkiKit
 /// `reviews` is the same `[Int: ReviewCountsAndTimes.Reviews]` shape
 /// returned by `StatsClient.fetchGraphs(...).reviews.count` — key 0
 /// is today, -1 is yesterday, etc.
-enum StreakCalculator {
+public enum StreakCalculator {
     /// Count of consecutive days backward from today (or yesterday, if
     /// today is empty) where at least one review was answered.
-    static func streak(reviews: [Int: ReviewCountsAndTimes.Reviews], window: Int = 28) -> Int {
+    public static func streak(reviews: [Int: ReviewCountsAndTimes.Reviews], window: Int = 28) -> Int {
         let todayTotal = reviews[0].map(dayTotal) ?? 0
         let startOffset = todayTotal > 0 ? 0 : -1
         var streak = 0
@@ -22,7 +22,7 @@ enum StreakCalculator {
 
     /// Per-day totals for the last `days` calendar days, oldest first.
     /// Missing offsets render as 0.
-    static func lastNDaysTotals(reviews: [Int: ReviewCountsAndTimes.Reviews], days: Int) -> [Int] {
+    public static func lastNDaysTotals(reviews: [Int: ReviewCountsAndTimes.Reviews], days: Int) -> [Int] {
         (-(days - 1)...0).map { offset in
             reviews[offset].map(dayTotal) ?? 0
         }

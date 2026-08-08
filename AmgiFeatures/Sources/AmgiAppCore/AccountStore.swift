@@ -1,24 +1,24 @@
-import Foundation
+public import Foundation
 import Observation
 
 /// One Anki profile. Each profile owns an isolated collection
 /// (`<appSupport>/AnkiCollection/<id>/collection.anki2`) and per-profile
 /// sync prefs (already scoped via `SyncPreferences.currentProfileID()`).
-struct AmgiAccount: Identifiable, Hashable, Codable {
+public struct AmgiAccount: Identifiable, Hashable, Codable, Sendable {
     /// Filesystem-safe slug used for the per-profile directory and as
     /// the value of `amgi.selectedUser` (the existing scoping anchor).
-    let id: String
+    public let id: String
     /// User-visible display name. Free text; the slug is derived once
     /// at create-time and never renamed (would orphan the directory).
-    var displayName: String
+    public var displayName: String
     /// When the user first created this profile. Used for sort + the
     /// "since X" line in the picker.
-    let createdAt: Date
+    public let createdAt: Date
 
-    static let defaultID = "default"
-    static let defaultName = "Default"
+    public static let defaultID = "default"
+    public static let defaultName = "Default"
 
-    static func newDefault() -> AmgiAccount {
+    public static func newDefault() -> AmgiAccount {
         AmgiAccount(id: defaultID, displayName: defaultName, createdAt: .now)
     }
 }
@@ -34,14 +34,14 @@ struct AmgiAccount: Identifiable, Hashable, Codable {
 /// UI rebuilds against the new collection.
 @MainActor
 @Observable
-final class AccountStore {
-    static let shared = AccountStore()
+public final class AccountStore {
+    public static let shared = AccountStore()
 
     private static let accountsKey = "amgi.accounts"
     private static let selectedKey = "amgi.selectedUser"
 
-    private(set) var accounts: [AmgiAccount]
-    private(set) var selectedID: String
+    public private(set) var accounts: [AmgiAccount]
+    public private(set) var selectedID: String
 
     private init() {
         let defaults = UserDefaults.standard
@@ -63,7 +63,7 @@ final class AccountStore {
         persistSelection()
     }
 
-    var current: AmgiAccount {
+    public var current: AmgiAccount {
         accounts.first(where: { $0.id == selectedID }) ?? accounts[0]
     }
 
@@ -71,7 +71,7 @@ final class AccountStore {
     /// from displayName). Throws if the slug collides with an existing
     /// profile or is empty after sanitization.
     @discardableResult
-    func add(displayName: String) throws -> AmgiAccount {
+    public func add(displayName: String) throws -> AmgiAccount {
         let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             throw AccountStoreError.emptyName
@@ -89,7 +89,7 @@ final class AccountStore {
 
     /// Removes a profile and (if requested) its on-disk collection.
     /// Refuses to delete the active profile or the last remaining one.
-    func remove(_ account: AmgiAccount, deleteFiles: Bool) throws {
+    public func remove(_ account: AmgiAccount, deleteFiles: Bool) throws {
         guard accounts.count > 1 else { throw AccountStoreError.cannotDeleteLast }
         guard account.id != selectedID else { throw AccountStoreError.cannotDeleteActive }
         accounts.removeAll { $0.id == account.id }
@@ -103,7 +103,7 @@ final class AccountStore {
     /// Marks `account` as the active profile and persists the selection —
     /// this flips the scoping anchor for sync prefs and keychain identity.
     /// Collection close/reopen is the caller's job (`switchProfile(to:)`).
-    func select(_ account: AmgiAccount) {
+    public func select(_ account: AmgiAccount) {
         guard accounts.contains(where: { $0.id == account.id }) else { return }
         selectedID = account.id
         persistSelection()
@@ -113,7 +113,7 @@ final class AccountStore {
 
     /// Per-profile collection directory. Files inside follow Anki's
     /// layout: `collection.anki2`, `media/`, `media.db`.
-    static func profileDirectory(for id: String) -> URL {
+    public static func profileDirectory(for id: String) -> URL {
         let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory, in: .userDomainMask
         ).first!
@@ -125,7 +125,7 @@ final class AccountStore {
     /// One-time migration on first multi-profile launch: if there's a
     /// legacy `AnkiCollection/collection.anki2` outside any profile
     /// dir, move it into the default profile's directory.
-    static func migrateLegacyCollectionIfNeeded() {
+    public static func migrateLegacyCollectionIfNeeded() {
         let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory, in: .userDomainMask
         ).first!

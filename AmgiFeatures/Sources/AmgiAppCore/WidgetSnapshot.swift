@@ -1,5 +1,5 @@
 // AmgiApp/Sources/Shared/WidgetSnapshot.swift
-import Foundation
+public import Foundation
 
 public struct WidgetSnapshot: Codable, Sendable {
     public var deckId: Int64
@@ -13,6 +13,30 @@ public struct WidgetSnapshot: Codable, Sendable {
     public var snapshotDate: Date
     /// Optional so pre-forecast snapshot files still decode after an update.
     public var forecast: Forecast? = nil
+
+    public init(
+        deckId: Int64,
+        deckName: String,
+        newCount: Int,
+        learnCount: Int,
+        reviewCount: Int,
+        reviewedToday: Int,
+        streak: Int,
+        lastSevenDays: [Int],
+        snapshotDate: Date,
+        forecast: Forecast? = nil
+    ) {
+        self.deckId = deckId
+        self.deckName = deckName
+        self.newCount = newCount
+        self.learnCount = learnCount
+        self.reviewCount = reviewCount
+        self.reviewedToday = reviewedToday
+        self.streak = streak
+        self.lastSevenDays = lastSevenDays
+        self.snapshotDate = snapshotDate
+        self.forecast = forecast
+    }
 
     public var totalDue: Int { newCount + learnCount + reviewCount }
 
@@ -28,12 +52,24 @@ public struct WidgetSnapshot: Codable, Sendable {
         /// Anki-days later, assuming no reviews happen in between — which is
         /// exactly the case the forecast exists for.
         public var days: [DayCounts]
+
+        public init(rolloverHour: Int, dayZero: Date, days: [DayCounts]) {
+            self.rolloverHour = rolloverHour
+            self.dayZero = dayZero
+            self.days = days
+        }
     }
 
     public struct DayCounts: Codable, Sendable, Equatable {
         public var newCount: Int
         public var learnCount: Int
         public var reviewCount: Int
+
+        public init(newCount: Int, learnCount: Int, reviewCount: Int) {
+            self.newCount = newCount
+            self.learnCount = learnCount
+            self.reviewCount = reviewCount
+        }
     }
 
     public static var placeholder: WidgetSnapshot {

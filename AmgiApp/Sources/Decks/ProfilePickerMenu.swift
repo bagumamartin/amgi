@@ -1,5 +1,6 @@
 import SwiftUI
 import AmgiTheme
+import AmgiAppCore
 
 /// Compact toolbar menu that exposes profile switching from the Decks
 /// tab without forcing the user into Settings. Active profile shows a

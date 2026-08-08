@@ -1,6 +1,7 @@
 import SwiftUI
 import AmgiCardWeb
 import AmgiTheme
+import AmgiAppCore
 import AnkiClients
 import AnkiKit
 import Dependencies

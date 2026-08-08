@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import AmgiApp
+@testable import AmgiAppCore
 
 @Suite struct WidgetSnapshotProjectionTests {
     private var calendar: Calendar {

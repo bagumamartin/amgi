@@ -1,10 +1,10 @@
 // AmgiApp/Sources/Widgets/WidgetSnapshotStore.swift
 import Foundation
 
-enum WidgetSnapshotStore {
+public enum WidgetSnapshotStore {
     public static let groupId = "group.com.amgiapp"
 
-    static func write(_ snapshot: WidgetSnapshot) throws {
+    public static func write(_ snapshot: WidgetSnapshot) throws {
         guard let url = fileURL(deckId: snapshot.deckId) else {
             throw CocoaError(.fileNoSuchFile)
         }
@@ -14,7 +14,7 @@ enum WidgetSnapshotStore {
         try data.write(to: url, options: .atomic)
     }
 
-    static func read(deckId: Int64) -> WidgetSnapshot? {
+    public static func read(deckId: Int64) -> WidgetSnapshot? {
         guard let url = fileURL(deckId: deckId) else { return nil }
         guard let data = try? Data(contentsOf: url) else { return nil }
         let decoder = JSONDecoder()
@@ -32,7 +32,7 @@ enum WidgetSnapshotStore {
     /// Deletes every snapshot file whose deckId is not in `keep`. Called after
     /// each full write so the container is always an exact projection of the
     /// active profile's decks — stale profiles and deleted decks both vanish.
-    static func removeSnapshots(notIn keep: Set<Int64>) {
+    public static func removeSnapshots(notIn keep: Set<Int64>) {
         guard let container = container() else { return }
         let files = (try? FileManager.default.contentsOfDirectory(
             at: container,
@@ -49,7 +49,7 @@ enum WidgetSnapshotStore {
     }
 
     /// Enumerates all snapshot files to build the deck list for the widget picker.
-    static func allSnapshots() -> [WidgetSnapshot] {
+    public static func allSnapshots() -> [WidgetSnapshot] {
         guard let container = container() else { return [] }
         let files = (try? FileManager.default.contentsOfDirectory(
             at: container,

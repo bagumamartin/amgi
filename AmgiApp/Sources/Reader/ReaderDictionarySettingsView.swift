@@ -1,6 +1,7 @@
 import AmgiReader
 import AmgiReaderDictionary
 import AmgiTheme
+import AmgiAppCore
 import Dependencies
 import Sharing
 import SwiftUI

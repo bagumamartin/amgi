@@ -3,6 +3,7 @@ import SwiftUI
 import AmgiReader
 import AmgiReaderDictionary
 import AmgiTheme
+import AmgiAppCore
 import AnkiBackend
 import AnkiKit
 import AnkiSync

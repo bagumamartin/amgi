@@ -63,6 +63,8 @@ packages:
     path: ../AmgiUI
   AmgiReader:
     path: ../AmgiReader
+  AmgiFeatures:
+    path: ../AmgiFeatures
   swift-navigation:
     url: https://github.com/pointfreeco/swift-navigation
     from: 2.0.0
@@ -127,6 +129,8 @@ targets:
         product: AmgiTheme
       - package: AmgiUI
         product: AmgiUI
+      - package: AmgiFeatures
+        product: AmgiAppCore
       - package: swift-navigation
         product: SwiftNavigation
       - package: swift-navigation
@@ -162,13 +166,13 @@ targets:
     platform: iOS
     sources:
       - path: Sources/Widgets
-      - path: Sources/Shared/WidgetSnapshot.swift
-      - path: Sources/Shared/WidgetSnapshotStore.swift
     dependencies:
       - package: AnkiBridge
         product: AnkiKit
       - package: AmgiUI
         product: AmgiTheme
+      - package: AmgiFeatures
+        product: AmgiAppCore
       - sdk: WidgetKit.framework
       - sdk: SwiftUI.framework
     settings:
@@ -194,7 +198,6 @@ targets:
       - path: Sources/Review/ReviewSession.swift
       - path: Sources/Review/ReviewAudioSession.swift
       - path: Sources/Review/RenderEngine/TemplateRenderOverrides.swift
-      - path: Sources/Settings/ReviewPreferences.swift
       - path: Sources/Stats/PeriodPicker.swift
       - path: Sources/Stats/TodayStatsCard.swift
       - path: Sources/Stats/FutureDueChart.swift
@@ -223,6 +226,8 @@ targets:
         product: AnkiBackend
       - package: AnkiBridge
         product: AmgiCardWeb
+      - package: AmgiFeatures
+        product: AmgiAppCore
       - package: swift-navigation
         product: SwiftNavigation
       - package: swift-sharing

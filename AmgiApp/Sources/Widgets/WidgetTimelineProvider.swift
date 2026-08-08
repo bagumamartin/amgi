@@ -1,6 +1,7 @@
 // AmgiApp/Sources/Widgets/WidgetTimelineProvider.swift
 import WidgetKit
 import Foundation
+import AmgiAppCore
 
 struct WidgetEntry: TimelineEntry {
     var date: Date

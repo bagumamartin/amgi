@@ -1,4 +1,5 @@
 import AmgiUI
+import AmgiAppCore
 import AnkiClients
 import AnkiKit
 import Dependencies

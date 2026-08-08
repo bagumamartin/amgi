@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import UIKit
+import AmgiAppCore
 import AnkiClients
 import AnkiKit
 import AnkiSync

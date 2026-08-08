@@ -1,6 +1,7 @@
 import SwiftUI
 import AmgiCardWeb
 import AmgiTheme
+import AmgiAppCore
 import Sharing
 
 /// R11 "Card Rendering" settings: global engine picker plus a link to the

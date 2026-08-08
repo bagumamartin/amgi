@@ -1,4 +1,5 @@
 import SwiftUI
+import AmgiAppCore
 #if canImport(UIKit)
 import UIKit
 #endif

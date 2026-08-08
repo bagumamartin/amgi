@@ -1,5 +1,6 @@
 import AmgiReader
 import AmgiReaderDictionary
+import AmgiAppCore
 import AnkiClients
 import AnkiKit
 import Dependencies

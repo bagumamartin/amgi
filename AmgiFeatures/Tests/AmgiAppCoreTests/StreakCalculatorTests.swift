@@ -1,6 +1,6 @@
 import Testing
 import AnkiKit
-@testable import AmgiApp
+@testable import AmgiAppCore
 
 @Suite struct StreakCalculatorTests {
     private func reviews(_ offsets: [Int: Int]) -> [Int: ReviewCountsAndTimes.Reviews] {

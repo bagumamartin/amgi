@@ -1,4 +1,5 @@
 import AmgiReader
+import AmgiAppCore
 import Foundation
 import Sharing
 

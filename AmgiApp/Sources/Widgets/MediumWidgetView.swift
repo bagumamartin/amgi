@@ -2,6 +2,7 @@
 import SwiftUI
 import WidgetKit
 import AmgiTheme
+import AmgiAppCore
 
 struct MediumWidgetView: View {
     @Environment(\.palette) private var palette

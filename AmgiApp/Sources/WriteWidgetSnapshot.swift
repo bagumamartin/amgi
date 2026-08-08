@@ -1,4 +1,5 @@
 // AmgiApp/Sources/WriteWidgetSnapshot.swift
+import AmgiAppCore
 import AnkiClients
 import AnkiKit
 import Dependencies
