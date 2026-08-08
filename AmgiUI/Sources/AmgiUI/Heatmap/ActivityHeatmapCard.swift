@@ -15,6 +15,9 @@ public struct ActivityHeatmapCard: View {
     @State private var selectedDays: Int = 180
     /// The cell (day offset) currently shown in the popover tooltip.
     @State private var tooltipOffset: Int? = nil
+    /// Rebuilds the grid only when the range, counts, or calendar day change —
+    /// keeping ~370 cells' worth of date math out of every `body` pass.
+    @State private var gridCache = HeatmapGridCache()
 
     @Environment(\.palette) private var palette
 
@@ -28,45 +31,8 @@ public struct ActivityHeatmapCard: View {
     private let cellSpacing: CGFloat = 2
     private let weekdayLabelWidth: CGFloat = 18
 
-    private var weeksToShow: Int { selectedDays / 7 + 1 }
-
-    private var weeks: [[Date]] {
-        let cal = Calendar.current
-        let today = cal.startOfDay(for: Date())
-        let startDate = cal.date(byAdding: .weekOfYear, value: -(weeksToShow - 1), to: today)!
-        let startOfWeek = cal.date(
-            from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: startDate)
-        )!
-        var result: [[Date]] = []
-        var current = startOfWeek
-        while current <= today {
-            var week: [Date] = []
-            for d in 0..<7 { week.append(cal.date(byAdding: .day, value: d, to: current)!) }
-            result.append(week)
-            current = cal.date(byAdding: .weekOfYear, value: 1, to: current)!
-        }
-        return result
-    }
-
-    private var monthLabels: [(label: String, weekIndex: Int)] {
-        let fmt = DateFormatter()
-        fmt.dateFormat = "MMM"
-        var labels: [(String, Int)] = []
-        var lastMonth = -1
-        for (idx, week) in weeks.enumerated() {
-            let month = Calendar.current.component(.month, from: week[0])
-            if month != lastMonth {
-                labels.append((fmt.string(from: week[0]), idx))
-                lastMonth = month
-            }
-        }
-        return labels
-    }
-
-    private func dayOffset(for date: Date) -> Int {
-        let today = Calendar.current.startOfDay(for: Date())
-        let target = Calendar.current.startOfDay(for: date)
-        return Calendar.current.dateComponents([.day], from: today, to: target).day ?? 0
+    private var grid: HeatmapGrid {
+        gridCache.grid(weekCount: selectedDays / 7 + 1, counts: data.counts)
     }
 
     // MARK: - Summary stats (filtered to selectedDays)
@@ -106,13 +72,11 @@ public struct ActivityHeatmapCard: View {
                         today: reviewsToday
                     )
                     HeatmapScrollGrid(
-                        weeks: weeks,
-                        monthLabels: monthLabels,
-                        data: data,
+                        grid: grid,
+                        maxCount: data.maxCount,
                         cellSize: cellSize,
                         cellSpacing: cellSpacing,
                         weekdayLabelWidth: weekdayLabelWidth,
-                        dayOffset: dayOffset,
                         tooltipOffset: $tooltipOffset
                     )
                     HeatmapLegend(cellSize: cellSize)
@@ -204,32 +168,28 @@ private struct HeatmapSummaryRow: View {
 // MARK: - Scrollable grid
 
 private struct HeatmapScrollGrid: View {
-    let weeks: [[Date]]
-    let monthLabels: [(label: String, weekIndex: Int)]
-    let data: HeatmapCardData
+    let grid: HeatmapGrid
+    let maxCount: Int
     let cellSize: CGFloat
     let cellSpacing: CGFloat
     let weekdayLabelWidth: CGFloat
-    let dayOffset: (Date) -> Int
     @Binding var tooltipOffset: Int?
 
     var body: some View {
         ScrollView(.horizontal) {
             VStack(alignment: .leading, spacing: 0) {
                 HeatmapMonthHeader(
-                    weeks: weeks,
-                    monthLabels: monthLabels,
+                    grid: grid,
                     cellSize: cellSize,
                     cellSpacing: cellSpacing,
                     weekdayLabelWidth: weekdayLabelWidth
                 )
                 HeatmapCellGrid(
-                    weeks: weeks,
-                    data: data,
+                    grid: grid,
+                    maxCount: maxCount,
                     cellSize: cellSize,
                     cellSpacing: cellSpacing,
                     weekdayLabelWidth: weekdayLabelWidth,
-                    dayOffset: dayOffset,
                     tooltipOffset: $tooltipOffset
                 )
             }
@@ -242,8 +202,7 @@ private struct HeatmapScrollGrid: View {
 // MARK: - Month header
 
 private struct HeatmapMonthHeader: View {
-    let weeks: [[Date]]
-    let monthLabels: [(label: String, weekIndex: Int)]
+    let grid: HeatmapGrid
     let cellSize: CGFloat
     let cellSpacing: CGFloat
     let weekdayLabelWidth: CGFloat
@@ -253,9 +212,9 @@ private struct HeatmapMonthHeader: View {
     var body: some View {
         HStack(spacing: 0) {
             Spacer().frame(width: weekdayLabelWidth)
-            ForEach(0..<weeks.count, id: \.self) { idx in
-                if let entry = monthLabels.first(where: { $0.weekIndex == idx }) {
-                    Text(entry.label)
+            ForEach(grid.weeks) { week in
+                if let label = week.monthLabel {
+                    Text(label)
                         .font(.system(size: 9))
                         .foregroundStyle(palette.textSecondary)
                         .fixedSize()
@@ -272,12 +231,11 @@ private struct HeatmapMonthHeader: View {
 // MARK: - Cell grid
 
 private struct HeatmapCellGrid: View {
-    let weeks: [[Date]]
-    let data: HeatmapCardData
+    let grid: HeatmapGrid
+    let maxCount: Int
     let cellSize: CGFloat
     let cellSpacing: CGFloat
     let weekdayLabelWidth: CGFloat
-    let dayOffset: (Date) -> Int
     @Binding var tooltipOffset: Int?
 
     @Environment(\.palette) private var palette
@@ -286,21 +244,18 @@ private struct HeatmapCellGrid: View {
         HStack(alignment: .top, spacing: 0) {
             weekdayColumnLabels
             HStack(spacing: cellSpacing) {
-                ForEach(0..<weeks.count, id: \.self) { weekIdx in
+                ForEach(grid.weeks) { week in
                     VStack(spacing: cellSpacing) {
-                        ForEach(0..<7, id: \.self) { dayIdx in
-                            let date = weeks[weekIdx][dayIdx]
-                            let offset = dayOffset(date)
-                            let count = data.counts[offset] ?? 0
-                            let isFuture = date > Date()
+                        ForEach(week.days) { day in
                             HeatmapCell(
-                                offset: offset,
-                                count: count,
-                                maxCount: data.maxCount,
-                                isFuture: isFuture,
-                                date: date,
+                                day: day,
+                                maxCount: maxCount,
                                 cellSize: cellSize,
-                                tooltipOffset: $tooltipOffset
+                                isShowingTooltip: tooltipOffset == day.offset,
+                                onTap: {
+                                    tooltipOffset = tooltipOffset == day.offset ? nil : day.offset
+                                },
+                                onDismiss: { tooltipOffset = nil }
                             )
                         }
                     }
@@ -333,17 +288,14 @@ private struct HeatmapCellGrid: View {
 // MARK: - Single cell with popover tooltip
 
 private struct HeatmapCell: View {
-    let offset: Int
-    let count: Int
+    let day: HeatmapDay
     let maxCount: Int
-    let isFuture: Bool
-    let date: Date
     let cellSize: CGFloat
-    @Binding var tooltipOffset: Int?
+    let isShowingTooltip: Bool
+    let onTap: () -> Void
+    let onDismiss: () -> Void
 
     @Environment(\.palette) private var palette
-
-    private var isShowingTooltip: Bool { tooltipOffset == offset }
 
     private static let dateFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -353,32 +305,42 @@ private struct HeatmapCell: View {
     }()
 
     var body: some View {
-        Button {
-            tooltipOffset = isShowingTooltip ? nil : offset
-        } label: {
+        // The `.popover` is attached only to the cell actually showing one.
+        // Attaching it unconditionally would stand up a presentation host for
+        // every cell in the grid — ~370 of them at the 1-year range.
+        if isShowingTooltip {
+            cellButton.popover(
+                isPresented: Binding(get: { true }, set: { if !$0 { onDismiss() } })
+            ) {
+                tooltip.presentationCompactAdaptation(.popover)
+            }
+        } else {
+            cellButton
+        }
+    }
+
+    private var cellButton: some View {
+        Button(action: onTap) {
             RoundedRectangle(cornerRadius: 2, style: .continuous)
                 .fill(cellColor)
                 .frame(width: cellSize, height: cellSize)
         }
         .buttonStyle(.pressScale)
-        .popover(isPresented: Binding(
-                get: { isShowingTooltip },
-                set: { if !$0 { tooltipOffset = nil } }
-            )) {
-                VStack(spacing: 4) {
-                    Text(Self.dateFormatter.string(from: date))
-                        .amgiFont(.captionBold)
-                    Text(count == 0 ? "No reviews" : "\(count) review\(count == 1 ? "" : "s")")
-                        .amgiFont(.caption)
-                }
-                .padding(10)
-                .presentationCompactAdaptation(.popover)
-            }
+    }
+
+    private var tooltip: some View {
+        VStack(spacing: 4) {
+            Text(Self.dateFormatter.string(from: day.date))
+                .amgiFont(.captionBold)
+            Text(day.count == 0 ? "No reviews" : "\(day.count) review\(day.count == 1 ? "" : "s")")
+                .amgiFont(.caption)
+        }
+        .padding(10)
     }
 
     private var cellColor: Color {
-        guard !isFuture else { return Color.clear }
-        return HeatmapColorRamp.color(count: count, maxCount: maxCount, palette: palette)
+        guard !day.isFuture else { return Color.clear }
+        return HeatmapColorRamp.color(count: day.count, maxCount: maxCount, palette: palette)
     }
 }
 

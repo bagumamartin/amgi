@@ -21,6 +21,14 @@ struct HeatmapChartOptimized: View {
     @State private var visibleData: [Int: Int] = [:]
     @State private var maxCount: Int = 1
     @State private var totalReviews: Int = 0
+    /// Derived from `visibleData` once per snapshot rather than per body pass
+    /// (and per scroll frame, which is where it used to be read from).
+    @State private var weeksToShow: Int = 26
+    /// Guards against `onScrollGeometryChange` spawning one expansion task per
+    /// frame while the user is still flicking past the edge.
+    @State private var isExpanding = false
+    /// Rebuilds the grid only when the range, counts, or calendar day change.
+    @State private var gridCache = HeatmapGridCache()
 
     var compactHeight: CGFloat? = nil
 
@@ -73,47 +81,8 @@ struct HeatmapChartOptimized: View {
 
     // MARK: - Grid Data
 
-    private var weeksToShow: Int {
-        guard let minOffset = visibleData.keys.min() else { return 26 }
-        let totalDays = Swift.abs(minOffset) + 7
-        let weeksNeeded = totalDays / 7 + 1
-        return max(weeksNeeded, 26)
-    }
-
-    private var weeks: [[Date]] {
-        let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
-        let startDate = calendar.date(byAdding: .weekOfYear, value: -(weeksToShow - 1), to: today)!
-        let startOfWeek = calendar.date(
-            from: calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: startDate)
-        )!
-
-        var result: [[Date]] = []
-        var current = startOfWeek
-        while current <= today {
-            var week: [Date] = []
-            for dayOff in 0..<7 {
-                week.append(calendar.date(byAdding: .day, value: dayOff, to: current)!)
-            }
-            result.append(week)
-            current = calendar.date(byAdding: .weekOfYear, value: 1, to: current)!
-        }
-        return result
-    }
-
-    private var monthLabels: [(String, Int)] {
-        let fmt = DateFormatter()
-        fmt.dateFormat = "MMM"
-        var labels: [(String, Int)] = []
-        var lastMonth = -1
-        for (weekIdx, week) in weeks.enumerated() {
-            let month = Calendar.current.component(.month, from: week[0])
-            if month != lastMonth {
-                labels.append((fmt.string(from: week[0]), weekIdx))
-                lastMonth = month
-            }
-        }
-        return labels
+    private var grid: HeatmapGrid {
+        gridCache.grid(weekCount: weeksToShow, counts: visibleData)
     }
 
     // MARK: - Body
@@ -213,9 +182,9 @@ private extension HeatmapChartOptimized {
     func monthHeaderView() -> some View {
         HStack(spacing: 0) {
             Spacer().frame(width: weekdayLabelWidth)
-            ForEach(0..<weeks.count, id: \.self) { weekIdx in
-                if let label = monthLabels.first(where: { $0.1 == weekIdx }) {
-                    Text(label.0)
+            ForEach(grid.weeks) { week in
+                if let label = week.monthLabel {
+                    Text(label)
                         .font(.system(size: 9))
                         .foregroundStyle(palette.textSecondary)
                         .fixedSize()
@@ -240,16 +209,19 @@ private extension HeatmapChartOptimized {
             }
 
             HStack(spacing: cellSpacing) {
-                ForEach(0..<weeks.count, id: \.self) { weekIdx in
+                ForEach(grid.weeks) { week in
                     VStack(spacing: cellSpacing) {
-                        ForEach(0..<7, id: \.self) { dayIdx in
-                            let date = weeks[weekIdx][dayIdx]
-                            let offset = dayOffset(for: date)
-                            let count = visibleData[offset] ?? 0
-                            let isFuture = date > Date()
-
+                        ForEach(week.days) { day in
                             RoundedRectangle(cornerRadius: 2)
-                                .fill(isFuture ? Color.clear : HeatmapColorRamp.color(count: count, maxCount: maxCount, palette: palette))
+                                .fill(
+                                    day.isFuture
+                                        ? Color.clear
+                                        : HeatmapColorRamp.color(
+                                            count: day.count,
+                                            maxCount: maxCount,
+                                            palette: palette
+                                        )
+                                )
                                 .frame(width: cellSize, height: cellSize)
                         }
                     }
@@ -294,12 +266,6 @@ private extension HeatmapChartOptimized {
         }
     }
 
-    func dayOffset(for date: Date) -> Int {
-        let today = Calendar.current.startOfDay(for: Date())
-        let target = Calendar.current.startOfDay(for: date)
-        return Calendar.current.dateComponents([.day], from: today, to: target).day ?? 0
-    }
-
     func dateRangeLabel(_ days: Int) -> String {
         switch days {
         case 30: return "Last 30 days"
@@ -329,6 +295,14 @@ private extension HeatmapChartOptimized {
         visibleData = nextVisible
         totalReviews = nextTotal
         maxCount = nextMax
+        weeksToShow = Self.weekCount(for: nextVisible)
+    }
+
+    /// Enough week-columns to cover the loaded range, floored at 26 so a
+    /// sparse collection still renders a full six months.
+    static func weekCount(for data: [Int: Int]) -> Int {
+        guard let minOffset = data.keys.min() else { return 26 }
+        return max((Swift.abs(minOffset) + 7) / 7 + 1, 26)
     }
 
     // MARK: - State Management
@@ -351,11 +325,14 @@ private extension HeatmapChartOptimized {
         let contentWidth = CGFloat(weeksToShow) * (cellSize + cellSpacing)
         let isNearEnd = contentWidth - offset < scrollThreshold
 
-        if isNearEnd {
-            Task {
-                await loadingManager?.expandDateRange()
-                await refreshFromManager()
-            }
+        // This fires every scroll frame, so without the in-flight guard a
+        // single flick past the edge queues dozens of redundant expansions.
+        guard isNearEnd, !isExpanding else { return }
+        isExpanding = true
+        Task {
+            await loadingManager?.expandDateRange()
+            await refreshFromManager()
+            isExpanding = false
         }
     }
 }
