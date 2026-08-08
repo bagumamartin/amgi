@@ -29,3 +29,6 @@ design/
 
 # XcodeBuildMCP cache
 .xcodebuildmcp/
+
+# xcode-build-benchmark artifacts (local measurement scratch)
+.build-benchmark/
