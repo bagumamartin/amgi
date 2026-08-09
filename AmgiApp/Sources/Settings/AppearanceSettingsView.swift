@@ -1,5 +1,6 @@
 import SwiftUI
 import AmgiTheme
+import AmgiUI
 
 struct AppearanceSettingsView: View {
     @Bindable var manager: ThemeManager

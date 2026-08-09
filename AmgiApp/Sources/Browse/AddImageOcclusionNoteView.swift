@@ -1,6 +1,7 @@
 import SwiftUI
 import PhotosUI
 import AmgiTheme
+import AmgiUI
 import AnkiKit
 
 // MARK: - AddImageOcclusionNoteView

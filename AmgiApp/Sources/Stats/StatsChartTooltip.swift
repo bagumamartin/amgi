@@ -1,5 +1,6 @@
 import SwiftUI
 import AmgiTheme
+import AmgiUI
 
 struct StatsChartTooltip: View {
     let title: String

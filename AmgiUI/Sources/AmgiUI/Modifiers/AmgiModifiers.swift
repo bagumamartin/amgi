@@ -1,12 +1,14 @@
-import SwiftUI
-import AmgiTheme
+public import SwiftUI
+public import AmgiTheme
 
 // MARK: - Button Styles
 
-struct AmgiPrimaryButtonStyle: ButtonStyle {
+public struct AmgiPrimaryButtonStyle: ButtonStyle {
     @Environment(\.palette) private var palette
 
-    func makeBody(configuration: Configuration) -> some View {
+    public init() {}
+
+    public func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .amgiFont(.body)
             .foregroundStyle(.white)
@@ -17,10 +19,12 @@ struct AmgiPrimaryButtonStyle: ButtonStyle {
     }
 }
 
-struct AmgiSecondaryButtonStyle: ButtonStyle {
+public struct AmgiSecondaryButtonStyle: ButtonStyle {
     @Environment(\.palette) private var palette
 
-    func makeBody(configuration: Configuration) -> some View {
+    public init() {}
+
+    public func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .amgiFont(.body)
             .foregroundStyle(palette.accent)
@@ -35,7 +39,7 @@ struct AmgiSecondaryButtonStyle: ButtonStyle {
 
 // MARK: - Status Tone
 
-enum AmgiStatusTone {
+public enum AmgiStatusTone {
     case accent
     case positive
     case warning
@@ -64,14 +68,21 @@ enum AmgiStatusTone {
 
 // MARK: - Status Message (centered Label + caption, used for empty states)
 
-struct AmgiStatusMessageView: View {
+public struct AmgiStatusMessageView: View {
     @Environment(\.palette) private var palette
     let title: String
     let message: String
     let systemImage: String
     let tone: AmgiStatusTone
 
-    var body: some View {
+    public init(title: String, message: String, systemImage: String, tone: AmgiStatusTone) {
+        self.title = title
+        self.message = message
+        self.systemImage = systemImage
+        self.tone = tone
+    }
+
+    public var body: some View {
         VStack(spacing: AmgiSpacing.md) {
             Label(title, systemImage: systemImage)
                 .amgiFont(.bodyEmphasis)
@@ -93,19 +104,19 @@ extension View {
     /// Styles a toolbar icon's chip chrome (size, background, border). Content-only —
     /// pair the enclosing `Button` with `.buttonStyle(.pressScale)` for
     /// press feedback; a `ViewModifier` applied to the label can't see `isPressed`.
-    func amgiToolbarIconButton(size: CGFloat = 32) -> some View {
+    public func amgiToolbarIconButton(size: CGFloat = 32) -> some View {
         modifier(AmgiToolbarIconButtonModifier(size: size))
     }
 
-    func amgiToolbarTextButton(tone: AmgiStatusTone = .accent) -> some View {
+    public func amgiToolbarTextButton(tone: AmgiStatusTone = .accent) -> some View {
         modifier(AmgiToolbarTextButtonModifier(tone: tone))
     }
 
-    func amgiCapsuleControl(horizontalPadding: CGFloat = AmgiSpacing.sm, verticalPadding: CGFloat = AmgiSpacing.sm) -> some View {
+    public func amgiCapsuleControl(horizontalPadding: CGFloat = AmgiSpacing.sm, verticalPadding: CGFloat = AmgiSpacing.sm) -> some View {
         modifier(AmgiCapsuleControlModifier(horizontalPadding: horizontalPadding, verticalPadding: verticalPadding))
     }
 
-    func amgiStatusText(_ tone: AmgiStatusTone, font: AmgiFont = .captionBold) -> some View {
+    public func amgiStatusText(_ tone: AmgiStatusTone, font: AmgiFont = .captionBold) -> some View {
         modifier(AmgiStatusTextModifier(tone: tone, font: font))
     }
 }
@@ -179,7 +190,7 @@ extension View {
     ///
     /// `isEnabled: false` keeps the modifier applied and neutralises it, rather
     /// than letting callers drop it — see `AmgiChromeShadowModifier`.
-    func amgiChromeShadow<S: InsettableShape>(
+    public func amgiChromeShadow<S: InsettableShape>(
         _ shape: S,
         radius: CGFloat = 4,
         x: CGFloat = 0,
@@ -203,7 +214,7 @@ extension View {
     /// pasted over the content rather than a lens onto it. Surfaces that are
     /// *not* material-backed (cover art, the stats tooltip) keep calling
     /// `amgiChromeShadow` directly — they need their elevation on every OS.
-    func amgiMaterialElevation<S: InsettableShape>(
+    public func amgiMaterialElevation<S: InsettableShape>(
         _ shape: S,
         radius: CGFloat = 4,
         x: CGFloat = 0,

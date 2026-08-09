@@ -1,6 +1,7 @@
 import SwiftUI
 import AnkiKit
 import AmgiTheme
+import AmgiUI
 
 // MARK: - EditImageOcclusionNoteView
 

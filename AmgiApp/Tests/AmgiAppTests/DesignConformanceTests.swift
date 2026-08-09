@@ -37,10 +37,6 @@ struct DesignConformanceTests {
             "ReaderThemeColor.swift. No SwiftUI/palette-facing chrome lives in this file.",
         "Reader/ChapterReaderView.swift":
             "Radius literals with no AmgiRadius equivalent; changing them would be a layout change (R29 is no-layout).",
-        "Theme/AmgiModifiers.swift":
-            "Implements the palette.elevation-driven shadow branch itself (AmgiCard's " +
-            "ring-vs-shadow switch) — the mechanism other views delegate to, not a " +
-            "screen that should delegate to it. Not in the original brief seed.",
         "Stats/HeatmapChartOptimized.swift":
             "Radius literals with no AmgiRadius equivalent; changing them would be a layout change " +
             "(R29 is no-layout). The heatmap cell's cornerRadius: 2 (grid squares + legend swatches) " +
