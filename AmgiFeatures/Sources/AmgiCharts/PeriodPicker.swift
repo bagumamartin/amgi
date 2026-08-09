@@ -1,6 +1,6 @@
 import SwiftUI
 
-enum StatsPeriod: String, CaseIterable, Sendable {
+public enum StatsPeriod: String, CaseIterable, Sendable {
     case day = "Today"
     case week = "7 Days"
     case month = "1 Month"
@@ -8,7 +8,7 @@ enum StatsPeriod: String, CaseIterable, Sendable {
     case year = "1 Year"
     case all = "All Time"
 
-    var days: Int {
+    public var days: Int {
         switch self {
         case .day: 1
         case .week: 7
@@ -19,7 +19,7 @@ enum StatsPeriod: String, CaseIterable, Sendable {
         }
     }
 
-    var shortLabel: String {
+    public var shortLabel: String {
         switch self {
         case .day: "1D"
         case .week: "7D"

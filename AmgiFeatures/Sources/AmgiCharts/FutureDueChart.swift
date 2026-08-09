@@ -1,12 +1,18 @@
-import SwiftUI
+public import SwiftUI
 import AmgiTheme
 import AmgiUI
 import Charts
-import AnkiKit
+public import AnkiKit
 
-struct FutureDueChart: View {
+public struct FutureDueChart: View {
     let futureDue: FutureDueSeries
     let period: StatsPeriod
+
+    public init(futureDue: FutureDueSeries, period: StatsPeriod) {
+        self.futureDue = futureDue
+        self.period = period
+    }
+
     @Environment(\.palette) private var palette
     @State private var includeBacklog = false
 
@@ -31,7 +37,7 @@ struct FutureDueChart: View {
         return Double(positiveDays.reduce(0) { $0 + $1.count }) / Double(max(maxOffset, 1))
     }
 
-    var body: some View {
+    public var body: some View {
         AmgiCard(
             background: .surface,
             shadow: palette.shadows.sm,

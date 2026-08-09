@@ -1,10 +1,14 @@
-import SwiftUI
+public import SwiftUI
 import AmgiTheme
 import AmgiUI
-import AnkiKit
+public import AnkiKit
 
-struct RetentionChart: View {
+public struct RetentionChart: View {
     let trueRetention: TrueRetentionStats
+
+    public init(trueRetention: TrueRetentionStats) {
+        self.trueRetention = trueRetention
+    }
 
     @Environment(\.palette) private var palette
 
@@ -40,7 +44,7 @@ struct RetentionChart: View {
         ]
     }
 
-    var body: some View {
+    public var body: some View {
         AmgiCard(
             background: .surface,
             shadow: palette.shadows.sm,

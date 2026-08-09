@@ -1,3 +1,4 @@
+import AmgiCharts
 import AnkiClients
 import AnkiKit
 import Dependencies

@@ -1,7 +1,7 @@
 import Foundation
 import os
 import SwiftUI
-import AnkiKit
+public import AnkiKit
 
 /// Manages incremental loading of heatmap data with configurable date range
 public actor HeatmapLoadingManager: Sendable {

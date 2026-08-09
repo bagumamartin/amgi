@@ -1,12 +1,17 @@
-import SwiftUI
+public import SwiftUI
 import AmgiTheme
 import AmgiUI
 import Charts
-import AnkiKit
+public import AnkiKit
 
-struct ReviewsChart: View {
+public struct ReviewsChart: View {
     let reviews: ReviewCountsAndTimes
     let period: StatsPeriod
+
+    public init(reviews: ReviewCountsAndTimes, period: StatsPeriod) {
+        self.reviews = reviews
+        self.period = period
+    }
 
     @Environment(\.palette) private var palette
 
@@ -50,7 +55,7 @@ struct ReviewsChart: View {
         return Double(totalReviews) / Double(max(uniqueDays, 1))
     }
 
-    var body: some View {
+    public var body: some View {
         AmgiCard(
             background: .surface,
             shadow: palette.shadows.sm,

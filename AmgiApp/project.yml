@@ -133,6 +133,8 @@ targets:
         product: AmgiAppCore
       - package: AmgiFeatures
         product: AmgiAppShared
+      - package: AmgiFeatures
+        product: AmgiCharts
       - package: swift-navigation
         product: SwiftNavigation
       - package: swift-navigation
@@ -198,17 +200,6 @@ targets:
       - path: Sources/Review/ReviewSession.swift
       - path: Sources/Review/ReviewAudioSession.swift
       - path: Sources/Review/RenderEngine/TemplateRenderOverrides.swift
-      - path: Sources/Stats/PeriodPicker.swift
-      - path: Sources/Stats/TodayStatsCard.swift
-      - path: Sources/Stats/FutureDueChart.swift
-      - path: Sources/Stats/ReviewsChart.swift
-      - path: Sources/Stats/CardCountsChart.swift
-      - path: Sources/Stats/IntervalsChart.swift
-      - path: Sources/Stats/EaseChart.swift
-      - path: Sources/Stats/HourlyChart.swift
-      - path: Sources/Stats/ButtonsChart.swift
-      - path: Sources/Stats/AddedChart.swift
-      - path: Sources/Stats/RetentionChart.swift
     dependencies:
       - package: AnkiBridge
         product: AnkiKit
@@ -228,6 +219,8 @@ targets:
         product: AmgiCardWeb
       - package: AmgiFeatures
         product: AmgiAppCore
+      - package: AmgiFeatures
+        product: AmgiCharts
       - package: swift-navigation
         product: SwiftNavigation
       - package: swift-sharing

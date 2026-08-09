@@ -1,12 +1,17 @@
-import SwiftUI
+public import SwiftUI
 import AmgiTheme
 import AmgiUI
 import Charts
-import AnkiKit
+public import AnkiKit
 
-struct ButtonsChart: View {
+public struct ButtonsChart: View {
     let buttons: ButtonsBuckets
     let period: StatsPeriod
+
+    public init(buttons: ButtonsBuckets, period: StatsPeriod) {
+        self.buttons = buttons
+        self.period = period
+    }
 
     @Environment(\.palette) private var palette
 
@@ -51,7 +56,7 @@ struct ButtonsChart: View {
         return result
     }
 
-    var body: some View {
+    public var body: some View {
         AmgiCard(
             background: .surface,
             shadow: palette.shadows.sm,

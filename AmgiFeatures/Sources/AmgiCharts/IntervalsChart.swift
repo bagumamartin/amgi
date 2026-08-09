@@ -1,11 +1,15 @@
-import SwiftUI
+public import SwiftUI
 import AmgiTheme
 import AmgiUI
 import Charts
-import AnkiKit
+public import AnkiKit
 
-struct IntervalsChart: View {
+public struct IntervalsChart: View {
     let intervals: IntervalsBuckets
+
+    public init(intervals: IntervalsBuckets) {
+        self.intervals = intervals
+    }
 
     @Environment(\.palette) private var palette
 
@@ -39,7 +43,7 @@ struct IntervalsChart: View {
         .filter { $0.count > 0 }
     }
 
-    var body: some View {
+    public var body: some View {
         AmgiCard(
             background: .surface,
             shadow: palette.shadows.sm,

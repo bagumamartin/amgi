@@ -1,12 +1,17 @@
-import SwiftUI
+public import SwiftUI
 import AmgiTheme
 import AmgiUI
 import Charts
-import AnkiKit
+public import AnkiKit
 
-struct HourlyChart: View {
+public struct HourlyChart: View {
     let hours: HoursBuckets
     let period: StatsPeriod
+
+    public init(hours: HoursBuckets, period: StatsPeriod) {
+        self.hours = hours
+        self.period = period
+    }
 
     @Environment(\.palette) private var palette
 
@@ -36,7 +41,7 @@ struct HourlyChart: View {
         }
     }
 
-    var body: some View {
+    public var body: some View {
         AmgiCard(
             background: .surface,
             shadow: palette.shadows.sm,

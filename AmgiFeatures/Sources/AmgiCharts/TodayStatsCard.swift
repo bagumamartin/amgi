@@ -1,12 +1,19 @@
-import SwiftUI
+public import SwiftUI
 import AmgiTheme
 import AmgiUI
-import AnkiKit
+public import AnkiKit
 
-struct PeriodStatsCard: View {
+public struct PeriodStatsCard: View {
     let period: StatsPeriod
     let today: TodayCounts
     let reviews: ReviewCountsAndTimes
+
+    public init(period: StatsPeriod, today: TodayCounts, reviews: ReviewCountsAndTimes) {
+        self.period = period
+        self.today = today
+        self.reviews = reviews
+    }
+
     @Environment(\.palette) private var palette
 
     private var periodTitle: String {
@@ -61,7 +68,7 @@ struct PeriodStatsCard: View {
         return "\(pct)%"
     }
 
-    var body: some View {
+    public var body: some View {
         AmgiCard(
             background: .surfaceElevated,
             shadow: palette.shadows.md,

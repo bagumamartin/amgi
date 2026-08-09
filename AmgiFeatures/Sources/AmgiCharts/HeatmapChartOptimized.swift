@@ -1,14 +1,19 @@
-import SwiftUI
+public import SwiftUI
 import AmgiTheme
 import AmgiUI
-import AnkiKit
+public import AnkiKit
 
 /// Optimized heatmap with incremental loading.
 /// - Initially loads 6 months of data.
 /// - Loads more when scrolling to edges.
 /// - Configurable via the date range menu.
-struct HeatmapChartOptimized: View {
+public struct HeatmapChartOptimized: View {
     let reviews: ReviewCountsAndTimes
+
+    public init(reviews: ReviewCountsAndTimes, compactHeight: CGFloat? = nil) {
+        self.reviews = reviews
+        self.compactHeight = compactHeight
+    }
 
     @Environment(\.palette) private var palette
     @State private var loadingManager: HeatmapLoadingManager?
@@ -87,7 +92,7 @@ struct HeatmapChartOptimized: View {
 
     // MARK: - Body
 
-    var body: some View {
+    public var body: some View {
         AmgiCard(
             background: .surface,
             shadow: palette.shadows.sm,
@@ -112,7 +117,11 @@ private extension HeatmapChartOptimized {
                     .foregroundStyle(palette.textPrimary)
                 Spacer()
 
-                // Date range picker (when not compact)
+                // Date range picker (when not compact). `Menu(content:label:)` is
+                // unavailable on watchOS; AmgiCharts compiles as one module for
+                // every platform in Package.swift, and the watch app never
+                // references this view, so the picker is iOS/macOS-only.
+                #if !os(watchOS)
                 if !isCompact {
                     Menu {
                         ForEach([30, 90, 180, 365, 730], id: \.self) { days in
@@ -128,6 +137,7 @@ private extension HeatmapChartOptimized {
                             .foregroundStyle(palette.accent)
                     }
                 }
+                #endif
 
                 if currentStreak > 0 {
                     Label("\(currentStreak)-day streak", systemImage: "flame.fill")

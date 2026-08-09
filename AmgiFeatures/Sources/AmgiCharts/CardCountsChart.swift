@@ -1,11 +1,15 @@
-import SwiftUI
+public import SwiftUI
 import AmgiTheme
 import AmgiUI
 import Charts
-import AnkiKit
+public import AnkiKit
 
-struct CardCountsChart: View {
+public struct CardCountsChart: View {
     let cardCounts: CardCountsSeries
+
+    public init(cardCounts: CardCountsSeries) {
+        self.cardCounts = cardCounts
+    }
 
     @Environment(\.palette) private var palette
 
@@ -24,7 +28,7 @@ struct CardCountsChart: View {
 
     private var total: Int { chartData.reduce(0) { $0 + $1.count } }
 
-    var body: some View {
+    public var body: some View {
         AmgiCard(
             background: .surface,
             shadow: palette.shadows.sm,

@@ -1,14 +1,19 @@
-import SwiftUI
+public import SwiftUI
 import AmgiTheme
 import AmgiUI
 
-struct StatsChartTooltip: View {
+public struct StatsChartTooltip: View {
     let title: String
     let lines: [String]
 
+    public init(title: String, lines: [String]) {
+        self.title = title
+        self.lines = lines
+    }
+
     @Environment(\.palette) private var palette
 
-    var body: some View {
+    public var body: some View {
         VStack(alignment: .leading, spacing: AmgiSpacing.xxs) {
             Text(title)
                 .amgiFont(.captionBold)

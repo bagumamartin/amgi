@@ -37,7 +37,7 @@ struct DesignConformanceTests {
             "ReaderThemeColor.swift. No SwiftUI/palette-facing chrome lives in this file.",
         "Reader/ChapterReaderView.swift":
             "Radius literals with no AmgiRadius equivalent; changing them would be a layout change (R29 is no-layout).",
-        "Stats/HeatmapChartOptimized.swift":
+        "AmgiCharts/HeatmapChartOptimized.swift":
             "Radius literals with no AmgiRadius equivalent; changing them would be a layout change " +
             "(R29 is no-layout). The heatmap cell's cornerRadius: 2 (grid squares + legend swatches) " +
             "is not a card and must stay 2, not round to AmgiRadius.control (10).",
@@ -119,25 +119,35 @@ struct DesignConformanceTests {
         ("raw glass effect (use amgiMaterial)", #"\.glassEffect\("#),
     ]
 
-    private static var sourceRoot: URL {
-        URL(fileURLWithPath: #filePath)          // …/AmgiApp/Tests/AmgiAppTests/This.swift
-            .deletingLastPathComponent()          // AmgiAppTests
-            .deletingLastPathComponent()          // Tests
-            .deletingLastPathComponent()          // AmgiApp
-            .appendingPathComponent("Sources")
-    }
+    /// Roots the scanner walks. Paths in `pendingSweep` / `permanentlyExempt`
+    /// are relative to whichever root contains the file, so a file that moves
+    /// from AmgiApp/Sources/Stats to AmgiFeatures/Sources/AmgiCharts changes
+    /// key from "Stats/X.swift" to "AmgiCharts/X.swift".
+    private static let sourceRoots: [URL] = {
+        let repo = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // AmgiAppTests
+            .deletingLastPathComponent()   // Tests
+            .deletingLastPathComponent()   // AmgiApp
+            .deletingLastPathComponent()   // repo root
+        return [
+            repo.appendingPathComponent("AmgiApp/Sources"),
+            repo.appendingPathComponent("AmgiFeatures/Sources"),
+        ]
+    }()
 
-    /// Every .swift under AmgiApp/Sources, keyed by path relative to Sources/.
+    /// Every .swift under the scanned roots, keyed by path relative to
+    /// whichever root contains it.
     private static func swiftFiles() throws -> [(relative: String, contents: String)] {
-        let root = sourceRoot
-        guard let walker = FileManager.default.enumerator(
-            at: root, includingPropertiesForKeys: nil
-        ) else { return [] }
-
         var out: [(String, String)] = []
-        for case let url as URL in walker where url.pathExtension == "swift" {
-            let relative = url.path.replacingOccurrences(of: root.path + "/", with: "")
-            out.append((relative, try String(contentsOf: url, encoding: .utf8)))
+        for root in sourceRoots {
+            guard let walker = FileManager.default.enumerator(
+                at: root, includingPropertiesForKeys: nil
+            ) else { continue }
+
+            for case let url as URL in walker where url.pathExtension == "swift" {
+                let relative = url.path.replacingOccurrences(of: root.path + "/", with: "")
+                out.append((relative, try String(contentsOf: url, encoding: .utf8)))
+            }
         }
         return out
     }
@@ -182,6 +192,6 @@ struct DesignConformanceTests {
     @Test("scanner actually walks a non-zero number of source files")
     func scannerFindsFiles() throws {
         let files = try Self.swiftFiles()
-        #expect(files.count > 100, "Expected #filePath-derived sourceRoot to resolve to AmgiApp/Sources and find many files, found \(files.count). sourceRoot=\(Self.sourceRoot.path)")
+        #expect(files.count > 100, "Expected #filePath-derived sourceRoots to resolve and find many files, found \(files.count). sourceRoots=\(Self.sourceRoots.map(\.path))")
     }
 }

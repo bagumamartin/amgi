@@ -1,11 +1,15 @@
-import SwiftUI
+public import SwiftUI
 import AmgiTheme
 import AmgiUI
 import Charts
-import AnkiKit
+public import AnkiKit
 
-struct EaseChart: View {
+public struct EaseChart: View {
     let eases: EaseBuckets
+
+    public init(eases: EaseBuckets) {
+        self.eases = eases
+    }
 
     @Environment(\.palette) private var palette
 
@@ -20,7 +24,7 @@ struct EaseChart: View {
         return String(format: "%.0f%%", eases.average / 10)
     }
 
-    var body: some View {
+    public var body: some View {
         AmgiCard(
             background: .surface,
             shadow: palette.shadows.sm,

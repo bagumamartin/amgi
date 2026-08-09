@@ -1,11 +1,15 @@
-import SwiftUI
+public import SwiftUI
 import Charts
 import AmgiTheme
 import AmgiUI
-import AnkiKit
+public import AnkiKit
 
-struct RetrievabilityChart: View {
+public struct RetrievabilityChart: View {
     let retrievability: RetrievabilityBuckets
+
+    public init(retrievability: RetrievabilityBuckets) {
+        self.retrievability = retrievability
+    }
 
     @Environment(\.palette) private var palette
     @State private var selectedBucketStart: Int?
@@ -60,7 +64,7 @@ struct RetrievabilityChart: View {
         yAxisTicks.map(\.plottedValue)
     }
 
-    var body: some View {
+    public var body: some View {
         AmgiCard(
             background: .surfaceElevated,
             shadow: palette.shadows.md,
