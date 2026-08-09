@@ -1,7 +1,7 @@
-import SwiftUI
+public import SwiftUI
 import AmgiTheme
 import AmgiAppCore
-import AnkiKit
+public import AnkiKit
 
 // MARK: - Menu content
 
@@ -9,12 +9,22 @@ import AnkiKit
 /// shape Mail and Reminders use for flags and tags. One tap instead of two,
 /// and the current flag reads as a selection instead of a nested label.
 @MainActor
-struct CardFlagPicker: View {
+public struct CardFlagPicker: View {
     let model: CardContextMenuModel
     let cardId: CardID
-    var onAction: (_ shouldAdvance: Bool) -> Void = { _ in }
+    var onAction: (_ shouldAdvance: Bool) -> Void
 
-    var body: some View {
+    public init(
+        model: CardContextMenuModel,
+        cardId: CardID,
+        onAction: @escaping (_ shouldAdvance: Bool) -> Void = { _ in }
+    ) {
+        self.model = model
+        self.cardId = cardId
+        self.onAction = onAction
+    }
+
+    public var body: some View {
         Section {
             Picker("Flag", selection: Binding(
                 get: { model.currentFlag & 0b111 },
@@ -45,15 +55,31 @@ struct CardFlagPicker: View {
 /// enclosing `Menu`: presentations attached to menu content never show, and
 /// a `.task` there wouldn't run until the menu is opened.
 @MainActor
-struct CardActionSections: View {
+public struct CardActionSections: View {
     let model: CardContextMenuModel
     let cardId: CardID
     var noteId: NoteID?
     @Binding var confirmDeleteNote: Bool
     var onRequestSetDueDate: ((_ cardId: CardID) -> Void)?
-    var onAction: (_ shouldAdvance: Bool) -> Void = { _ in }
+    var onAction: (_ shouldAdvance: Bool) -> Void
 
-    var body: some View {
+    public init(
+        model: CardContextMenuModel,
+        cardId: CardID,
+        noteId: NoteID? = nil,
+        confirmDeleteNote: Binding<Bool>,
+        onRequestSetDueDate: ((_ cardId: CardID) -> Void)? = nil,
+        onAction: @escaping (_ shouldAdvance: Bool) -> Void = { _ in }
+    ) {
+        self.model = model
+        self.cardId = cardId
+        self.noteId = noteId
+        self._confirmDeleteNote = confirmDeleteNote
+        self.onRequestSetDueDate = onRequestSetDueDate
+        self.onAction = onAction
+    }
+
+    public var body: some View {
         Section {
             Button { act { await model.suspend(cardId) } } label: {
                 Label("Suspend Card", systemImage: "pause.circle")
@@ -109,7 +135,7 @@ extension View {
     /// `CardActionSections`/`CardFlagPicker`. Apply this to the view that
     /// *hosts* the `Menu`, never inside the menu's content.
     @MainActor
-    func cardActionPresentations(
+    public func cardActionPresentations(
         model: CardContextMenuModel,
         cardId: CardID?,
         noteId: NoteID?,
@@ -168,7 +194,7 @@ private struct CardActionPresentations: ViewModifier {
 /// where the actions are the whole menu. Reviewing composes the same sections
 /// into its own toolbar menu instead, so nothing nests.
 @MainActor
-struct CardContextMenu: View {
+public struct CardContextMenu: View {
     let cardId: CardID
     var noteId: NoteID?
     var onSuccess: (() -> Void)?
@@ -180,7 +206,7 @@ struct CardContextMenu: View {
 
     // Explicit: the `private` state above would otherwise make the synthesized
     // memberwise initializer private too, and Browse constructs this cross-file.
-    init(
+    public init(
         cardId: CardID,
         noteId: NoteID? = nil,
         onSuccess: (() -> Void)? = nil,
@@ -194,7 +220,7 @@ struct CardContextMenu: View {
         self.onRequestSetDueDate = onRequestSetDueDate
     }
 
-    var body: some View {
+    public var body: some View {
         Menu {
             CardFlagPicker(model: model, cardId: cardId, onAction: forward)
             CardActionSections(

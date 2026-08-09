@@ -1,7 +1,8 @@
 import AnkiClients
-import AnkiKit
-import Dependencies
+public import AnkiKit
+public import Dependencies
 import Foundation
+public import Observation
 
 /// Single refresh authority for Collection reads — deck tree (+ its due
 /// counts) in v1. Screens key `.task(id: store.generation)` so an
@@ -10,9 +11,9 @@ import Foundation
 /// `invalidateAll()`. See CONTEXT.md: CollectionStore, Invalidation.
 @Observable
 @MainActor
-final class CollectionStore {
+public final class CollectionStore {
     /// Bumped by every Invalidation that affects the deck tree.
-    private(set) var generation = 0
+    public private(set) var generation = 0
 
     @ObservationIgnored @Dependency(\.deckClient) private var deckClient
 
@@ -23,7 +24,7 @@ final class CollectionStore {
 
     /// Read-through deck tree. Concurrent callers share one fetch; a
     /// generation bump makes both the cache and any in-flight fetch stale.
-    func tree() async throws -> [DeckTreeNode] {
+    public func tree() async throws -> [DeckTreeNode] {
         if let cachedTree, cachedGeneration == generation {
             return cachedTree
         }
@@ -46,12 +47,12 @@ final class CollectionStore {
         return tree
     }
 
-    func apply(_ changes: CollectionChanges) {
+    public func apply(_ changes: CollectionChanges) {
         guard changes.affectsDeckTree else { return }
         generation += 1
     }
 
-    func invalidateAll() {
+    public func invalidateAll() {
         generation += 1
     }
 }
@@ -62,7 +63,7 @@ private enum CollectionStoreKey: DependencyKey {
 }
 
 extension DependencyValues {
-    var collectionStore: CollectionStore {
+    public var collectionStore: CollectionStore {
         get { self[CollectionStoreKey.self] }
         set { self[CollectionStoreKey.self] = newValue }
     }

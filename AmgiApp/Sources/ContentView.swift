@@ -1,6 +1,7 @@
 // AmgiApp/Sources/ContentView.swift
 import SwiftUI
 import AmgiAppCore
+import AmgiAppShared
 import AnkiKit
 import AnkiSync
 import Sharing

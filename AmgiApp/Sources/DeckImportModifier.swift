@@ -1,5 +1,6 @@
 // AmgiApp/Sources/DeckImportModifier.swift
 import SwiftUI
+import AmgiAppShared
 import UniformTypeIdentifiers
 
 /// Self-contained deck-import flow: presents the system file importer,

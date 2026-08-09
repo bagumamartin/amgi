@@ -1,5 +1,6 @@
 // AmgiApp/Sources/Decks/DeckList/DeckListView.swift
 import SwiftUI
+import AmgiAppShared
 import AmgiTheme
 import AmgiUI
 import AnkiKit

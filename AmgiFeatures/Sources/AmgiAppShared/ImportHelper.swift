@@ -1,7 +1,7 @@
-import AnkiKit
+public import AnkiKit
 import AnkiServices
 import Dependencies
-import Foundation
+public import Foundation
 
 enum ImportError: Error, LocalizedError {
     case accessDenied
@@ -15,8 +15,8 @@ enum ImportError: Error, LocalizedError {
     }
 }
 
-enum ImportHelper {
-    static func importPackage(from url: URL) throws -> String {
+public enum ImportHelper {
+    public static func importPackage(from url: URL) throws -> String {
         guard url.startAccessingSecurityScopedResource() else {
             throw ImportError.accessDenied
         }
@@ -32,7 +32,7 @@ enum ImportHelper {
         return try importExportService.importAnkiPackage(tempFile.path)
     }
 
-    static func exportCollection(to filename: String = "collection.colpkg") throws -> URL {
+    public static func exportCollection(to filename: String = "collection.colpkg") throws -> URL {
         let tempDir = FileManager.default.temporaryDirectory
         let outPath = tempDir.appendingPathComponent(filename)
         try? FileManager.default.removeItem(at: outPath)
@@ -46,7 +46,7 @@ enum ImportHelper {
     /// Exports a single deck as an `.apkg` file in the temporary directory and
     /// returns the URL. The default options preserve scheduling, deck configs,
     /// and media — matching upstream Anki's "Export including media" preset.
-    static func exportDeck(
+    public static func exportDeck(
         deckId: DeckID,
         deckName: String,
         withScheduling: Bool = true,

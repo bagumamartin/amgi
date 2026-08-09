@@ -1,5 +1,6 @@
 // AmgiApp/Sources/Study/StudyLandingView.swift
 import SwiftUI
+import AmgiAppShared
 import AmgiUI
 import AmgiReader
 import AnkiKit

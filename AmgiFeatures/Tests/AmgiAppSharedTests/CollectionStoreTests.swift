@@ -3,7 +3,7 @@ import Foundation
 import Dependencies
 import AnkiKit
 import AnkiClients
-@testable import AmgiApp
+@testable import AmgiAppShared
 
 /// Thread-safe fetch counter for asserting coalescing.
 private final class CallCounter: @unchecked Sendable {

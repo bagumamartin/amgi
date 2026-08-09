@@ -2,6 +2,7 @@ import AnkiClients
 import AnkiKit
 import Dependencies
 import Foundation
+public import Observation
 
 /// Card-operation I/O for `CardContextMenu`. Owns the card/note/tag clients
 /// and the loaded display state (marked, current flag, undo availability)
@@ -13,9 +14,9 @@ import Foundation
 /// the view forwards `onSuccess`/`onActionSuccess`.
 @Observable
 @MainActor
-final class CardContextMenuModel {
+public final class CardContextMenuModel {
     var isMarkedNote = false
-    var currentFlag: UInt32 = 0
+    public var currentFlag: UInt32 = 0
     var canUndo = false
     var isUndoing = false
     var errorMessage: String?
@@ -24,6 +25,8 @@ final class CardContextMenuModel {
     @ObservationIgnored @Dependency(\.cardClient) private var cardClient
     @ObservationIgnored @Dependency(\.noteClient) private var noteClient
     @ObservationIgnored @Dependency(\.tagClient) private var tagClient
+
+    public init() {}
 
     // MARK: - Actions (return shouldAdvance on success, nil on failure)
 

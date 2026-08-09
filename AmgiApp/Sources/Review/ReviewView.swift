@@ -3,6 +3,7 @@ import AmgiCardWeb
 import AmgiTheme
 import AmgiUI
 import AmgiAppCore
+import AmgiAppShared
 import AnkiBackend
 import AnkiKit
 import Dependencies
