@@ -36,4 +36,12 @@ struct StatsDashboardContentStateTests {
         )
         #expect(state.isLoadingCase)
     }
+
+    @Test("an error still wins while a refresh is in flight")
+    func errorBeatsInFlightReload() {
+        let state = StatsDashboardContent.State(
+            isLoading: true, errorMessage: "boom", graphs: nil
+        )
+        #expect(state.failureMessage == "boom")
+    }
 }
