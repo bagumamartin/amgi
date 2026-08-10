@@ -52,7 +52,7 @@ struct DesignConformanceTests {
             "64pt success glyph in the session-finished empty state. A fixed-size SF Symbol, " +
             "not text — it has no AmgiFont role because it isn't type, and scaling it with " +
             "Dynamic Type would only push the message below it off-screen.",
-        "Decks/DeckTemplateList/TemplateEditorView.swift":
+        "FeatureTemplates/TemplateEditorView.swift":
             "Radius literals with no AmgiRadius equivalent; changing them would be a layout change (R29 is no-layout).",
         "Widgets/LargeWidgetView.swift":
             "Separate target (shares only AmgiTheme + AnkiKit). Renders in the system's context and cannot observe ThemeManager at render time, so palette adoption is a design decision, not a conformance sweep. Tracked separately if widget theming is wanted.",

@@ -1,13 +1,13 @@
-import SwiftUI
+public import SwiftUI
 import AmgiTheme
 import AmgiUI
-import AnkiKit
+public import AnkiKit
 
 /// Notetype/template editor — front, back, and CSS panes plus a render
 /// preview. Container owns the editable `Notetype`; the cosmetic subviews
 /// (`TemplateEditorHeaderCard`, `InsertFieldSearchBox`) and presentation
 /// modifier (`TemplateEditorPresentations`) live below.
-struct TemplateEditorView: View {
+public struct TemplateEditorView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.palette) private var palette
@@ -29,7 +29,7 @@ struct TemplateEditorView: View {
     @State private var showPreviewSheet = false
     @State private var editorSearchText = ""
 
-    init(
+    public init(
         notetypeId: NotetypeID,
         previewNoteId: NoteID? = nil,
         initialTemplateIndex: Int,
@@ -66,7 +66,7 @@ struct TemplateEditorView: View {
         return model.notetype.templates[model.selectedTemplateIndex].name
     }
 
-    var body: some View {
+    public var body: some View {
         NavigationStack {
             mainContent
                 .background(palette.background)

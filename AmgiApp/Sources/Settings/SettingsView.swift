@@ -1,6 +1,7 @@
 import SwiftUI
 import AmgiTheme
 import AmgiAppCore
+import FeatureTemplates
 
 /// Settings, following the `amgi-settings.jsx` screen in the Amgi design
 /// project: in-content large title, grouped inset panels, tinted glyph
