@@ -40,6 +40,7 @@ let package = Package(
         .library(name: "AmgiAppShared", targets: ["AmgiAppShared"]),
         .library(name: "AmgiCharts", targets: ["AmgiCharts"]),
         .library(name: "FeatureTemplates", targets: ["FeatureTemplates"]),
+        .library(name: "FeatureStats", targets: ["FeatureStats"]),
     ],
     dependencies: [
         .package(path: ".."),
@@ -98,6 +99,24 @@ let package = Package(
                 .product(name: "AmgiUI", package: "AmgiUI"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
             ],
+            swiftSettings: sharedSwiftSettings
+        ),
+        .target(
+            name: "FeatureStats",
+            dependencies: [
+                "AmgiCharts",
+                "AmgiAppShared",
+                .product(name: "AnkiKit", package: "amgi"),
+                .product(name: "AnkiClients", package: "amgi"),
+                .product(name: "AmgiTheme", package: "AmgiUI"),
+                .product(name: "AmgiUI", package: "AmgiUI"),
+                .product(name: "Dependencies", package: "swift-dependencies"),
+            ],
+            swiftSettings: sharedSwiftSettings
+        ),
+        .testTarget(
+            name: "FeatureStatsTests",
+            dependencies: ["FeatureStats"],
             swiftSettings: sharedSwiftSettings
         ),
     ],

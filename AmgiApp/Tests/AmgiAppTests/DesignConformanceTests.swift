@@ -192,6 +192,6 @@ struct DesignConformanceTests {
     @Test("scanner actually walks a non-zero number of source files")
     func scannerFindsFiles() throws {
         let files = try Self.swiftFiles()
-        #expect(files.count > 100, "Expected #filePath-derived sourceRoots to resolve and find many files, found \(files.count). sourceRoots=\(Self.sourceRoots.map(\.path))")
+        #expect(files.count > 150, "Expected #filePath-derived sourceRoots to resolve and find many files, found \(files.count). sourceRoots=\(Self.sourceRoots.map(\.path))")
     }
 }
