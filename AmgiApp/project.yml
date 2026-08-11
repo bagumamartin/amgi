@@ -44,6 +44,19 @@ settings:
     # '_DarwinFoundation3.swiftmodule -> CxxStdlib.swiftinterface ->
     # _DarwinFoundation3.swiftmodule'" (verified 2026-08-06). Every other
     # target still caches; leave these two alone.
+    #
+    # Do NOT trust the xcode-build-benchmark "cached clean" leg here — it
+    # reports ~65-75s and looks like caching is pure overhead. It is not:
+    # COMPILATION_CACHE_CAS_PATH is *derived from* -derivedDataPath, so under
+    # the script's temp DerivedData the CAS lands inside it and the leg's
+    # rmtree(dd_path) deletes the cache it exists to measure, timing CAS
+    # population instead. Its fast "clean" leg meanwhile uses shared
+    # DerivedData with the real warm CAS, so the two legs are different
+    # scenarios and the gap between them is virgin-DD cache misses.
+    # Measured 2026-08-11, shared DerivedData + `xcodebuild clean`, same 1355
+    # compile tasks: caching ON 20s, OFF 30s. Virgin DerivedData: ON 74s,
+    # OFF 75s. Caching is a win in the realistic case and never a loss.
+    # Benchmark this project with --no-cached-clean.
   configs:
     Debug:
       # Eager linking: let downstream targets link against generated stubs
