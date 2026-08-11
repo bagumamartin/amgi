@@ -64,13 +64,22 @@ struct HeatmapGridTests {
         #expect(byOffset[-4] == 0)
     }
 
-    @Test("covers at least the requested range")
-    func coversRequestedRange() {
-        let grid = HeatmapGrid.build(weekCount: 53, counts: [:], today: Date())
-        let earliest = grid.weeks.flatMap(\.days).map(\.offset).min()
+    @Test("covers a full year of past days whatever weekday today is",
+          arguments: 0..<7)
+    func coverageIsWeekdayIndependent(dayShift: Int) throws {
+        let cal = Calendar.current
+        // 2026-03-01 is a Sunday, so shifting 0...6 walks every weekday.
+        let base = try #require(cal.date(from: DateComponents(year: 2026, month: 3, day: 1)))
+        let today = try #require(cal.date(byAdding: .day, value: dayShift, to: base))
+
+        let grid = HeatmapGrid.build(weekCount: 53, counts: [:], today: today)
+        let earliest = try #require(grid.weeks.flatMap(\.days).map(\.offset).min())
 
         #expect(grid.weeks.count >= 53)
-        #expect(earliest! <= -365)
+        // -364...0 inclusive is 365 days counting today: a full year.
+        // The week-start snap adds 0-6 more depending on the weekday, so this
+        // is the worst case and the only weekday-independent bound.
+        #expect(earliest <= -364)
     }
 
     @Test("week ids are unique and stable across ranges")
