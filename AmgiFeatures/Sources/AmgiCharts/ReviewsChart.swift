@@ -16,8 +16,16 @@ public struct ReviewsChart: View {
     @Environment(\.palette) private var palette
 
     private struct ReviewEntry: Identifiable {
-        let id = UUID()
+        /// Number of review types — the stride `id` packs `day` by.
+        static let typeCount = 5
+
+        /// Stable across rebuilds: `(day, typeIndex)` is unique because
+        /// `typeIndex` is always less than the stride, and Charts diffs marks
+        /// by `id`. A fresh `UUID` here would give every mark a new identity on
+        /// every `body` pass, forcing a full re-layout instead of an update.
+        var id: Int { day * Self.typeCount + typeIndex }
         let day: Int
+        let typeIndex: Int
         let type: String
         let count: Int
         let color: Color
@@ -35,27 +43,35 @@ public struct ReviewsChart: View {
         var result: [ReviewEntry] = []
         for (day, rev) in reviews.count {
             guard day <= 0, abs(day) <= maxDay else { continue }
-            for (name, kp, color) in types {
+            for (typeIndex, (name, kp, color)) in types.enumerated() {
                 let value = rev[keyPath: kp]
                 if value > 0 {
-                    result.append(ReviewEntry(day: day, type: name, count: value, color: color))
+                    result.append(ReviewEntry(
+                        day: day, typeIndex: typeIndex,
+                        type: name, count: value, color: color
+                    ))
                 }
             }
         }
         return result.sorted(by: { $0.day < $1.day })
     }
 
-    private var totalReviews: Int {
+    private func totalReviews(_ entries: [ReviewEntry]) -> Int {
         entries.reduce(0) { $0 + $1.count }
     }
 
-    private var avgPerDay: Double {
+    private func avgPerDay(_ entries: [ReviewEntry]) -> Double {
         guard !entries.isEmpty else { return 0 }
         let uniqueDays = Set(entries.map(\.day)).count
-        return Double(totalReviews) / Double(max(uniqueDays, 1))
+        return Double(totalReviews(entries)) / Double(max(uniqueDays, 1))
     }
 
     public var body: some View {
+        // Built once per pass and threaded through. Reading the computed
+        // `entries` from each call site instead rebuilt the whole series six
+        // times per `body` — once for `isEmpty`, once for the chart, and four
+        // more inside the two footer figures.
+        let entries = self.entries
         AmgiCard(
             background: .surface,
             shadow: palette.shadows.sm,
@@ -92,8 +108,8 @@ public struct ReviewsChart: View {
                 }
 
                 HStack(spacing: 16) {
-                    footerItem("Total", value: "\(totalReviews)")
-                    footerItem("Avg/day", value: String(format: "%.1f", avgPerDay))
+                    footerItem("Total", value: "\(totalReviews(entries))")
+                    footerItem("Avg/day", value: String(format: "%.1f", avgPerDay(entries)))
                 }
             }
         }

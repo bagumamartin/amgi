@@ -28,16 +28,26 @@ public struct FutureDueChart: View {
             .sorted(by: { $0.day < $1.day })
     }
 
-    private var totalDue: Int { filteredData.reduce(0) { $0 + $1.count } }
-    private var dueTomorrow: Int { filteredData.first(where: { $0.day == 1 })?.count ?? 0 }
-    private var avgPerDay: Double {
-        let positiveDays = filteredData.filter { $0.day >= 0 }
+    private func totalDue(_ data: [(day: Int, count: Int)]) -> Int {
+        data.reduce(0) { $0 + $1.count }
+    }
+
+    private func dueTomorrow(_ data: [(day: Int, count: Int)]) -> Int {
+        data.first(where: { $0.day == 1 })?.count ?? 0
+    }
+
+    private func avgPerDay(_ data: [(day: Int, count: Int)]) -> Double {
+        let positiveDays = data.filter { $0.day >= 0 }
         guard !positiveDays.isEmpty else { return 0 }
         let maxOffset = positiveDays.map(\.day).max() ?? 1
         return Double(positiveDays.reduce(0) { $0 + $1.count }) / Double(max(maxOffset, 1))
     }
 
     public var body: some View {
+        // Built once per pass and threaded through — reading the computed
+        // `filteredData` from each call site re-ran the compactMap + sort five
+        // times per `body`.
+        let filteredData = self.filteredData
         AmgiCard(
             background: .surface,
             shadow: palette.shadows.sm,
@@ -72,9 +82,9 @@ public struct FutureDueChart: View {
                 }
 
                 HStack(spacing: 16) {
-                    footerItem("Total", value: "\(totalDue)")
-                    footerItem("Avg/day", value: String(format: "%.1f", avgPerDay))
-                    footerItem("Tomorrow", value: "\(dueTomorrow)")
+                    footerItem("Total", value: "\(totalDue(filteredData))")
+                    footerItem("Avg/day", value: String(format: "%.1f", avgPerDay(filteredData)))
+                    footerItem("Tomorrow", value: "\(dueTomorrow(filteredData))")
                     footerItem("Daily Load", value: "\(futureDue.dailyLoad)")
                 }
             }

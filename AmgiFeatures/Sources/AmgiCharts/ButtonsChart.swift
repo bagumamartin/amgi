@@ -25,7 +25,9 @@ public struct ButtonsChart: View {
     }
 
     private struct ButtonEntry: Identifiable {
-        let id = UUID()
+        /// Stable across rebuilds — Charts diffs marks by `id`, and a fresh
+        /// `UUID` would re-identify every bar on every `body` pass.
+        var id: String { "\(cardType)-\(button)" }
         let button: String
         let cardType: String
         let count: Int
@@ -57,6 +59,7 @@ public struct ButtonsChart: View {
     }
 
     public var body: some View {
+        let entries = self.entries
         AmgiCard(
             background: .surface,
             shadow: palette.shadows.sm,
