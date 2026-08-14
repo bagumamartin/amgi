@@ -3,7 +3,7 @@ import UIKit
 
 // MARK: - UIColor hex extension (IO)
 
-private extension UIColor {
+extension UIColor {
     convenience init?(ioHex: String) {
         let sanitized = ioHex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
         guard sanitized.count == 6 || sanitized.count == 8,

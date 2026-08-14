@@ -41,9 +41,21 @@ struct DesignConformanceTests {
             "Radius literals with no AmgiRadius equivalent; changing them would be a layout change " +
             "(R29 is no-layout). The heatmap cell's cornerRadius: 2 (grid squares + legend swatches) " +
             "is not a card and must stay 2, not round to AmgiRadius.control (10).",
+        // The four below carry what used to be exempted as a single
+        // Browse/ImageOcclusionWorkspaceView.swift entry, before that file was
+        // split up.
         "Browse/ImageOcclusionWorkspaceView.swift":
+            "Selected tool-palette chip labels are Color.white on palette.accent. " +
+            "Palette has no on-accent text role, so there is no token to use here; " +
+            "drop this entry once one exists.",
+        "Browse/OcclusionCanvasView.swift":
             "ImageOcclusion UIKit canvas: mask/handle fills are drawing state, not app chrome. " +
             "Chrome radii were fixed; canvas fills are the exempt part.",
+        "Browse/ZoomableOcclusionCanvasView.swift":
+            "ImageOcclusion canvas scroll container: the neutral backing colour is set from a " +
+            "UIKit init where the SwiftUI palette isn't reachable.",
+        "Browse/ImageOcclusionMaskSummaryCard.swift":
+            "Preview thumbnail clip radius matches the canvas it mirrors, not a card radius.",
         "Settings/AppearanceSettingsView.swift":
             "Radius literals with no AmgiRadius equivalent; changing them would be a layout change (R29 is no-layout).",
         "Settings/CodeEditorSettingsView.swift":
