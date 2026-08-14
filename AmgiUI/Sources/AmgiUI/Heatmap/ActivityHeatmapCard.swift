@@ -37,24 +37,9 @@ public struct ActivityHeatmapCard: View {
 
     // MARK: - Summary stats (filtered to selectedDays)
 
-    private var filteredCounts: [Int: Int] {
-        data.counts.filter { $0.key >= -selectedDays && $0.key <= 0 }
+    private var summary: HeatmapSummary {
+        HeatmapSummary(counts: data.counts, selectedDays: selectedDays)
     }
-
-    private var totalReviews: Int { filteredCounts.values.reduce(0, +) }
-
-    private var reviewsThisMonth: Int {
-        let day = Calendar.current.component(.day, from: Date())
-        return (0..<day).reduce(0) { $0 + (filteredCounts[-$1] ?? 0) }
-    }
-
-    private var reviewsThisWeek: Int {
-        let weekday = Calendar.current.component(.weekday, from: Date())
-        let daysFromMonday = (weekday + 5) % 7
-        return (0...daysFromMonday).reduce(0) { $0 + (filteredCounts[-$1] ?? 0) }
-    }
-
-    private var reviewsToday: Int { filteredCounts[0] ?? 0 }
 
     // MARK: - Body
 
@@ -65,12 +50,7 @@ public struct ActivityHeatmapCard: View {
                 if data.counts.isEmpty {
                     HeatmapEmptyLabel()
                 } else {
-                    HeatmapSummaryRow(
-                        total: totalReviews,
-                        thisMonth: reviewsThisMonth,
-                        thisWeek: reviewsThisWeek,
-                        today: reviewsToday
-                    )
+                    HeatmapSummaryRow(summary: summary)
                     HeatmapScrollGrid(
                         grid: grid,
                         maxCount: data.maxCount,
@@ -135,20 +115,48 @@ private struct HeatmapEmptyLabel: View {
 
 // MARK: - Summary row (above grid)
 
-private struct HeatmapSummaryRow: View {
+/// The four figures above the grid.
+///
+/// Derived in a single pass: as four separate computed properties on the card
+/// these re-filtered `counts` — up to 365 entries — once per figure, four
+/// times per `body` pass. `now` is injectable for the same reason
+/// `HeatmapGrid.build` takes it: the month and week figures are relative to
+/// the current date, so pinning them needs a fixed clock.
+struct HeatmapSummary: Equatable {
     let total: Int
     let thisMonth: Int
     let thisWeek: Int
     let today: Int
 
+    init(
+        counts: [Int: Int],
+        selectedDays: Int,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) {
+        let filtered = counts.filter { $0.key >= -selectedDays && $0.key <= 0 }
+        let dayOfMonth = calendar.component(.day, from: now)
+        let weekday = calendar.component(.weekday, from: now)
+        let daysFromMonday = (weekday + 5) % 7
+
+        self.total = filtered.values.reduce(0, +)
+        self.thisMonth = (0..<dayOfMonth).reduce(0) { $0 + (filtered[-$1] ?? 0) }
+        self.thisWeek = (0...daysFromMonday).reduce(0) { $0 + (filtered[-$1] ?? 0) }
+        self.today = filtered[0] ?? 0
+    }
+}
+
+private struct HeatmapSummaryRow: View {
+    let summary: HeatmapSummary
+
     @Environment(\.palette) private var palette
 
     var body: some View {
         HStack(spacing: 0) {
-            summaryItem(value: total, label: "Total")
-            summaryItem(value: thisMonth, label: "Month")
-            summaryItem(value: thisWeek, label: "Week")
-            summaryItem(value: today, label: "Today")
+            summaryItem(value: summary.total, label: "Total")
+            summaryItem(value: summary.thisMonth, label: "Month")
+            summaryItem(value: summary.thisWeek, label: "Week")
+            summaryItem(value: summary.today, label: "Today")
         }
     }
 
