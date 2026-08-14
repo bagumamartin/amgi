@@ -71,7 +71,10 @@ public struct LibraryListContent: View {
         List {
             Section {
                 LibraryHeroCard(data: hero, onStartReview: onStartReview)
-                    .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 0, trailing: 0))
+                    // Full-bleed horizontally, like the heatmap card. Bottom
+                    // inset clears the card's shadow (radius 16–20, dy 4–6),
+                    // which the row would otherwise clip.
+                    .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 12, trailing: 0))
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
             }

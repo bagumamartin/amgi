@@ -90,9 +90,14 @@ private struct SparklineBars: View {
         GeometryReader { geo in
             HStack(alignment: .bottom, spacing: 4) {
                 ForEach(Array(values.enumerated()), id: \.offset) { _, value in
+                    // A zero day is a faint baseline tick, not a short bar —
+                    // the 4pt floor otherwise renders 0 and 1 identically, and
+                    // an all-zero series as 14 stubs that read as real data.
                     RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                        .fill(.white.opacity(0.55))
-                        .frame(height: max(4, geo.size.height * CGFloat(value) / CGFloat(maxValue)))
+                        .fill(.white.opacity(value == 0 ? 0.18 : 0.55))
+                        .frame(height: value == 0
+                               ? 2
+                               : max(4, geo.size.height * CGFloat(value) / CGFloat(maxValue)))
                 }
             }
             .frame(maxWidth: .infinity, alignment: .bottom)
