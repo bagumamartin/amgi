@@ -28,6 +28,9 @@ final class BrowseModel {
     /// The actual deck filter applied (could be parent or a subdeck).
     var activeDeck: DeckInfo?
     var isLoading = false
+    /// True when the last search threw, so the empty state can say "search
+    /// failed" rather than "no results".
+    private(set) var searchFailed = false
     var hasMorePages = true
     var allTags: [String] = []
     var activeTag: String?
@@ -93,9 +96,11 @@ final class BrowseModel {
 
     // MARK: - Loading
 
+    /// Everything the screen needs that isn't the note list itself. The list is
+    /// driven separately by `.task(id: searchQuery)`, which also covers the
+    /// first load — searching here too would issue the same query twice.
     func loadInitial() async {
         await loadDecks()
-        await performSearch()
         allTags = ((try? await tagClient.getAllTags()) ?? []).sorted()
         if let pairs = try? notetypesService.getNotetypeNames() {
             notetypeNames = Dictionary(uniqueKeysWithValues: pairs.map { ($0.id, $0.name) })
@@ -110,15 +115,38 @@ final class BrowseModel {
         }
     }
 
-    func performSearch() async {
+    /// The full query the note list reflects. Drive `performSearch` from
+    /// `.task(id: searchQuery)` so a change cancels the in-flight search
+    /// instead of racing it.
+    var searchQuery: String { buildQuery() }
+
+    /// Runs the current query after a debounce.
+    ///
+    /// Both waits are cancellation points, and that is what makes this safe to
+    /// re-enter: driven from `.task(id:)`, a superseded call is cancelled
+    /// either during the sleep (so it never hits the backend) or before it can
+    /// write results. Without those guards, typing "hello" issued five
+    /// searches and the list showed whichever *returned* last.
+    func performSearch(debounce: Duration = .milliseconds(250)) async {
+        if debounce > .zero {
+            try? await Task.sleep(for: debounce)
+            guard !Task.isCancelled else { return }
+        }
+
         isLoading = true
         let query = buildQuery()
         do {
             let results = try await noteClient.search(query, nil)
+            guard !Task.isCancelled else { return }
+            searchFailed = false
             allNotes = results
             notes = Array(results.prefix(pageSize))
             hasMorePages = results.count > pageSize
         } catch {
+            guard !Task.isCancelled else { return }
+            // An empty list on failure is indistinguishable from "no matches",
+            // so record the difference for the empty state to read.
+            searchFailed = true
             allNotes = []
             notes = []
             hasMorePages = false
@@ -135,13 +163,24 @@ final class BrowseModel {
     }
 
     /// Lazy-fetch full note details for a stub and update the arrays in place.
+    ///
+    /// Patches `sortedNotes` directly rather than re-sorting: a stub fill
+    /// replaces one row's content without changing which notes are in the
+    /// list, and re-sorting here ran a full sort per row filled during a
+    /// scroll — under `.titleAsc` that also reordered rows under the user's
+    /// finger mid-scroll.
     func fetchNoteDetails(id: NoteID) async {
         guard let fullNote = try? await noteClient.fetch(id) else { return }
         if let idx = notes.firstIndex(where: { $0.id == id }) {
+            isPatchingInPlace = true
             notes[idx] = fullNote
+            isPatchingInPlace = false
         }
         if let idx = allNotes.firstIndex(where: { $0.id == id }) {
             allNotes[idx] = fullNote
+        }
+        if let idx = sortedNotes.firstIndex(where: { $0.id == id }) {
+            sortedNotes[idx] = fullNote
         }
     }
 
@@ -153,6 +192,8 @@ final class BrowseModel {
         guard let cardId = (try? await cardClient.fetchByNote(noteId))?.first?.id else {
             return nil
         }
+        firstCardIDs[noteId] = cardId
+        return cardId
     }
 
     /// Resolve a possibly-stub note to its full record before navigation.
@@ -163,25 +204,14 @@ final class BrowseModel {
     func resolved(_ note: NoteRecord) -> NoteRecord {
         guard note.sfld == "Loading..." else { return note }
         return notes.first(where: { $0.id == note.id })
-    ///
-    /// Patches `sortedNotes` directly rather than re-sorting: a stub fill
-    /// replaces one row's content without changing which notes are in the
-    /// list, and re-sorting here ran a full sort per row filled during a
-    /// scroll — under `.titleAsc` that also reordered rows under the user's
-    /// finger mid-scroll.
             ?? allNotes.first(where: { $0.id == note.id })
             ?? note
     }
-            isPatchingInPlace = true
 
-            isPatchingInPlace = false
     // MARK: - Mutations
 
     func delete(_ id: NoteID) async {
         try? await noteClient.delete(id)
-        if let idx = sortedNotes.firstIndex(where: { $0.id == id }) {
-            sortedNotes[idx] = fullNote
-        }
         await performSearch()
     }
 
@@ -192,8 +222,6 @@ final class BrowseModel {
         await performSearch()
     }
 
-        firstCardIDs[noteId] = cardId
-        return cardId
     func flagSelected(_ noteIDs: Set<NoteID>, value: UInt32) async {
         for id in await collectCardIDs(for: noteIDs) {
             try? await cardClient.flag(id, value)

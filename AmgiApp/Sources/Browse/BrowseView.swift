@@ -33,10 +33,11 @@ struct BrowseView: View {
         @Bindable var model = model
         decoratedContent
             .searchable(text: $model.searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search notes...")
-            .onChange(of: model.searchText) { Task { await model.performSearch() } }
-            .onChange(of: model.activeDeck) { Task { await model.performSearch() } }
-            .onChange(of: model.activeTag) { Task { await model.performSearch() } }
             .task { await model.loadInitial() }
+            // Keyed on the assembled query so text, deck, and tag changes all
+            // restart one search — SwiftUI cancels the previous run, which is
+            // what debounces the typing and keeps a stale result from landing.
+            .task(id: model.searchQuery) { await model.performSearch() }
     }
 
     private var decoratedContent: some View {
@@ -249,6 +250,12 @@ struct BrowseContent: View {
                 "Browse Notes",
                 systemImage: "magnifyingglass",
                 description: Text("Search by content, tags, or filter by deck.")
+            )
+        } else if model.notes.isEmpty && !model.isLoading && model.searchFailed {
+            ContentUnavailableView(
+                "Search Failed",
+                systemImage: "exclamationmark.triangle",
+                description: Text("The collection couldn't be searched. Pull to try again.")
             )
         } else if model.notes.isEmpty && !model.isLoading {
             ContentUnavailableView.search(text: model.searchText)
@@ -468,6 +475,8 @@ struct NoteContextMenuButton: View {
     let noteId: NoteID
     var onSuccess: (() -> Void)?
 
+    @State private var cardId: CardID?
+
     var body: some View {
         Group {
             if let cardId {
@@ -475,8 +484,6 @@ struct NoteContextMenuButton: View {
                     cardId: cardId,
                     noteId: noteId,
                     onSuccess: onSuccess
-    @State private var cardId: CardID?
-
                 )
             } else {
                 Image(systemName: "ellipsis.circle")
