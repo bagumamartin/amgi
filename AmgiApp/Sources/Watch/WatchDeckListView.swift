@@ -10,21 +10,45 @@ private let logger = Logger(subsystem: "com.amgiapp.AmgiApp", category: "WatchDe
 struct WatchDeckListView: View {
     @Dependency(\.deckClient) var deckClient
     @Dependency(\.syncClient) var syncClient
-    @State private var tree: [DeckTreeNode] = []
-    @State private var isLoading = true
+    /// One axis instead of `isLoading` + a `tree` that was also emptied on
+    /// failure, which made "your collection has no decks" and "the fetch
+    /// threw" render as the same screen.
+    enum LoadState {
+        case loading
+        case loaded([DeckTreeNode])
+        case failed
+    }
+
+    /// The two sheets are mutually exclusive; as separate flags they could
+    /// both be raised at once. Plain `Equatable` rather than `@CasePathable`
+    /// so the watch target doesn't have to link SwiftUINavigation.
+    enum Destination: Equatable {
+        case syncMenu
+        case login
+    }
+
+    @State private var state: LoadState = .loading
     @State private var expandedDecks: Set<DeckID> = []
     @State private var isSyncing = false
-    @State private var showSyncMenu = false
-    @State private var showLoginSheet = false
+    @State private var destination: Destination?
+
+    private var tree: [DeckTreeNode] {
+        if case .loaded(let tree) = state { return tree }
+        return []
+    }
 
     var body: some View {
         Group {
-            if isLoading {
+            switch state {
+            case .loading:
                 ProgressView()
-            } else if tree.isEmpty {
+            case .failed:
+                Text("Couldn't load decks")
+                    .foregroundStyle(.secondary)
+            case .loaded(let loaded) where loaded.isEmpty:
                 Text("No Decks")
                     .foregroundStyle(.secondary)
-            } else {
+            case .loaded:
                 List {
                     ForEach(flattenedItems) { item in
                         WatchDeckRow(
@@ -49,7 +73,7 @@ struct WatchDeckListView: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
-                    showSyncMenu = true
+                    destination = .syncMenu
                 } label: {
                     if isSyncing {
                         ProgressView()
@@ -57,27 +81,26 @@ struct WatchDeckListView: View {
                         Image(systemName: "arrow.clockwise")
                     }
                 }
-                .disabled(isSyncing || isLoading)
+                .disabled(isSyncing || isLoadingDecks)
             }
         }
-        .sheet(isPresented: $showSyncMenu) {
+        .sheet(isPresented: presenting(.syncMenu)) {
             // WatchOS sheet: minimal actions
             VStack {
                 Button("Sync") {
-                    showSyncMenu = false
+                    destination = nil
                     Task { await sync() }
                 }
                 Button("Sign out", role: .destructive) {
-                    showSyncMenu = false
-                    showLoginSheet = true
+                    destination = .login
                 }
             }
             .padding()
         }
-        .sheet(isPresented: $showLoginSheet) {
+        .sheet(isPresented: presenting(.login)) {
             // Present login flow immediately after sign-out
             WatchLoginView(onLoginSuccess: {
-                showLoginSheet = false
+                destination = nil
                 Task { await loadDecks() }
             })
         }
@@ -96,13 +119,26 @@ struct WatchDeckListView: View {
         }
         isSyncing = false
     }
+    /// `isPresented` binding for one destination case.
+    private func presenting(_ target: Destination) -> Binding<Bool> {
+        Binding(
+            get: { destination == target },
+            set: { if !$0 && destination == target { destination = nil } }
+        )
+    }
+
+    private var isLoadingDecks: Bool {
+        if case .loading = state { return true }
+        return false
+    }
+
     private func loadDecks() async {
         do {
-            tree = try await deckClient.fetchTree()
+            state = .loaded(try await deckClient.fetchTree())
         } catch {
-            tree = []
+            logger.error("Deck load error: \(error)")
+            state = .failed
         }
-        isLoading = false
     }
     private func toggleExpansion(_ id: DeckID) {
         if expandedDecks.contains(id) {

@@ -7,22 +7,30 @@ import SwiftUI
 struct WatchStatsView: View {
     @Dependency(\.statsClient) var statsClient
     @Dependency(\.deckClient) var deckClient
-    @State private var graphs: GraphsSnapshot?
-    @State private var isLoading = true
-    @State private var errorMessage: String?
+    /// One axis instead of an `isLoading` / `graphs?` / `errorMessage?` trio,
+    /// which had eight combinations for three renderable states — including
+    /// "not loading, no graphs, no error", which rendered nothing at all.
+    enum LoadState {
+        case loading
+        case loaded(GraphsSnapshot)
+        case failed(String)
+    }
+
+    @State private var state: LoadState = .loading
     @State private var period: StatsPeriod = .month
     @State private var decks: [DeckInfo] = []
     @State private var selectedDeck: DeckInfo?
     var body: some View {
         Group {
-            if isLoading {
+            switch state {
+            case .loading:
                 ProgressView("Loading...")
-            } else if let error = errorMessage {
+            case .failed(let error):
                 Text(error)
                     .font(.caption)
                     .multilineTextAlignment(.center)
                     .padding()
-            } else if let graphs {
+            case .loaded(let graphs):
                 List {
                     Section {
                         deckPicker
@@ -46,16 +54,18 @@ struct WatchStatsView: View {
             }
         }
         .navigationTitle("Stats")
-        .task {
-            await loadDecks()
+        .task { await loadDecks() }
+        // Keyed on the two inputs the query is built from, so changing either
+        // cancels the in-flight fetch instead of racing it.
+        .task(id: StatsQuery(deck: selectedDeck, period: period)) {
             await loadStats()
         }
-        .onChange(of: selectedDeck) { _, _ in
-            Task { await loadStats() }
-        }
-        .onChange(of: period) { _, _ in
-            Task { await loadStats() }
-        }
+    }
+
+    /// The inputs `loadStats` reads, as one `.task(id:)` key.
+    private struct StatsQuery: Equatable {
+        let deck: DeckInfo?
+        let period: StatsPeriod
     }
     private var deckPicker: some View {
         Picker(selection: $selectedDeck) {
@@ -80,14 +90,14 @@ struct WatchStatsView: View {
         decks = (try? await deckClient.fetchAll()) ?? []
     }
     private func loadStats() async {
-        isLoading = graphs == nil
         do {
             let search = selectedDeck.map { "deck:\"\($0.name)\"" } ?? ""
-            graphs = try await statsClient.fetchGraphs(search, period.days)
-            errorMessage = nil
+            let graphs = try await statsClient.fetchGraphs(search, period.days)
+            guard !Task.isCancelled else { return }
+            state = .loaded(graphs)
         } catch {
-            errorMessage = error.localizedDescription
+            guard !Task.isCancelled else { return }
+            state = .failed(error.localizedDescription)
         }
-        isLoading = false
     }
 }

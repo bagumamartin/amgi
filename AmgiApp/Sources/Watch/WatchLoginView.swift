@@ -11,10 +11,21 @@ struct WatchLoginView: View {
     @State private var username = ""
     @State private var password = ""
     @State private var endpoint = ""
-    @State private var isLoading = false
-    @State private var errorMessage: String?
-    @State private var showLoginFields = false
+    /// Form submission state. `showLoginFields` used to sit here too and was
+    /// never read.
+    enum SubmissionState {
+        case idle
+        case submitting
+        case failed(String)
+    }
+
+    @State private var submission: SubmissionState = .idle
     var onLoginSuccess: () -> Void
+
+    private var isSubmitting: Bool {
+        if case .submitting = submission { return true }
+        return false
+    }
     var body: some View {
         ScrollView {
             VStack {
@@ -39,7 +50,7 @@ struct WatchLoginView: View {
                 .textInputAutocapitalization(.never)
             SecureField("Password", text: $password)
                 .textContentType(.password)
-            if let error = errorMessage {
+            if case .failed(let error) = submission {
                 Text(error)
                     .font(.caption2)
                     .foregroundStyle(.red)
@@ -48,19 +59,18 @@ struct WatchLoginView: View {
             Button {
                 Task { await login() }
             } label: {
-                if isLoading {
+                if isSubmitting {
                     ProgressView()
                 } else {
                     Text("Sign In")
                 }
             }
             .buttonStyle(.borderedProminent)
-            .disabled(username.isEmpty || password.isEmpty || isLoading)
+            .disabled(username.isEmpty || password.isEmpty || isSubmitting)
         }
     }
     private func login() async {
-        isLoading = true
-        errorMessage = nil
+        submission = .submitting
         // Persist endpoint if provided
         let ep = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
         if !ep.isEmpty {
@@ -72,11 +82,11 @@ struct WatchLoginView: View {
             // Initial sync to get the collection
             @Dependency(\.syncClient) var syncClient
             _ = try await syncClient.sync()
+            submission = .idle
             onLoginSuccess()
         } catch {
-            errorMessage = "Login failed. Check your credentials."
             logger.error("Login failed: \(error)")
+            submission = .failed("Login failed. Check your credentials.")
         }
-        isLoading = false
     }
 }
