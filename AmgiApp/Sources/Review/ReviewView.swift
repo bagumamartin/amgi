@@ -379,6 +379,15 @@ private struct ReviewCardArea: View {
     @State private var showRenderModeSheet = false
     @State private var nativeAudioPlayer = NativeCardAudioPlayer()
 
+    /// Fixed for the collection's lifetime, so it's resolved once into `@State`
+    /// rather than re-resolving the dependency on every `cardSurface` call —
+    /// which the flip container makes twice per `body` pass.
+    @State private var mediaFolder: URL? = {
+        @Dependency(\.ankiBackend) var backend
+        guard let path = backend.currentMediaFolderPath else { return nil }
+        return URL(fileURLWithPath: path)
+    }()
+
     var body: some View {
         VStack(spacing: 0) {
             RenderModeChipRow(
@@ -455,12 +464,6 @@ private struct ReviewCardArea: View {
             templateName: session.templateName,
             onChanged: { session.reresolveCurrentCard() }
         )
-    }
-
-    private var mediaFolder: URL? {
-        @Dependency(\.ankiBackend) var backend
-        guard let path = backend.currentMediaFolderPath else { return nil }
-        return URL(fileURLWithPath: path)
     }
 
     private var renderModeExplainer: String {
