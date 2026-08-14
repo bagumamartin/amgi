@@ -1,4 +1,5 @@
 import AnkiKit
+import Dependencies
 import Testing
 @testable import AmgiApp
 
@@ -92,6 +93,31 @@ struct BrowseSortingTests {
         model.notetypeNames = [NotetypeID(1): "Cloze", NotetypeID(2): "Basic"]
 
         #expect(model.sortedNotes.map(\.sfld) == ["two", "one"])
+    }
+
+    @Test("a stub fill patches sortedNotes without reordering it")
+    func stubFillPatchesWithoutReordering() async {
+        let resolved = note(1, sfld: "Zebra", mod: 300)
+        await withDependencies {
+            $0.noteClient.fetch = { _ in resolved }
+        } operation: {
+            let model = BrowseModel()
+            model.sortOrder = .titleAsc
+            model.notes = [
+                note(1, sfld: "Loading...", mod: 300),
+                note(2, sfld: "Mango", mod: 200),
+            ]
+            // "Loading..." sorts ahead of "Mango" — that's the on-screen order.
+            #expect(model.sortedNotes.map(\.sfld) == ["Loading...", "Mango"])
+
+            await model.fetchNoteDetails(id: NoteID(1))
+
+            // The resolved text lands, but the row holds its position:
+            // re-sorting here would move it under the user's finger mid-scroll,
+            // and would cost a full sort per row filled during that scroll.
+            #expect(model.sortedNotes.map(\.sfld) == ["Zebra", "Mango"])
+            #expect(model.notes.map(\.sfld) == ["Zebra", "Mango"])
+        }
     }
 
     @Test("clearing notes clears sortedNotes")

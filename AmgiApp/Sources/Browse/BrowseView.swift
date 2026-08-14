@@ -456,9 +456,12 @@ private extension BrowseContent {
 // MARK: - NoteContextMenuButton
 
 /// Resolves the first cardId for a note lazily on first appear, then shows
-/// CardContextMenu. The resolved ID is cached on the model rather than in
-/// local `@State`, so scrolling a row out and back doesn't re-issue the
-/// backend lookup that populates it.
+/// CardContextMenu.
+///
+/// The resolved ID is held in local `@State` while the model keeps the shared
+/// cache behind `firstCardID(for:)` — so scrolling a row out and back still
+/// doesn't re-issue the backend lookup, but one row resolving no longer
+/// invalidates every other row's menu button.
 @MainActor
 struct NoteContextMenuButton: View {
     let model: BrowseModel
@@ -467,11 +470,13 @@ struct NoteContextMenuButton: View {
 
     var body: some View {
         Group {
-            if let cardId = model.firstCardIDs[noteId] {
+            if let cardId {
                 CardContextMenu(
                     cardId: cardId,
                     noteId: noteId,
                     onSuccess: onSuccess
+    @State private var cardId: CardID?
+
                 )
             } else {
                 Image(systemName: "ellipsis.circle")
@@ -480,7 +485,7 @@ struct NoteContextMenuButton: View {
             }
         }
         .task(id: noteId) {
-            await model.loadFirstCardID(for: noteId)
+            cardId = await model.firstCardID(for: noteId)
         }
     }
 }

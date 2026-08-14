@@ -15,8 +15,13 @@ final class BrowseModel {
     var searchText = ""
     var allNotes: [NoteRecord] = []
     var notes: [NoteRecord] = [] {
-        didSet { resort() }
+        didSet { if !isPatchingInPlace { resort() } }
     }
+    /// Set only across `fetchNoteDetails`' single-element write. Filling a stub
+    /// replaces one row's content without changing the list's membership, and
+    /// re-sorting there ran a full sort *per row* as stubs filled during a
+    /// scroll. Every other write to `notes` still re-sorts.
+    private var isPatchingInPlace = false
     var allDecks: [DeckInfo] = []
     /// The top-level parent deck selected (stays set even when drilling into subdecks).
     var parentDeck: DeckInfo?
@@ -36,8 +41,12 @@ final class BrowseModel {
     /// First card of each note, resolved lazily by the row context menu.
     /// Cached here rather than in per-row `@State` so a row scrolling out and
     /// back doesn't re-issue the backend lookup.
-    private(set) var firstCardIDs: [NoteID: CardID] = [:]
-    private var pendingCardIDLookups: Set<NoteID> = []
+    ///
+    /// `@ObservationIgnored` on purpose: rows hold the resolved value in their
+    /// own `@State` and reach this only through `firstCardID(for:)`. Observed,
+    /// one row's entry landing would invalidate the menu button of every other
+    /// row reading the dictionary — N writes fanning out to N rows on a scroll.
+    @ObservationIgnored private var firstCardIDs: [NoteID: CardID] = [:]
 
     private let pageSize = 50
 
@@ -137,12 +146,12 @@ final class BrowseModel {
     }
 
     /// Resolves (once) the first card of a note, for the row context menu.
-    func loadFirstCardID(for noteId: NoteID) async {
-        guard firstCardIDs[noteId] == nil, !pendingCardIDLookups.contains(noteId) else { return }
-        pendingCardIDLookups.insert(noteId)
-        defer { pendingCardIDLookups.remove(noteId) }
-        if let cardId = (try? await cardClient.fetchByNote(noteId))?.first?.id {
-            firstCardIDs[noteId] = cardId
+    /// Returns the cached value when it's already known, so a row scrolling
+    /// out and back doesn't re-issue the lookup.
+    func firstCardID(for noteId: NoteID) async -> CardID? {
+        if let cached = firstCardIDs[noteId] { return cached }
+        guard let cardId = (try? await cardClient.fetchByNote(noteId))?.first?.id else {
+            return nil
         }
     }
 
@@ -154,14 +163,25 @@ final class BrowseModel {
     func resolved(_ note: NoteRecord) -> NoteRecord {
         guard note.sfld == "Loading..." else { return note }
         return notes.first(where: { $0.id == note.id })
+    ///
+    /// Patches `sortedNotes` directly rather than re-sorting: a stub fill
+    /// replaces one row's content without changing which notes are in the
+    /// list, and re-sorting here ran a full sort per row filled during a
+    /// scroll — under `.titleAsc` that also reordered rows under the user's
+    /// finger mid-scroll.
             ?? allNotes.first(where: { $0.id == note.id })
             ?? note
     }
+            isPatchingInPlace = true
 
+            isPatchingInPlace = false
     // MARK: - Mutations
 
     func delete(_ id: NoteID) async {
         try? await noteClient.delete(id)
+        if let idx = sortedNotes.firstIndex(where: { $0.id == id }) {
+            sortedNotes[idx] = fullNote
+        }
         await performSearch()
     }
 
@@ -172,6 +192,8 @@ final class BrowseModel {
         await performSearch()
     }
 
+        firstCardIDs[noteId] = cardId
+        return cardId
     func flagSelected(_ noteIDs: Set<NoteID>, value: UInt32) async {
         for id in await collectCardIDs(for: noteIDs) {
             try? await cardClient.flag(id, value)
