@@ -3,6 +3,8 @@ import AmgiTheme
 import AnkiClients
 import AnkiKit
 import Dependencies
+import SwiftNavigation
+import SwiftUINavigation
 
 /// View for managing tags in the collection.
 /// When `targetNoteIDs` is non-empty the view acts as a "apply / remove tag"
@@ -23,14 +25,7 @@ struct TagsView: View {
     @Environment(\.palette) private var palette
 
     @State private var model = TagsModel()
-    @State private var showAddTag = false
-    @State private var newTagName: String = ""
-    @State private var selectedTag: String?
-    @State private var showDeleteConfirm = false
-    @State private var tagActionTag: String?
-    @State private var showRenameTag = false
-    @State private var tagToRename: String?
-    @State private var renameTagName = ""
+    @State private var destination: TagsDestination?
 
     init(targetNoteIDs: [NoteID] = [], noteMode: NoteMode = .manage) {
         self.targetNoteIDs = targetNoteIDs
@@ -41,85 +36,39 @@ struct TagsView: View {
     private var isNoteMode: Bool { !targetNoteIDs.isEmpty }
 
     var body: some View {
-        VStack {
-            if model.isLoading {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if model.allTags.isEmpty {
-                ContentUnavailableView(
-                    "No Tags",
-                    systemImage: "tag.slash",
-                    description: Text(isNoteMode
-                        ? "These notes don't have any tags."
-                        : "Your collection has no tags yet.")
-                )
-            } else {
-                tagListContent
+        presenting(chrome)
+            .task {
+                await loadTags()
             }
-        }
-        .background(palette.background)
-        .navigationTitle(navigationTitle)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("Add Tag", systemImage: "plus") { showAddTag = true }
-            }
-        }
-        .sheet(isPresented: $showAddTag) {
-            addTagSheet
-        }
-        .alert("Delete Tag?", isPresented: $showDeleteConfirm) {
-            Button("Cancel", role: .cancel) { }
-            Button("Delete", role: .destructive) {
-                if let tag = selectedTag {
-                    Task { await deleteTag(tag) }
+    }
+
+    private var chrome: some View {
+        stateContent
+            .background(palette.background)
+            .navigationTitle(navigationTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Add Tag", systemImage: "plus") { destination = .addTag("") }
                 }
             }
-        } message: {
-            if let tag = selectedTag {
-                Text("Delete \"\(tag)\"? This will remove it from all notes.")
-            }
-        }
-        .alert("Rename Tag", isPresented: $showRenameTag) {
-            TextField("New name", text: $renameTagName)
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
-            Button("Cancel", role: .cancel) { tagToRename = nil }
-            Button("Rename") {
-                if let old = tagToRename {
-                    Task { await renameTagAction(from: old, to: renameTagName) }
-                }
-            }
-        } message: {
-            if let tag = tagToRename {
-                Text("Enter a new name for \"\(tag)\". It will be updated on all notes that use it.")
-            }
-        }
-        .alert("Error", isPresented: $model.showError) {
-            Button("OK") { }
-        } message: {
-            Text(model.errorMessage ?? "An unknown error occurred.")
-        }
-        .confirmationDialog(
-            tagActionTag ?? "",
-            isPresented: Binding(
-                get: { tagActionTag != nil && isNoteMode && noteMode == .manage },
-                set: { if !$0 { tagActionTag = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            if let tag = tagActionTag {
-                Button("Apply to \(targetNoteIDs.count) note\(targetNoteIDs.count == 1 ? "" : "s")") {
-                    Task { await applyTag(tag) }
-                }
-                Button("Remove from \(targetNoteIDs.count) note\(targetNoteIDs.count == 1 ? "" : "s")", role: .destructive) {
-                    Task { await removeTagFromSelectedNotes(tag) }
-                }
-                Button("Cancel", role: .cancel) { tagActionTag = nil }
-            }
-        }
-        .task {
-            await loadTags()
+    }
+
+    @ViewBuilder
+    private var stateContent: some View {
+        if model.isLoading {
+            ProgressView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if model.allTags.isEmpty {
+            ContentUnavailableView(
+                "No Tags",
+                systemImage: "tag.slash",
+                description: Text(isNoteMode
+                    ? "These notes don't have any tags."
+                    : "Your collection has no tags yet.")
+            )
+        } else {
+            tagListContent
         }
     }
 
@@ -156,6 +105,96 @@ struct TagsView: View {
         .listStyle(.insetGrouped)
     }
 
+    /// Every modal the screen can show, read off the single `destination`.
+    /// Lifted out of `body` so that stays a composition rather than an alert stack.
+    private func presenting(_ content: some View) -> some View {
+        content
+            .sheet(isPresented: Binding($destination.addTag)) {
+                addTagSheet
+            }
+            .alert(
+                "Delete Tag?",
+                isPresented: Binding($destination.deleteTag),
+                presenting: pendingDeleteTag
+            ) { tag in
+                Button("Cancel", role: .cancel) {}
+                Button("Delete", role: .destructive) {
+                    Task { await deleteTag(tag) }
+                }
+            } message: { tag in
+                Text("Delete \"\(tag)\"? This will remove it from all notes.")
+            }
+            .alert(
+                "Rename Tag",
+                isPresented: Binding($destination.renameTag),
+                presenting: pendingRename
+            ) { rename in
+                TextField("New name", text: renameNameBinding)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                Button("Cancel", role: .cancel) {}
+                Button("Rename") {
+                    Task { await renameTagAction(from: rename.original, to: renameNameBinding.wrappedValue) }
+                }
+            } message: { rename in
+                Text("Enter a new name for \"\(rename.original)\". It will be updated on all notes that use it.")
+            }
+            .alert("Error", isPresented: Binding($model.errorMessage)) {
+                Button("OK") {}
+            } message: {
+                Text(model.errorMessage ?? "An unknown error occurred.")
+            }
+            .confirmationDialog(
+                pendingNoteActionTag ?? "",
+                isPresented: Binding($destination.noteAction),
+                titleVisibility: .visible,
+                presenting: pendingNoteActionTag
+            ) { tag in
+                Button("Apply to \(targetNoteIDs.count) note\(targetNoteIDs.count == 1 ? "" : "s")") {
+                    Task { await applyTag(tag) }
+                }
+                Button("Remove from \(targetNoteIDs.count) note\(targetNoteIDs.count == 1 ? "" : "s")", role: .destructive) {
+                    Task { await removeTagFromSelectedNotes(tag) }
+                }
+                Button("Cancel", role: .cancel) {}
+            }
+    }
+
+    private var pendingDeleteTag: String? {
+        if case .deleteTag(let tag) = destination { return tag }
+        return nil
+    }
+
+    private var pendingRename: TagRename? {
+        if case .renameTag(let rename) = destination { return rename }
+        return nil
+    }
+
+    private var pendingNoteActionTag: String? {
+        if case .noteAction(let tag) = destination { return tag }
+        return nil
+    }
+
+    /// The rename alert's text field edits the draft in place inside
+    /// `destination`, so there's no second copy of the name to keep in sync.
+    private var renameNameBinding: Binding<String> {
+        Binding(
+            get: { pendingRename?.newName ?? "" },
+            set: { newValue in
+                guard var rename = pendingRename else { return }
+                rename.newName = newValue
+                destination = .renameTag(rename)
+            }
+        )
+    }
+
+    private var newTagNameBinding: Binding<String> {
+        Binding(
+            get: { if case .addTag(let name) = destination { return name }; return "" },
+            set: { destination = .addTag($0) }
+        )
+    }
+
     private var addTagSheet: some View {
         NavigationStack {
             Form {
@@ -167,7 +206,7 @@ struct TagsView: View {
                     }
                 }
                 Section("Tag Name") {
-                    TextField("e.g. anatomy::heart", text: $newTagName)
+                    TextField("e.g. anatomy::heart", text: newTagNameBinding)
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
                 }
@@ -183,7 +222,7 @@ struct TagsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") { showAddTag = false }
+                    Button("Cancel") { destination = nil }
                 }
             }
         }
@@ -203,17 +242,15 @@ private extension TagsView {
                 case .removeFromNotes:
                     Task { await removeTagFromSelectedNotes(tag) }
                 case .manage:
-                    tagActionTag = tag
+                    destination = .noteAction(tag)
                 }
-            } else {
-                selectedTag = tag
             }
         } label: {
             HStack {
                 Label(tag, systemImage: "tag.fill")
                     .foregroundStyle(palette.accent)
                 Spacer()
-                if model.isApplying && tagActionTag == tag {
+                if model.isApplying && pendingNoteActionTag == tag {
                     ProgressView()
                         .scaleEffect(0.8)
                 } else {
@@ -242,16 +279,13 @@ private extension TagsView {
                 .tint(palette.accent)
             } else {
                 Button(role: .destructive) {
-                    selectedTag = tag
-                    showDeleteConfirm = true
+                    destination = .deleteTag(tag)
                 } label: {
                     Label("Delete", systemImage: "trash")
                 }
 
                 Button {
-                    tagToRename = tag
-                    renameTagName = tag
-                    showRenameTag = true
+                    destination = .renameTag(TagRename(original: tag))
                 } label: {
                     Label("Rename", systemImage: "pencil")
                 }
@@ -268,32 +302,31 @@ private extension TagsView {
     }
 
     func createTag() async {
-        let name = newTagName.trimmingCharacters(in: .whitespaces)
+        let name = newTagNameBinding.wrappedValue.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return }
         if await model.createTag(name: name, targetNoteIDs: targetNoteIDs) {
-            newTagName = ""
-            showAddTag = false
+            destination = nil
         }
     }
 
     func applyTag(_ tag: String) async {
         await model.applyTag(tag, targetNoteIDs: targetNoteIDs)
-        tagActionTag = nil
+        destination = nil
     }
 
     func removeTagFromSelectedNotes(_ tag: String) async {
         await model.removeTagFromNotes(tag, targetNoteIDs: targetNoteIDs)
-        tagActionTag = nil
+        destination = nil
     }
 
     func deleteTag(_ tag: String) async {
         await model.deleteTag(tag)
-        selectedTag = nil
+        destination = nil
     }
 
     func renameTagAction(from oldName: String, to newName: String) async {
         _ = await model.renameTag(from: oldName, to: newName)
-        tagToRename = nil
+        destination = nil
     }
 }
 

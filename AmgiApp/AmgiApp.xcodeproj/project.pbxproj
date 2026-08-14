@@ -55,6 +55,7 @@
 		461B5491A1F0D17FC127B480 /* EPUBChapterReaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE4715C9E8B25D92A65A4098 /* EPUBChapterReaderView.swift */; };
 		4806E64030A4EBAA1A2DF239 /* AnkiKit in Frameworks */ = {isa = PBXBuildFile; productRef = AB49118FC7A518B48ED09051 /* AnkiKit */; };
 		49104EDF36126D6FEB4063F4 /* RetroactiveIdentifiable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 843DF8545ED1E3A956981DB1 /* RetroactiveIdentifiable.swift */; };
+		49AC637BE6160C06E4B9FCEF /* TagsDestination.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5BA5AC6B4A1E07AD3E9D8E1 /* TagsDestination.swift */; };
 		4B2B1DEF86063B1961768E57 /* ReaderLibraryViewData.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD7AE6B82442462E33F80436 /* ReaderLibraryViewData.swift */; };
 		4D108275803A51D6E8B05981 /* LookupStructuredContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56BE97E167C080F15A37CA9A /* LookupStructuredContentView.swift */; };
 		4E1BEF749DC73B49770401D8 /* TagsModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF17F29CC53A3C30298E41F0 /* TagsModel.swift */; };
@@ -178,6 +179,7 @@
 		E418EDB907A26423329BD9AD /* ReaderTypographySettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8F9817354EE1136321696DB /* ReaderTypographySettingsView.swift */; };
 		E45540503268E00A3CAC9B04 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2B60A11C277A30E8180CB0F1 /* WidgetKit.framework */; };
 		E8CE9276CD85FEC652968AA5 /* RenameDeckSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 171ECA86AAD36234799EBED9 /* RenameDeckSheet.swift */; };
+		EAA06F847C1788BEABF46B71 /* TagsDestination.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5BA5AC6B4A1E07AD3E9D8E1 /* TagsDestination.swift */; };
 		ED773D0658D79BF857AC7E33 /* DeckDetailDestination.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45A39E0F75D5CDD329862A7E /* DeckDetailDestination.swift */; };
 		ED890DB131928B61AEA1551B /* SettingsRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C87EF9E38E61B70CF4113A4 /* SettingsRow.swift */; };
 		EF9AE5772C4EAA9AA7A33BEC /* MaintenanceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D38F9CB4658B665209B01BB2 /* MaintenanceView.swift */; };
@@ -336,6 +338,7 @@
 		B30B0C4DE4831CBC82E0CD1A /* LookupResultList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LookupResultList.swift; sourceTree = "<group>"; };
 		B4AB1EE3736034B9FBBAD23A /* MaintenanceModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MaintenanceModel.swift; sourceTree = "<group>"; };
 		B4CB05F4513DD8B5ADD54B98 /* FsrsSimulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FsrsSimulator.swift; sourceTree = "<group>"; };
+		B5BA5AC6B4A1E07AD3E9D8E1 /* TagsDestination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagsDestination.swift; sourceTree = "<group>"; };
 		B670785FF2899959B4089F98 /* CodeEditorSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeEditorSettingsView.swift; sourceTree = "<group>"; };
 		B70B4DF1230C7BDE9B9C8192 /* ImageOcclusionWorkspaceModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageOcclusionWorkspaceModel.swift; sourceTree = "<group>"; };
 		B821E11FED498200F90B05BE /* TagsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagsView.swift; sourceTree = "<group>"; };
@@ -545,6 +548,7 @@
 			isa = PBXGroup;
 			children = (
 				563D97E28D0A34E270C7C744 /* DeckCountsView.swift */,
+				B5BA5AC6B4A1E07AD3E9D8E1 /* TagsDestination.swift */,
 				EF17F29CC53A3C30298E41F0 /* TagsModel.swift */,
 				B821E11FED498200F90B05BE /* TagsView.swift */,
 			);
@@ -1013,6 +1017,7 @@
 				B3879BCF7F89CD0C6229E2DE /* DeckCountsView.swift in Sources */,
 				881668A8F3124FCC7A554877 /* ReviewAudioSession.swift in Sources */,
 				0A9E1DE31E09FBDF10CD981D /* ReviewSession.swift in Sources */,
+				49AC637BE6160C06E4B9FCEF /* TagsDestination.swift in Sources */,
 				BA01B2BA20B8F2CA45986CD9 /* TagsModel.swift in Sources */,
 				699E53E6B7048305A4A14AD3 /* TemplateRenderOverrides.swift in Sources */,
 				6CF26B3108E38F231B7113AC /* WatchApp.swift in Sources */,
@@ -1157,6 +1162,7 @@
 				3BE4592CD95AE2157BD0A7BE /* SyncSheet.swift in Sources */,
 				0B51DFCE0A46751916048AC9 /* SyncToast.swift in Sources */,
 				DE256D668526D23F023E21E3 /* SyncToastController.swift in Sources */,
+				EAA06F847C1788BEABF46B71 /* TagsDestination.swift in Sources */,
 				4E1BEF749DC73B49770401D8 /* TagsModel.swift in Sources */,
 				1E1FCAA449C21F1DD928CD5C /* TagsView.swift in Sources */,
 				A352A3283DE8FC61CC4BDD8A /* TemplateOverridesView.swift in Sources */,

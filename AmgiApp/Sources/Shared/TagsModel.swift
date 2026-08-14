@@ -13,8 +13,9 @@ import Foundation
 final class TagsModel {
     var allTags: [String] = []
     var isLoading = true
+    /// Non-nil drives the error alert; there is no separate `showError`
+    /// flag to keep in sync with it.
     var errorMessage: String?
-    var showError = false
     var isApplying = false
     var isDeleting = false
 
@@ -26,7 +27,6 @@ final class TagsModel {
             isLoading = false
         } catch {
             errorMessage = "Failed to load tags: \(error.localizedDescription)"
-            showError = true
             isLoading = false
         }
     }
@@ -45,7 +45,6 @@ final class TagsModel {
             return true
         } catch {
             errorMessage = "Failed to create tag: \(error.localizedDescription)"
-            showError = true
             return false
         }
     }
@@ -57,7 +56,6 @@ final class TagsModel {
             try await tagClient.addTagToNotes(tag, targetNoteIDs)
         } catch {
             errorMessage = "Failed to apply tag: \(error.localizedDescription)"
-            showError = true
         }
     }
 
@@ -68,7 +66,6 @@ final class TagsModel {
             try await tagClient.removeTagFromNotes(tag, targetNoteIDs)
         } catch {
             errorMessage = "Failed to remove tag: \(error.localizedDescription)"
-            showError = true
         }
     }
 
@@ -80,7 +77,6 @@ final class TagsModel {
             await loadTags()
         } catch {
             errorMessage = "Failed to delete tag: \(error.localizedDescription)"
-            showError = true
         }
     }
 
@@ -94,7 +90,6 @@ final class TagsModel {
             return true
         } catch {
             errorMessage = "Failed to rename tag: \(error.localizedDescription)"
-            showError = true
             return false
         }
     }
