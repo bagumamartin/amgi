@@ -1,6 +1,9 @@
 import SwiftUI
 import AmgiTheme
 import AmgiAppCore
+import CasePaths
+import SwiftNavigation
+import SwiftUINavigation
 
 /// Local backups of the active profile's `collection.anki2`. Each backup
 /// is a timestamped copy stored under `Documents/Backups for <profile>/`.
@@ -10,12 +13,17 @@ struct BackupView: View {
 
     @State private var backups: [BackupEntry] = []
     @State private var isCreating = false
-    @State private var errorMessage: String?
-    @State private var showError = false
-    @State private var successMessage: String?
-    @State private var showSuccess = false
-    @State private var backupToDelete: BackupEntry?
-    @State private var showDeleteConfirm = false
+    @State private var destination: Destination?
+
+    /// One axis for all three alerts. As three flag+payload pairs these could
+    /// encode states the screen can't render — a raised flag with no message,
+    /// or success and error asking to show at once.
+    @CasePathable
+    enum Destination {
+        case confirmDelete(BackupEntry)
+        case success(String)
+        case failure(String)
+    }
 
     @Environment(\.palette) private var palette
 
@@ -43,15 +51,7 @@ struct BackupView: View {
         .background(palette.background)
         .navigationTitle("Backups")
         .navigationBarTitleDisplayMode(.inline)
-        .modifier(BackupAlerts(
-            showDeleteConfirm: $showDeleteConfirm,
-            backupToDelete: backupToDelete,
-            onDelete: { if let e = backupToDelete { deleteBackup(e) } },
-            showSuccess: $showSuccess,
-            successMessage: successMessage,
-            showError: $showError,
-            errorMessage: errorMessage
-        ))
+        .modifier(BackupAlerts(destination: $destination, onDelete: deleteBackup))
         .task { loadBackups() }
     }
 
@@ -96,8 +96,7 @@ struct BackupView: View {
                     .listRowBackground(palette.surfaceElevated)
                     .swipeActions(edge: .trailing) {
                         Button(role: .destructive) {
-                            backupToDelete = entry
-                            showDeleteConfirm = true
+                            destination = .confirmDelete(entry)
                         } label: {
                             Label("Delete", systemImage: "trash")
                         }
@@ -168,11 +167,9 @@ private extension BackupView {
                 try FileManager.default.copyItem(at: sourceURL, to: destURL)
             }.value
             loadBackups()
-            successMessage = "Saved \(destURL.lastPathComponent)."
-            showSuccess = true
+            destination = .success("Saved \(destURL.lastPathComponent).")
         } catch {
-            errorMessage = error.localizedDescription
-            showError = true
+            destination = .failure(error.localizedDescription)
         }
     }
 
@@ -210,33 +207,45 @@ private struct BackupRow: View {
 }
 
 private struct BackupAlerts: ViewModifier {
-    @Binding var showDeleteConfirm: Bool
-    let backupToDelete: BackupView.BackupEntry?
-    let onDelete: () -> Void
+    @Binding var destination: BackupView.Destination?
+    let onDelete: (BackupView.BackupEntry) -> Void
 
-    @Binding var showSuccess: Bool
-    let successMessage: String?
+    private var pendingDelete: BackupView.BackupEntry? {
+        if case .confirmDelete(let entry) = destination { return entry }
+        return nil
+    }
 
-    @Binding var showError: Bool
-    let errorMessage: String?
+    private var successMessage: String? {
+        if case .success(let message) = destination { return message }
+        return nil
+    }
+
+    private var failureMessage: String? {
+        if case .failure(let message) = destination { return message }
+        return nil
+    }
 
     func body(content: Content) -> some View {
         content
-            .alert("Delete backup?", isPresented: $showDeleteConfirm) {
+            .alert(
+                "Delete backup?",
+                isPresented: Binding($destination.confirmDelete),
+                presenting: pendingDelete
+            ) { entry in
                 Button("Cancel", role: .cancel) {}
-                Button("Delete", role: .destructive) { onDelete() }
-            } message: {
-                Text("Delete the backup from \(backupToDelete?.formattedDate ?? "this date")?")
+                Button("Delete", role: .destructive) { onDelete(entry) }
+            } message: { entry in
+                Text("Delete the backup from \(entry.formattedDate)?")
             }
-            .alert("Done", isPresented: $showSuccess) {
+            .alert("Done", isPresented: Binding($destination.success)) {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(successMessage ?? "")
             }
-            .alert("Error", isPresented: $showError) {
+            .alert("Error", isPresented: Binding($destination.failure)) {
                 Button("OK", role: .cancel) {}
             } message: {
-                Text(errorMessage ?? "")
+                Text(failureMessage ?? "")
             }
     }
 }
