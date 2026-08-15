@@ -1,9 +1,8 @@
-import SwiftUI
+public import SwiftUI
 import AmgiTheme
 import AnkiClients
-import AnkiKit
+public import AnkiKit
 import Dependencies
-import SwiftNavigation
 import SwiftUINavigation
 
 /// View for managing tags in the collection.
@@ -11,7 +10,7 @@ import SwiftUINavigation
 /// picker for the selected notes.  When empty it is a collection-level tag
 /// manager.
 @MainActor
-struct TagsView: View {
+public struct TagsView: View {
     let targetNoteIDs: [NoteID]
     /// Controls behaviour when `targetNoteIDs` is non-empty.
     /// `.addToNotes` — tapping a tag immediately adds it to all selected notes.
@@ -19,7 +18,7 @@ struct TagsView: View {
     /// `.manage` (default) — tapping a tag shows a confirmation dialog.
     let noteMode: NoteMode
 
-    enum NoteMode { case manage, addToNotes, removeFromNotes }
+    public enum NoteMode { case manage, addToNotes, removeFromNotes }
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.palette) private var palette
@@ -27,7 +26,7 @@ struct TagsView: View {
     @State private var model = TagsModel()
     @State private var destination: TagsDestination?
 
-    init(targetNoteIDs: [NoteID] = [], noteMode: NoteMode = .manage) {
+    public init(targetNoteIDs: [NoteID] = [], noteMode: NoteMode = .manage) {
         self.targetNoteIDs = targetNoteIDs
         self.noteMode = noteMode
     }
@@ -35,7 +34,7 @@ struct TagsView: View {
     // Whether this view is in "apply tags to notes" mode
     private var isNoteMode: Bool { !targetNoteIDs.isEmpty }
 
-    var body: some View {
+    public var body: some View {
         presenting(chrome)
             .task {
                 await loadTags()

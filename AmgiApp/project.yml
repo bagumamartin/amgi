@@ -212,10 +212,6 @@ targets:
     sources:
       - path: Sources/Watch
         type: group
-      - path: Sources/Shared
-        type: group
-        excludes:
-          - TagsView.swift
       # Review engine only — the WebKit host, flip chrome, and render-mode UI
       # are iOS-only; the watch renders stripped text via ReviewSession.
       - path: Sources/Review/ReviewSession.swift
