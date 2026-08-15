@@ -41,12 +41,15 @@ let package = Package(
         .library(name: "AmgiCharts", targets: ["AmgiCharts"]),
         .library(name: "FeatureTemplates", targets: ["FeatureTemplates"]),
         .library(name: "FeatureStats", targets: ["FeatureStats"]),
+        .library(name: "FeatureBrowse", targets: ["FeatureBrowse"]),
     ],
     dependencies: [
         .package(path: ".."),
         .package(path: "../AmgiUI"),
         .package(url: "https://github.com/pointfreeco/swift-dependencies", from: "1.0.0"),
         .package(url: "https://github.com/pointfreeco/swift-sharing", from: "2.0.0"),
+        .package(url: "https://github.com/pointfreeco/swift-navigation", from: "2.0.0"),
+        .package(url: "https://github.com/pointfreeco/swift-case-paths", from: "1.0.0"),
     ],
     targets: [
         .target(
@@ -116,6 +119,30 @@ let package = Package(
         .testTarget(
             name: "FeatureStatsTests",
             dependencies: ["FeatureStats"],
+            swiftSettings: sharedSwiftSettings
+        ),
+        .target(
+            name: "FeatureBrowse",
+            dependencies: [
+                "AmgiAppShared",
+                .product(name: "AnkiKit", package: "amgi"),
+                .product(name: "AnkiClients", package: "amgi"),
+                .product(name: "AnkiServices", package: "amgi"),
+                .product(name: "AmgiTheme", package: "AmgiUI"),
+                .product(name: "AmgiUI", package: "AmgiUI"),
+                .product(name: "Dependencies", package: "swift-dependencies"),
+                .product(name: "SwiftUINavigation", package: "swift-navigation"),
+                .product(name: "CasePaths", package: "swift-case-paths"),
+            ],
+            swiftSettings: sharedSwiftSettings
+        ),
+        .testTarget(
+            name: "FeatureBrowseTests",
+            dependencies: [
+                "FeatureBrowse",
+                .product(name: "AnkiClients", package: "amgi"),
+                .product(name: "AnkiServices", package: "amgi"),
+            ],
             swiftSettings: sharedSwiftSettings
         ),
     ],

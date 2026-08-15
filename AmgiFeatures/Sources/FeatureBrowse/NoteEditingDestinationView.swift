@@ -1,19 +1,19 @@
-import SwiftUI
-import AnkiKit
+public import SwiftUI
+public import AnkiKit
 import AmgiTheme
 
-struct NoteEditingDestinationView: View {
+public struct NoteEditingDestinationView: View {
     let note: NoteRecord
     let embedInNavigationStack: Bool
     let onSave: () -> Void
 
-    init(note: NoteRecord, embedInNavigationStack: Bool = false, onSave: @escaping () -> Void) {
+    public init(note: NoteRecord, embedInNavigationStack: Bool = false, onSave: @escaping () -> Void) {
         self.note = note
         self.embedInNavigationStack = embedInNavigationStack
         self.onSave = onSave
     }
 
-    var body: some View {
+    public var body: some View {
         Group {
             if embedInNavigationStack {
                 NavigationStack {
@@ -36,11 +36,5 @@ struct NoteEditingDestinationView: View {
         } else {
             NoteEditorView(note: note, onSave: onSave)
         }
-    }
-}
-
-extension NoteRecord {
-    var isImageOcclusionNote: Bool {
-        flds.contains("image-occlusion:")
     }
 }

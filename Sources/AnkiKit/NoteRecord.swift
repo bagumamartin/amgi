@@ -20,4 +20,10 @@ public struct NoteRecord: Sendable, Hashable, Identifiable {
         self.usn = usn; self.tags = tags; self.flds = flds
         self.sfld = sfld; self.csum = csum; self.flags = flags; self.data = data
     }
+
+    /// Image-occlusion notes carry an `image-occlusion:` marker in their field
+    /// blob; they need the mask editor rather than the plain note editor.
+    public var isImageOcclusionNote: Bool {
+        flds.contains("image-occlusion:")
+    }
 }

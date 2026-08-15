@@ -1,16 +1,16 @@
-import SwiftUI
-import AnkiKit
+public import SwiftUI
+public import AnkiKit
 import AmgiTheme
 
 /// Add Note container: owns the modal chrome (navigation, toolbar, dismissal)
 /// and drives an `AddNoteModel` for deck/notetype loading and the note write.
 /// The form itself is `AddNoteContent`, bound to the model.
-struct AddNoteView: View {
+public struct AddNoteView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var model: AddNoteModel
     let onSave: () -> Void
 
-    init(
+    public init(
         preselectedDeckId: DeckID? = nil,
         initialDraft: AddNoteDraft? = nil,
         onSave: @escaping () -> Void
@@ -20,7 +20,7 @@ struct AddNoteView: View {
         self.onSave = onSave
     }
 
-    var body: some View {
+    public var body: some View {
         NavigationStack {
             AddNoteContent(model: model)
                 .navigationTitle("Add Note")

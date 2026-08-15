@@ -152,6 +152,8 @@ targets:
         product: FeatureTemplates
       - package: AmgiFeatures
         product: FeatureStats
+      - package: AmgiFeatures
+        product: FeatureBrowse
       - package: swift-navigation
         product: SwiftNavigation
       - package: swift-navigation

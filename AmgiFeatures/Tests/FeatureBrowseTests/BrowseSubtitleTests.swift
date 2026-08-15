@@ -1,5 +1,5 @@
 import Testing
-@testable import AmgiApp
+@testable import FeatureBrowse
 
 @Suite("Note row subtitle composition")
 struct BrowseSubtitleTests {

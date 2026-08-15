@@ -1,6 +1,6 @@
 import Testing
 import UIKit
-@testable import AmgiApp
+@testable import FeatureBrowse
 
 /// The mask document logic used to live in a private extension on
 /// `ImageOcclusionWorkspaceView`, where none of it was reachable without a

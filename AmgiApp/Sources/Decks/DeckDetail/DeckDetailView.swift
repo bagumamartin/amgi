@@ -5,6 +5,7 @@ import AmgiUI
 import AnkiKit
 import AnkiClients
 import Dependencies
+import FeatureBrowse
 
 /// Owns the `DeckDetailModel` (data state) and a single `Destination?`
 /// that drives every modal axis: full-screen review, sheets, alerts,

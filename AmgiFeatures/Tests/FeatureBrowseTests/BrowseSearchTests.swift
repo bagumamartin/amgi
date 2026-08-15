@@ -1,8 +1,10 @@
+import AnkiClients
 import AnkiKit
+import AnkiServices
 import Dependencies
 import Testing
 import Foundation
-@testable import AmgiApp
+@testable import FeatureBrowse
 
 /// `performSearch` is driven from `.task(id: model.searchQuery)`, so it gets
 /// cancelled and restarted on every keystroke. These tests pin the two

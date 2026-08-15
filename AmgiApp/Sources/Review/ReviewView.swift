@@ -7,6 +7,7 @@ import AmgiAppShared
 import AnkiBackend
 import AnkiKit
 import Dependencies
+import FeatureBrowse
 import FeatureTemplates
 import Sharing
 

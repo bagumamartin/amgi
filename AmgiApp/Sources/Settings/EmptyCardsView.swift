@@ -2,6 +2,7 @@ import SwiftUI
 import AmgiTheme
 import AmgiUI
 import AnkiKit
+import FeatureBrowse
 
 /// Empty Cards container: owns navigation, the delete/success/error alerts,
 /// and the note-editor sheets, and drives an `EmptyCardsModel` for the
