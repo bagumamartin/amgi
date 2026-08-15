@@ -27,10 +27,28 @@ AmgiApp (iOS app target — AmgiApp/, xcodegen → AmgiApp.xcodeproj)
   └─ depends on → AmgiFeatures (sibling SPM, ./AmgiFeatures)
 
 AmgiFeatures package — app-layer shared code + migrated features
-  StatsFeature → AmgiCharts     TemplatesFeature     AmgiAppShared → AmgiAppCore
-  BrowseFeature → AmgiAppShared    SyncFeature → AmgiAppShared → AmgiAppCore
-  Only four intra-package edges exist; everything else reaches sideways into
-  AmgiUI/AmgiTheme/AnkiKit/AnkiClients.
+  Sinks:     AmgiAppShared → AmgiAppCore        AmgiCharts (watchOS-clean)
+             AmgiReviewCore → AmgiAppCore       (watchOS-clean; watch links it)
+  Features:  StatsFeature → AmgiCharts          TemplatesFeature
+             BrowseFeature → AmgiAppShared      SyncFeature → AmgiAppShared
+             ReaderFeature → BrowseFeature, AmgiAppShared
+             ReviewFeature → ReaderFeature, BrowseFeature, TemplatesFeature,
+                             AmgiReviewCore, AmgiAppShared
+             DecksFeature  → ReviewFeature, BrowseFeature, AmgiAppShared
+  Everything else reaches sideways into AmgiUI/AmgiTheme/AnkiKit/AnkiClients.
+
+  **Cxx chain.** ReaderFeature, ReviewFeature and DecksFeature all declare
+  `.interoperabilityMode(.Cxx)`, and so does the app target. Only ReaderFeature
+  actually touches C++ (AmgiReaderDictionary → hoshidicts); the other three
+  inherit it because Cxx interop is transitive through the module graph — a
+  target that imports a Cxx-mode module gets the CHoshiDicts modulemap in its
+  own Clang dependency scan and fails with "module 'CHoshiDicts' requires
+  feature 'cplusplus'" without the setting. Every target in the chain drops
+  out of explicit modules and compilation caching (rdar://122829880).
+  One edge causes all of it: ReviewFeature importing ReaderFeature for
+  `LookupPopupView`. Inverting that — the app injects the lookup view into
+  `ReviewView` — would take Review *and* Decks back out. Not done: unmeasured.
+  Any new feature that imports Review or Decks joins the chain.
 
   AmgiWidget links AmgiAppCore only and must never reach AnkiClients. That,
   by itself, is why the sink is two targets rather than one.
@@ -44,7 +62,7 @@ AmgiFeatures package — app-layer shared code + migrated features
   AmgiApp/project.yml, not this note.)
 
 AnkiBridge package — Anki engine surface
-  SwiftUI feature code (AmgiApp/Sources/{Decks,Review,Reader,Stats,…})
+  SwiftUI feature code (AmgiFeatures/Sources/*Feature, AmgiApp/Sources/Settings)
     ↓ @Dependency(\.xxxClient)
   AnkiClients          ─ thin @DependencyClient structs, live values
     ↓
@@ -97,19 +115,32 @@ dictionary UI, widgets.
 | `TemplatesFeature` (./AmgiFeatures) | Card-template editor (`DeckTemplateListView`, `TemplateEditorView`, `TemplateSourceEditor`, …). Lifted out of `Decks/` to close the Decks↔Review cycle; consumed by Settings and Review. |
 | `StatsFeature` (./AmgiFeatures) | Stats dashboard — `StatsDashboardView` Container / `StatsDashboardContent` + `State` enum / `StatsDashboardModel`. Deps: `AmgiCharts`, `AnkiClients`. |
 | `SyncFeature` (./AmgiFeatures) | Sync flow: `SyncCoordinator` (+ its `DependencyValues.syncCoordinator` key), `SyncSheet`, `LoginSheet`, `OnboardingView`, `SyncToast(+Controller)` and the `syncToastOverlay` modifier, `AnkiMobileAttributionView`. |
-| `ReaderFeature` (./AmgiFeatures) | The EPUB + Anki-note readers, the offline-dictionary lookup UI, and the Study landing screen (absorbed — it was a landing screen over Reader, not a feature). The **only** target that touches `AmgiReaderDictionary`, so it is the only one declaring `.interoperabilityMode(.Cxx)`; keep it that way, since any target in the Cxx chain loses explicit modules and compilation caching. Public surface is six entry points — `ReaderLibraryView`, `StudyLandingView`, `LookupPopupView`, `ReaderDictionarySettingsView`, `ReaderFontOption`, `ReaderThemeColor`; models stay internal. Note it holds **two** readers with separate preference namespaces (`EPUBChapterReaderView`/`reader_typo_*` and `ChapterReaderView`/`reader_pref_*`), branched at `ReaderBookDetailView.swift:120`. |
+| `ReaderFeature` (./AmgiFeatures) | The EPUB + Anki-note readers, the offline-dictionary lookup UI, and the Study landing screen (absorbed — it was a landing screen over Reader, not a feature). The only target that *touches* `AmgiReaderDictionary` — but no longer the only one in the Cxx chain, since interop is transitive and `ReviewFeature`/`DecksFeature` inherited it through `LookupPopupView`. See the Cxx-chain note in the diagram above. Public surface is six entry points — `ReaderLibraryView`, `StudyLandingView`, `LookupPopupView`, `ReaderDictionarySettingsView`, `ReaderFontOption`, `ReaderThemeColor`; models stay internal. Note it holds **two** readers with separate preference namespaces (`EPUBChapterReaderView`/`reader_typo_*` and `ChapterReaderView`/`reader_pref_*`), branched at `ReaderBookDetailView.swift:120`. |
 | `BrowseFeature` (./AmgiFeatures) | Note browsing + note authoring: browse list/search/selection, add & edit note, batch tagging, collection-wide tag management, and the whole image-occlusion editor. Public surface is exactly five views — `BrowseView`, `AddNoteView`, `NoteEditorView`, `NoteEditingDestinationView`, `TagsView`; models stay internal. It has **no** app-folder dependencies, which is why it extracted first: Reader, Review, Decks, and Settings all reach into it, so it had to leave the app target before they can. |
+| `AmgiReviewCore` (./AmgiFeatures) | The review state machine (`ReviewSession`) + `TemplateRenderOverrides`. Watch-shared: `AmgiWatchApp` links it, so it must stay watchOS-clean — no `AmgiAppShared`, no UI, guard UIKit with `#if canImport(UIKit)`. Exists because project.yml used to cherry-pick these files into the watch target by path, compiling them twice as two distinct types. Same role `AmgiCharts` plays for stats. |
+| `ReviewFeature` (./AmgiFeatures) | The review screen: WebKit card host, flip chrome, rating bar, native renderer, render-mode UI. Engine logic belongs in `AmgiReviewCore`, presentation here. Public surface: `ReviewView`, `CardWebViewContentAlignment`, and the `CardRenderEngine` display helpers. In the Cxx chain via its `ReaderFeature` edge. |
+| `DecksFeature` (./AmgiFeatures) | Deck list, deck detail, deck config + FSRS simulator, profile picker. Public surface is `DeckListView` alone. `DeckListView.init` takes `onSwitchProfile` because `switchProfile(to:)` is composition-root work (closes/reopens the collection, cancels sync, flips the keychain anchor) and stays in `AmgiAppApp.swift`. In the Cxx chain via `ReviewFeature`. |
 
 ### Module naming convention
 Three prefixes/suffixes, each answering a different question:
 - **`Anki*`** — derived from the upstream Anki engine (`AnkiKit`, `AnkiClients`, `AnkiSync`).
 - **`Amgi*`** — app-owned and *reusable*; other modules may depend on it
   (`AmgiUI`, `AmgiTheme`, `AmgiCharts`, `AmgiAppCore`, `AmgiAppShared`).
-- **`*Feature`** — app-owned **leaf**. Nothing depends on it; only the app
-  target imports it (`BrowseFeature`, `SyncFeature`, `StatsFeature`,
-  `TemplatesFeature`, `ReaderFeature`). Pending: `DecksFeature`,
-  `ReviewFeature`. (No `StudyFeature` — Study was absorbed into
-  `ReaderFeature`. No `SettingsFeature` planned; see extraction status.)
+- **`*Feature`** — app-owned **screen-level** module: `BrowseFeature`,
+  `SyncFeature`, `StatsFeature`, `TemplatesFeature`, `ReaderFeature`,
+  `ReviewFeature`, `DecksFeature`. (No `StudyFeature` — Study was absorbed
+  into `ReaderFeature`. No `SettingsFeature` planned; see extraction status.)
+
+  This used to read "**leaf** — nothing depends on it; only the app target
+  imports it." That was never true (`BrowseFeature` was already imported by
+  four others) and is now clearly false: `DecksFeature → ReviewFeature →
+  ReaderFeature → BrowseFeature` is a four-deep chain. Features *do* depend on
+  features. What still holds is the direction: nothing in `AmgiFeatures` may
+  depend on the app target, and the `Amgi*` sinks never depend on a `*Feature`.
+  Prefer routing shared code down into a sink (`AmgiAppCore`,
+  `AmgiAppShared`, `AmgiReviewCore`, `AmgiCharts`) over adding a
+  feature→feature edge — and check the Cxx-chain note before adding one that
+  reaches Reader, Review, or Decks.
 
 `Feature` is a **suffix, not a prefix** — Swift/Cocoa put the head noun last
 (`UIViewController` *is a* Controller), so `SyncFeature` reads "the Sync
@@ -121,43 +152,60 @@ most misread pair. The suffix keeps the app layer visually distinct.
 
 ### App target
 - `AmgiApp/` — Xcode project, generated by xcodegen from `project.yml`.
-- Feature folders: `AmgiApp/Sources/{Decks,Review,Settings,Watch,Widgets}`
-  (`Stats/`, `Theme/`, `Browse/`, `Sync/`, `Reader/` and `Study/` migrated into
-  `AmgiFeatures`/`AmgiUI`; `Shared/` dissolved into its one real consumer per
-  file. See the extraction status below.)
+- Remaining folders: `AmgiApp/Sources/{Settings,Watch,Widgets}` plus six root
+  files (`AmgiAppApp`, `ContentView`, `MainTabView`, `DebugView`,
+  `DeckImportModifier`, `RetroactiveIdentifiable`). Everything else migrated
+  into `AmgiFeatures`/`AmgiUI`.
 - Widget target shares `AmgiTheme` + `AnkiKit` + `AmgiAppCore` only — keep its deps narrow.
-- `ReaderFeature` imports no `AnkiBackend`. Keep it that way — it must not link
-  `AnkiRustLib` or its previews stop rendering. In the app target, `Review/`,
-  `Settings/MaintenanceModel`, `Watch/` and `DebugView` still import it.
+- Direct `AnkiBackend` imports left in the app target: `AmgiAppApp` (the
+  composition root, correct), `DebugView`, `Settings/MaintenanceModel`, and
+  `Watch/`. No `*Feature` module imports it, and none should — a feature target
+  that links `AnkiRustLib` stops rendering previews.
+- `project.yml` must contain **no per-file `path:` entries under `Sources/`**.
+  Cross-target file sharing goes through a product (see `AmgiReviewCore`).
 
 ### Extraction status (2026-08-15)
-Remaining app-target code is ~10.2k LOC across five folders. Order is forced
-by the coupling graph, not preference:
+The app target went from ~18.7k LOC to ~4.4k in one session. Order was forced
+by the coupling graph, not preference; all of it is done except Settings.
 
-1. ~~**`ReaderFeature`**~~ — **done 2026-08-15.** Absorbed `Study/` (a 166-LOC
-   landing screen over Reader, not a feature). Six public entry points; see the
-   module table above. App target went ~18.7k → ~10.2k LOC.
-   The predicted payoff did **not** materialize: extracting every
+1. **`Sources/Shared` dissolved.** Neither file was shared — `DeckCountsView`
+   had one consumer (the watch), the tags UI had one (Settings). Went to
+   `Sources/Watch` and `BrowseFeature` respectively.
+2. **`ReaderFeature`** — absorbed `Study/`. Six public entry points.
+   The predicted payoff did **not** materialize: moving every
    `AmgiReaderDictionary` import out of the app target does *not* let the app
    drop its Cxx settings, because Xcode puts every package's include dir on the
-   app's `-Xcc` line and the Clang dependency scanner then walks
+   app's `-Xcc` line and the Clang dependency scanner walks
    `hoshidicts/include/module.modulemap` regardless of what any source imports.
    Both "drop all Cxx settings" and "keep all but the `OTHER_SWIFT_FLAGS` copy"
-   were tried against clean builds; both fail with "module 'CHoshiDicts'
-   requires feature 'cplusplus'". The app target stays out of explicit modules /
-   compilation caching as long as hoshidicts is anywhere in its package graph —
-   the original project.yml comment was right. Do not re-litigate this.
-2. **`ReviewFeature`** — blocked. `project.yml` cherry-picks three files out of
-   `Sources/Review/` into AmgiWatchApp by path (`ReviewSession.swift`,
-   `ReviewAudioSession.swift`, `RenderEngine/TemplateRenderOverrides.swift`).
-   That is file-level coupling across a target boundary and is inexpressible
-   once Review is a module. Promote them to a watchOS-clean target that both
-   `ReviewFeature` and the watch link — the way `AmgiCharts` already works —
-   rather than moving them.
-3. **`DecksFeature`** — after Review; `Decks/DeckDetail/DeckDetailPresentations.swift`
-   presents `ReviewView`.
-4. **Settings** — probably stays. It is an aggregator that consumes types from
-   every other feature; once 1–3 land it is a thin shell over public module APIs.
+   were tried against clean builds; both fail. Do not re-litigate this.
+3. **`AmgiReviewCore`** — unblocked Review by promoting the files `project.yml`
+   cherry-picked into the watch by path. Only two of the three were really
+   shared; `ReviewAudioSession` was dead on the watch.
+4. **`ReviewFeature`**, then **`DecksFeature`** — Decks presents `ReviewView`,
+   so it had to follow Review.
+5. **Settings stays.** It is the aggregator — it consumes types from every
+   other feature and is now a thin shell over public module APIs. Extracting it
+   would buy a boundary nothing needs.
+
+**If you extract another module, budget for these four.** Every lift this
+session hit at least two:
+- `DesignConformanceTests` keys its allowlist by path *and* asserts no stale
+  entries, so a file move fails it in both directions at once. Update
+  `permanentlyExempt` in the same commit.
+- `@testable import AmgiApp` tests that reach the moved types need a second
+  `@testable import <NewModule>`.
+- The package enables `MemberImportVisibility`; the app target does not. Files
+  that borrowed a transitive `import SwiftUI`/`UniformTypeIdentifiers` from the
+  app target need it spelled out once they move.
+- **Scan for free functions, not just types.** A type-declaration scan said
+  `Decks/` had zero inbound dependencies; it actually called `switchProfile(to:)`,
+  a free function in `AmgiAppApp.swift`. Compiler caught it, the survey did not.
+
+Also: **run `xcodebuild clean build`, not an incremental one, when verifying a
+module move.** An incremental build passed on stale cached modules and produced
+a wrong conclusion about the Cxx settings this session; the clean build caught
+it.
 
 Two findings that did *not* survive investigation, recorded so they are not
 re-raised: the "three duplicate reader preference systems" are two separate
@@ -247,8 +295,8 @@ Either branch: SPM tests are compile-verified only under `swift test` because
 `AnkiRustLib` is iOS-only (see memory) — run them on a simulator destination.
 
 Either branch: the iOS scheme does **not** build `AmgiWatchApp`. Changes to
-`Sources/Watch/`, `Sources/Review/`'s three watch-shared files, or project.yml's
-target wiring need their own build:
+`Sources/Watch/`, to `AmgiReviewCore`/`AmgiCharts`/`AmgiAppCore` (the products
+the watch links), or to project.yml's target wiring need their own build:
 ```bash
 xcodebuild build -project AmgiApp/AmgiApp.xcodeproj -scheme AmgiWatchApp \
   -destination 'generic/platform=watchOS Simulator' ARCHS=arm64
