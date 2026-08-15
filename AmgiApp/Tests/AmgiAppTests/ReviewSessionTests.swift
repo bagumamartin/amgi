@@ -5,6 +5,7 @@ import Dependencies
 import AnkiKit
 import AnkiServices
 @testable import AmgiApp
+@testable import AmgiReviewCore
 
 // MARK: - ReviewSessionTests
 // Lifted from ~/Clones/amgi/AnkiApp/Sources/Review/ReviewSessionTests.swift (82 LOC)

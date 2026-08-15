@@ -6,6 +6,7 @@ import AnkiClients
 import AnkiKit
 import Dependencies
 import Sharing
+import AmgiReviewCore
 
 /// R11 per-template override list: each stored override as
 /// "Notetype · Template — engine", swipe-to-delete. Names resolve via

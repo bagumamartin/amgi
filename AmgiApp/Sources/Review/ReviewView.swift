@@ -11,6 +11,7 @@ import BrowseFeature
 import TemplatesFeature
 import Sharing
 import ReaderFeature
+import AmgiReviewCore
 
 /// Container: owns the `ReviewSession`, the review preferences, the sheet
 /// selection state, and the session lifecycle (`start()`, audio-session

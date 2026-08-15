@@ -158,6 +158,8 @@ targets:
         product: SyncFeature
       - package: AmgiFeatures
         product: ReaderFeature
+      - package: AmgiFeatures
+        product: AmgiReviewCore
       - package: swift-navigation
         product: SwiftNavigation
       - package: swift-navigation
@@ -221,13 +223,12 @@ targets:
     type: application
     platform: watchOS
     sources:
+      # Watch sources only. The review engine the watch shares with iOS is the
+      # AmgiReviewCore product below — it used to be three Sources/Review files
+      # listed here by path, which compiled them into two targets as two
+      # distinct types (fixed 2026-08-15). Do not re-add per-file paths here.
       - path: Sources/Watch
         type: group
-      # Review engine only — the WebKit host, flip chrome, and render-mode UI
-      # are iOS-only; the watch renders stripped text via ReviewSession.
-      - path: Sources/Review/ReviewSession.swift
-      - path: Sources/Review/ReviewAudioSession.swift
-      - path: Sources/Review/RenderEngine/TemplateRenderOverrides.swift
     dependencies:
       - package: AnkiBridge
         product: AnkiKit
@@ -249,6 +250,8 @@ targets:
         product: AmgiAppCore
       - package: AmgiFeatures
         product: AmgiCharts
+      - package: AmgiFeatures
+        product: AmgiReviewCore
       - package: swift-navigation
         product: SwiftNavigation
       - package: swift-sharing

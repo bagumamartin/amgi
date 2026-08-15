@@ -1,25 +1,27 @@
-import SwiftUI
+public import SwiftUI
 import AmgiAppCore
 #if canImport(UIKit)
 import UIKit
 #endif
-import AmgiCardWeb
+public import AmgiCardWeb
 import AnkiClients
-import AnkiKit
+public import AnkiKit
 import AnkiServices
 import Dependencies
 import Foundation
 
 /// How the current card is rendered (R11): parsed native content or the
 /// sandboxed WebView. Resolved per card in `prepareCard`.
-enum ResolvedRenderMode: Equatable {
+// Sendable is explicit here, not inferred: a public enum does not get the
+// implicit Sendable conformance an internal one does.
+public enum ResolvedRenderMode: Equatable, Sendable {
     case native(front: NativeCardContent, back: NativeCardContent)
     case html
 }
 
 @Observable @MainActor
-final class ReviewSession {
-    let deckId: DeckID
+public final class ReviewSession {
+    public let deckId: DeckID
 
     @ObservationIgnored @Dependency(\.decksService) var decks
     @ObservationIgnored @Dependency(\.schedulerService) var scheduler
@@ -29,41 +31,41 @@ final class ReviewSession {
     @ObservationIgnored @Dependency(\.notetypesService) var notetypes
     @ObservationIgnored @Dependency(\.notetypesClient) var notetypesClient
 
-    private(set) var frontHTML: String = ""
-    private(set) var backHTML: String = ""
-    private(set) var cardCSS: String = ""
-    private(set) var showAnswer: Bool = false
-    private(set) var sessionStats: SessionStats = .init()
-    private(set) var remainingCounts: DeckCounts = .zero
-    private(set) var deckName: String = ""
-    private(set) var isFinished: Bool = false
-    private(set) var canUndo: Bool = false
-    private(set) var nextIntervals: [Rating: String] = [:]
-    private(set) var replayRequestID: Int = 0       // plumbed; consumer is PR 1b
-    private(set) var stopAudioRequestID: Int = 0    // plumbed; consumer is PR 1b
-    private(set) var isAudioPlaying: Bool = false
-    private(set) var currentNote: NoteRecord?
-    private(set) var cardChromeColor: Color = .clear
-    private(set) var cardChromeIsDark: Bool = false
-    private(set) var resolvedMode: ResolvedRenderMode = .html
-    private(set) var resolvedByAuto: Bool = false
-    private(set) var templateName: String?
+    public private(set) var frontHTML: String = ""
+    public private(set) var backHTML: String = ""
+    public private(set) var cardCSS: String = ""
+    public private(set) var showAnswer: Bool = false
+    public private(set) var sessionStats: SessionStats = .init()
+    public private(set) var remainingCounts: DeckCounts = .zero
+    public private(set) var deckName: String = ""
+    public private(set) var isFinished: Bool = false
+    public private(set) var canUndo: Bool = false
+    public private(set) var nextIntervals: [Rating: String] = [:]
+    public private(set) var replayRequestID: Int = 0       // plumbed; consumer is PR 1b
+    public private(set) var stopAudioRequestID: Int = 0    // plumbed; consumer is PR 1b
+    public private(set) var isAudioPlaying: Bool = false
+    public private(set) var currentNote: NoteRecord?
+    public private(set) var cardChromeColor: Color = .clear
+    public private(set) var cardChromeIsDark: Bool = false
+    public private(set) var resolvedMode: ResolvedRenderMode = .html
+    public private(set) var resolvedByAuto: Bool = false
+    public private(set) var templateName: String?
     /// Bumped on each rating tap, before the backend round-trip — the view's
     /// haptic trigger. `lastRating` can't serve: it lands after the round-trip
     /// and doesn't change when the same rating is tapped twice in a row.
-    private(set) var answerTapCount: Int = 0
+    public private(set) var answerTapCount: Int = 0
     /// Rating of the most recent tap, paired with `answerTapCount` so the
     /// haptic can be firmer for `.again`.
-    private(set) var tappedRating: Rating = .good
+    public private(set) var tappedRating: Rating = .good
     /// Bumped once per *successful* undo. Exists so the view can fire haptic
     /// feedback on the completion, which no other piece of state marks —
     /// `canUndo` already reads false when an undo isn't available at all.
-    private(set) var undoneCount: Int = 0
+    public private(set) var undoneCount: Int = 0
 
     /// True while a card transition (start / answer / undo) has backend work
     /// in flight off the main actor. The view disables the answer + reveal
     /// buttons while set so a transition can't be re-entered mid-flight.
-    private(set) var isAdvancing: Bool = false
+    public private(set) var isAdvancing: Bool = false
 
     private var reviewStartTime: Date = .now
     private var cardQueue: [QueuedReviewCard] = []
@@ -80,19 +82,19 @@ final class ReviewSession {
     /// Bound to the native typed-answer field in ReviewView. Native (not an
     /// in-card HTML input) so keyboard traits fully apply — the predictive
     /// bar would otherwise offer the answer as a suggestion.
-    var typedAnswer: String = ""
+    public var typedAnswer: String = ""
 
     // MARK: - Computed
 
-    var requiresTypedAnswerInput: Bool {
+    public var requiresTypedAnswerInput: Bool {
         typedAnswerState?.expected.isEmpty == false && !showAnswer
     }
 
-    var currentCardOrdinal: UInt32 {
+    public var currentCardOrdinal: UInt32 {
         UInt32(currentQueuedCard?.card.ord ?? 0)
     }
 
-    struct TemplateTarget: Identifiable, Equatable, Sendable {
+    public struct TemplateTarget: Identifiable, Equatable, Sendable {
         public let id = UUID()
         public let notetypeId: NotetypeID
         public let ordinal: Int
@@ -102,12 +104,12 @@ final class ReviewSession {
         }
     }
 
-    var currentTemplateTarget: TemplateTarget? {
+    public var currentTemplateTarget: TemplateTarget? {
         guard let card = currentQueuedCard?.card, let note = currentNote else { return nil }
         return TemplateTarget(notetypeId: note.mid, ordinal: Int(card.ord))
     }
 
-    var currentCardId: CardID? {
+    public var currentCardId: CardID? {
         currentQueuedCard?.card.id
     }
 
@@ -120,13 +122,13 @@ final class ReviewSession {
 
     // MARK: - Init
 
-    init(deckId: DeckID) {
+    public init(deckId: DeckID) {
         self.deckId = deckId
     }
 
     // MARK: - Public interface
 
-    func start() {
+    public func start() {
         guard !isAdvancing else { return }
         isAdvancing = true
         // Resolve the Sendable service facades here, in the caller's
@@ -162,7 +164,7 @@ final class ReviewSession {
         }
     }
 
-    func revealAnswer() {
+    public func revealAnswer() {
         if let state = typedAnswerState {
             backHTML = makeTypedAnswerBackHTML(state: state, typedAnswer: typedAnswer)
         } else {
@@ -171,7 +173,7 @@ final class ReviewSession {
         showAnswer = true
     }
 
-    func answer(rating: Rating) {
+    public func answer(rating: Rating) {
         guard !isAdvancing, let queued = currentQueuedCard else { return }
         isAdvancing = true
 
@@ -216,7 +218,7 @@ final class ReviewSession {
         }
     }
 
-    func undo() {
+    public func undo() {
         guard canUndo, !isAdvancing else { return }
         isAdvancing = true
 
@@ -258,26 +260,26 @@ final class ReviewSession {
         }
     }
 
-    func updateAudioPlaying(_ playing: Bool) {
+    public func updateAudioPlaying(_ playing: Bool) {
         isAudioPlaying = playing
     }
 
 #if canImport(UIKit)
-    func updateCardChrome(color: UIColor, isDark: Bool) {
+    public func updateCardChrome(color: UIColor, isDark: Bool) {
         cardChromeColor = Color(uiColor: color)
         cardChromeIsDark = isDark
     }
 #endif
 
-    func bumpReplayRequest() {
+    public func bumpReplayRequest() {
         replayRequestID += 1
     }
 
-    func bumpStopAudioRequest() {
+    public func bumpStopAudioRequest() {
         stopAudioRequestID += 1
     }
 
-    func refreshAfterEdit() async {
+    public func refreshAfterEdit() async {
         guard let queued = currentQueuedCard else { return }
 
         do {
@@ -317,7 +319,7 @@ final class ReviewSession {
     /// Re-runs render-mode resolution for the current card against the
     /// latest engine preference / overrides (RenderModeSheet writes).
     /// Cheap: reuses the already-rendered HTML.
-    func reresolveCurrentCard() {
+    public func reresolveCurrentCard() {
         guard let queued = currentQueuedCard else { return }
         let prefs = currentRenderEnginePreferences(mid: currentNote?.mid, ord: Int(queued.card.ord))
         let resolution = resolveRenderMode(
@@ -456,7 +458,7 @@ func resolveRenderMode(
 /// Reads the R11 engine preference + per-template override for one card.
 /// UserDefaults is thread-safe, so this is callable from the off-actor
 /// prepare path as well as main-actor re-resolution.
-func currentRenderEnginePreferences(mid: NotetypeID?, ord: Int) -> (global: CardRenderEngine, override: CardRenderEngine?) {
+public func currentRenderEnginePreferences(mid: NotetypeID?, ord: Int) -> (global: CardRenderEngine, override: CardRenderEngine?) {
     let defaults = UserDefaults.standard
     let global = defaults.string(forKey: ReviewPreferences.Keys.cardRenderEngine)
         .flatMap(CardRenderEngine.init(rawValue:)) ?? .auto
@@ -669,7 +671,8 @@ extension ReviewSession {
     /// Never calls `start()`, so it touches no backend — `ReviewContent`
     /// previews render the card or finished surface deterministically.
     /// Lives in this file so it can set the `private(set)` display state.
-    static func preview(
+    /// Public because `ReviewContent`'s previews live in the app target.
+    public static func preview(
         showAnswer: Bool = false,
         isFinished: Bool = false,
         front: String = "<div class=\"card\">猫</div>",

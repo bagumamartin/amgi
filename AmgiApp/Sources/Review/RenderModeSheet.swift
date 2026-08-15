@@ -3,6 +3,7 @@ import AmgiCardWeb
 import AmgiTheme
 import AmgiAppCore
 import Sharing
+import AmgiReviewCore
 
 extension CardRenderEngine {
     var displayName: String {

@@ -44,6 +44,7 @@ let package = Package(
         .library(name: "BrowseFeature", targets: ["BrowseFeature"]),
         .library(name: "SyncFeature", targets: ["SyncFeature"]),
         .library(name: "ReaderFeature", targets: ["ReaderFeature"]),
+        .library(name: "AmgiReviewCore", targets: ["AmgiReviewCore"]),
     ],
     dependencies: [
         .package(path: ".."),
@@ -145,6 +146,26 @@ let package = Package(
                 "BrowseFeature",
                 .product(name: "AnkiClients", package: "amgi"),
                 .product(name: "AnkiServices", package: "amgi"),
+            ],
+            swiftSettings: sharedSwiftSettings
+        ),
+        // The review state machine + template render-engine overrides, shared
+        // by the iOS review screen and AmgiWatchApp. Exists ONLY because both
+        // need it: before 2026-08-15 project.yml cherry-picked these files
+        // into the watch target by path, compiling them twice into two
+        // distinct types. Same role AmgiCharts plays for the stats views.
+        //
+        // Must stay watchOS-clean — no AmgiAppShared (UIKit/WidgetKit
+        // unguarded), no UI. Guard any UIKit use with #if canImport(UIKit).
+        .target(
+            name: "AmgiReviewCore",
+            dependencies: [
+                "AmgiAppCore",
+                .product(name: "AnkiKit", package: "amgi"),
+                .product(name: "AnkiClients", package: "amgi"),
+                .product(name: "AnkiServices", package: "amgi"),
+                .product(name: "AmgiCardWeb", package: "amgi"),
+                .product(name: "Dependencies", package: "swift-dependencies"),
             ],
             swiftSettings: sharedSwiftSettings
         ),

@@ -3,6 +3,7 @@ import AnkiBackend
 import AnkiKit
 import Dependencies
 import SwiftUI
+import AmgiReviewCore
 
 struct WatchReviewView: View {
     let deckId: DeckID
