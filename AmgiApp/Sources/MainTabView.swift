@@ -1,7 +1,7 @@
 // AmgiApp/Sources/MainTabView.swift
 import SwiftUI
 import AnkiKit
-import FeatureStats
+import StatsFeature
 
 /// Root tab bar for the app. Pure layout: each tab wraps a feature view in
 /// a `NavigationStack`. `refreshID` (bumped by the host after sync / import /

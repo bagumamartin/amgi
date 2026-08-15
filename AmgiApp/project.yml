@@ -149,13 +149,13 @@ targets:
       - package: AmgiFeatures
         product: AmgiCharts
       - package: AmgiFeatures
-        product: FeatureTemplates
+        product: TemplatesFeature
       - package: AmgiFeatures
-        product: FeatureStats
+        product: StatsFeature
       - package: AmgiFeatures
-        product: FeatureBrowse
+        product: BrowseFeature
       - package: AmgiFeatures
-        product: FeatureSync
+        product: SyncFeature
       - package: swift-navigation
         product: SwiftNavigation
       - package: swift-navigation

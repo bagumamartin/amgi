@@ -42,19 +42,19 @@ struct DesignConformanceTests {
             "(R29 is no-layout). The heatmap cell's cornerRadius: 2 (grid squares + legend swatches) " +
             "is not a card and must stay 2, not round to AmgiRadius.control (10).",
         // The four below carry what used to be exempted as a single
-        // FeatureBrowse/ImageOcclusionWorkspaceView.swift entry, before that file was
+        // BrowseFeature/ImageOcclusionWorkspaceView.swift entry, before that file was
         // split up.
-        "FeatureBrowse/ImageOcclusionWorkspaceView.swift":
+        "BrowseFeature/ImageOcclusionWorkspaceView.swift":
             "Selected tool-palette chip labels are Color.white on palette.accent. " +
             "Palette has no on-accent text role, so there is no token to use here; " +
             "drop this entry once one exists.",
-        "FeatureBrowse/OcclusionCanvasView.swift":
+        "BrowseFeature/OcclusionCanvasView.swift":
             "ImageOcclusion UIKit canvas: mask/handle fills are drawing state, not app chrome. " +
             "Chrome radii were fixed; canvas fills are the exempt part.",
-        "FeatureBrowse/ZoomableOcclusionCanvasView.swift":
+        "BrowseFeature/ZoomableOcclusionCanvasView.swift":
             "ImageOcclusion canvas scroll container: the neutral backing colour is set from a " +
             "UIKit init where the SwiftUI palette isn't reachable.",
-        "FeatureBrowse/ImageOcclusionMaskSummaryCard.swift":
+        "BrowseFeature/ImageOcclusionMaskSummaryCard.swift":
             "Preview thumbnail clip radius matches the canvas it mirrors, not a card radius.",
         "Settings/AppearanceSettingsView.swift":
             "Radius literals with no AmgiRadius equivalent; changing them would be a layout change (R29 is no-layout).",
@@ -64,7 +64,7 @@ struct DesignConformanceTests {
             "64pt success glyph in the session-finished empty state. A fixed-size SF Symbol, " +
             "not text — it has no AmgiFont role because it isn't type, and scaling it with " +
             "Dynamic Type would only push the message below it off-screen.",
-        "FeatureTemplates/TemplateEditorView.swift":
+        "TemplatesFeature/TemplateEditorView.swift":
             "Radius literals with no AmgiRadius equivalent; changing them would be a layout change (R29 is no-layout).",
         "Widgets/LargeWidgetView.swift":
             "Separate target (shares only AmgiTheme + AnkiKit). Renders in the system's context and cannot observe ThemeManager at render time, so palette adoption is a design decision, not a conformance sweep. Tracked separately if widget theming is wanted.",

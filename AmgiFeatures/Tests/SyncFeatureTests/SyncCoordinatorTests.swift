@@ -4,7 +4,7 @@ import Dependencies
 import Sharing
 import AnkiKit
 import AnkiClients
-@testable import FeatureSync
+@testable import SyncFeature
 
 @Suite("SyncCoordinator state machine")
 struct SyncCoordinatorTests {

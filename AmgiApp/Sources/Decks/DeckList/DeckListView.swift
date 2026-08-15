@@ -6,7 +6,7 @@ import AmgiUI
 import AnkiKit
 import AnkiClients
 import Dependencies
-import FeatureBrowse
+import BrowseFeature
 
 /// Library container: owns navigation, sheets, and the toolbar, and drives
 /// a `DeckListModel` for load/refresh + deck mutations. Rendering is

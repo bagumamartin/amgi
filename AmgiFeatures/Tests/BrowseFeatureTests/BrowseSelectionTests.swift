@@ -1,6 +1,6 @@
 import AnkiKit
 import Testing
-@testable import FeatureBrowse
+@testable import BrowseFeature
 
 @Suite("Browse multi-select state")
 struct BrowseSelectionTests {

@@ -7,8 +7,8 @@ import AmgiAppShared
 import AnkiBackend
 import AnkiKit
 import Dependencies
-import FeatureBrowse
-import FeatureTemplates
+import BrowseFeature
+import TemplatesFeature
 import Sharing
 
 /// Container: owns the `ReviewSession`, the review preferences, the sheet

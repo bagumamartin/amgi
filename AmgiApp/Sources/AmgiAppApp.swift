@@ -9,7 +9,7 @@ import AnkiKit
 import AnkiSync
 import AmgiAppShared
 import Dependencies
-import FeatureSync
+import SyncFeature
 import Foundation
 import Sharing
 

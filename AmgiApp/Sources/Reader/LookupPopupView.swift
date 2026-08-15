@@ -4,7 +4,7 @@ import AmgiAppCore
 import AnkiClients
 import AnkiKit
 import Dependencies
-import FeatureBrowse
+import BrowseFeature
 import Sharing
 import SwiftUI
 

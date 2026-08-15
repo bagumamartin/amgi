@@ -27,8 +27,8 @@ AmgiApp (iOS app target — AmgiApp/, xcodegen → AmgiApp.xcodeproj)
   └─ depends on → AmgiFeatures (sibling SPM, ./AmgiFeatures)
 
 AmgiFeatures package — app-layer shared code + migrated features
-  FeatureStats → AmgiCharts     FeatureTemplates     AmgiAppShared → AmgiAppCore
-  FeatureBrowse → AmgiAppShared    FeatureSync → AmgiAppShared → AmgiAppCore
+  StatsFeature → AmgiCharts     TemplatesFeature     AmgiAppShared → AmgiAppCore
+  BrowseFeature → AmgiAppShared    SyncFeature → AmgiAppShared → AmgiAppCore
   Only four intra-package edges exist; everything else reaches sideways into
   AmgiUI/AmgiTheme/AnkiKit/AnkiClients. AmgiWidget links AmgiAppCore only;
   AmgiWatchApp links AmgiAppCore + AmgiCharts. Neither may reach AnkiClients —
@@ -85,15 +85,33 @@ dictionary UI, widgets.
 | `AmgiAppCore` (./AmgiFeatures) | The engine-free sink: preferences (`ReviewPreferences`, `ReaderPreferences`, `SyncPreferences`), `AccountStore`, app-group keys, `WidgetSnapshot(+Store)`, `StreakCalculator`, `CardFlag`. Deps: `AnkiKit`, `Sharing`. **Must never gain an `AnkiClients` dependency** — the widget and watch extensions link it, and that edge would drag the Rust engine into both. |
 | `AmgiAppShared` (./AmgiFeatures) | The engine-touching half of the sink, iOS-only: `CollectionStore`, `ImportHelper`, `ShareSheet`, `CardContextMenu(+Model)`, `writeWidgetSnapshot()`. Exists so `AmgiAppCore` can stay engine-free. |
 | `AmgiCharts` (./AmgiFeatures) | Pure chart/heatmap views over `GraphsSnapshot` + palette. No `AnkiClients` path, so its previews render without linking the xcframework. **Compiled for watchOS in its entirety** — the watch links the product, so every file here must be watchOS-clean, not just the ones the watch renders. |
-| `FeatureTemplates` (./AmgiFeatures) | Card-template editor (`DeckTemplateListView`, `TemplateEditorView`, `TemplateSourceEditor`, …). Lifted out of `Decks/` to close the Decks↔Review cycle; consumed by Settings and Review. |
-| `FeatureStats` (./AmgiFeatures) | Stats dashboard — `StatsDashboardView` Container / `StatsDashboardContent` + `State` enum / `StatsDashboardModel`. Deps: `AmgiCharts`, `AnkiClients`. |
-| `FeatureSync` (./AmgiFeatures) | Sync flow: `SyncCoordinator` (+ its `DependencyValues.syncCoordinator` key), `SyncSheet`, `LoginSheet`, `OnboardingView`, `SyncToast(+Controller)` and the `syncToastOverlay` modifier, `AnkiMobileAttributionView`. |
-| `FeatureBrowse` (./AmgiFeatures) | Note browsing + note authoring: browse list/search/selection, add & edit note, batch tagging, and the whole image-occlusion editor. Public surface is exactly four views — `BrowseView`, `AddNoteView`, `NoteEditorView`, `NoteEditingDestinationView`; models stay internal. It has **no** app-folder dependencies, which is why it extracted first: Reader, Review, Decks, and Settings all reach into it, so it had to leave the app target before they can. |
+| `TemplatesFeature` (./AmgiFeatures) | Card-template editor (`DeckTemplateListView`, `TemplateEditorView`, `TemplateSourceEditor`, …). Lifted out of `Decks/` to close the Decks↔Review cycle; consumed by Settings and Review. |
+| `StatsFeature` (./AmgiFeatures) | Stats dashboard — `StatsDashboardView` Container / `StatsDashboardContent` + `State` enum / `StatsDashboardModel`. Deps: `AmgiCharts`, `AnkiClients`. |
+| `SyncFeature` (./AmgiFeatures) | Sync flow: `SyncCoordinator` (+ its `DependencyValues.syncCoordinator` key), `SyncSheet`, `LoginSheet`, `OnboardingView`, `SyncToast(+Controller)` and the `syncToastOverlay` modifier, `AnkiMobileAttributionView`. |
+| `BrowseFeature` (./AmgiFeatures) | Note browsing + note authoring: browse list/search/selection, add & edit note, batch tagging, and the whole image-occlusion editor. Public surface is exactly four views — `BrowseView`, `AddNoteView`, `NoteEditorView`, `NoteEditingDestinationView`; models stay internal. It has **no** app-folder dependencies, which is why it extracted first: Reader, Review, Decks, and Settings all reach into it, so it had to leave the app target before they can. |
+
+### Module naming convention
+Three prefixes/suffixes, each answering a different question:
+- **`Anki*`** — derived from the upstream Anki engine (`AnkiKit`, `AnkiClients`, `AnkiSync`).
+- **`Amgi*`** — app-owned and *reusable*; other modules may depend on it
+  (`AmgiUI`, `AmgiTheme`, `AmgiCharts`, `AmgiAppCore`, `AmgiAppShared`).
+- **`*Feature`** — app-owned **leaf**. Nothing depends on it; only the app
+  target imports it (`BrowseFeature`, `SyncFeature`, `StatsFeature`,
+  `TemplatesFeature`). Pending: `DecksFeature`, `ReaderFeature`,
+  `ReviewFeature`, `SettingsFeature`, `StudyFeature`.
+
+`Feature` is a **suffix, not a prefix** — Swift/Cocoa put the head noun last
+(`UIViewController` *is a* Controller), so `SyncFeature` reads "the Sync
+feature" while `FeatureSync` reads backwards. Renamed 2026-08-15.
+
+Do **not** use `Amgi*` for a new feature module: `AmgiSync` would sit one
+letter from the existing `AnkiSync`, and `Amgi`/`Anki` is already this repo's
+most misread pair. The suffix keeps the app layer visually distinct.
 
 ### App target
 - `AmgiApp/` — Xcode project, generated by xcodegen from `project.yml`.
-- Feature folders: `AmgiApp/Sources/{Decks,Review,Browse,Reader,Study,Sync,Settings,Watch,Widgets,Shared}`
-  (`Stats/` and `Theme/` are gone — they migrated into `AmgiFeatures`/`AmgiUI`).
+- Feature folders: `AmgiApp/Sources/{Decks,Review,Reader,Study,Settings,Watch,Widgets,Shared}`
+  (`Stats/`, `Theme/`, `Browse/` and `Sync/` are gone — they migrated into `AmgiFeatures`/`AmgiUI`).
 - Widget target shares `AmgiTheme` + `AnkiKit` + `AmgiAppCore` only — keep its deps narrow.
 
 ## Working with the Rust Backend

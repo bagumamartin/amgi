@@ -39,10 +39,10 @@ let package = Package(
         .library(name: "AmgiAppCore", targets: ["AmgiAppCore"]),
         .library(name: "AmgiAppShared", targets: ["AmgiAppShared"]),
         .library(name: "AmgiCharts", targets: ["AmgiCharts"]),
-        .library(name: "FeatureTemplates", targets: ["FeatureTemplates"]),
-        .library(name: "FeatureStats", targets: ["FeatureStats"]),
-        .library(name: "FeatureBrowse", targets: ["FeatureBrowse"]),
-        .library(name: "FeatureSync", targets: ["FeatureSync"]),
+        .library(name: "TemplatesFeature", targets: ["TemplatesFeature"]),
+        .library(name: "StatsFeature", targets: ["StatsFeature"]),
+        .library(name: "BrowseFeature", targets: ["BrowseFeature"]),
+        .library(name: "SyncFeature", targets: ["SyncFeature"]),
     ],
     dependencies: [
         .package(path: ".."),
@@ -94,7 +94,7 @@ let package = Package(
             swiftSettings: sharedSwiftSettings
         ),
         .target(
-            name: "FeatureTemplates",
+            name: "TemplatesFeature",
             dependencies: [
                 .product(name: "AnkiKit", package: "amgi"),
                 .product(name: "AnkiClients", package: "amgi"),
@@ -106,7 +106,7 @@ let package = Package(
             swiftSettings: sharedSwiftSettings
         ),
         .target(
-            name: "FeatureStats",
+            name: "StatsFeature",
             dependencies: [
                 "AmgiCharts",
                 .product(name: "AnkiKit", package: "amgi"),
@@ -118,12 +118,12 @@ let package = Package(
             swiftSettings: sharedSwiftSettings
         ),
         .testTarget(
-            name: "FeatureStatsTests",
-            dependencies: ["FeatureStats"],
+            name: "StatsFeatureTests",
+            dependencies: ["StatsFeature"],
             swiftSettings: sharedSwiftSettings
         ),
         .target(
-            name: "FeatureBrowse",
+            name: "BrowseFeature",
             dependencies: [
                 "AmgiAppShared",
                 .product(name: "AnkiKit", package: "amgi"),
@@ -138,16 +138,16 @@ let package = Package(
             swiftSettings: sharedSwiftSettings
         ),
         .testTarget(
-            name: "FeatureBrowseTests",
+            name: "BrowseFeatureTests",
             dependencies: [
-                "FeatureBrowse",
+                "BrowseFeature",
                 .product(name: "AnkiClients", package: "amgi"),
                 .product(name: "AnkiServices", package: "amgi"),
             ],
             swiftSettings: sharedSwiftSettings
         ),
         .target(
-            name: "FeatureSync",
+            name: "SyncFeature",
             dependencies: [
                 "AmgiAppCore",
                 "AmgiAppShared",
@@ -162,9 +162,9 @@ let package = Package(
             swiftSettings: sharedSwiftSettings
         ),
         .testTarget(
-            name: "FeatureSyncTests",
+            name: "SyncFeatureTests",
             dependencies: [
-                "FeatureSync",
+                "SyncFeature",
                 .product(name: "AnkiKit", package: "amgi"),
                 .product(name: "AnkiClients", package: "amgi"),
                 .product(name: "Sharing", package: "swift-sharing"),

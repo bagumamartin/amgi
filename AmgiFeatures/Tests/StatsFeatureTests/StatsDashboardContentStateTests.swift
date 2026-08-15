@@ -1,6 +1,6 @@
 import Testing
 import AnkiKit
-@testable import FeatureStats
+@testable import StatsFeature
 
 @Suite("StatsDashboardContent.State projection")
 struct StatsDashboardContentStateTests {

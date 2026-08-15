@@ -2,7 +2,7 @@ import AnkiClients
 import AnkiKit
 import Dependencies
 import Testing
-@testable import FeatureBrowse
+@testable import BrowseFeature
 
 /// `sortedNotes` is stored rather than computed so `body` doesn't re-sort the
 /// whole list on every pass. That makes the `didSet` hooks that keep it in

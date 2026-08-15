@@ -1,6 +1,6 @@
 import Testing
 import UIKit
-@testable import FeatureBrowse
+@testable import BrowseFeature
 
 /// The mask document logic used to live in a private extension on
 /// `ImageOcclusionWorkspaceView`, where none of it was reachable without a

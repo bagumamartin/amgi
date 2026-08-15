@@ -9,7 +9,7 @@
 /* Begin PBXBuildFile section */
 		02CEE9B27A99ED4E31361BBD /* BookCoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEEFEFF49240640D62CEE23A /* BookCoverView.swift */; };
 		036A4625F27B308AC8035966 /* SettingsControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0DAB1812F24856DD3CC942C /* SettingsControls.swift */; };
-		040033C6E335CD8EF283273C /* FeatureStats in Frameworks */ = {isa = PBXBuildFile; productRef = 8FDABCDCF979155EF2B99577 /* FeatureStats */; };
+		040033C6E335CD8EF283273C /* StatsFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 6134D4828EF9AAF6F6BB6DF6 /* StatsFeature */; };
 		0453D87A64F5D97716D53E90 /* CardWebViewCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 342022B67A1EDBA3B371E543 /* CardWebViewCoordinator.swift */; };
 		049D4E82AD8D2DD926E3BE97 /* ReaderDictionarySettingsModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 522511E7EC771CFB49023F9B /* ReaderDictionarySettingsModel.swift */; };
 		05B3C09F3B96E96D972F0424 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CAE0DE68DC7E04F773A57E14 /* SwiftUI.framework */; };
@@ -58,7 +58,7 @@
 		5206D53A52E116E129C0E956 /* AnkiSync in Frameworks */ = {isa = PBXBuildFile; productRef = 1D52A2C890DE8794E39904C4 /* AnkiSync */; };
 		52CE11A14E347DB1B78FD01E /* ImportBookCTA.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE6BE67EE96B38359DAF9EAB /* ImportBookCTA.swift */; };
 		538DDAEB25D5AA09A680B4C8 /* MaintenanceModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4AB1EE3736034B9FBBAD23A /* MaintenanceModel.swift */; };
-		556FBD2BE239FF491BAAECB2 /* FeatureBrowse in Frameworks */ = {isa = PBXBuildFile; productRef = 270206F84C9064533F0A4082 /* FeatureBrowse */; };
+		556FBD2BE239FF491BAAECB2 /* BrowseFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 2F8EB1A41829323C618C55E2 /* BrowseFeature */; };
 		5620C7B259074A8C419F37B3 /* DeckCountsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 563D97E28D0A34E270C7C744 /* DeckCountsView.swift */; };
 		570828091E1FF534441427EA /* DebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B219D0FE129E5978B1B69180 /* DebugView.swift */; };
 		58748C29E5AD3E1016379941 /* DeckDetailBanners.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CDB5889BB8BBF41384CF365 /* DeckDetailBanners.swift */; };
@@ -77,7 +77,7 @@
 		67A2ED31F59B08EBD06A4FED /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A12D2167226A912462BF60EA /* Assets.xcassets */; };
 		6932C86281AB9089FDCF9C6B /* AnkiServices in Frameworks */ = {isa = PBXBuildFile; productRef = 9C12DFB8208798638ECB4C68 /* AnkiServices */; };
 		699E53E6B7048305A4A14AD3 /* TemplateRenderOverrides.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADC76DAE329952EF324AD007 /* TemplateRenderOverrides.swift */; };
-		6B10979FEE38C6E41A306E60 /* FeatureSync in Frameworks */ = {isa = PBXBuildFile; productRef = 32BF3BF1A0EA2105DF83B1AE /* FeatureSync */; };
+		6B10979FEE38C6E41A306E60 /* SyncFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 4C469D6EF802EC825D6E2D20 /* SyncFeature */; };
 		6C368FB5E07B73E570F9F747 /* DeckConfigSections.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE853DC6E2F11AC692D27C64 /* DeckConfigSections.swift */; };
 		6C4BE8D7A8AA862F71AF7E04 /* ReaderCoverImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CD519B4B26E63A52C7C87AA /* ReaderCoverImage.swift */; };
 		6C75D6E4500FC310A8EAE524 /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A745D7266B06FFE28B219996 /* MainTabView.swift */; };
@@ -88,7 +88,7 @@
 		721CA6E5DEBF3AEF0C6F7BC5 /* ChapterListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 511DCB8ACF373447119FC5F6 /* ChapterListView.swift */; };
 		73BED515464AA8C80C765BFF /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44792958B343213988DC8FFB /* ContentView.swift */; };
 		75380F9BE33B85F31F5A5279 /* DeckConfigDestination.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38C8B5391D7B0EAE1162DC3A /* DeckConfigDestination.swift */; };
-		7C4497B5B8FEB2820FD860B0 /* FeatureTemplates in Frameworks */ = {isa = PBXBuildFile; productRef = 164E3CB588A4DECB0ABC5B01 /* FeatureTemplates */; };
+		7C4497B5B8FEB2820FD860B0 /* TemplatesFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 9620FA12A6D7E51DE075AA07 /* TemplatesFeature */; };
 		7C46534E4D979D315641F713 /* AnkiSync in Frameworks */ = {isa = PBXBuildFile; productRef = 9F148DCECED472C7DE230AB6 /* AnkiSync */; };
 		7D83F3FF41F019F1895052E5 /* ContinueReadingSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = F20D7DC09C2654231749D745 /* ContinueReadingSection.swift */; };
 		7EC529DC6A312F24FC8069FD /* CardWebViewConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D87C8D1EA1497775B548D36 /* CardWebViewConfig.swift */; };
@@ -394,10 +394,10 @@
 				125CB371BB8CCAEE250459BD /* AmgiAppCore in Frameworks */,
 				F37C1A973A4F933CE3C9B39C /* AmgiAppShared in Frameworks */,
 				88C9801267943920AF0688C8 /* AmgiCharts in Frameworks */,
-				7C4497B5B8FEB2820FD860B0 /* FeatureTemplates in Frameworks */,
-				040033C6E335CD8EF283273C /* FeatureStats in Frameworks */,
-				556FBD2BE239FF491BAAECB2 /* FeatureBrowse in Frameworks */,
-				6B10979FEE38C6E41A306E60 /* FeatureSync in Frameworks */,
+				7C4497B5B8FEB2820FD860B0 /* TemplatesFeature in Frameworks */,
+				040033C6E335CD8EF283273C /* StatsFeature in Frameworks */,
+				556FBD2BE239FF491BAAECB2 /* BrowseFeature in Frameworks */,
+				6B10979FEE38C6E41A306E60 /* SyncFeature in Frameworks */,
 				C19817C4D671B6B7CA605B87 /* SwiftNavigation in Frameworks */,
 				870A4E4AC65F6875365D6225 /* SwiftUINavigation in Frameworks */,
 				4D082714A42AC42E79311B2B /* Sharing in Frameworks */,
@@ -744,10 +744,10 @@
 				116C9E134761B3BF0647B3AF /* AmgiAppCore */,
 				ACD15169111E238EEB55BFCB /* AmgiAppShared */,
 				4116783E1BE6EA8C1C4481B9 /* AmgiCharts */,
-				164E3CB588A4DECB0ABC5B01 /* FeatureTemplates */,
-				8FDABCDCF979155EF2B99577 /* FeatureStats */,
-				270206F84C9064533F0A4082 /* FeatureBrowse */,
-				32BF3BF1A0EA2105DF83B1AE /* FeatureSync */,
+				9620FA12A6D7E51DE075AA07 /* TemplatesFeature */,
+				6134D4828EF9AAF6F6BB6DF6 /* StatsFeature */,
+				2F8EB1A41829323C618C55E2 /* BrowseFeature */,
+				4C469D6EF802EC825D6E2D20 /* SyncFeature */,
 				A83E8288FCBE678AC922CFF0 /* SwiftNavigation */,
 				CA8CCDB6FCA0124A188DC0B8 /* SwiftUINavigation */,
 				4F99E922EA9267E4EE4CD5D6 /* Sharing */,
@@ -1438,10 +1438,6 @@
 			isa = XCSwiftPackageProductDependency;
 			productName = AmgiAppCore;
 		};
-		164E3CB588A4DECB0ABC5B01 /* FeatureTemplates */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = FeatureTemplates;
-		};
 		16A0D6E4347ACFB21E40E615 /* AmgiCharts */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = AmgiCharts;
@@ -1458,17 +1454,13 @@
 			isa = XCSwiftPackageProductDependency;
 			productName = AmgiAppCore;
 		};
-		270206F84C9064533F0A4082 /* FeatureBrowse */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = FeatureBrowse;
-		};
 		2BD648FA756A72588752BD8B /* AmgiReader */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = AmgiReader;
 		};
-		32BF3BF1A0EA2105DF83B1AE /* FeatureSync */ = {
+		2F8EB1A41829323C618C55E2 /* BrowseFeature */ = {
 			isa = XCSwiftPackageProductDependency;
-			productName = FeatureSync;
+			productName = BrowseFeature;
 		};
 		35974FDD258EB94D5852A939 /* AnkiBackend */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -1486,6 +1478,10 @@
 			isa = XCSwiftPackageProductDependency;
 			productName = AmgiCharts;
 		};
+		4C469D6EF802EC825D6E2D20 /* SyncFeature */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = SyncFeature;
+		};
 		4F99E922EA9267E4EE4CD5D6 /* Sharing */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 7B720D20F213A6E6D8D5745C /* XCRemoteSwiftPackageReference "swift-sharing" */;
@@ -1500,6 +1496,10 @@
 			package = 0654502C09BEED604C13D953 /* XCRemoteSwiftPackageReference "swift-navigation" */;
 			productName = SwiftNavigation;
 		};
+		6134D4828EF9AAF6F6BB6DF6 /* StatsFeature */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = StatsFeature;
+		};
 		81149E565C8204F6F4E79A3F /* AmgiCardWeb */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = AmgiCardWeb;
@@ -1508,9 +1508,9 @@
 			isa = XCSwiftPackageProductDependency;
 			productName = AmgiUI;
 		};
-		8FDABCDCF979155EF2B99577 /* FeatureStats */ = {
+		9620FA12A6D7E51DE075AA07 /* TemplatesFeature */ = {
 			isa = XCSwiftPackageProductDependency;
-			productName = FeatureStats;
+			productName = TemplatesFeature;
 		};
 		9C12DFB8208798638ECB4C68 /* AnkiServices */ = {
 			isa = XCSwiftPackageProductDependency;
