@@ -6,6 +6,7 @@ import AmgiUI
 import AnkiKit
 import AnkiClients
 import Dependencies
+import FeatureBrowse
 
 /// Library container: owns navigation, sheets, and the toolbar, and drives
 /// a `DeckListModel` for load/refresh + deck mutations. Rendering is
@@ -64,10 +65,14 @@ struct DeckListView: View {
             ProfilePickerMenu()
         }
         ToolbarItem(placement: .topBarTrailing) {
-            // Browse entry — disabled until wired to the Browse feature; a live
-            // but no-op button was indistinguishable from a broken one.
-            Button("Browse", systemImage: "square.stack.3d.up") {}
-                .disabled(true)
+            // `BrowseView` owns its own title and search field and expects to be
+            // pushed, so a plain NavigationLink is the whole wiring — no route
+            // state to thread through the model.
+            NavigationLink {
+                BrowseView()
+            } label: {
+                Label("Browse", systemImage: "square.stack.3d.up")
+            }
         }
         ToolbarItem(placement: .topBarTrailing) {
             Button("New Deck", systemImage: "plus") {
