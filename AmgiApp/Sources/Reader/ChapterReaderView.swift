@@ -340,7 +340,9 @@ private struct LookupQuery: Identifiable {
     let text: String
 }
 
-private struct ChapterWebView: UIViewRepresentable {
+// The representable conformance is platform-specific and lives in the
+// extensions below; the struct body itself is shared.
+private struct ChapterWebView {
     let html: String
     /// 0..1 fraction to scroll to once the page finishes loading. Read once
     /// per appearance — set to nil after the initial restore.
@@ -357,6 +359,7 @@ private struct ChapterWebView: UIViewRepresentable {
     /// notification. nil ignores the request.
     let onSelectionForNote: ((String) -> Void)?
 
+    @MainActor
     func makeCoordinator() -> Coordinator {
         Coordinator(
             progress: $progress,
@@ -365,43 +368,103 @@ private struct ChapterWebView: UIViewRepresentable {
         )
     }
 
-    func makeUIView(context: Context) -> WKWebView {
+    fileprivate func makeConfiguredWebView(coordinator: Coordinator) -> WKWebView {
         let config = WKWebViewConfiguration()
         let userContent = WKUserContentController()
         if onTapLookup != nil {
-            userContent.add(context.coordinator, name: "amgiLookup")
+            userContent.add(coordinator, name: "amgiLookup")
             userContent.addUserScript(WKUserScript(
                 source: tapScript,
                 injectionTime: .atDocumentEnd,
                 forMainFrameOnly: true
             ))
         }
+        #if os(macOS)
+        // macOS WKWebView exposes no scroll view delegate; progress is
+        // reported by the page itself via `amgiProgress` messages.
+        userContent.add(coordinator, name: "amgiProgress")
+        userContent.addUserScript(WKUserScript(
+            source: Self.progressScript,
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        ))
+        #endif
         config.userContentController = userContent
 
         let webView = WKWebView(frame: .zero, configuration: config)
-        webView.navigationDelegate = context.coordinator
-        webView.scrollView.delegate = context.coordinator
+        webView.navigationDelegate = coordinator
+        #if os(iOS)
+        webView.scrollView.delegate = coordinator
         webView.isOpaque = false
-        context.coordinator.attach(webView: webView)
+        #endif
+        coordinator.attach(webView: webView)
         return webView
     }
 
-    func updateUIView(_ webView: WKWebView, context: Context) {
-        context.coordinator.pendingInitialProgress = initialProgress
-        if context.coordinator.loadedHTML != html {
-            context.coordinator.loadedHTML = html
-            context.coordinator.didFinishLoad = false
-            context.coordinator.didApplyInitialProgress = false
+    fileprivate func applyUpdate(to webView: WKWebView, coordinator: Coordinator) {
+        coordinator.pendingInitialProgress = initialProgress
+        if coordinator.loadedHTML != html {
+            coordinator.loadedHTML = html
+            coordinator.didFinishLoad = false
+            coordinator.didApplyInitialProgress = false
             webView.loadHTMLString(html, baseURL: nil)
         } else {
             // The saved progress now resolves asynchronously, so it can
             // land after `didFinish` — apply it late, once per load.
-            context.coordinator.applyPendingInitialProgressIfLoaded()
+            coordinator.applyPendingInitialProgressIfLoaded()
         }
     }
 
-    static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
-        coordinator.detach()
+    /// Scroll-progress reporter injected on macOS. Picks the scroll axis by
+    /// writing mode (vertical-rl books advance horizontally) and posts the
+    /// 0..1 fraction on every scroll event.
+    private static let progressScript = """
+    (function() {
+      function isVertical() {
+        var modes = [
+          window.getComputedStyle(document.documentElement).writingMode,
+          window.getComputedStyle(document.body).writingMode
+        ];
+        return modes.some(function(m) { return m.indexOf('vertical') !== -1; });
+      }
+      function report() {
+        var de = document.documentElement;
+        var fraction = 0;
+        if (isVertical()) {
+          var maxH = Math.max(0, de.scrollWidth - window.innerWidth);
+          // vertical-rl advances toward negative scrollLeft in WebKit.
+          var posH = Math.abs(Math.min(0, de.scrollLeft));
+          fraction = maxH > 1 ? Math.min(1, Math.max(0, posH / maxH)) : 0;
+        } else {
+          var maxV = Math.max(0, de.scrollHeight - window.innerHeight);
+          fraction = maxV > 1 ? Math.min(1, Math.max(0, de.scrollTop / maxV)) : 0;
+        }
+        window.webkit.messageHandlers.amgiProgress.postMessage(fraction);
+      }
+      window.addEventListener('scroll', report, { passive: true });
+      document.addEventListener('scroll', report, { passive: true });
+    })();
+    """
+
+    /// JS counterpart of the iOS `scrollView.contentOffset` restore.
+    fileprivate static func restoreScript(fraction: Double) -> String {
+        """
+        (function(target) {
+          var de = document.documentElement;
+          var modes = [
+            window.getComputedStyle(de).writingMode,
+            window.getComputedStyle(document.body).writingMode
+          ];
+          var vertical = modes.some(function(m) { return m.indexOf('vertical') !== -1; });
+          if (vertical) {
+            var maxH = Math.max(0, de.scrollWidth - window.innerWidth);
+            de.scrollLeft = -maxH * target;
+          } else {
+            var maxV = Math.max(0, de.scrollHeight - window.innerHeight);
+            window.scrollTo(0, maxV * target);
+          }
+        })(\(fraction));
+        """
     }
 
     /// Single-tap → grab a clean phrase starting at the tap caret and
@@ -470,7 +533,7 @@ private struct ChapterWebView: UIViewRepresentable {
         """
     }
 
-    final class Coordinator: NSObject, WKNavigationDelegate, UIScrollViewDelegate, WKScriptMessageHandler {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var pendingInitialProgress: Double?
         var loadedHTML: String?
         var didFinishLoad = false
@@ -527,13 +590,24 @@ private struct ChapterWebView: UIViewRepresentable {
                   let target = pendingInitialProgress else { return }
             didApplyInitialProgress = true
             pendingInitialProgress = nil
-            guard target > 0, let scrollView = webView?.scrollView else { return }
+            guard target > 0 else { return }
+            #if os(iOS)
+            guard let scrollView = webView?.scrollView else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                 let maxOffset = max(0, scrollView.contentSize.height - scrollView.bounds.height)
                 scrollView.contentOffset.y = maxOffset * CGFloat(target)
             }
+            #else
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                self?.webView?.evaluateJavaScript(
+                    ChapterWebView.restoreScript(fraction: target),
+                    completionHandler: nil
+                )
+            }
+            #endif
         }
 
+        #if os(iOS)
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
             let usable = scrollView.contentSize.height - scrollView.bounds.height
             guard usable > 1 else {
@@ -543,11 +617,19 @@ private struct ChapterWebView: UIViewRepresentable {
             let fraction = min(max(scrollView.contentOffset.y / usable, 0), 1)
             progress = Double(fraction)
         }
+        #endif
 
         func userContentController(
             _ userContentController: WKUserContentController,
             didReceive message: WKScriptMessage
         ) {
+            #if os(macOS)
+            if message.name == "amgiProgress",
+               let number = message.body as? NSNumber {
+                progress = Double(truncating: number)
+                return
+            }
+            #endif
             guard message.name == "amgiLookup",
                   let phrase = message.body as? String,
                   !phrase.isEmpty else { return }
@@ -555,6 +637,41 @@ private struct ChapterWebView: UIViewRepresentable {
         }
     }
 }
+
+// MARK: - ChapterWebView platform representable conformance
+
+#if os(iOS)
+// Scroll-progress reporting rides the web view's UIScrollView on iOS.
+extension ChapterWebView.Coordinator: UIScrollViewDelegate {}
+
+extension ChapterWebView: UIViewRepresentable {
+    func makeUIView(context: Context) -> WKWebView {
+        makeConfiguredWebView(coordinator: context.coordinator)
+    }
+
+    func updateUIView(_ webView: WKWebView, context: Context) {
+        applyUpdate(to: webView, coordinator: context.coordinator)
+    }
+
+    static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
+        coordinator.detach()
+    }
+}
+#else
+extension ChapterWebView: NSViewRepresentable {
+    func makeNSView(context: Context) -> WKWebView {
+        makeConfiguredWebView(coordinator: context.coordinator)
+    }
+
+    func updateNSView(_ webView: WKWebView, context: Context) {
+        applyUpdate(to: webView, coordinator: context.coordinator)
+    }
+
+    static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
+        coordinator.detach()
+    }
+}
+#endif
 
 private extension ChapterWebView.Coordinator {
     func fetchSelection() {

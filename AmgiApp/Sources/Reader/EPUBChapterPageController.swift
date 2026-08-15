@@ -1,5 +1,7 @@
 import Foundation
+#if os(iOS)
 import UIKit
+#endif
 import WebKit
 
 /// Per-chapter content payload handed to the page controller. The host
@@ -31,6 +33,60 @@ struct EPUBReaderStyleTokens: Equatable {
     var textAlign: String = "justify"
     var tokenUnderlineCSS: String = "rgba(120, 120, 120, 0.55)"
 }
+
+/// Bundled reader web resources shared by both platform hosts.
+enum EPUBReaderBundledResources {
+    static func css() -> String? {
+        let url = Bundle.main.url(forResource: "EPUBReaderStyles", withExtension: "css", subdirectory: "EPUBReader")
+            ?? Bundle.main.url(forResource: "EPUBReaderStyles", withExtension: "css")
+        guard let url else { return nil }
+        return try? String(contentsOf: url, encoding: .utf8)
+    }
+
+    static func js() -> String? {
+        let url = Bundle.main.url(forResource: "EPUBReaderInjection", withExtension: "js", subdirectory: "EPUBReader")
+            ?? Bundle.main.url(forResource: "EPUBReaderInjection", withExtension: "js")
+        guard let url else { return nil }
+        return try? String(contentsOf: url, encoding: .utf8)
+    }
+
+    static func injectStyleSnippet(css: String) -> String {
+        let escaped = css.replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "`", with: "\\`")
+            .replacingOccurrences(of: "${", with: "\\${")
+        // The book may ship <link rel="stylesheet"> nodes that load
+        // asynchronously and would otherwise win the cascade against
+        // our injected variables/overrides. We append our <style> as
+        // the LAST child of <head> (so it wins on document order at
+        // equal specificity), and re-append it after `window.load`
+        // and on a one-tick microtask so any late-arriving book
+        // stylesheets can't override us.
+        return """
+        (function() {
+          function place() {
+            var existing = document.querySelector('style[data-amgi="reader"]');
+            var s = existing || document.createElement('style');
+            if (!existing) {
+              s.setAttribute('data-amgi', 'reader');
+              s.textContent = `\(escaped)`;
+            }
+            var head = document.head || document.documentElement;
+            // Re-append moves the node to the end of head's child list.
+            head.appendChild(s);
+          }
+          place();
+          setTimeout(place, 0);
+          if (document.readyState === 'complete') {
+            setTimeout(place, 0);
+          } else {
+            window.addEventListener('load', function() { setTimeout(place, 0); }, { once: true });
+          }
+        })();
+        """
+    }
+}
+
+#if os(iOS)
 
 /// Callbacks emitted by a chapter page back up to the host coordinator.
 @MainActor
@@ -298,52 +354,15 @@ private extension EPUBChapterPageController {
     // MARK: - Bundle resource loading
 
     static func bundledCSS() -> String? {
-        let url = Bundle.main.url(forResource: "EPUBReaderStyles", withExtension: "css", subdirectory: "EPUBReader")
-            ?? Bundle.main.url(forResource: "EPUBReaderStyles", withExtension: "css")
-        guard let url else { return nil }
-        return try? String(contentsOf: url, encoding: .utf8)
+        EPUBReaderBundledResources.css()
     }
 
     static func bundledJS() -> String? {
-        let url = Bundle.main.url(forResource: "EPUBReaderInjection", withExtension: "js", subdirectory: "EPUBReader")
-            ?? Bundle.main.url(forResource: "EPUBReaderInjection", withExtension: "js")
-        guard let url else { return nil }
-        return try? String(contentsOf: url, encoding: .utf8)
+        EPUBReaderBundledResources.js()
     }
 
     static func injectStyleSnippet(css: String) -> String {
-        let escaped = css.replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "`", with: "\\`")
-            .replacingOccurrences(of: "${", with: "\\${")
-        // The book may ship <link rel="stylesheet"> nodes that load
-        // asynchronously and would otherwise win the cascade against
-        // our injected variables/overrides. We append our <style> as
-        // the LAST child of <head> (so it wins on document order at
-        // equal specificity), and re-append it after `window.load`
-        // and on a one-tick microtask so any late-arriving book
-        // stylesheets can't override us.
-        return """
-        (function() {
-          function place() {
-            var existing = document.querySelector('style[data-amgi="reader"]');
-            var s = existing || document.createElement('style');
-            if (!existing) {
-              s.setAttribute('data-amgi', 'reader');
-              s.textContent = `\(escaped)`;
-            }
-            var head = document.head || document.documentElement;
-            // Re-append moves the node to the end of head's child list.
-            head.appendChild(s);
-          }
-          place();
-          setTimeout(place, 0);
-          if (document.readyState === 'complete') {
-            setTimeout(place, 0);
-          } else {
-            window.addEventListener('load', function() { setTimeout(place, 0); }, { once: true });
-          }
-        })();
-        """
+        EPUBReaderBundledResources.injectStyleSnippet(css: css)
     }
 }
 
@@ -491,3 +510,5 @@ extension UIColor {
         }
     }
 }
+
+#endif

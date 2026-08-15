@@ -1,7 +1,6 @@
 import SwiftUI
 import AmgiTheme
 import AnkiKit
-import UIKit
 
 /// Context menu for card operations (suspend, bury, flag, undo)
 @MainActor
@@ -164,13 +163,10 @@ private extension CardContextMenu {
         }
     }
 
-    func flagMenuIcon(for value: UInt32) -> Image {
+    func flagMenuIcon(for value: UInt32) -> some View {
         let symbolName = value == 0 ? "flag.slash.fill" : "flag.fill"
-        let tint = UIColor(flagColor(for: value))
-        if let image = UIImage(systemName: symbolName)?.withTintColor(tint, renderingMode: .alwaysOriginal) {
-            return Image(uiImage: image)
-        }
         return Image(systemName: symbolName)
+            .foregroundStyle(flagColor(for: value))
     }
 
     func flagColor(for value: UInt32) -> Color {

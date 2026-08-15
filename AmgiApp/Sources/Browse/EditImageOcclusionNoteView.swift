@@ -39,7 +39,9 @@ struct EditImageOcclusionNoteView: View {
             model: model,
             onEditMasks: { showOcclusionEditor = true }
         )
+        #if os(iOS)
         .toolbar(.hidden, for: .tabBar)
+        #endif
         .navigationTitle("Edit Image Occlusion")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -64,11 +66,11 @@ struct EditImageOcclusionNoteView: View {
             }
         }
         .fullScreenCover(isPresented: $showOcclusionEditor) {
-            if let uiImage = model.uiImage {
+            if let noteImage = model.noteImage {
                 NavigationStack {
                     ImageOcclusionWorkspaceView(
                         title: "Edit",
-                        image: uiImage,
+                        image: noteImage,
                         initialMasks: model.masks
                     ) { updatedMasks in
                         model.masks = updatedMasks
@@ -109,7 +111,7 @@ struct EditImageOcclusionContent: View {
 
     private var form: some View {
         Form {
-            if let img = model.uiImage {
+            if let img = model.noteImage {
                 Section {
                     ImageOcclusionMaskSummaryCard(image: img, masks: model.masks) {
                         onEditMasks()

@@ -81,6 +81,10 @@ public struct StudyLandingContent: View {
                 loadedBody(summary: summary, decks: decks, readingRecs: readingRecs)
                     .padding(.top, 8)
             }
+            // Readable column on wide layouts (Mac window, iPad regular
+            // width); no-op on iPhone where the screen is narrower.
+            .frame(maxWidth: 760)
+            .frame(maxWidth: .infinity)
             .padding(.horizontal)
             .padding(.bottom, 24)
         }

@@ -102,8 +102,10 @@ struct EPUBChapterReaderView: View {
         .overlay(alignment: .top) { pagesLeftCapsule }
         .overlay(alignment: .bottom) { bottomChromeBar }
         .navigationBarBackButtonHidden(true)
+        #if os(iOS)
         .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
+        #endif
         .task { await model.preloadChapterContents(for: book) }
         .task(id: chapterIndex) { await prepareRestoreIfNeeded() }
         .sheet(isPresented: $typographySheetVisible) {

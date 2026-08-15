@@ -164,6 +164,7 @@ private struct ReviewContent: View {
                     cardActionsMenu
                 }
             }
+            #if os(iOS)
             .toolbarBackground(
                 autoMatchCardBackground ? session.cardChromeColor : Color.clear,
                 for: .navigationBar
@@ -176,6 +177,7 @@ private struct ReviewContent: View {
                 autoMatchCardBackground && session.cardChromeIsDark ? .dark : .light,
                 for: .navigationBar
             )
+            #endif
             .sheet(item: $editingNote) { note in
                 NavigationStack {
                     NoteEditorView(note: note) {
@@ -414,20 +416,29 @@ private struct ReviewCardArea: View {
 
             if session.showAnswer {
                 answerButtons
+            } else if session.requiresTypedAnswerInput {
+                // No Space shortcut while the typed-answer field is active —
+                // it would steal spaces from the user's input.
+                revealButton
             } else {
-                Button {
-                    session.revealAnswer()
-                } label: {
-                    Text("Show Answer")
-                        .amgiFont(.bodyEmphasis)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(session.isAdvancing)
-                .padding()
+                revealButton
+                    .keyboardShortcut(.space, modifiers: [])
             }
         }
+    }
+
+    private var revealButton: some View {
+        Button {
+            session.revealAnswer()
+        } label: {
+            Text("Show Answer")
+                .amgiFont(.bodyEmphasis)
+                .frame(maxWidth: .infinity)
+                .padding()
+        }
+        .buttonStyle(.borderedProminent)
+        .disabled(session.isAdvancing)
+        .padding()
     }
 
     private var isNativeMode: Bool {

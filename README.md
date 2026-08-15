@@ -5,12 +5,13 @@
 </p>
 
 <p align="center">
-  An open-source, offline-first Anki-compatible iOS flashcard client with sync server support.
+  An open-source, offline-first Anki-compatible flashcard client for iOS and macOS with sync server support.
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Swift-6.2-F05138?logo=swift&logoColor=white" alt="Swift 6.2">
   <img src="https://img.shields.io/badge/iOS-18%2B-000000?logo=apple&logoColor=white" alt="iOS 18+">
+  <img src="https://img.shields.io/badge/macOS-15%2B-000000?logo=apple&logoColor=white" alt="macOS 15+">
   <img src="https://img.shields.io/badge/Rust-FFI-DEA584?logo=rust&logoColor=white" alt="Rust FFI">
   <img src="https://img.shields.io/badge/License-AGPL--3.0-blue" alt="AGPL-3.0">
 </p>
@@ -35,6 +36,7 @@ Amgi wraps the official [ankitects/anki](https://github.com/ankitects/anki) Rust
 - **Multi-Theme System** -- Vivid + Muted palettes, Light/Dark/Follow-System; persists across app and home-screen widgets via App Group
 - **Per-Deck Study Options** -- FSRS weights editor with optimizer + simulator, preset CRUD, Easy Days, bury rules, timer, auto-advance
 - **Apple Watch App** -- companion watchOS app with deck list, card review with audio playback, stats, and sync; the Anki engine runs on-device
+- **Native macOS App** -- the same source tree builds as a native SwiftUI Mac app (decks, study, browse, stats, sync, Reader with JS-driven page turns, and the image occlusion editor); universal Apple Silicon + Intel Rust backend
 - **Safe Sync Merge** -- when local and server collections diverge, merge them (keeping cards from both sides) instead of being forced to overwrite one; destructive choices require explicit confirmation
 - **Offline-First** -- everything works offline; sync when you have a connection
 - **Swift 6.2 Strict Concurrency** -- zero data races, fully actor-isolated, `Sendable` throughout
@@ -69,6 +71,7 @@ For the full architecture walkthrough, see **[ARCHITECTURE.md](ARCHITECTURE.md)*
 | Tool | Version |
 |------|---------|
 | iOS | 18.0+ |
+| macOS | 15.0+ |
 | Xcode | 16.0+ |
 | Rust | 1.92+ (via rustup) |
 | protoc | 3.0+ |
@@ -89,7 +92,7 @@ cd amgi
 ```bash
 # Rust toolchain
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios aarch64-apple-darwin x86_64-apple-darwin
 
 # Protobuf compiler and Swift plugin
 brew install protobuf swift-protobuf
@@ -104,7 +107,7 @@ brew install xcodegen
 ./scripts/build-xcframework.sh
 ```
 
-This cross-compiles the Rust bridge for iOS device and simulator, then packages both into `AnkiRust.xcframework`. The first build takes several minutes; incremental builds are fast.
+This cross-compiles the Rust bridge for iOS device/simulator and macOS (universal arm64 + x86_64), then packages everything into `AnkiRust.xcframework`. The first build takes several minutes; incremental builds are fast. Set `BUILD_MACOS=0` to skip the macOS slices for iOS-only loops (watchOS is opt-in via `BUILD_WATCHOS=1`).
 
 ### 4. Generate Swift protobuf types
 
@@ -121,7 +124,7 @@ open AmgiApp/AmgiApp.xcodeproj
 
 ### 6. Build and Run
 
-Select an iOS Simulator or device, then build and run (Cmd+R).
+Select an iOS Simulator or device with the **AmgiApp** scheme, then build and run (Cmd+R). For the native Mac app, select **My Mac** with the **AmgiAppMac** scheme.
 
 ## Tech Stack
 

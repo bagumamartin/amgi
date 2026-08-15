@@ -14,16 +14,16 @@ struct RatingBar: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            ratingCard(.again, label: "Again", color: palette.danger)
-            ratingCard(.hard, label: "Hard", color: palette.warning)
-            ratingCard(.good, label: "Good", color: palette.positive)
-            ratingCard(.easy, label: "Easy", color: palette.info)
+            ratingCard(.again, label: "Again", color: palette.danger, key: "1")
+            ratingCard(.hard, label: "Hard", color: palette.warning, key: "2")
+            ratingCard(.good, label: "Good", color: palette.positive, key: "3")
+            ratingCard(.easy, label: "Easy", color: palette.info, key: "4")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
     }
 
-    private func ratingCard(_ rating: Rating, label: String, color: Color) -> some View {
+    private func ratingCard(_ rating: Rating, label: String, color: Color, key: String) -> some View {
         Button {
             onRate(rating)
         } label: {
@@ -52,6 +52,8 @@ struct RatingBar: View {
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
+        // Hardware-keyboard rating (Mac + iPad): 1–4 map to Again–Easy.
+        .keyboardShortcut(KeyEquivalent(Character(key)), modifiers: [])
         .accessibilityLabel("\(label)\(showIntervals ? ", next in \(intervals[rating] ?? "")" : "")")
     }
 }

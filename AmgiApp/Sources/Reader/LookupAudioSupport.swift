@@ -45,6 +45,10 @@ actor LookupAudioPlayer {
     func play(url: URL, mode: LookupAudioPlaybackMode) {
         stopPlayback(deactivateSession: false)
 
+        // AVAudioSession is iOS-only; on macOS AVPlayer plays with the
+        // system-default audio policy and the playback-mode preference is
+        // inert.
+        #if os(iOS)
         let session = AVAudioSession.sharedInstance()
         do {
             try session.setCategory(.playback, mode: .default, options: categoryOptions(for: mode))
@@ -52,6 +56,7 @@ actor LookupAudioPlayer {
         } catch {
             return
         }
+        #endif
 
         let item = AVPlayerItem(url: url)
         let player = AVPlayer(playerItem: item)
@@ -95,11 +100,14 @@ private extension LookupAudioPlayer {
             self.failedToEndObserver = nil
         }
 
+        #if os(iOS)
         if deactivateSession {
             try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
         }
+        #endif
     }
 
+    #if os(iOS)
     func categoryOptions(for mode: LookupAudioPlaybackMode) -> AVAudioSession.CategoryOptions {
         switch mode {
         case .interrupt: return []
@@ -107,6 +115,7 @@ private extension LookupAudioPlayer {
         case .mix: return [.mixWithOthers]
         }
     }
+    #endif
 }
 
 /// Resolves an audio URL for a term/reading by templating the user's

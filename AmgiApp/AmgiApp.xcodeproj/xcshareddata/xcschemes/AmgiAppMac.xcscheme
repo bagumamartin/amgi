@@ -15,9 +15,9 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "D799962EF4F5CA4D32203063"
-               BuildableName = "AmgiWatchApp.app"
-               BlueprintName = "AmgiWatchApp"
+               BlueprintIdentifier = "69730B81C78518D6714F2BC4"
+               BuildableName = "AmgiAppMac.app"
+               BlueprintName = "AmgiAppMac"
                ReferencedContainer = "container:AmgiApp.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -32,14 +32,16 @@
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "D799962EF4F5CA4D32203063"
-            BuildableName = "AmgiWatchApp.app"
-            BlueprintName = "AmgiWatchApp"
+            BlueprintIdentifier = "69730B81C78518D6714F2BC4"
+            BuildableName = "AmgiAppMac.app"
+            BlueprintName = "AmgiAppMac"
             ReferencedContainer = "container:AmgiApp.xcodeproj">
          </BuildableReference>
       </MacroExpansion>
       <Testables>
       </Testables>
+      <CommandLineArguments>
+      </CommandLineArguments>
    </TestAction>
    <LaunchAction
       buildConfiguration = "Debug"
@@ -55,9 +57,9 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "D799962EF4F5CA4D32203063"
-            BuildableName = "AmgiWatchApp.app"
-            BlueprintName = "AmgiWatchApp"
+            BlueprintIdentifier = "69730B81C78518D6714F2BC4"
+            BuildableName = "AmgiAppMac.app"
+            BlueprintName = "AmgiAppMac"
             ReferencedContainer = "container:AmgiApp.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -74,9 +76,9 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "D799962EF4F5CA4D32203063"
-            BuildableName = "AmgiWatchApp.app"
-            BlueprintName = "AmgiWatchApp"
+            BlueprintIdentifier = "69730B81C78518D6714F2BC4"
+            BuildableName = "AmgiAppMac.app"
+            BlueprintName = "AmgiAppMac"
             ReferencedContainer = "container:AmgiApp.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>

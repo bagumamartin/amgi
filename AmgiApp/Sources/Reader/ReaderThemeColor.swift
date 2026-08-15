@@ -1,5 +1,9 @@
 import SwiftUI
+#if canImport(UIKit)
 import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 
 /// Hex <-> SwiftUI.Color bridge for the reader's custom-theme editor.
 /// Stored as `#RRGGBB` strings in `@Shared(.appStorage)` so the colours
@@ -12,9 +16,17 @@ enum ReaderThemeColor {
     }
 
     static func hex(from color: Color) -> String {
-        let ui = UIColor(color)
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        guard ui.getRed(&r, green: &g, blue: &b, alpha: &a) else { return "#000000" }
+        #if canImport(UIKit)
+        guard UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a) else { return "#000000" }
+        #elseif canImport(AppKit)
+        // NSColor must be converted to a concrete color space before its
+        // components can be read (catalog/dynamic colours throw otherwise).
+        guard let ns = NSColor(color).usingColorSpace(.sRGB) else { return "#000000" }
+        ns.getRed(&r, green: &g, blue: &b, alpha: &a)
+        #else
+        return "#000000"
+        #endif
         return String(format: "#%02X%02X%02X",
                       Int((r * 255).rounded()),
                       Int((g * 255).rounded()),

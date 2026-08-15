@@ -1,5 +1,6 @@
 import AmgiReader
 import SwiftUI
+#if os(iOS)
 import UIKit
 
 /// `UIViewControllerRepresentable` wrapping a `UIPageViewController`
@@ -217,3 +218,5 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
         }
     }
 }
+
+#endif

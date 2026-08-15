@@ -1,4 +1,9 @@
 public import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 import AmgiTheme
 
 /// A book recommendation tile in the Study "Reading recommendations" strip.
@@ -45,13 +50,25 @@ public struct StudyReadingRec: View {
     @ViewBuilder
     private var coverImage: some View {
         if let path = data.coverImagePath,
-           let uiImage = UIImage(contentsOfFile: path) {
-            Image(uiImage: uiImage)
+           let image = loadCoverImage(at: path) {
+            image
                 .resizable()
                 .scaledToFill()
                 .frame(width: cardWidth, height: cardHeight)
                 .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         }
+    }
+
+    private func loadCoverImage(at path: String) -> Image? {
+        #if canImport(UIKit)
+        guard let uiImage = UIImage(contentsOfFile: path) else { return nil }
+        return Image(uiImage: uiImage)
+        #elseif canImport(AppKit)
+        guard let nsImage = NSImage(contentsOfFile: path) else { return nil }
+        return Image(nsImage: nsImage)
+        #else
+        return nil
+        #endif
     }
 
     private var textOverlay: some View {

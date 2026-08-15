@@ -2,7 +2,11 @@ import AnkiKit
 import AnkiClients
 import Dependencies
 import Foundation
+#if canImport(UIKit)
 import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 
 /// Load/save state for editing an existing image-occlusion note. The View
 /// owns the modal chrome and the occlusion-editor cover; the model owns the
@@ -12,7 +16,7 @@ import UIKit
 final class EditImageOcclusionModel {
     var isLoading = true
     var loadError: String?
-    var uiImage: UIImage?
+    var noteImage: PlatformImage?
     var masks: [IOMask] = []
     var header: String = ""
     var backExtra: String = ""
@@ -37,8 +41,8 @@ final class EditImageOcclusionModel {
         do {
             let data = try await client.getNote(noteId)
 
-            if let img = UIImage(data: data.imageData) {
-                uiImage = img
+            if let img = PlatformImage(data: data.imageData) {
+                noteImage = img
             }
 
             header = data.header

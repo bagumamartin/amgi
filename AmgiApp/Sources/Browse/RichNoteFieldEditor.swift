@@ -1,5 +1,156 @@
 import SwiftUI
+#if canImport(UIKit)
 import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
+
+/// Shared plain-text/HTML operations for the note field editor. Both the
+/// iOS (UITextView) and macOS (NSTextView) hosts drive the same editing
+/// semantics through these pure functions so behaviour stays identical.
+private enum RichNoteFieldTextOps {
+    /// Strips HTML tags and decodes common entities to produce editable plain text.
+    static func plainText(from html: String) -> String {
+        guard !html.isEmpty else { return "" }
+        guard isLikelyHTML(html) else { return html }
+
+        var result = ""
+        result.reserveCapacity(html.count)
+        var inTag = false
+        for ch in html.unicodeScalars {
+            switch ch {
+            case "<": inTag = true
+            case ">": inTag = false
+            default:
+                if !inTag { result.unicodeScalars.append(ch) }
+            }
+        }
+
+        result = result
+            .replacingOccurrences(of: "&amp;",  with: "&")
+            .replacingOccurrences(of: "&lt;",   with: "<")
+            .replacingOccurrences(of: "&gt;",   with: ">")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&#39;",  with: "'")
+            .replacingOccurrences(of: "&nbsp;", with: " ")
+
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func normalizedStoredHTML(from text: String) -> String {
+        guard text.localizedCaseInsensitiveContains("anki-mathjax") else { return text }
+        let pattern = #"<anki-mathjax(?:[^>]*?block=\"(.*?)\")?[^>]*?>(.*?)</anki-mathjax>"#
+        guard let regex = try? NSRegularExpression(
+            pattern: pattern,
+            options: [.caseInsensitive, .dotMatchesLineSeparators]
+        ) else {
+            return text
+        }
+
+        let source = text as NSString
+        var output = ""
+        var currentLocation = 0
+
+        for match in regex.matches(in: text, range: NSRange(location: 0, length: source.length)) {
+            let fullRange = match.range(at: 0)
+            output += source.substring(with: NSRange(location: currentLocation, length: fullRange.location - currentLocation))
+
+            let blockValue: String? = {
+                let range = match.range(at: 1)
+                guard range.location != NSNotFound else { return nil }
+                return source.substring(with: range)
+            }()
+
+            let innerText: String = {
+                let range = match.range(at: 2)
+                guard range.location != NSNotFound else { return "" }
+                return source.substring(with: range)
+            }()
+
+            let trimmed = trimMathJaxBreaks(in: innerText)
+            if let blockValue, !blockValue.isEmpty, blockValue.caseInsensitiveCompare("false") != .orderedSame {
+                output += #"\["# + trimmed + #"\]"#
+            } else {
+                output += #"\("# + trimmed + #"\)"#
+            }
+
+            currentLocation = fullRange.location + fullRange.length
+        }
+
+        output += source.substring(from: currentLocation)
+        return output
+    }
+
+    /// Wraps the current selection with a prefix/suffix pair (bold, italic,
+    /// etc.) and returns the updated text plus the selection to restore.
+    static func wrap(
+        _ text: String,
+        selected: NSRange,
+        prefix: String,
+        suffix: String
+    ) -> (text: String, selectedRange: NSRange) {
+        let source = text as NSString
+        let selectedText = source.substring(with: selected)
+        let replacement = "\(prefix)\(selectedText)\(suffix)"
+        let updated = source.replacingCharacters(in: selected, with: replacement)
+
+        let rangeStart = selected.location + (prefix as NSString).length
+        return (updated, NSRange(location: rangeStart, length: selected.length))
+    }
+
+    /// Removes inline formatting HTML from the selection (or the whole text
+    /// when the selection is empty) and returns the updated text + cursor.
+    static func clearFormatting(_ text: String, selected: NSRange) -> (text: String, cursor: Int) {
+        let source = text as NSString
+
+        let targetRange: NSRange
+        if selected.length > 0 {
+            targetRange = selected
+        } else {
+            targetRange = NSRange(location: 0, length: source.length)
+        }
+
+        let target = source.substring(with: targetRange)
+        let cleaned = removeInlineHTMLFormatting(from: target)
+        let updated = source.replacingCharacters(in: targetRange, with: cleaned)
+
+        return (updated, targetRange.location + (cleaned as NSString).length)
+    }
+
+    static func isLikelyHTML(_ text: String) -> Bool {
+        text.contains("<") && text.contains(">")
+    }
+
+    static func trimMathJaxBreaks(in text: String) -> String {
+        text
+            .replacingOccurrences(
+                of: #"<br[ ]*/?>"#,
+                with: "\n",
+                options: [.regularExpression, .caseInsensitive]
+            )
+            .replacingOccurrences(of: #"^\n*"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\n*$"#, with: "", options: .regularExpression)
+    }
+
+    static func removeInlineHTMLFormatting(from text: String) -> String {
+        var output = text
+        let patterns = [
+            "(?i)</?(b|strong|i|em|u|s|strike|del)>",
+            "(?i)</?font[^>]*>",
+            "(?i)</?span[^>]*>"
+        ]
+        for pattern in patterns {
+            output = output.replacingOccurrences(
+                of: pattern,
+                with: "",
+                options: .regularExpression
+            )
+        }
+        return output
+    }
+}
+
+#if os(iOS)
 
 /// A note field editor that defaults to plain-text editing and can preserve raw
 /// HTML source for fields that contain embedded media.
@@ -12,7 +163,7 @@ struct RichNoteFieldEditor: UIViewRepresentable {
     var preservesSourceHTML = false
 
     static func normalizedStoredHTML(_ text: String) -> String {
-        Coordinator.normalizedStoredHTML(from: text)
+        RichNoteFieldTextOps.normalizedStoredHTML(from: text)
     }
 
     private let doneButtonTitle = "Done"
@@ -107,129 +258,41 @@ struct RichNoteFieldEditor: UIViewRepresentable {
 
         func wrapSelection(prefix: String, suffix: String) {
             guard let textView else { return }
-            let selected = textView.selectedRange
-            let original = textView.text ?? ""
-            let source = original as NSString
-            let selectedText = source.substring(with: selected)
-            let replacement = "\(prefix)\(selectedText)\(suffix)"
-            let updated = source.replacingCharacters(in: selected, with: replacement)
+            let (updated, selectedRange) = RichNoteFieldTextOps.wrap(
+                textView.text ?? "",
+                selected: textView.selectedRange,
+                prefix: prefix,
+                suffix: suffix
+            )
             textView.text = updated
-
-            if selected.length == 0 {
-                let cursor = selected.location + (prefix as NSString).length
-                textView.selectedRange = NSRange(location: cursor, length: 0)
-            } else {
-                let rangeStart = selected.location + (prefix as NSString).length
-                textView.selectedRange = NSRange(location: rangeStart, length: selected.length)
-            }
-
+            textView.selectedRange = selectedRange
             commit(updated)
         }
 
         func clearFormattingInSelection() {
             guard let textView else { return }
-            let selected = textView.selectedRange
-            let original = textView.text ?? ""
-            let source = original as NSString
-
-            let targetRange: NSRange
-            if selected.length > 0 {
-                targetRange = selected
-            } else {
-                targetRange = NSRange(location: 0, length: source.length)
-            }
-
-            let target = source.substring(with: targetRange)
-            let cleaned = Self.removeInlineHTMLFormatting(from: target)
-            let updated = source.replacingCharacters(in: targetRange, with: cleaned)
+            let (updated, cursor) = RichNoteFieldTextOps.clearFormatting(
+                textView.text ?? "",
+                selected: textView.selectedRange
+            )
             textView.text = updated
-
-            let cursor = targetRange.location + (cleaned as NSString).length
             textView.selectedRange = NSRange(location: cursor, length: 0)
             commit(updated)
         }
 
-        // MARK: - HTML strip
-
-        /// Strips HTML tags and decodes common entities to produce editable plain text.
-        static func plainText(from html: String) -> String {
-            guard !html.isEmpty else { return "" }
-            guard isLikelyHTML(html) else { return html }
-
-            var result = ""
-            result.reserveCapacity(html.count)
-            var inTag = false
-            for ch in html.unicodeScalars {
-                switch ch {
-                case "<": inTag = true
-                case ">": inTag = false
-                default:
-                    if !inTag { result.unicodeScalars.append(ch) }
-                }
-            }
-
-            result = result
-                .replacingOccurrences(of: "&amp;",  with: "&")
-                .replacingOccurrences(of: "&lt;",   with: "<")
-                .replacingOccurrences(of: "&gt;",   with: ">")
-                .replacingOccurrences(of: "&quot;", with: "\"")
-                .replacingOccurrences(of: "&#39;",  with: "'")
-                .replacingOccurrences(of: "&nbsp;", with: " ")
-
-            return result.trimmingCharacters(in: .whitespacesAndNewlines)
+        fileprivate func commit(_ plain: String) {
+            let normalized = RichNoteFieldTextOps.normalizedStoredHTML(from: plain)
+            lastPlainText = plain
+            lastRenderedValue = normalized
+            htmlText = normalized
         }
-
-        static func normalizedStoredHTML(from text: String) -> String {
-            guard text.localizedCaseInsensitiveContains("anki-mathjax") else { return text }
-            let pattern = #"<anki-mathjax(?:[^>]*?block=\"(.*?)\")?[^>]*?>(.*?)</anki-mathjax>"#
-            guard let regex = try? NSRegularExpression(
-                pattern: pattern,
-                options: [.caseInsensitive, .dotMatchesLineSeparators]
-            ) else {
-                return text
-            }
-
-            let source = text as NSString
-            var output = ""
-            var currentLocation = 0
-
-            for match in regex.matches(in: text, range: NSRange(location: 0, length: source.length)) {
-                let fullRange = match.range(at: 0)
-                output += source.substring(with: NSRange(location: currentLocation, length: fullRange.location - currentLocation))
-
-                let blockValue: String? = {
-                    let range = match.range(at: 1)
-                    guard range.location != NSNotFound else { return nil }
-                    return source.substring(with: range)
-                }()
-
-                let innerText: String = {
-                    let range = match.range(at: 2)
-                    guard range.location != NSNotFound else { return "" }
-                    return source.substring(with: range)
-                }()
-
-                let trimmed = trimMathJaxBreaks(in: innerText)
-                if let blockValue, !blockValue.isEmpty, blockValue.caseInsensitiveCompare("false") != .orderedSame {
-                    output += #"\["# + trimmed + #"\]"#
-                } else {
-                    output += #"\("# + trimmed + #"\)"#
-                }
-
-                currentLocation = fullRange.location + fullRange.length
-            }
-
-            output += source.substring(from: currentLocation)
-            return output
-        }
-
     }
 }
 
 private extension RichNoteFieldEditor {
     func displayText(for html: String) -> String {
-        let normalized = Coordinator.normalizedStoredHTML(from: html)
-        return preservesSourceHTML ? normalized : Coordinator.plainText(from: normalized)
+        let normalized = RichNoteFieldTextOps.normalizedStoredHTML(from: html)
+        return preservesSourceHTML ? normalized : RichNoteFieldTextOps.plainText(from: normalized)
     }
 
     // MARK: - Toolbar
@@ -381,43 +444,214 @@ private extension RichNoteFieldEditor {
     }
 }
 
-private extension RichNoteFieldEditor.Coordinator {
-    func commit(_ plain: String) {
-        let normalized = Self.normalizedStoredHTML(from: plain)
-        lastPlainText = plain
-        lastRenderedValue = normalized
-        htmlText = normalized
+#else
+
+/// macOS variant: a SwiftUI View wrapping an NSTextView host plus the
+/// formatting toolbar rendered as a native button row (macOS has no
+/// `inputAccessoryView` equivalent). Editing semantics mirror iOS via the
+/// shared `RichNoteFieldTextOps`.
+struct RichNoteFieldEditor: View {
+    @Binding var htmlText: String
+    var preservesSourceHTML = false
+
+    static func normalizedStoredHTML(_ text: String) -> String {
+        RichNoteFieldTextOps.normalizedStoredHTML(from: text)
     }
 
-    static func isLikelyHTML(_ text: String) -> Bool {
-        text.contains("<") && text.contains(">")
-    }
+    @State private var bridge = TextActionBridge()
 
-    static func trimMathJaxBreaks(in text: String) -> String {
-        text
-            .replacingOccurrences(
-                of: #"<br[ ]*/?>"#,
-                with: "\n",
-                options: [.regularExpression, .caseInsensitive]
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            MacNoteFieldHost(
+                htmlText: $htmlText,
+                preservesSourceHTML: preservesSourceHTML,
+                bridge: bridge
             )
-            .replacingOccurrences(of: #"^\n*"#, with: "", options: .regularExpression)
-            .replacingOccurrences(of: #"\n*$"#, with: "", options: .regularExpression)
-    }
-
-    static func removeInlineHTMLFormatting(from text: String) -> String {
-        var output = text
-        let patterns = [
-            "(?i)</?(b|strong|i|em|u|s|strike|del)>",
-            "(?i)</?font[^>]*>",
-            "(?i)</?span[^>]*>"
-        ]
-        for pattern in patterns {
-            output = output.replacingOccurrences(
-                of: pattern,
-                with: "",
-                options: .regularExpression
-            )
+            toolbar
         }
-        return output
+    }
+
+    private var toolbar: some View {
+        HStack(spacing: 6) {
+            toolbarSymbolButton("arrow.uturn.backward", label: "Undo") { bridge.undo() }
+            toolbarSymbolButton("arrow.uturn.forward", label: "Redo") { bridge.redo() }
+            toolbarSymbolButton("bold", label: "Bold") { bridge.wrap(prefix: "<b>", suffix: "</b>") }
+            toolbarSymbolButton("italic", label: "Italic") { bridge.wrap(prefix: "<i>", suffix: "</i>") }
+            toolbarSymbolButton("underline", label: "Underline") { bridge.wrap(prefix: "<u>", suffix: "</u>") }
+            toolbarSymbolButton("strikethrough", label: "Strikethrough") { bridge.wrap(prefix: "<s>", suffix: "</s>") }
+            toolbarSymbolButton("textformat", label: "Clear formatting") { bridge.clearFormatting() }
+            Spacer()
+            Button("Done") { bridge.resignFirstResponder() }
+                .controlSize(.small)
+        }
+    }
+
+    private func toolbarSymbolButton(
+        _ systemName: String,
+        label: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 13, weight: .semibold))
+        }
+        .buttonStyle(.borderless)
+        .help(label)
+        .accessibilityLabel(label)
     }
 }
+
+/// Bridges the SwiftUI toolbar to the live NSTextView held by the host's
+/// coordinator. Weak so the bridge never outlives the editor.
+@MainActor
+private final class TextActionBridge {
+    weak var textView: NSTextView?
+
+    func wrap(prefix: String, suffix: String) {
+        guard let textView else { return }
+        let (updated, selectedRange) = RichNoteFieldTextOps.wrap(
+            textView.string,
+            selected: textView.selectedRange(),
+            prefix: prefix,
+            suffix: suffix
+        )
+        textView.string = updated
+        textView.setSelectedRange(selectedRange)
+    }
+
+    func clearFormatting() {
+        guard let textView else { return }
+        let (updated, cursor) = RichNoteFieldTextOps.clearFormatting(
+            textView.string,
+            selected: textView.selectedRange()
+        )
+        textView.string = updated
+        textView.setSelectedRange(NSRange(location: cursor, length: 0))
+    }
+
+    func undo() {
+        textView?.undoManager?.undo()
+    }
+
+    func redo() {
+        textView?.undoManager?.redo()
+    }
+
+    func resignFirstResponder() {
+        textView?.window?.makeFirstResponder(nil)
+    }
+}
+
+private struct MacNoteFieldHost: NSViewRepresentable {
+    @Binding var htmlText: String
+    let preservesSourceHTML: Bool
+    let bridge: TextActionBridge
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(htmlText: $htmlText)
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSTextView.scrollableTextView()
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = false
+        scrollView.hasHorizontalScroller = false
+        scrollView.borderType = .noBorder
+
+        let textView = scrollView.documentView as? NSTextView ?? NSTextView()
+        textView.delegate = context.coordinator
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.isRichText = false
+        textView.allowsUndo = true
+        textView.drawsBackground = false
+        textView.font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        textView.textColor = NSColor.labelColor
+        textView.textContainerInset = NSSize(width: 0, height: 4)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+
+        context.coordinator.attach(textView: textView)
+        bridge.textView = textView
+
+        textView.string = displayText(for: htmlText)
+        context.coordinator.lastRenderedValue = htmlText
+        context.coordinator.lastPlainText = textView.string
+        return scrollView
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
+        guard let width = proposal.width, width > 0,
+              let textView = nsView.documentView as? NSTextView,
+              let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer else { return nil }
+        // NSTextView has no sizeThatFits; lay out at the proposed width and
+        // measure the used rect (same height clamp as the iOS host).
+        textContainer.containerSize = CGSize(width: width, height: .greatestFiniteMagnitude)
+        layoutManager.ensureLayout(for: textContainer)
+        let used = layoutManager.usedRect(for: textContainer)
+        let height = min(max(32, used.height + textView.textContainerInset.height * 2), 160)
+        return CGSize(width: width, height: height)
+    }
+
+    func updateNSView(_ nsView: NSScrollView, context: Context) {
+        guard let textView = nsView.documentView as? NSTextView else { return }
+        bridge.textView = textView
+        guard !context.coordinator.isEditing else { return }
+        guard htmlText != context.coordinator.lastRenderedValue else { return }
+
+        let displayedText = displayText(for: htmlText)
+        if textView.string != displayedText {
+            let selected = textView.selectedRange()
+            textView.string = displayedText
+            let maxLoc = max(0, min(selected.location, displayedText.utf16.count))
+            textView.setSelectedRange(NSRange(location: maxLoc, length: 0))
+        }
+        context.coordinator.lastRenderedValue = htmlText
+        context.coordinator.lastPlainText = displayedText
+    }
+
+    private func displayText(for html: String) -> String {
+        let normalized = RichNoteFieldTextOps.normalizedStoredHTML(from: html)
+        return preservesSourceHTML ? normalized : RichNoteFieldTextOps.plainText(from: normalized)
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        @Binding var htmlText: String
+        weak var textView: NSTextView?
+        var lastRenderedValue: String = ""
+        var lastPlainText: String = ""
+        var isEditing = false
+
+        init(htmlText: Binding<String>) {
+            self._htmlText = htmlText
+        }
+
+        func attach(textView: NSTextView) {
+            self.textView = textView
+        }
+
+        func textDidBeginEditing(_ notification: Notification) {
+            isEditing = true
+        }
+
+        func textDidEndEditing(_ notification: Notification) {
+            isEditing = false
+            commit(textView?.string ?? "")
+        }
+
+        func textDidChange(_ notification: Notification) {
+            commit(textView?.string ?? "")
+        }
+
+        private func commit(_ plain: String) {
+            let normalized = RichNoteFieldTextOps.normalizedStoredHTML(from: plain)
+            lastPlainText = plain
+            lastRenderedValue = normalized
+            htmlText = normalized
+        }
+    }
+}
+
+#endif

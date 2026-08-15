@@ -1,5 +1,9 @@
 import SwiftUI
+#if canImport(UIKit)
 import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 import AmgiTheme
 
 // MARK: - IOShapeType
@@ -202,10 +206,12 @@ private extension IOMask {
     }
 }
 
-// MARK: - UIColor hex extension (IO)
+// MARK: - IO hex colour parsing (shared, platform-neutral)
 
-private extension UIColor {
-    convenience init?(ioHex: String) {
+/// Parses image-occlusion `fill` hex strings ("RRGGBB" / "RRGGBBAA",
+/// surrounding noise tolerated) into the platform colour type.
+enum IOColorHex {
+    static func parse(_ ioHex: String) -> PlatformColor? {
         let sanitized = ioHex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
         guard sanitized.count == 6 || sanitized.count == 8,
               let value = UInt64(sanitized, radix: 16) else {
@@ -229,12 +235,16 @@ private extension UIColor {
             alpha = 1
         }
 
-        self.init(red: red, green: green, blue: blue, alpha: alpha)
+        return PlatformColor(red: red, green: green, blue: blue, alpha: alpha)
     }
 }
 
 // MARK: - OcclusionCanvasView
 
+// The canvas representable + its backing view are platform-specific. The
+// macOS implementation lives in ImageOcclusionCanvasMac.swift and mirrors
+// this API exactly (same type names, same coordinator contract).
+#if os(iOS)
 struct OcclusionCanvasView: UIViewRepresentable {
     let image: UIImage
     @Binding var masks: [IOMask]
@@ -651,7 +661,7 @@ private extension OcclusionCanvasUIView {
             let angle = angleRadians(for: mask)
             let attrs: [NSAttributedString.Key: Any] = [
                 .font: textFont(scale: scale, fontSize: fontSize, imgRect: imgRect),
-                .foregroundColor: UIColor(ioHex: mask.extras["fill"] ?? "") ?? UIColor.label
+                .foregroundColor: IOColorHex.parse(mask.extras["fill"] ?? "") ?? UIColor.label
             ]
 
             ctx.saveGState()
@@ -713,7 +723,7 @@ private extension OcclusionCanvasUIView {
 
     func maskFillColor(for mask: IOMask) -> UIColor? {
         guard let fill = mask.extras["fill"] else { return nil }
-        guard let color = UIColor(ioHex: fill) else { return nil }
+        guard let color = IOColorHex.parse(fill) else { return nil }
         return color.withAlphaComponent(maskOpacity)
     }
 
@@ -1460,6 +1470,7 @@ private extension OcclusionCanvasUIView {
         )
     }
 }
+#endif
 
 // MARK: - Workspace private types
 
@@ -1545,11 +1556,16 @@ private enum IOOcclusionMode: CaseIterable {
 // MARK: - imageOcclusionPreviewHeight
 
 @MainActor
-func imageOcclusionPreviewHeight(for image: UIImage) -> CGFloat {
-    let screenBounds = UIScreen.main.bounds
-    let screenWidth = screenBounds.width - 32
+func imageOcclusionPreviewHeight(for image: PlatformImage) -> CGFloat {
+    #if os(iOS)
+    let availableWidth = UIScreen.main.bounds.width - 32
+    #else
+    // macOS preview cards live in windows, not full-screen sheets; clamp
+    // against a representative sheet width instead of the display size.
+    let availableWidth: CGFloat = 480
+    #endif
     let ratio = image.size.height / max(image.size.width, 1)
-    let idealHeight = screenWidth * ratio
+    let idealHeight = availableWidth * ratio
     return min(max(idealHeight, 180), 260)
 }
 
@@ -1557,7 +1573,7 @@ func imageOcclusionPreviewHeight(for image: UIImage) -> CGFloat {
 
 struct ImageOcclusionMaskSummaryCard: View {
     @Environment(\.palette) private var palette
-    let image: UIImage
+    let image: PlatformImage
     let masks: [IOMask]
     let action: () -> Void
 
@@ -1592,6 +1608,9 @@ struct ImageOcclusionMaskSummaryCard: View {
 
 // MARK: - ZoomableOcclusionCanvasView
 
+// iOS-only: UIScrollView-zoom container. The macOS NSScrollView-based
+// equivalent lives in ImageOcclusionCanvasMac.swift.
+#if os(iOS)
 struct ZoomableOcclusionCanvasView: UIViewRepresentable {
     let image: UIImage
     @Binding var masks: [IOMask]
@@ -1746,6 +1765,7 @@ private extension ZoomableOcclusionCanvasContainer {
         canvasView.frame = frame
     }
 }
+#endif
 
 // MARK: - ImageOcclusionWorkspaceView
 
@@ -1755,7 +1775,7 @@ struct ImageOcclusionWorkspaceView: View {
     @Environment(\.palette) private var palette
 
     let title: String
-    let image: UIImage
+    let image: PlatformImage
     let initialMasks: [IOMask]
     let onSave: ([IOMask]) -> Void
 
@@ -1777,7 +1797,7 @@ struct ImageOcclusionWorkspaceView: View {
     @State private var zoomCommand: IOCanvasZoomCommand = .fit
     @State private var zoomCommandID = 0
 
-    init(title: String, image: UIImage, initialMasks: [IOMask], onSave: @escaping ([IOMask]) -> Void) {
+    init(title: String, image: PlatformImage, initialMasks: [IOMask], onSave: @escaping ([IOMask]) -> Void) {
         self.title = title
         self.image = image
         self.initialMasks = initialMasks
@@ -1815,7 +1835,9 @@ struct ImageOcclusionWorkspaceView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(palette.background)
         }
+        #if os(iOS)
         .toolbar(.hidden, for: .tabBar)
+        #endif
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -2135,7 +2157,7 @@ private extension ImageOcclusionWorkspaceView {
 
     @ViewBuilder
     func toolbarIcon(systemImage: String, fallbackSystemImage: String? = nil) -> some View {
-        let resolvedSymbol = if UIImage(systemName: systemImage) != nil {
+        let resolvedSymbol = if Self.symbolAvailable(systemImage) {
             systemImage
         } else {
             fallbackSystemImage ?? "questionmark"
@@ -2144,6 +2166,14 @@ private extension ImageOcclusionWorkspaceView {
         Image(systemName: resolvedSymbol)
             .font(.system(size: 13, weight: .semibold))
             .amgiToolbarIconButton(size: 30)
+    }
+
+    static func symbolAvailable(_ systemName: String) -> Bool {
+        #if canImport(UIKit)
+        return UIImage(systemName: systemName) != nil
+        #else
+        return NSImage(systemSymbolName: systemName, accessibilityDescription: nil) != nil
+        #endif
     }
 
     func handleCanvasSelectionChange(_ selection: OcclusionCanvasView.IOCanvasSelectionChange) {
@@ -2467,19 +2497,25 @@ private extension ImageOcclusionWorkspaceView {
     }
 
     func color(from hex: String?, fallback: Color) -> Color {
-        guard let hex, let color = workspaceUIColor(ioHex: hex) else {
+        guard let hex, let color = IOColorHex.parse(hex) else {
             return fallback
         }
-        return Color(uiColor: color)
+        return Color(platformColor: color)
     }
 
     func hexString(for color: Color) -> String {
-        let uiColor = UIColor(color)
         var red: CGFloat = 0
         var green: CGFloat = 0
         var blue: CGFloat = 0
         var alpha: CGFloat = 0
-        uiColor.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        #if canImport(UIKit)
+        UIColor(color).getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        #else
+        // NSColor must be converted to a concrete color space before its
+        // components can be read (catalog/dynamic colours throw otherwise).
+        guard let ns = NSColor(color).usingColorSpace(.sRGB) else { return "FFFF00FF" }
+        ns.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        #endif
         return String(
             format: "%02X%02X%02X%02X",
             Int(round(red * 255)),
@@ -2487,33 +2523,6 @@ private extension ImageOcclusionWorkspaceView {
             Int(round(blue * 255)),
             Int(round(alpha * 255))
         )
-    }
-
-    func workspaceUIColor(ioHex: String) -> UIColor? {
-        let sanitized = ioHex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-        guard sanitized.count == 6 || sanitized.count == 8,
-              let value = UInt64(sanitized, radix: 16) else {
-            return nil
-        }
-
-        let red: CGFloat
-        let green: CGFloat
-        let blue: CGFloat
-        let alpha: CGFloat
-
-        if sanitized.count == 8 {
-            red = CGFloat((value & 0xFF000000) >> 24) / 255
-            green = CGFloat((value & 0x00FF0000) >> 16) / 255
-            blue = CGFloat((value & 0x0000FF00) >> 8) / 255
-            alpha = CGFloat(value & 0x000000FF) / 255
-        } else {
-            red = CGFloat((value & 0xFF0000) >> 16) / 255
-            green = CGFloat((value & 0x00FF00) >> 8) / 255
-            blue = CGFloat(value & 0x0000FF) / 255
-            alpha = 1
-        }
-
-        return UIColor(red: red, green: green, blue: blue, alpha: alpha)
     }
 
     func currentSnapshot() -> IOMaskSnapshot {
@@ -2531,9 +2540,17 @@ private extension ImageOcclusionWorkspaceView {
     }
 
     func registerUndo(previous: IOMaskSnapshot, current: IOMaskSnapshot) {
+        // The shared application object doubles as a never-deallocated undo
+        // target on both platforms; the handler closure carries the state.
+        #if os(iOS)
         undoManager?.registerUndo(withTarget: UIApplication.shared) { _ in
             self.restoreSnapshot(previous, redo: current)
         }
+        #else
+        undoManager?.registerUndo(withTarget: NSApplication.shared) { _ in
+            self.restoreSnapshot(previous, redo: current)
+        }
+        #endif
     }
 
     func restoreSnapshot(_ snapshot: IOMaskSnapshot, redo: IOMaskSnapshot) {
@@ -2574,7 +2591,11 @@ private extension ImageOcclusionWorkspaceView {
 
     func normalizedTextSize(text: String, scale: CGFloat, fontSize: CGFloat) -> CGSize {
         let resolvedSize = max(14, image.size.height * max(fontSize, 0.02) * max(scale, 1))
+        #if canImport(UIKit)
         let attrs: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: resolvedSize, weight: .semibold)]
+        #else
+        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: resolvedSize, weight: .semibold)]
+        #endif
         let textSize = (text as NSString).size(withAttributes: attrs)
         return CGSize(
             width: min(1, (textSize.width + 20) / max(image.size.width, 1)),

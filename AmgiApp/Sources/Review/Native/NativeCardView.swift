@@ -1,4 +1,9 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 import AmgiUI
 import AmgiTheme
 import AmgiCardWeb
@@ -41,6 +46,20 @@ struct NativeCardView: View {
         }
     }
 
+    private func mediaImage(_ filename: String) -> Image? {
+        guard let mediaFolder else { return nil }
+        let path = mediaFolder.appendingPathComponent(filename).path
+        #if canImport(UIKit)
+        guard let image = UIImage(contentsOfFile: path) else { return nil }
+        return Image(uiImage: image)
+        #elseif canImport(AppKit)
+        guard let image = NSImage(contentsOfFile: path) else { return nil }
+        return Image(nsImage: image)
+        #else
+        return nil
+        #endif
+    }
+
     @ViewBuilder
     private func blockView(_ block: NativeCardContent.Block, isFirst: Bool) -> some View {
         switch block {
@@ -58,9 +77,8 @@ struct NativeCardView: View {
                     .foregroundStyle(palette.textPrimary)
             }
         case .image(let filename):
-            if let mediaFolder,
-               let image = UIImage(contentsOfFile: mediaFolder.appendingPathComponent(filename).path) {
-                Image(uiImage: image)
+            if let image = mediaImage(filename) {
+                image
                     .resizable()
                     .scaledToFit()
                     .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.small, style: .continuous))

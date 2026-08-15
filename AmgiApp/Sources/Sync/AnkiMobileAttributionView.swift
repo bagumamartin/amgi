@@ -1,5 +1,8 @@
 import SwiftUI
 import AmgiTheme
+#if canImport(AppKit)
+import AppKit
+#endif
 
 struct AnkiMobileAttributionView: View {
     @Environment(\.palette) private var palette
@@ -28,8 +31,15 @@ struct AnkiMobileAttributionView: View {
 
 private extension AnkiMobileAttributionView {
     func openAnkiMobile() {
+        #if canImport(UIKit)
         guard let url = URL(string: "itms-apps://itunes.apple.com/app/id373493387") else { return }
         UIApplication.shared.open(url)
+        #elseif canImport(AppKit)
+        // The itms-apps scheme doesn't resolve on macOS; use the web App
+        // Store link, which the system routes to the App Store app.
+        guard let url = URL(string: "https://apps.apple.com/app/id373493387") else { return }
+        NSWorkspace.shared.open(url)
+        #endif
     }
 }
 

@@ -160,7 +160,14 @@ anki-bridge-rs/
     cargo build --target aarch64-apple-ios         (device)
     cargo build --target aarch64-apple-ios-sim     (simulator arm64)
     cargo build --target x86_64-apple-ios-simulator (simulator x86)
+    cargo build --target aarch64-apple-darwin      (macOS arm64)
+    cargo build --target x86_64-apple-darwin       (macOS Intel)
 ```
+
+The two macOS libs are `lipo`-ed into a universal slice. The bridge has no
+platform-specific code, so the same four C functions serve the iOS app, the
+native macOS app (`AmgiAppMac` target, shares `AmgiApp/Sources` behind
+`#if os()` guards), and the watchOS app.
 
 ### XCFramework Packaging
 

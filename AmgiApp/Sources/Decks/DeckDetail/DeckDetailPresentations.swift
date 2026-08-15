@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 import AnkiKit
 import SwiftNavigation
 import SwiftUINavigation

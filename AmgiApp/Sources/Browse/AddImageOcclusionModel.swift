@@ -4,7 +4,11 @@ import AnkiServices
 import Dependencies
 import PhotosUI
 import SwiftUI
+#if canImport(UIKit)
 import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 
 /// Data state + load/save logic for the Add Image Occlusion form. The View
 /// owns the modal chrome, the photo picker selection, and the occlusion
@@ -15,7 +19,7 @@ import UIKit
 final class AddImageOcclusionModel {
     var decks: [DeckInfo] = []
     var selectedDeckId: DeckID
-    var selectedImage: UIImage?
+    var selectedImage: PlatformImage?
     var masks: [IOMask] = []
     var header: String = ""
     var backExtra: String = ""
@@ -63,20 +67,29 @@ final class AddImageOcclusionModel {
         guard let item else { return }
         masks = []
 
-        // Load as UIImage
         if let data = try? await item.loadTransferable(type: Data.self),
-           let img = UIImage(data: data) {
+           let img = PlatformImage(data: data) {
             selectedImage = img
 
             // Write a temporary file for the upload path
             let tempDir = FileManager.default.temporaryDirectory
             let filename = "io_pick_\(Int(Date().timeIntervalSince1970)).jpg"
             let url = tempDir.appendingPathComponent(filename)
-            if let jpegData = img.jpegData(compressionQuality: 0.92) {
+            if let jpegData = jpegRepresentation(of: img) {
                 try? jpegData.write(to: url)
                 imageURL = url
             }
         }
+    }
+
+    private func jpegRepresentation(of image: PlatformImage) -> Data? {
+        #if canImport(UIKit)
+        return image.jpegData(compressionQuality: 0.92)
+        #else
+        guard let tiff = image.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff) else { return nil }
+        return rep.representation(using: .jpeg, properties: [.compressionFactor: 0.92])
+        #endif
     }
 
     /// Persist the image-occlusion note. Returns whether the write succeeded;

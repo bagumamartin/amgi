@@ -153,7 +153,11 @@ struct TagsView: View {
         }
         .scrollContentBackground(.hidden)
         .background(palette.background)
+        #if os(iOS)
         .listStyle(.insetGrouped)
+        #else
+        .listStyle(.inset)
+        #endif
     }
 
     private var addTagSheet: some View {

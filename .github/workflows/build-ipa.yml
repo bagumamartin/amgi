@@ -56,7 +56,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.95"
-          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios,aarch64-apple-darwin,x86_64-apple-darwin
 
       # ── 4.5. Install nightly + rust-src (watchOS build-std) ───────
       # build-xcframework.sh builds the tier-3 watchOS sim slice with
@@ -132,6 +132,20 @@ jobs:
               -skipMacroValidation \
               2>&1 | tee simulator-build.log
           fi
+
+      # ── 9.3. macOS smoke check (native macOS app target) ─────────
+      - name: Build Debug macOS (Compatibility Smoke Check)
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project AmgiApp/AmgiApp.xcodeproj \
+            -scheme AmgiAppMac \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData-mac" \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            2>&1 | tee macos-build.log
 
       # ── 9.5. Run tests ────────────────────────────────────────────
       # TODO: Add CI test step once testability is sorted out.

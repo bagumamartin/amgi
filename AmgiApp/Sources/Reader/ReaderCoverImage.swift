@@ -71,8 +71,8 @@ struct ReaderCoverImage<Placeholder: View>: View {
                 placeholder()
             }
         case .fileURL(let url):
-            if let url, let image = UIImage(contentsOfFile: url.path) {
-                Image(uiImage: image).resizable().scaledToFill()
+            if let url, let image = PlatformImage(contentsOfFile: url.path) {
+                Image(platformImage: image).resizable().scaledToFill()
             } else {
                 placeholder()
             }

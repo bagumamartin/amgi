@@ -25,7 +25,9 @@ struct StudyLandingView: View {
             onSelectBook: { bookID in model.selectBook(bookID) },
             onRefresh: { await model.load() }
         )
+        #if os(iOS)
         .toolbar(.hidden, for: .navigationBar)
+        #endif
         .sheet(item: $model.selectedBook) { book in
             NavigationStack {
                 ChapterListView(book: book, progress: model.progressCoordinator)

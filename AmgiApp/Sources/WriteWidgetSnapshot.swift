@@ -1,14 +1,21 @@
 // AmgiApp/Sources/WriteWidgetSnapshot.swift
+import Foundation
+#if os(iOS)
 import AnkiClients
 import AnkiKit
 import Dependencies
-import Foundation
 import WidgetKit
+#endif
 
 /// Fetches current deck data + streak, writes per-deck snapshot files to the
 /// App Group container, then signals WidgetKit to reload all timelines.
 /// Safe to call from any async context.
+///
+/// iOS-only for now: the macOS build ships without a widget extension, and
+/// macOS App Group identifiers need a team-ID prefix. The call sites stay
+/// unconditional; this is a no-op on macOS.
 func writeWidgetSnapshot() async {
+    #if os(iOS)
     // Skip during XCTest runs — the lifecycle hooks that call this run inside
     // the host app's scene phase / didFinishLaunching, which fire even when
     // the app is hosting a test bundle. Calling unimplemented dependency stubs
@@ -73,4 +80,5 @@ func writeWidgetSnapshot() async {
     } catch {
         print("[writeWidgetSnapshot] Failed: \(error)")
     }
+    #endif
 }

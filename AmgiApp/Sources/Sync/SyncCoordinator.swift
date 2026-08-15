@@ -1,6 +1,10 @@
 import Foundation
 import SwiftUI
+#if canImport(UIKit)
 import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 import AnkiClients
 import AnkiKit
 import AnkiSync
@@ -29,7 +33,12 @@ final class SyncCoordinator {
 
     @ObservationIgnored @Dependency(\.syncClient) var syncClient
     @ObservationIgnored private var activeTask: Task<Void, Never>?
+    // iOS-only: extends the execution window when the app is backgrounded
+    // mid-sync. Desktop sync runs while the app is active, so macOS needs
+    // no equivalent.
+    #if os(iOS)
     @ObservationIgnored private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
+    #endif
 
     @ObservationIgnored
     @Shared(.appStorage(SyncPreferences.Keys.lastCollectionSyncedAtForCurrentUser()))
@@ -172,6 +181,11 @@ final class SyncCoordinator {
 
 private extension SyncCoordinator {
     func registerLifecycleObservers() {
+        // iOS background/foreground transitions only: they bracket the
+        // beginBackgroundTask window that keeps a mid-flight sync alive
+        // after the app leaves the foreground. macOS stays resident while
+        // syncing, so there is nothing to observe.
+        #if os(iOS)
         let center = NotificationCenter.default
         center.addObserver(
             forName: UIApplication.didEnterBackgroundNotification,
@@ -191,6 +205,7 @@ private extension SyncCoordinator {
                 self?.endBackgroundExecutionIfNeeded()
             }
         }
+        #endif
 
         if needsFullSyncFlag {
             state = .needsFullSync(SyncFullSyncRequirement(
@@ -200,6 +215,7 @@ private extension SyncCoordinator {
         }
     }
 
+    #if os(iOS)
     func beginBackgroundExecutionIfNeeded() {
         let isSyncing: Bool
         switch state {
@@ -223,6 +239,7 @@ private extension SyncCoordinator {
         backgroundTaskID = .invalid
         appendLog("Foreground resumed — released BG task")
     }
+    #endif
 }
 
 private enum SyncCoordinatorKey: DependencyKey {

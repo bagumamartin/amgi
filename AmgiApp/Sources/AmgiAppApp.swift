@@ -1,5 +1,7 @@
 // AmgiApp/Sources/AmgiAppApp.swift
+#if os(iOS)
 import BackgroundTasks
+#endif
 import SwiftUI
 import AmgiReader
 import AmgiReaderDictionary
@@ -17,6 +19,11 @@ struct AnkiAppApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @State private var pendingReviewDeckId: DeckID? = nil
     @AppStorage("appFont") private var appFontRaw: String = AppFont.system.rawValue
+    // Mirrors MainTabView's persisted selection so menu commands can switch
+    // sections; syncCoordinator backs the "Sync Now" command.
+    @Shared(.appStorage("amgi.root.section")) private var rootSection: String = MainSection.study.rawValue
+    @Shared(.appStorage(ReaderPreferences.Keys.showTab)) private var showReaderTab: Bool = true
+    @Dependency(\.syncCoordinator) private var syncCoordinator
 
     private var destination: Destination {
         onboardingCompleted ? .main : .onboarding
@@ -32,6 +39,9 @@ struct AnkiAppApp: App {
 //        }
         #endif
 
+        // Widget snapshot refresh (BGTaskScheduler + App Group snapshots) is
+        // iOS-only for now; the macOS build has no widget extension.
+        #if os(iOS)
         BGTaskScheduler.shared.register(
             forTaskWithIdentifier: "com.amgiapp.AmgiApp.widget-refresh",
             using: nil
@@ -39,6 +49,7 @@ struct AnkiAppApp: App {
             handleWidgetRefreshTask(task)
         }
         scheduleWidgetRefreshTask()
+        #endif
 
         // Multi-profile bootstrap: migrate legacy single-collection
         // layout into the default profile, then resolve the active
@@ -87,6 +98,11 @@ struct AnkiAppApp: App {
                     ContentView(pendingReviewDeckId: $pendingReviewDeckId)
                 }
             }
+            #if os(macOS)
+            // macOS HIG: sensible default + minimum window sizes instead of
+            // the iOS full-screen slab.
+            .frame(minWidth: 960, minHeight: 620)
+            #endif
             .onChange(of: scenePhase) { _, newPhase in
                 if newPhase == .active {
                     Task { await writeWidgetSnapshot() }
@@ -104,6 +120,35 @@ struct AnkiAppApp: App {
             .themedRoot()
             .environment(\.appFont, AppFont(rawValue: appFontRaw) ?? .system)
         }
+        #if os(macOS)
+        .defaultSize(width: 1180, height: 800)
+        .commands {
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") { rootSection = MainSection.settings.rawValue }
+                    .keyboardShortcut(",", modifiers: .command)
+            }
+            CommandMenu("Go") {
+                Button("Library") { rootSection = MainSection.library.rawValue }
+                    .keyboardShortcut("1", modifiers: .command)
+                if showReaderTab {
+                    Button("Read") { rootSection = MainSection.read.rawValue }
+                        .keyboardShortcut("2", modifiers: .command)
+                }
+                Button("Study") { rootSection = MainSection.study.rawValue }
+                    .keyboardShortcut("3", modifiers: .command)
+                Button("Stats") { rootSection = MainSection.stats.rawValue }
+                    .keyboardShortcut("4", modifiers: .command)
+                Button("Settings") { rootSection = MainSection.settings.rawValue }
+                    .keyboardShortcut("5", modifiers: .command)
+            }
+            CommandGroup(after: .toolbar) {
+                Button("Sync Now") {
+                    Task { await syncCoordinator.startSync() }
+                }
+                .keyboardShortcut("s", modifiers: [.command, .shift])
+            }
+        }
+        #endif
     }
 }
 
@@ -114,6 +159,7 @@ private extension AnkiAppApp {
     }
 }
 
+#if os(iOS)
 private struct UncheckedSendableBox<T>: @unchecked Sendable { let value: T }
 
 private func handleWidgetRefreshTask(_ task: BGTask) {
@@ -140,3 +186,4 @@ private func scheduleWidgetRefreshTask() {
     request.earliestBeginDate = cal.date(byAdding: .minute, value: 5, to: tomorrow) ?? tomorrow
     try? BGTaskScheduler.shared.submit(request)
 }
+#endif
