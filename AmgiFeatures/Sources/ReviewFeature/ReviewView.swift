@@ -10,7 +10,6 @@ import Dependencies
 import BrowseFeature
 import TemplatesFeature
 import Sharing
-import ReaderFeature
 import AmgiReviewCore
 
 /// Container: owns the `ReviewSession`, the review preferences, the sheet
@@ -101,6 +100,9 @@ private struct ReviewContent: View {
     let onDismiss: () -> Void
 
     @Environment(\.palette) private var palette
+    /// Supplied by the app root — see `EnvironmentValues.lookupPopup`. Keeping
+    /// the popup itself out of this target is what keeps it off the Cxx chain.
+    @Environment(\.lookupPopup) private var lookupPopup
     @State private var cardActions = CardContextMenuModel()
     @State private var confirmDeleteNote = false
 
@@ -217,7 +219,7 @@ private struct ReviewContent: View {
                 get: { lookupQuery.map(ReviewLookupQuery.init) },
                 set: { lookupQuery = $0?.text }
             )) { wrapped in
-                LookupPopupView(initialQuery: wrapped.text) {
+                lookupPopup(wrapped.text) {
                     lookupQuery = nil
                 }
             }

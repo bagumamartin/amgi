@@ -32,23 +32,35 @@ AmgiFeatures package — app-layer shared code + migrated features
   Features:  StatsFeature → AmgiCharts          TemplatesFeature
              BrowseFeature → AmgiAppShared      SyncFeature → AmgiAppShared
              ReaderFeature → BrowseFeature, AmgiAppShared
-             ReviewFeature → ReaderFeature, BrowseFeature, TemplatesFeature,
+             ReviewFeature → BrowseFeature, TemplatesFeature,
                              AmgiReviewCore, AmgiAppShared
              DecksFeature  → ReviewFeature, BrowseFeature, AmgiAppShared
   Everything else reaches sideways into AmgiUI/AmgiTheme/AnkiKit/AnkiClients.
 
-  **Cxx chain.** ReaderFeature, ReviewFeature and DecksFeature all declare
-  `.interoperabilityMode(.Cxx)`, and so does the app target. Only ReaderFeature
-  actually touches C++ (AmgiReaderDictionary → hoshidicts); the other three
-  inherit it because Cxx interop is transitive through the module graph — a
-  target that imports a Cxx-mode module gets the CHoshiDicts modulemap in its
-  own Clang dependency scan and fails with "module 'CHoshiDicts' requires
-  feature 'cplusplus'" without the setting. Every target in the chain drops
-  out of explicit modules and compilation caching (rdar://122829880).
-  One edge causes all of it: ReviewFeature importing ReaderFeature for
-  `LookupPopupView`. Inverting that — the app injects the lookup view into
-  `ReviewView` — would take Review *and* Decks back out. Not done: unmeasured.
-  Any new feature that imports Review or Decks joins the chain.
+  **Cxx chain.** ReaderFeature declares `.interoperabilityMode(.Cxx)`, and so
+  does the app target. Only ReaderFeature actually touches C++
+  (AmgiReaderDictionary → hoshidicts); the app inherits it because Cxx interop
+  is transitive through the module graph — a target that imports a Cxx-mode
+  module gets the CHoshiDicts modulemap in its own Clang dependency scan and
+  fails with "module 'CHoshiDicts' requires feature 'cplusplus'" without the
+  setting. Every target in the chain drops out of explicit modules and
+  compilation caching (rdar://122829880).
+
+  ReviewFeature and DecksFeature *used* to be in it, purely transitively, via
+  one edge: ReviewFeature importing ReaderFeature for `LookupPopupView`.
+  Inverted 2026-08-15 — the app root injects the popup through
+  `EnvironmentValues.lookupPopup` (AmgiAppShared), so ReviewView renders it
+  without knowing what it is. **Measured, paired, own cold DerivedData per arm,
+  3 runs each:** cached clean (wipe DerivedData, warm CAS — the branch-switch
+  case) went 110.0s → 80.5s, **−26.9%**, with non-overlapping ranges (worst
+  arm-B run beat best arm-A run, 3/3). `xcodebuild clean` + build went 23.2s →
+  22.0s (−5.0%). Single-file incremental did **not** move (11.3s → 10.9s,
+  noise) — caching pays on full-module rebuilds, not the edit loop. Don't
+  quote the incremental number as the win.
+
+  Any new feature that imports ReaderFeature joins the chain — and anything
+  importing Review or Decks no longer does. Keep it that way: reach for an
+  injection point in a sink over an import of a Cxx-mode module.
 
   AmgiWidget links AmgiAppCore only and must never reach AnkiClients. That,
   by itself, is why the sink is two targets rather than one.
@@ -115,11 +127,11 @@ dictionary UI, widgets.
 | `TemplatesFeature` (./AmgiFeatures) | Card-template editor (`DeckTemplateListView`, `TemplateEditorView`, `TemplateSourceEditor`, …). Lifted out of `Decks/` to close the Decks↔Review cycle; consumed by Settings and Review. |
 | `StatsFeature` (./AmgiFeatures) | Stats dashboard — `StatsDashboardView` Container / `StatsDashboardContent` + `State` enum / `StatsDashboardModel`. Deps: `AmgiCharts`, `AnkiClients`. |
 | `SyncFeature` (./AmgiFeatures) | Sync flow: `SyncCoordinator` (+ its `DependencyValues.syncCoordinator` key), `SyncSheet`, `LoginSheet`, `OnboardingView`, `SyncToast(+Controller)` and the `syncToastOverlay` modifier, `AnkiMobileAttributionView`. |
-| `ReaderFeature` (./AmgiFeatures) | The EPUB + Anki-note readers, the offline-dictionary lookup UI, and the Study landing screen (absorbed — it was a landing screen over Reader, not a feature). The only target that *touches* `AmgiReaderDictionary` — but no longer the only one in the Cxx chain, since interop is transitive and `ReviewFeature`/`DecksFeature` inherited it through `LookupPopupView`. See the Cxx-chain note in the diagram above. Public surface is six entry points — `ReaderLibraryView`, `StudyLandingView`, `LookupPopupView`, `ReaderDictionarySettingsView`, `ReaderFontOption`, `ReaderThemeColor`; models stay internal. Note it holds **two** readers with separate preference namespaces (`EPUBChapterReaderView`/`reader_typo_*` and `ChapterReaderView`/`reader_pref_*`), branched at `ReaderBookDetailView.swift:120`. |
+| `ReaderFeature` (./AmgiFeatures) | The EPUB + Anki-note readers, the offline-dictionary lookup UI, and the Study landing screen (absorbed — it was a landing screen over Reader, not a feature). The only target that touches `AmgiReaderDictionary`, and — since the `LookupPopupView` edge was inverted on 2026-08-15 — once again the only feature in the Cxx chain. See the Cxx-chain note in the diagram above before adding an import of it. Public surface is six entry points — `ReaderLibraryView`, `StudyLandingView`, `LookupPopupView`, `ReaderDictionarySettingsView`, `ReaderFontOption`, `ReaderThemeColor`; models stay internal. Note it holds **two** readers with separate preference namespaces (`EPUBChapterReaderView`/`reader_typo_*` and `ChapterReaderView`/`reader_pref_*`), branched at `ReaderBookDetailView.swift:120`. |
 | `BrowseFeature` (./AmgiFeatures) | Note browsing + note authoring: browse list/search/selection, add & edit note, batch tagging, collection-wide tag management, and the whole image-occlusion editor. Public surface is exactly five views — `BrowseView`, `AddNoteView`, `NoteEditorView`, `NoteEditingDestinationView`, `TagsView`; models stay internal. It has **no** app-folder dependencies, which is why it extracted first: Reader, Review, Decks, and Settings all reach into it, so it had to leave the app target before they can. |
 | `AmgiReviewCore` (./AmgiFeatures) | The review state machine (`ReviewSession`) + `TemplateRenderOverrides`. Watch-shared: `AmgiWatchApp` links it, so it must stay watchOS-clean — no `AmgiAppShared`, no UI, guard UIKit with `#if canImport(UIKit)`. Exists because project.yml used to cherry-pick these files into the watch target by path, compiling them twice as two distinct types. Same role `AmgiCharts` plays for stats. |
-| `ReviewFeature` (./AmgiFeatures) | The review screen: WebKit card host, flip chrome, rating bar, native renderer, render-mode UI. Engine logic belongs in `AmgiReviewCore`, presentation here. Public surface: `ReviewView`, `CardWebViewContentAlignment`, and the `CardRenderEngine` display helpers. In the Cxx chain via its `ReaderFeature` edge. |
-| `DecksFeature` (./AmgiFeatures) | Deck list, deck detail, deck config + FSRS simulator, profile picker. Public surface is `DeckListView` alone. `DeckListView.init` takes `onSwitchProfile` because `switchProfile(to:)` is composition-root work (closes/reopens the collection, cancels sync, flips the keychain anchor) and stays in `AmgiAppApp.swift`. In the Cxx chain via `ReviewFeature`. |
+| `ReviewFeature` (./AmgiFeatures) | The review screen: WebKit card host, flip chrome, rating bar, native renderer, render-mode UI. Engine logic belongs in `AmgiReviewCore`, presentation here. Public surface: `ReviewView`, `CardWebViewContentAlignment`, and the `CardRenderEngine` display helpers. Deliberately does **not** import `ReaderFeature`: it takes the dictionary popup from `EnvironmentValues.lookupPopup` instead, which is what keeps it (and Decks) out of the Cxx chain. Don't re-add the import. |
+| `DecksFeature` (./AmgiFeatures) | Deck list, deck detail, deck config + FSRS simulator, profile picker. Public surface is `DeckListView` alone. `DeckListView.init` takes `onSwitchProfile` because `switchProfile(to:)` is composition-root work (closes/reopens the collection, cancels sync, flips the keychain anchor) and stays in `AmgiAppApp.swift`. No Cxx settings — it left the chain when `ReviewFeature` did, with no source change of its own. |
 
 ### Module naming convention
 Three prefixes/suffixes, each answering a different question:
@@ -133,14 +145,19 @@ Three prefixes/suffixes, each answering a different question:
 
   This used to read "**leaf** — nothing depends on it; only the app target
   imports it." That was never true (`BrowseFeature` was already imported by
-  four others) and is now clearly false: `DecksFeature → ReviewFeature →
-  ReaderFeature → BrowseFeature` is a four-deep chain. Features *do* depend on
-  features. What still holds is the direction: nothing in `AmgiFeatures` may
-  depend on the app target, and the `Amgi*` sinks never depend on a `*Feature`.
+  four others) and is still false: `DecksFeature → ReviewFeature →
+  BrowseFeature` is a three-deep chain. Features *do* depend on features. What
+  holds is the direction: nothing in `AmgiFeatures` may depend on the app
+  target, and the `Amgi*` sinks never depend on a `*Feature`.
   Prefer routing shared code down into a sink (`AmgiAppCore`,
   `AmgiAppShared`, `AmgiReviewCore`, `AmgiCharts`) over adding a
   feature→feature edge — and check the Cxx-chain note before adding one that
-  reaches Reader, Review, or Decks.
+  reaches Reader.
+
+  The four surviving feature→feature edges (`Review → Browse`,
+  `Review → Templates`, `Reader → Browse`, `Decks → Browse`) are deliberate:
+  each is a sheet over another feature's editor, and none costs anything
+  measurable. Only the Reader edge did, so only that one was inverted.
 
 `Feature` is a **suffix, not a prefix** — Swift/Cocoa put the head noun last
 (`UIViewController` *is a* Controller), so `SyncFeature` reads "the Sync

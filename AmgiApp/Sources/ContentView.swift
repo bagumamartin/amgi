@@ -8,6 +8,7 @@ import Sharing
 import Dependencies
 import SyncFeature
 import ReviewFeature
+import ReaderFeature
 
 /// App root. Hosts the tab bar (`MainTabView`) and orchestrates the
 /// cross-cutting flows that sit above it: sync (sheet + toast), deck
@@ -62,6 +63,12 @@ struct ContentView: View {
                 store.invalidateAll()
                 refreshID = UUID()
             }
+        }
+        // Review presents the reader's dictionary popup without importing
+        // ReaderFeature; the root injects it. Applied last so it reaches the
+        // tabs and every sheet/cover presented above.
+        .environment(\.lookupPopup) { query, dismiss in
+            AnyView(LookupPopupView(initialQuery: query, onDismiss: dismiss))
         }
     }
 

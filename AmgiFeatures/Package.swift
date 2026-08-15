@@ -175,17 +175,14 @@ let package = Package(
         // profile picker. Depends on ReviewFeature only to present ReviewView
         // off a deck row.
         //
-        // .interoperabilityMode(.Cxx) for the same transitive reason as
-        // ReviewFeature, one hop further out: nothing here is C++, but
-        // DecksFeature -> ReviewFeature -> ReaderFeature -> AmgiReaderDictionary
-        // puts the CHoshiDicts modulemap in this target's Clang scan. Verified
-        // by building without it (2026-08-15).
-        //
-        // The chain is now ReaderFeature, ReviewFeature, DecksFeature and the
-        // app target — it widens with every feature that reaches Review. One
-        // edge causes all of it: ReviewFeature importing ReaderFeature for
-        // LookupPopupView. Inverting that (app injects the lookup view into
-        // ReviewView) would take Review and Decks back out of the chain.
+        // No .interoperabilityMode(.Cxx). This target used to need it purely
+        // transitively — DecksFeature -> ReviewFeature -> ReaderFeature ->
+        // AmgiReaderDictionary put the CHoshiDicts modulemap in its Clang
+        // scan. That edge was inverted on 2026-08-15 (the app injects the
+        // lookup popup via EnvironmentValues.lookupPopup), so the Cxx chain is
+        // ReaderFeature and the app target only. Importing any Cxx-mode module
+        // under this target brings the setting — and the loss of compilation
+        // caching — straight back.
         .target(
             name: "DecksFeature",
             dependencies: [
@@ -201,31 +198,27 @@ let package = Package(
                 .product(name: "SwiftUINavigation", package: "swift-navigation"),
                 .product(name: "CasePaths", package: "swift-case-paths"),
             ],
-            swiftSettings: sharedSwiftSettings + [.interoperabilityMode(.Cxx)]
+            swiftSettings: sharedSwiftSettings
         ),
         // The review screen: WebKit card host, flip chrome, rating bar,
         // native renderer, render-mode UI. The session state machine itself is
         // AmgiReviewCore, which the watch also links — keep engine logic there
         // and presentation here.
         //
-        // Depends on ReaderFeature for LookupPopupView (the dictionary popup
-        // is shared with the reader) and on BrowseFeature/TemplatesFeature for
-        // note editing and template editing off the card.
+        // Depends on BrowseFeature/TemplatesFeature for note editing and
+        // template editing off the card.
         //
-        // .interoperabilityMode(.Cxx) is required *because of* that
-        // ReaderFeature edge, not because anything here touches C++: Cxx
-        // interop is transitive through the module graph, so importing a
-        // Cxx-mode module drags the CHoshiDicts modulemap into this target's
-        // Clang dependency scan. Without it the build fails with "module
-        // 'CHoshiDicts' requires feature 'cplusplus'".
+        // It deliberately does NOT depend on ReaderFeature. It used to, for
+        // LookupPopupView (the dictionary popup is shared with the reader),
+        // and that single edge forced .interoperabilityMode(.Cxx) here and on
+        // DecksFeature behind it — Cxx interop is transitive, so importing a
+        // Cxx-mode module drags the CHoshiDicts modulemap into the Clang
+        // dependency scan, and any target in that chain drops out of explicit
+        // modules and compilation caching (rdar://122829880).
         //
-        // The cost is that this target also drops out of explicit modules /
-        // compilation caching (rdar://122829880). To get it back, the
-        // ReaderFeature edge has to go — invert it, and have the app inject
-        // the lookup-popup view into ReviewView instead of ReviewFeature
-        // importing it. Two call sites (ContentView, DeckDetailPresentations).
-        // Not done: unmeasured on a 2.1k-line target, and this session has
-        // twice over-predicted build wins in this exact area.
+        // Inverted on 2026-08-15: the app root supplies the popup through
+        // EnvironmentValues.lookupPopup (AmgiAppShared), so ReviewView renders
+        // it without knowing what it is. Do not re-add the import.
         .target(
             name: "ReviewFeature",
             dependencies: [
@@ -233,7 +226,6 @@ let package = Package(
                 "AmgiAppShared",
                 "AmgiReviewCore",
                 "BrowseFeature",
-                "ReaderFeature",
                 "TemplatesFeature",
                 .product(name: "AnkiKit", package: "amgi"),
                 .product(name: "AnkiClients", package: "amgi"),
@@ -243,7 +235,7 @@ let package = Package(
                 .product(name: "Dependencies", package: "swift-dependencies"),
                 .product(name: "Sharing", package: "swift-sharing"),
             ],
-            swiftSettings: sharedSwiftSettings + [.interoperabilityMode(.Cxx)]
+            swiftSettings: sharedSwiftSettings
         ),
         // The EPUB reader, its dictionary lookup UI, and the study landing
         // screen. The only target that touches AmgiReaderDictionary, which is
