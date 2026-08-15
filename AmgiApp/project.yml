@@ -160,6 +160,8 @@ targets:
         product: ReaderFeature
       - package: AmgiFeatures
         product: AmgiReviewCore
+      - package: AmgiFeatures
+        product: ReviewFeature
       - package: swift-navigation
         product: SwiftNavigation
       - package: swift-navigation

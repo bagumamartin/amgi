@@ -9,13 +9,10 @@
 /* Begin PBXBuildFile section */
 		036A4625F27B308AC8035966 /* SettingsControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0DAB1812F24856DD3CC942C /* SettingsControls.swift */; };
 		040033C6E335CD8EF283273C /* StatsFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 6134D4828EF9AAF6F6BB6DF6 /* StatsFeature */; };
-		0453D87A64F5D97716D53E90 /* CardWebViewCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 342022B67A1EDBA3B371E543 /* CardWebViewCoordinator.swift */; };
 		05B3C09F3B96E96D972F0424 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CAE0DE68DC7E04F773A57E14 /* SwiftUI.framework */; };
 		069FB7721A08F39D6E8271DB /* CreateDeckSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB1E8833CDEE89A28A9D590E /* CreateDeckSheet.swift */; };
-		077F0910DA0E5D6380FF6EA3 /* NativeCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCC3551579976335678100B5 /* NativeCardView.swift */; };
-		0F40C1E8847A0ABB57C180F5 /* ReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CB7489D2E74B5E73B594C7A /* ReviewView.swift */; };
-		0FDF34D6806933E95B721D02 /* NativeCardAudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E31C7A88FD8DD161F56C876 /* NativeCardAudioPlayer.swift */; };
 		125CB371BB8CCAEE250459BD /* AmgiAppCore in Frameworks */ = {isa = PBXBuildFile; productRef = 116C9E134761B3BF0647B3AF /* AmgiAppCore */; };
+		12BF73D42FEE3F5990828D1C /* Sharing in Frameworks */ = {isa = PBXBuildFile; productRef = 4F99E922EA9267E4EE4CD5D6 /* Sharing */; };
 		1795F1391A509C8FDDC7E9EA /* AmgiAppCore in Frameworks */ = {isa = PBXBuildFile; productRef = FD00F2AAC2D276FA1DA66C53 /* AmgiAppCore */; };
 		1BA1F93AC6C6FF8C357063BA /* Sharing in Frameworks */ = {isa = PBXBuildFile; productRef = E246B9A74FC08245970AE0E4 /* Sharing */; };
 		1CCF36BA63528C1E2FA3F9FD /* AnkiClients in Frameworks */ = {isa = PBXBuildFile; productRef = 1D9F9CD702DB5DC5DC8AAB30 /* AnkiClients */; };
@@ -23,7 +20,6 @@
 		207D99D4CAFE4F1300F72217 /* DeckConfigView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F01B084E8AEB14A0BAD24F3 /* DeckConfigView.swift */; };
 		25295E65FF027CFDAAB366BC /* AmgiTheme in Frameworks */ = {isa = PBXBuildFile; productRef = F965A812044E53C1A2FD5A8F /* AmgiTheme */; };
 		299B005188E1C31734C0AFF2 /* EmptyCardsModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D9E6184822FCB210E41A5E8 /* EmptyCardsModel.swift */; };
-		2B3722F4A958BE92E88FC2C5 /* CardWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E265F3067C4AA7E4D05DD2FC /* CardWebView.swift */; };
 		2CAB5110CCB01AF10B974D9E /* DeckConfigModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEBEEEE92DE49D8289A00FC5 /* DeckConfigModel.swift */; };
 		2F43663149BBF09CD9A48432 /* DeckImportModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 294159A0F3FE92450BEAEA05 /* DeckImportModifier.swift */; };
 		2F6CCEA4FF8B775FCA9299DA /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2B60A11C277A30E8180CB0F1 /* WidgetKit.framework */; };
@@ -31,12 +27,11 @@
 		31DFB8BCCF69A31D87858FFB /* WatchLoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57514F10406A5930D1E01B7F /* WatchLoginView.swift */; };
 		34270B208122270BAC697B31 /* AmgiReader in Frameworks */ = {isa = PBXBuildFile; productRef = 2BD648FA756A72588752BD8B /* AmgiReader */; };
 		360BEED33A882BB8C8A9141A /* WatchStatsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D443C314BCDE2081B6CF7B2 /* WatchStatsView.swift */; };
-		391CC0DC3F78804CB9D4F2A7 /* RatingBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CF9227A3F798C67AD696F1A /* RatingBar.swift */; };
 		3D268B4CF0BCA67EC007563F /* WatchReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9761A12271BD9A8498A7B14E /* WatchReviewView.swift */; };
 		402596FE0D7AF17DA2F8B746 /* ProfilePickerMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D1DE64E39F2A91CE8DDB346 /* ProfilePickerMenu.swift */; };
 		4806E64030A4EBAA1A2DF239 /* AnkiKit in Frameworks */ = {isa = PBXBuildFile; productRef = AB49118FC7A518B48ED09051 /* AnkiKit */; };
 		49104EDF36126D6FEB4063F4 /* RetroactiveIdentifiable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 843DF8545ED1E3A956981DB1 /* RetroactiveIdentifiable.swift */; };
-		4D082714A42AC42E79311B2B /* SwiftNavigation in Frameworks */ = {isa = PBXBuildFile; productRef = A83E8288FCBE678AC922CFF0 /* SwiftNavigation */; };
+		4D082714A42AC42E79311B2B /* ReviewFeature in Frameworks */ = {isa = PBXBuildFile; productRef = D0ABBAC0A47EAB612FE8A1DF /* ReviewFeature */; };
 		5197DE6744C39404AA7BCC59 /* AmgiCharts in Frameworks */ = {isa = PBXBuildFile; productRef = 16A0D6E4347ACFB21E40E615 /* AmgiCharts */; };
 		5206D53A52E116E129C0E956 /* AnkiSync in Frameworks */ = {isa = PBXBuildFile; productRef = 1D52A2C890DE8794E39904C4 /* AnkiSync */; };
 		538DDAEB25D5AA09A680B4C8 /* MaintenanceModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4AB1EE3736034B9FBBAD23A /* MaintenanceModel.swift */; };
@@ -50,7 +45,6 @@
 		626B8BFD9C75DACBE6B13B2A /* DeckConfigPresentations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AB517EE732AD3C0F9592440 /* DeckConfigPresentations.swift */; };
 		6510AAE691D538C1629A6D12 /* DeckDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C550C2CF61A0255A45E54490 /* DeckDetailView.swift */; };
 		652134A3080AAB2E8524794F /* AnkiKit in Frameworks */ = {isa = PBXBuildFile; productRef = D17643555D7431BE694A9400 /* AnkiKit */; };
-		67A095604A636B213AA9661B /* RenderModeSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 431515739A7B48EA43995E77 /* RenderModeSheet.swift */; };
 		67A2ED31F59B08EBD06A4FED /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A12D2167226A912462BF60EA /* Assets.xcassets */; };
 		6932C86281AB9089FDCF9C6B /* AnkiServices in Frameworks */ = {isa = PBXBuildFile; productRef = 9C12DFB8208798638ECB4C68 /* AnkiServices */; };
 		6B10979FEE38C6E41A306E60 /* SyncFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 4C469D6EF802EC825D6E2D20 /* SyncFeature */; };
@@ -63,7 +57,6 @@
 		75380F9BE33B85F31F5A5279 /* DeckConfigDestination.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38C8B5391D7B0EAE1162DC3A /* DeckConfigDestination.swift */; };
 		7C4497B5B8FEB2820FD860B0 /* TemplatesFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 9620FA12A6D7E51DE075AA07 /* TemplatesFeature */; };
 		7C46534E4D979D315641F713 /* AnkiSync in Frameworks */ = {isa = PBXBuildFile; productRef = 9F148DCECED472C7DE230AB6 /* AnkiSync */; };
-		7EC529DC6A312F24FC8069FD /* CardWebViewConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D87C8D1EA1497775B548D36 /* CardWebViewConfig.swift */; };
 		8037088122D7F4739E1D412A /* AnkiKit in Frameworks */ = {isa = PBXBuildFile; productRef = EEE5266ACE0725F53E9703A8 /* AnkiKit */; };
 		83F1DF368A5E6702585B868F /* FsrsSimulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4CB05F4513DD8B5ADD54B98 /* FsrsSimulator.swift */; };
 		85730DEFCB36C5C27D16DFBB /* SwiftNavigation in Frameworks */ = {isa = PBXBuildFile; productRef = 5E4DD888EA7B00AFD7922CBF /* SwiftNavigation */; };
@@ -72,7 +65,7 @@
 		88CEBB679A25C18EFA30E22A /* AmgiCardWeb in Frameworks */ = {isa = PBXBuildFile; productRef = 81149E565C8204F6F4E79A3F /* AmgiCardWeb */; };
 		8AD06D30608491B042880E1E /* AmgiWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A837EB0A30B6E90B20D5C1CD /* AmgiWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		8AE5F2F0A719B566CC316F35 /* Review in Resources */ = {isa = PBXBuildFile; fileRef = 1B84A2ADB8D6A599253D2E78 /* Review */; };
-		8B08273A16790AC5FCBBA6A5 /* Sharing in Frameworks */ = {isa = PBXBuildFile; productRef = 4F99E922EA9267E4EE4CD5D6 /* Sharing */; };
+		8B08273A16790AC5FCBBA6A5 /* SwiftUINavigation in Frameworks */ = {isa = PBXBuildFile; productRef = CA8CCDB6FCA0124A188DC0B8 /* SwiftUINavigation */; };
 		8B99191DE01CA2535D41A860 /* EmptyCardsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0DFCEE447798D2B484E90BE /* EmptyCardsView.swift */; };
 		8C87B61A46DD9657DD5DB797 /* SyncSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B33C212E000026ABADB018F /* SyncSettingsView.swift */; };
 		8F888B18043AFB901AA52598 /* AnkiBackend in Frameworks */ = {isa = PBXBuildFile; productRef = 35974FDD258EB94D5852A939 /* AnkiBackend */; };
@@ -92,7 +85,7 @@
 		B97FF9F69B4A6A94CDAE1610 /* DeckDetailPresentations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6491E9386C556888CD58F023 /* DeckDetailPresentations.swift */; };
 		BB3E89CDD647E53D949E751D /* AmgiAppApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8194F942C511DFA83C0CB371 /* AmgiAppApp.swift */; };
 		C09A2A870D3E6F0F7D4E5A04 /* DeckDetailStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9111D0AC64F7AB7897A578A4 /* DeckDetailStats.swift */; };
-		C0E1BDBCA1C96F26EC31E956 /* SwiftUINavigation in Frameworks */ = {isa = PBXBuildFile; productRef = CA8CCDB6FCA0124A188DC0B8 /* SwiftUINavigation */; };
+		C0E1BDBCA1C96F26EC31E956 /* SwiftNavigation in Frameworks */ = {isa = PBXBuildFile; productRef = A83E8288FCBE678AC922CFF0 /* SwiftNavigation */; };
 		C19817C4D671B6B7CA605B87 /* ReaderFeature in Frameworks */ = {isa = PBXBuildFile; productRef = CBE98F95767A0BAEE71ED603 /* ReaderFeature */; };
 		C417D0DB3832D3592A5A3BA1 /* AnkiBackend in Frameworks */ = {isa = PBXBuildFile; productRef = F40C6D05700BCD9DB3969CD4 /* AnkiBackend */; };
 		C7E42C769A4C5821E0D2A65E /* AnkiServices in Frameworks */ = {isa = PBXBuildFile; productRef = 38DEF6B96461889F8EAAAE48 /* AnkiServices */; };
@@ -100,12 +93,9 @@
 		CD7A425CC4ECBA61920F09E6 /* AmgiUI in Frameworks */ = {isa = PBXBuildFile; productRef = 87D0CB2695723E94A8F6EEE4 /* AmgiUI */; };
 		D0E9E2D64289CAB5CA8D67E1 /* ReaderSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFDE1678CF021B6CF705D5CC /* ReaderSettingsView.swift */; };
 		D3B0989D3CEBB20DAA62EA90 /* DeckListModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0245EB30C01F2677B113BA75 /* DeckListModel.swift */; };
-		D9802D91A8B55B23577F6EFB /* FlipContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C32F2FF0EE183937B7EE822 /* FlipContainer.swift */; };
 		DB8CA754373E723344121D7D /* DeckListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C968B98E054F2FA99287A836 /* DeckListView.swift */; };
 		DE0DB0C2E15B0BFDE4E06947 /* DeckCountsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A6A2AFAF4DB553619328067 /* DeckCountsView.swift */; };
 		DE98A74CA5D8DD96B249AF62 /* DeckListRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B47CB01ABE5D6719AA19DCD /* DeckListRowView.swift */; };
-		E18368C644EE632856232766 /* RenderModeChipRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D2D6CFA943AB8481B28D3DA /* RenderModeChipRow.swift */; };
-		E309863697020446528E29DD /* ReviewAudioSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DCFB2EBF09D90E8F0D1B068 /* ReviewAudioSession.swift */; };
 		E45540503268E00A3CAC9B04 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2B60A11C277A30E8180CB0F1 /* WidgetKit.framework */; };
 		E8CE9276CD85FEC652968AA5 /* RenameDeckSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 171ECA86AAD36234799EBED9 /* RenameDeckSheet.swift */; };
 		ED773D0658D79BF857AC7E33 /* DeckDetailDestination.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45A39E0F75D5CDD329862A7E /* DeckDetailDestination.swift */; };
@@ -116,7 +106,6 @@
 		F20F8BB863FC78D7DCEF5D4B /* WatchThemeCompatibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F34C1C52CEF3B2E6F9C92E1 /* WatchThemeCompatibility.swift */; };
 		F37C1A973A4F933CE3C9B39C /* AmgiAppShared in Frameworks */ = {isa = PBXBuildFile; productRef = ACD15169111E238EEB55BFCB /* AmgiAppShared */; };
 		F435860F404414DDFB885081 /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9AB03FC0929F8401CB402B4 /* AboutView.swift */; };
-		FAC37531F72B8508E8253A62 /* CardAssetScheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A33DB0DDA9DDB6DF8F59802 /* CardAssetScheme.swift */; };
 		FB8764C1AA520AC1B52A3F79 /* BackupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CD26991B97A250EF2CD8C00 /* BackupView.swift */; };
 		FBDD17C4C5111E25EA33A72B /* MediaCheckResultView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F231B0AEED1887A513639B6C /* MediaCheckResultView.swift */; };
 /* End PBXBuildFile section */
@@ -155,37 +144,27 @@
 /* Begin PBXFileReference section */
 		00A7ECF267A21BE8F7DB66A2 /* ReviewSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewSettingsView.swift; sourceTree = "<group>"; };
 		0245EB30C01F2677B113BA75 /* DeckListModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckListModel.swift; sourceTree = "<group>"; };
-		0A33DB0DDA9DDB6DF8F59802 /* CardAssetScheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardAssetScheme.swift; sourceTree = "<group>"; };
-		0D2D6CFA943AB8481B28D3DA /* RenderModeChipRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenderModeChipRow.swift; sourceTree = "<group>"; };
 		171ECA86AAD36234799EBED9 /* RenameDeckSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenameDeckSheet.swift; sourceTree = "<group>"; };
 		1B84A2ADB8D6A599253D2E78 /* Review */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Review; path = Resources/Review; sourceTree = SOURCE_ROOT; };
 		1C56C9FAC900298876BBABC6 /* MediaCheckModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaCheckModel.swift; sourceTree = "<group>"; };
 		1CDB5889BB8BBF41384CF365 /* DeckDetailBanners.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckDetailBanners.swift; sourceTree = "<group>"; };
-		1DCFB2EBF09D90E8F0D1B068 /* ReviewAudioSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewAudioSession.swift; sourceTree = "<group>"; };
 		1F01B084E8AEB14A0BAD24F3 /* DeckConfigView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckConfigView.swift; sourceTree = "<group>"; };
 		294159A0F3FE92450BEAEA05 /* DeckImportModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckImportModifier.swift; sourceTree = "<group>"; };
 		2A6A2AFAF4DB553619328067 /* DeckCountsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckCountsView.swift; sourceTree = "<group>"; };
 		2B60A11C277A30E8180CB0F1 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
-		2C32F2FF0EE183937B7EE822 /* FlipContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlipContainer.swift; sourceTree = "<group>"; };
 		2C87EF9E38E61B70CF4113A4 /* SettingsRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsRow.swift; sourceTree = "<group>"; };
-		2CF9227A3F798C67AD696F1A /* RatingBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RatingBar.swift; sourceTree = "<group>"; };
 		308AC2057FB8232A7A730D15 /* mathjax */ = {isa = PBXFileReference; lastKnownFileType = folder; name = mathjax; path = Resources/mathjax; sourceTree = SOURCE_ROOT; };
 		32D10E5F584CDD7816F8408A /* Fonts */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Fonts; path = Resources/Fonts; sourceTree = SOURCE_ROOT; };
-		342022B67A1EDBA3B371E543 /* CardWebViewCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardWebViewCoordinator.swift; sourceTree = "<group>"; };
 		38C8B5391D7B0EAE1162DC3A /* DeckConfigDestination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckConfigDestination.swift; sourceTree = "<group>"; };
 		3B47CB01ABE5D6719AA19DCD /* DeckListRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckListRowView.swift; sourceTree = "<group>"; };
 		3B53F4EE2614A1232A890203 /* WatchDeckDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchDeckDetailView.swift; sourceTree = "<group>"; };
 		3D443C314BCDE2081B6CF7B2 /* WatchStatsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchStatsView.swift; sourceTree = "<group>"; };
-		3D87C8D1EA1497775B548D36 /* CardWebViewConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardWebViewConfig.swift; sourceTree = "<group>"; };
-		431515739A7B48EA43995E77 /* RenderModeSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenderModeSheet.swift; sourceTree = "<group>"; };
 		44792958B343213988DC8FFB /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		45A39E0F75D5CDD329862A7E /* DeckDetailDestination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckDetailDestination.swift; sourceTree = "<group>"; };
 		4AB517EE732AD3C0F9592440 /* DeckConfigPresentations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckConfigPresentations.swift; sourceTree = "<group>"; };
-		4CB7489D2E74B5E73B594C7A /* ReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewView.swift; sourceTree = "<group>"; };
 		4DA36C23AD30519A2B22CC9D /* DeckDetailModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckDetailModel.swift; sourceTree = "<group>"; };
 		4E84263F2AEE7DF0EDCFDAC5 /* AccountsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountsSettingsView.swift; sourceTree = "<group>"; };
 		57514F10406A5930D1E01B7F /* WatchLoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchLoginView.swift; sourceTree = "<group>"; };
-		5E31C7A88FD8DD161F56C876 /* NativeCardAudioPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeCardAudioPlayer.swift; sourceTree = "<group>"; };
 		5F34C1C52CEF3B2E6F9C92E1 /* WatchThemeCompatibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchThemeCompatibility.swift; sourceTree = "<group>"; };
 		6491E9386C556888CD58F023 /* DeckDetailPresentations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckDetailPresentations.swift; sourceTree = "<group>"; };
 		652D89BC805F4B74FCAB89D3 /* AppearanceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceSettingsView.swift; sourceTree = "<group>"; };
@@ -225,12 +204,10 @@
 		DE61E854280804F08BB1DD31 /* AmgiApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = AmgiApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DEB7C216105220809180B8CF /* WatchContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchContentView.swift; sourceTree = "<group>"; };
 		E0DAB1812F24856DD3CC942C /* SettingsControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsControls.swift; sourceTree = "<group>"; };
-		E265F3067C4AA7E4D05DD2FC /* CardWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardWebView.swift; sourceTree = "<group>"; };
 		E52A1F699FA8746826E4EAB0 /* AmgiWatchApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AmgiWatchApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F0DFCEE447798D2B484E90BE /* EmptyCardsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmptyCardsView.swift; sourceTree = "<group>"; };
 		F231B0AEED1887A513639B6C /* MediaCheckResultView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaCheckResultView.swift; sourceTree = "<group>"; };
 		FB1E8833CDEE89A28A9D590E /* CreateDeckSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateDeckSheet.swift; sourceTree = "<group>"; };
-		FCC3551579976335678100B5 /* NativeCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeCardView.swift; sourceTree = "<group>"; };
 		FEBEEEE92DE49D8289A00FC5 /* DeckConfigModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckConfigModel.swift; sourceTree = "<group>"; };
 		FEF6D1A33091968455963805 /* AmgiAppTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AmgiAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -307,9 +284,10 @@
 				6B10979FEE38C6E41A306E60 /* SyncFeature in Frameworks */,
 				C19817C4D671B6B7CA605B87 /* ReaderFeature in Frameworks */,
 				870A4E4AC65F6875365D6225 /* AmgiReviewCore in Frameworks */,
-				4D082714A42AC42E79311B2B /* SwiftNavigation in Frameworks */,
-				C0E1BDBCA1C96F26EC31E956 /* SwiftUINavigation in Frameworks */,
-				8B08273A16790AC5FCBBA6A5 /* Sharing in Frameworks */,
+				4D082714A42AC42E79311B2B /* ReviewFeature in Frameworks */,
+				C0E1BDBCA1C96F26EC31E956 /* SwiftNavigation in Frameworks */,
+				8B08273A16790AC5FCBBA6A5 /* SwiftUINavigation in Frameworks */,
+				12BF73D42FEE3F5990828D1C /* Sharing in Frameworks */,
 				2F6CCEA4FF8B775FCA9299DA /* WidgetKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -337,24 +315,6 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		11E2E0C450936C7DED737DDE /* Review */ = {
-			isa = PBXGroup;
-			children = (
-				0A33DB0DDA9DDB6DF8F59802 /* CardAssetScheme.swift */,
-				E265F3067C4AA7E4D05DD2FC /* CardWebView.swift */,
-				3D87C8D1EA1497775B548D36 /* CardWebViewConfig.swift */,
-				342022B67A1EDBA3B371E543 /* CardWebViewCoordinator.swift */,
-				2C32F2FF0EE183937B7EE822 /* FlipContainer.swift */,
-				2CF9227A3F798C67AD696F1A /* RatingBar.swift */,
-				0D2D6CFA943AB8481B28D3DA /* RenderModeChipRow.swift */,
-				431515739A7B48EA43995E77 /* RenderModeSheet.swift */,
-				1DCFB2EBF09D90E8F0D1B068 /* ReviewAudioSession.swift */,
-				4CB7489D2E74B5E73B594C7A /* ReviewView.swift */,
-				A9FFC31A7FA6643E4526A932 /* Native */,
-			);
-			path = Review;
-			sourceTree = "<group>";
-		};
 		54701E5FE2188037820D21A7 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
@@ -424,7 +384,6 @@
 				A745D7266B06FFE28B219996 /* MainTabView.swift */,
 				843DF8545ED1E3A956981DB1 /* RetroactiveIdentifiable.swift */,
 				90ADF1CE73507EC0A39F4C07 /* Decks */,
-				11E2E0C450936C7DED737DDE /* Review */,
 				71C5A9354AD4FBE1695E2F5C /* Settings */,
 				F6E98429D27EAD0FEB43C4D4 /* Watch */,
 				004874923745BECF98EEBD18 /* Widgets */,
@@ -453,15 +412,6 @@
 				171ECA86AAD36234799EBED9 /* RenameDeckSheet.swift */,
 			);
 			path = DeckList;
-			sourceTree = "<group>";
-		};
-		A9FFC31A7FA6643E4526A932 /* Native */ = {
-			isa = PBXGroup;
-			children = (
-				5E31C7A88FD8DD161F56C876 /* NativeCardAudioPlayer.swift */,
-				FCC3551579976335678100B5 /* NativeCardView.swift */,
-			);
-			path = Native;
 			sourceTree = "<group>";
 		};
 		C2DEE343E176258185B95328 /* Tests */ = {
@@ -575,6 +525,7 @@
 				4C469D6EF802EC825D6E2D20 /* SyncFeature */,
 				CBE98F95767A0BAEE71ED603 /* ReaderFeature */,
 				CF8C83822C8D9F7FB8575A15 /* AmgiReviewCore */,
+				D0ABBAC0A47EAB612FE8A1DF /* ReviewFeature */,
 				A83E8288FCBE678AC922CFF0 /* SwiftNavigation */,
 				CA8CCDB6FCA0124A188DC0B8 /* SwiftUINavigation */,
 				4F99E922EA9267E4EE4CD5D6 /* Sharing */,
@@ -757,11 +708,7 @@
 				BB3E89CDD647E53D949E751D /* AmgiAppApp.swift in Sources */,
 				F12D2524A2616E3735B61E6F /* AppearanceSettingsView.swift in Sources */,
 				FB8764C1AA520AC1B52A3F79 /* BackupView.swift in Sources */,
-				FAC37531F72B8508E8253A62 /* CardAssetScheme.swift in Sources */,
 				1E1BF8ADFE7DAF00588543FE /* CardRenderingSettingsView.swift in Sources */,
-				2B3722F4A958BE92E88FC2C5 /* CardWebView.swift in Sources */,
-				7EC529DC6A312F24FC8069FD /* CardWebViewConfig.swift in Sources */,
-				0453D87A64F5D97716D53E90 /* CardWebViewCoordinator.swift in Sources */,
 				9EAD0522B1DD04941E870437 /* CodeEditorSettingsView.swift in Sources */,
 				73BED515464AA8C80C765BFF /* ContentView.swift in Sources */,
 				069FB7721A08F39D6E8271DB /* CreateDeckSheet.swift in Sources */,
@@ -783,7 +730,6 @@
 				DB8CA754373E723344121D7D /* DeckListView.swift in Sources */,
 				299B005188E1C31734C0AFF2 /* EmptyCardsModel.swift in Sources */,
 				8B99191DE01CA2535D41A860 /* EmptyCardsView.swift in Sources */,
-				D9802D91A8B55B23577F6EFB /* FlipContainer.swift in Sources */,
 				83F1DF368A5E6702585B868F /* FsrsSimulator.swift in Sources */,
 				A3B2E1FE21E4233E17502743 /* FsrsSimulatorModel.swift in Sources */,
 				6C75D6E4500FC310A8EAE524 /* MainTabView.swift in Sources */,
@@ -791,18 +737,11 @@
 				EF9AE5772C4EAA9AA7A33BEC /* MaintenanceView.swift in Sources */,
 				CCE2831EA37962FEEC99013A /* MediaCheckModel.swift in Sources */,
 				FBDD17C4C5111E25EA33A72B /* MediaCheckResultView.swift in Sources */,
-				0FDF34D6806933E95B721D02 /* NativeCardAudioPlayer.swift in Sources */,
-				077F0910DA0E5D6380FF6EA3 /* NativeCardView.swift in Sources */,
 				402596FE0D7AF17DA2F8B746 /* ProfilePickerMenu.swift in Sources */,
-				391CC0DC3F78804CB9D4F2A7 /* RatingBar.swift in Sources */,
 				D0E9E2D64289CAB5CA8D67E1 /* ReaderSettingsView.swift in Sources */,
 				E8CE9276CD85FEC652968AA5 /* RenameDeckSheet.swift in Sources */,
-				E18368C644EE632856232766 /* RenderModeChipRow.swift in Sources */,
-				67A095604A636B213AA9661B /* RenderModeSheet.swift in Sources */,
 				49104EDF36126D6FEB4063F4 /* RetroactiveIdentifiable.swift in Sources */,
-				E309863697020446528E29DD /* ReviewAudioSession.swift in Sources */,
 				9480AB82C17BCEDE17F5A632 /* ReviewSettingsView.swift in Sources */,
-				0F40C1E8847A0ABB57C180F5 /* ReviewView.swift in Sources */,
 				036A4625F27B308AC8035966 /* SettingsControls.swift in Sources */,
 				ED890DB131928B61AEA1551B /* SettingsRow.swift in Sources */,
 				6D783B1E6B06D55C4F3CDB41 /* SettingsView.swift in Sources */,
@@ -1330,6 +1269,10 @@
 		CF8C83822C8D9F7FB8575A15 /* AmgiReviewCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = AmgiReviewCore;
+		};
+		D0ABBAC0A47EAB612FE8A1DF /* ReviewFeature */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ReviewFeature;
 		};
 		D17643555D7431BE694A9400 /* AnkiKit */ = {
 			isa = XCSwiftPackageProductDependency;

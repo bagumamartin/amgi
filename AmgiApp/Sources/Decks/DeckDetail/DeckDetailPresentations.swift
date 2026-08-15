@@ -3,6 +3,7 @@ import UIKit
 import AnkiKit
 import SwiftNavigation
 import SwiftUINavigation
+import ReviewFeature
 
 // Two ViewModifiers split out from `DeckDetailView.body` so the SwiftUI
 // type-checker doesn't blow up on a single long modifier chain. AnyView

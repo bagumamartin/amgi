@@ -6,6 +6,11 @@ import DependenciesMacros
 @DependencyClient
 public struct MediaClient: Sendable {
     public var localURL: @Sendable (_ filename: String) -> URL? = { _ in nil }
+
+    /// Root of Anki's media folder, or nil before a collection is open.
+    /// Prefer `localURL` when you want one file — this is for callers that
+    /// resolve paths themselves, like the card WebView's asset scheme handler.
+    public var folderURL: @Sendable () -> URL? = { nil }
     public var save: @Sendable (_ data: Data, _ filename: String) async throws -> Void
     public var delete: @Sendable (_ filename: String) async throws -> Void
 

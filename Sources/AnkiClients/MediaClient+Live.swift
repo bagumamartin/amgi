@@ -17,6 +17,9 @@ extension MediaClient: DependencyKey {
                 let url = URL(fileURLWithPath: folder).appendingPathComponent(filename)
                 return FileManager.default.fileExists(atPath: url.path) ? url : nil
             },
+            folderURL: {
+                backend.currentMediaFolderPath.map { URL(fileURLWithPath: $0) }
+            },
             save: { data, filename in
                 try await backendOffload {
                     guard let folder = backend.currentMediaFolderPath else { return }

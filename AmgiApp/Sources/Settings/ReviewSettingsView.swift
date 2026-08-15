@@ -2,6 +2,7 @@ import SwiftUI
 import AmgiAppCore
 import Sharing
 import AmgiReviewCore
+import ReviewFeature
 
 struct ReviewSettingsView: View {
     @Shared(.appStorage(ReviewPreferences.Keys.openLinksExternally))

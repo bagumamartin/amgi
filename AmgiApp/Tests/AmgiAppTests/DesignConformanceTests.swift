@@ -21,9 +21,9 @@ struct DesignConformanceTests {
 
     /// Deliberately off-system, with the reason. These never drain.
     private static let permanentlyExempt: [String: String] = [
-        "Review/CardWebViewCoordinator.swift":
+        "ReviewFeature/CardWebViewCoordinator.swift":
             "Parses Anki template CSS into UIColor. Card content, not app chrome.",
-        "Review/CardWebView.swift":
+        "ReviewFeature/CardWebView.swift":
             "Same — template CSS parsing.",
         "ReaderFeature/Reader/ReaderThemeColor.swift":
             "Reader's own sepia/dark/light reading themes, deliberately independent of the app palette.",
@@ -60,7 +60,7 @@ struct DesignConformanceTests {
             "Radius literals with no AmgiRadius equivalent; changing them would be a layout change (R29 is no-layout).",
         "Settings/CodeEditorSettingsView.swift":
             "Radius literals with no AmgiRadius equivalent; changing them would be a layout change (R29 is no-layout).",
-        "Review/ReviewView.swift":
+        "ReviewFeature/ReviewView.swift":
             "64pt success glyph in the session-finished empty state. A fixed-size SF Symbol, " +
             "not text — it has no AmgiFont role because it isn't type, and scaling it with " +
             "Dynamic Type would only push the message below it off-screen.",

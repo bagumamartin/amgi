@@ -45,6 +45,7 @@ let package = Package(
         .library(name: "SyncFeature", targets: ["SyncFeature"]),
         .library(name: "ReaderFeature", targets: ["ReaderFeature"]),
         .library(name: "AmgiReviewCore", targets: ["AmgiReviewCore"]),
+        .library(name: "ReviewFeature", targets: ["ReviewFeature"]),
     ],
     dependencies: [
         .package(path: ".."),
@@ -168,6 +169,48 @@ let package = Package(
                 .product(name: "Dependencies", package: "swift-dependencies"),
             ],
             swiftSettings: sharedSwiftSettings
+        ),
+        // The review screen: WebKit card host, flip chrome, rating bar,
+        // native renderer, render-mode UI. The session state machine itself is
+        // AmgiReviewCore, which the watch also links — keep engine logic there
+        // and presentation here.
+        //
+        // Depends on ReaderFeature for LookupPopupView (the dictionary popup
+        // is shared with the reader) and on BrowseFeature/TemplatesFeature for
+        // note editing and template editing off the card.
+        //
+        // .interoperabilityMode(.Cxx) is required *because of* that
+        // ReaderFeature edge, not because anything here touches C++: Cxx
+        // interop is transitive through the module graph, so importing a
+        // Cxx-mode module drags the CHoshiDicts modulemap into this target's
+        // Clang dependency scan. Without it the build fails with "module
+        // 'CHoshiDicts' requires feature 'cplusplus'".
+        //
+        // The cost is that this target also drops out of explicit modules /
+        // compilation caching (rdar://122829880). To get it back, the
+        // ReaderFeature edge has to go — invert it, and have the app inject
+        // the lookup-popup view into ReviewView instead of ReviewFeature
+        // importing it. Two call sites (ContentView, DeckDetailPresentations).
+        // Not done: unmeasured on a 2.1k-line target, and this session has
+        // twice over-predicted build wins in this exact area.
+        .target(
+            name: "ReviewFeature",
+            dependencies: [
+                "AmgiAppCore",
+                "AmgiAppShared",
+                "AmgiReviewCore",
+                "BrowseFeature",
+                "ReaderFeature",
+                "TemplatesFeature",
+                .product(name: "AnkiKit", package: "amgi"),
+                .product(name: "AnkiClients", package: "amgi"),
+                .product(name: "AmgiCardWeb", package: "amgi"),
+                .product(name: "AmgiTheme", package: "AmgiUI"),
+                .product(name: "AmgiUI", package: "AmgiUI"),
+                .product(name: "Dependencies", package: "swift-dependencies"),
+                .product(name: "Sharing", package: "swift-sharing"),
+            ],
+            swiftSettings: sharedSwiftSettings + [.interoperabilityMode(.Cxx)]
         ),
         // The EPUB reader, its dictionary lookup UI, and the study landing
         // screen. The only target that touches AmgiReaderDictionary, which is

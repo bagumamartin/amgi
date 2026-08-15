@@ -1,11 +1,11 @@
-import SwiftUI
+public import SwiftUI
 import AmgiCardWeb
 import AmgiTheme
 import AmgiUI
 import AmgiAppCore
 import AmgiAppShared
-import AnkiBackend
-import AnkiKit
+import AnkiClients
+public import AnkiKit
 import Dependencies
 import BrowseFeature
 import TemplatesFeature
@@ -18,7 +18,7 @@ import AmgiReviewCore
 /// application, widget snapshot on disappear). Hands the session plus pref
 /// values and sheet bindings to the pure `ReviewContent`, which is what the
 /// `#Preview`s build with a stub session.
-struct ReviewView: View {
+public struct ReviewView: View {
     let deckId: DeckID
     let onDismiss: () -> Void
 
@@ -48,13 +48,13 @@ struct ReviewView: View {
     @State private var editingTemplate: ReviewSession.TemplateTarget?
     @State private var lookupQuery: String?
 
-    init(deckId: DeckID, onDismiss: @escaping () -> Void) {
+    public init(deckId: DeckID, onDismiss: @escaping () -> Void) {
         self.deckId = deckId
         self.onDismiss = onDismiss
         self._session = State(initialValue: ReviewSession(deckId: deckId))
     }
 
-    var body: some View {
+    public var body: some View {
         ReviewContent(
             session: session,
             showRemainingDays: showRemainingDays,
@@ -386,9 +386,8 @@ private struct ReviewCardArea: View {
     /// rather than re-resolving the dependency on every `cardSurface` call —
     /// which the flip container makes twice per `body` pass.
     @State private var mediaFolder: URL? = {
-        @Dependency(\.ankiBackend) var backend
-        guard let path = backend.currentMediaFolderPath else { return nil }
-        return URL(fileURLWithPath: path)
+        @Dependency(\.mediaClient) var mediaClient
+        return mediaClient.folderURL()
     }()
 
     var body: some View {

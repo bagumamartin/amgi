@@ -1,7 +1,7 @@
 import Foundation
 import WebKit
 import AmgiCardWeb
-import AnkiBackend
+import AnkiClients
 import Dependencies
 
 final class CardAssetScheme: NSObject, WKURLSchemeHandler {
@@ -11,11 +11,8 @@ final class CardAssetScheme: NSObject, WKURLSchemeHandler {
             return
         }
 
-        @Dependency(\.ankiBackend) var backend
-        let mediaRoot: URL? = {
-            guard let path = backend.currentMediaFolderPath else { return nil }
-            return URL(fileURLWithPath: path)
-        }()
+        @Dependency(\.mediaClient) var mediaClient
+        let mediaRoot = mediaClient.folderURL()
         let bundleRoot = Bundle.main.resourceURL
 
         if url.host?.lowercased() == "media", mediaRoot == nil {
