@@ -46,6 +46,7 @@ let package = Package(
         .library(name: "ReaderFeature", targets: ["ReaderFeature"]),
         .library(name: "AmgiReviewCore", targets: ["AmgiReviewCore"]),
         .library(name: "ReviewFeature", targets: ["ReviewFeature"]),
+        .library(name: "DecksFeature", targets: ["DecksFeature"]),
     ],
     dependencies: [
         .package(path: ".."),
@@ -169,6 +170,38 @@ let package = Package(
                 .product(name: "Dependencies", package: "swift-dependencies"),
             ],
             swiftSettings: sharedSwiftSettings
+        ),
+        // Deck list, deck detail, deck config + the FSRS simulator, and the
+        // profile picker. Depends on ReviewFeature only to present ReviewView
+        // off a deck row.
+        //
+        // .interoperabilityMode(.Cxx) for the same transitive reason as
+        // ReviewFeature, one hop further out: nothing here is C++, but
+        // DecksFeature -> ReviewFeature -> ReaderFeature -> AmgiReaderDictionary
+        // puts the CHoshiDicts modulemap in this target's Clang scan. Verified
+        // by building without it (2026-08-15).
+        //
+        // The chain is now ReaderFeature, ReviewFeature, DecksFeature and the
+        // app target — it widens with every feature that reaches Review. One
+        // edge causes all of it: ReviewFeature importing ReaderFeature for
+        // LookupPopupView. Inverting that (app injects the lookup view into
+        // ReviewView) would take Review and Decks back out of the chain.
+        .target(
+            name: "DecksFeature",
+            dependencies: [
+                "AmgiAppCore",
+                "AmgiAppShared",
+                "BrowseFeature",
+                "ReviewFeature",
+                .product(name: "AnkiKit", package: "amgi"),
+                .product(name: "AnkiClients", package: "amgi"),
+                .product(name: "AmgiTheme", package: "AmgiUI"),
+                .product(name: "AmgiUI", package: "AmgiUI"),
+                .product(name: "Dependencies", package: "swift-dependencies"),
+                .product(name: "SwiftUINavigation", package: "swift-navigation"),
+                .product(name: "CasePaths", package: "swift-case-paths"),
+            ],
+            swiftSettings: sharedSwiftSettings + [.interoperabilityMode(.Cxx)]
         ),
         // The review screen: WebKit card host, flip chrome, rating bar,
         // native renderer, render-mode UI. The session state machine itself is

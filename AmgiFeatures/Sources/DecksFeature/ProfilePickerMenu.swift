@@ -9,7 +9,12 @@ import AmgiAppCore
 ///
 /// Add/delete still happens in Settings → Account → Profiles; this
 /// menu is a fast picker, not a full manager.
+/// `switchProfile` lives in the app's composition root — it drives the shared
+/// backend, the sync coordinator, and collection open/close — so the action is
+/// injected rather than imported.
 struct ProfilePickerMenu: View {
+    let onSwitch: (AmgiAccount) async -> Void
+
     @State private var store = AccountStore.shared
     @Environment(\.palette) private var palette
 
@@ -18,7 +23,7 @@ struct ProfilePickerMenu: View {
             Section {
                 ForEach(store.accounts) { account in
                     Button {
-                        Task { await switchProfile(to: account) }
+                        Task { await onSwitch(account) }
                     } label: {
                         HStack {
                             Text(account.displayName)

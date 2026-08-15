@@ -3,6 +3,7 @@ import SwiftUI
 import AnkiKit
 import StatsFeature
 import ReaderFeature
+import DecksFeature
 
 /// Root tab bar for the app. Pure layout: each tab wraps a feature view in
 /// a `NavigationStack`. `refreshID` (bumped by the host after sync / import /
@@ -21,7 +22,7 @@ struct MainTabView: View {
             // 1. Library
             Tab("Library", systemImage: "books.vertical") {
                 NavigationStack {
-                    DeckListView()
+                    DeckListView(onSwitchProfile: { await switchProfile(to: $0) })
                         .toolbar { libraryToolbar }
                 }
             }

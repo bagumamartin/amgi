@@ -4,6 +4,7 @@ import AnkiKit
 import SwiftNavigation
 import SwiftUINavigation
 import ReviewFeature
+import UniformTypeIdentifiers  // UTType.data
 
 // Two ViewModifiers split out from `DeckDetailView.body` so the SwiftUI
 // type-checker doesn't blow up on a single long modifier chain. AnyView

@@ -1,5 +1,6 @@
 // AmgiApp/Sources/Decks/DeckList/DeckListView.swift
-import SwiftUI
+public import SwiftUI
+public import AmgiAppCore
 import AmgiAppShared
 import AmgiTheme
 import AmgiUI
@@ -12,7 +13,8 @@ import BrowseFeature
 /// a `DeckListModel` for load/refresh + deck mutations. Rendering is
 /// delegated to `LibraryListContent` (AmgiUI); data assembly lives in the
 /// model. The View is intentionally thin — presentation wiring only.
-struct DeckListView: View {
+public struct DeckListView: View {
+    private let onSwitchProfile: (AmgiAccount) async -> Void
     @Dependency(\.collectionStore) private var store
     @State private var model: DeckListModel
     @State private var showCreateSheet = false
@@ -22,11 +24,20 @@ struct DeckListView: View {
     /// in from the trailing edge — the row and the screen are the same thing.
     @Namespace private var deckTransition
 
-    init(model: DeckListModel = DeckListModel()) {
+    /// `onSwitchProfile` is the app root's profile switch — see
+    /// `ProfilePickerMenu`.
+    public init(onSwitchProfile: @escaping (AmgiAccount) async -> Void) {
+        self.onSwitchProfile = onSwitchProfile
+        _model = State(initialValue: DeckListModel())
+    }
+
+    /// Preview / test seam — internal so the model stays module-private.
+    init(model: DeckListModel, onSwitchProfile: @escaping (AmgiAccount) async -> Void = { _ in }) {
+        self.onSwitchProfile = onSwitchProfile
         _model = State(initialValue: model)
     }
 
-    var body: some View {
+    public var body: some View {
         LibraryListContent(
             state: model.state,
             onRefresh: { await model.load() },
@@ -62,7 +73,7 @@ struct DeckListView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
-            ProfilePickerMenu()
+            ProfilePickerMenu(onSwitch: onSwitchProfile)
         }
         ToolbarItem(placement: .topBarTrailing) {
             // `BrowseView` owns its own title and search field and expects to be

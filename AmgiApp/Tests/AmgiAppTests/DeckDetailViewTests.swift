@@ -1,5 +1,6 @@
 import Testing
 @testable import AmgiApp
+@testable import DecksFeature
 
 /// Guards R29 Task 2: `DeckDetailView` must pass a leaf-only deck name to
 /// `DeckTileGlyph.resolve` (via `shortTitle` → `deckName:`), not the full
