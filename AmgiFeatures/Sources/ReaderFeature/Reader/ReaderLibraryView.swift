@@ -1,7 +1,7 @@
 import AmgiReader
 import AmgiAppCore
 import Sharing
-import SwiftUI
+public import SwiftUI
 import UniformTypeIdentifiers
 
 // MARK: - Sort mode
@@ -28,7 +28,7 @@ enum BookshelfSortMode: String, CaseIterable, Identifiable {
 /// drives a `ReaderLibraryModel` for load/import. Rendering is delegated to
 /// `ReaderLibraryContent`; the model owns all I/O so the View is thin
 /// presentation wiring with no direct engine access.
-struct ReaderLibraryView: View {
+public struct ReaderLibraryView: View {
     @State private var model: ReaderLibraryModel
 
     @Shared(.appStorage(ReaderPreferenceKey.deckName)) private var deckName: String = ""
@@ -39,7 +39,13 @@ struct ReaderLibraryView: View {
     @State private var isImporting: Bool = false
     @State private var showConfiguration: Bool = false
 
-    init(model: ReaderLibraryModel = ReaderLibraryModel()) {
+    public init() {
+        _model = State(initialValue: ReaderLibraryModel())
+    }
+
+    /// Preview / test seam — lets a caller inside the module inject a
+    /// pre-populated model. Deliberately not public.
+    init(model: ReaderLibraryModel) {
         _model = State(initialValue: model)
     }
 
@@ -47,7 +53,7 @@ struct ReaderLibraryView: View {
         BookshelfSortMode(rawValue: sortModeRaw) ?? .recent
     }
 
-    var body: some View {
+    public var body: some View {
         ReaderLibraryContent(
             state: model.state,
             bookForId: { model.book(for: $0) },

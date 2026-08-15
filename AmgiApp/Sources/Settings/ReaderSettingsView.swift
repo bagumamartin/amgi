@@ -2,6 +2,7 @@ import Sharing
 import SwiftUI
 import AmgiTheme
 import AmgiAppCore
+import ReaderFeature
 
 /// Tight subset of DreamAfar's reader display preferences. Keys are
 /// already declared in `ReaderPreferences.Keys`; this view binds the

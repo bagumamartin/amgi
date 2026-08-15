@@ -6,7 +6,7 @@ import AnkiKit
 import Dependencies
 import BrowseFeature
 import Sharing
-import SwiftUI
+public import SwiftUI
 
 /// Sheet that renders dictionary lookup results for a query. First-pass
 /// scope: plain-text glossaries, frequency strings, pitch positions, and
@@ -14,7 +14,7 @@ import SwiftUI
 /// Calls `dictionaryLookupClient.lookup` directly; while the engine is a
 /// stub it returns an empty placeholder and the view shows the empty
 /// state.
-struct LookupPopupView: View {
+public struct LookupPopupView: View {
     let initialQuery: String
     /// BCP-47 / loose hint forwarded into entry rows for TTS voice
     /// selection (`book.language`). Nil falls back to script sniffing.
@@ -30,6 +30,20 @@ struct LookupPopupView: View {
     /// so the book detail screen can refresh card counts live.
     var onAddedNote: (() -> Void)? = nil
     let onDismiss: () -> Void
+
+    public init(
+        initialQuery: String,
+        languageHint: String? = nil,
+        extraTags: [String] = [],
+        onAddedNote: (() -> Void)? = nil,
+        onDismiss: @escaping () -> Void
+    ) {
+        self.initialQuery = initialQuery
+        self.languageHint = languageHint
+        self.extraTags = extraTags
+        self.onAddedNote = onAddedNote
+        self.onDismiss = onDismiss
+    }
 
     @State private var model = LookupPopupModel()
 
@@ -102,7 +116,7 @@ struct LookupPopupView: View {
     /// `LookupChildPane`. Native nav back-swipe pops one level.
     @State private var lookupPath: [LookupPathEntry] = []
 
-    var body: some View {
+    public var body: some View {
         NavigationStack(path: $lookupPath) {
             content
                 .navigationTitle("Lookup")

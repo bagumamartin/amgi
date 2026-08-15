@@ -43,10 +43,12 @@ let package = Package(
         .library(name: "StatsFeature", targets: ["StatsFeature"]),
         .library(name: "BrowseFeature", targets: ["BrowseFeature"]),
         .library(name: "SyncFeature", targets: ["SyncFeature"]),
+        .library(name: "ReaderFeature", targets: ["ReaderFeature"]),
     ],
     dependencies: [
         .package(path: ".."),
         .package(path: "../AmgiUI"),
+        .package(path: "../AmgiReader"),
         .package(url: "https://github.com/pointfreeco/swift-dependencies", from: "1.0.0"),
         .package(url: "https://github.com/pointfreeco/swift-sharing", from: "2.0.0"),
         .package(url: "https://github.com/pointfreeco/swift-navigation", from: "2.0.0"),
@@ -145,6 +147,33 @@ let package = Package(
                 .product(name: "AnkiServices", package: "amgi"),
             ],
             swiftSettings: sharedSwiftSettings
+        ),
+        // The EPUB reader, its dictionary lookup UI, and the study landing
+        // screen. The only target that touches AmgiReaderDictionary, which is
+        // built in Cxx-interop mode for the hoshidicts bridge — hence the
+        // .interoperabilityMode below. SPM passes that to the dependency
+        // scanner natively, so unlike the Xcode app target this needs no
+        // OTHER_SWIFT_FLAGS duplication (see AmgiApp/project.yml).
+        //
+        // Keeping the Cxx chain contained here is the point: any target in it
+        // loses explicit modules and therefore compilation caching
+        // (rdar://122829880), so it must not spread back into the app.
+        .target(
+            name: "ReaderFeature",
+            dependencies: [
+                "AmgiAppCore",
+                "AmgiAppShared",
+                "BrowseFeature",
+                .product(name: "AmgiReader", package: "AmgiReader"),
+                .product(name: "AmgiReaderDictionary", package: "AmgiReader"),
+                .product(name: "AnkiKit", package: "amgi"),
+                .product(name: "AnkiClients", package: "amgi"),
+                .product(name: "AmgiTheme", package: "AmgiUI"),
+                .product(name: "AmgiUI", package: "AmgiUI"),
+                .product(name: "Dependencies", package: "swift-dependencies"),
+                .product(name: "Sharing", package: "swift-sharing"),
+            ],
+            swiftSettings: sharedSwiftSettings + [.interoperabilityMode(.Cxx)]
         ),
         .target(
             name: "SyncFeature",

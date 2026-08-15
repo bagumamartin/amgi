@@ -156,6 +156,8 @@ targets:
         product: BrowseFeature
       - package: AmgiFeatures
         product: SyncFeature
+      - package: AmgiFeatures
+        product: ReaderFeature
       - package: swift-navigation
         product: SwiftNavigation
       - package: swift-navigation
@@ -171,16 +173,25 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.amgiapp.AmgiApp
         CODE_SIGN_ENTITLEMENTS: AmgiApp.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        # Cxx interop chain. The app imports AmgiReaderDictionary, which
-        # is built with .interoperabilityMode(.Cxx) for the hoshidicts
-        # bridge. Xcode + SPM under Swift 6 needs an explicit Clang C++
-        # standard alongside SWIFT_CXX_INTEROPERABILITY_MODE — without
-        # the language-standard hint Clang's dependency scanner rejects
-        # the CHoshiDicts modulemap's `requires cplusplus`.
+        # Cxx interop chain. Xcode + SPM under Swift 6 needs an explicit
+        # Clang C++ standard alongside SWIFT_CXX_INTEROPERABILITY_MODE —
+        # without the language-standard hint Clang's dependency scanner
+        # rejects the CHoshiDicts modulemap's `requires cplusplus`.
         # The OTHER_SWIFT_FLAGS copy of the same switch looks redundant
         # but is required: the build setting alone doesn't reach the
         # dependency scanner (verified 2026-07: removing it fails with
         # "module 'CHoshiDicts' requires feature 'cplusplus'").
+        #
+        # NOTE (2026-08-15): these are NOT removable by moving Swift code.
+        # No app source imports AmgiReaderDictionary any more — that all
+        # lives in the ReaderFeature SPM target now — and a clean build
+        # still fails without this block, because Xcode puts every package's
+        # include dir on the app's -Xcc line, so the scanner walks
+        # hoshidicts/include/module.modulemap no matter what any file
+        # imports. Both the drop-everything and the keep-everything-but-
+        # OTHER_SWIFT_FLAGS variants were tried and both fail. The app
+        # target therefore stays out of explicit modules / compilation
+        # caching as long as hoshidicts is anywhere in its package graph.
         SWIFT_CXX_INTEROPERABILITY_MODE: default
         CLANG_CXX_LANGUAGE_STANDARD: "c++20"
         CLANG_CXX_LIBRARY: "libc++"

@@ -25,17 +25,17 @@ struct DesignConformanceTests {
             "Parses Anki template CSS into UIColor. Card content, not app chrome.",
         "Review/CardWebView.swift":
             "Same — template CSS parsing.",
-        "Reader/ReaderThemeColor.swift":
+        "ReaderFeature/Reader/ReaderThemeColor.swift":
             "Reader's own sepia/dark/light reading themes, deliberately independent of the app palette.",
-        "Reader/ReaderTypographyPreferences.swift":
+        "ReaderFeature/Reader/ReaderTypographyPreferences.swift":
             "Reader content typography — user-controlled, not app chrome.",
-        "Reader/ReaderFontOption.swift":
+        "ReaderFeature/Reader/ReaderFontOption.swift":
             "Reader content font list.",
-        "Reader/EPUBChapterPageController.swift":
+        "ReaderFeature/Reader/EPUBChapterPageController.swift":
             "UIColor.color(fromHex:) parses the reading theme's hex background for the WKWebView " +
             "hosting the book page — reading surface, not chrome, per the same boundary as " +
             "ReaderThemeColor.swift. No SwiftUI/palette-facing chrome lives in this file.",
-        "Reader/ChapterReaderView.swift":
+        "ReaderFeature/Reader/ChapterReaderView.swift":
             "Radius literals with no AmgiRadius equivalent; changing them would be a layout change (R29 is no-layout).",
         "AmgiCharts/HeatmapChartOptimized.swift":
             "Radius literals with no AmgiRadius equivalent; changing them would be a layout change " +

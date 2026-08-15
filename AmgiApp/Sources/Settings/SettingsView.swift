@@ -3,6 +3,7 @@ import AmgiTheme
 import AmgiAppCore
 import BrowseFeature
 import TemplatesFeature
+import ReaderFeature
 
 /// Settings, following the `amgi-settings.jsx` screen in the Amgi design
 /// project: in-content large title, grouped inset panels, tinted glyph

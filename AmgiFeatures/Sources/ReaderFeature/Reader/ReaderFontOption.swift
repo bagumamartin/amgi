@@ -7,7 +7,7 @@ import Foundation
 /// the CSS fallback chain to substitute when they're absent.
 ///
 /// The raw value is what gets persisted in `ReaderPreferences.Keys.selectedFont`.
-enum ReaderFontOption: String, CaseIterable, Identifiable, Sendable {
+public enum ReaderFontOption: String, CaseIterable, Identifiable, Sendable {
     case system
     case appleSDGothicNeo = "Apple SD Gothic Neo"
     case appleGothic = "AppleGothic"
@@ -17,11 +17,11 @@ enum ReaderFontOption: String, CaseIterable, Identifiable, Sendable {
     case hiraginoMincho = "Hiragino Mincho ProN"
     case hiraginoKakuGothic = "Hiragino Kaku Gothic ProN"
 
-    static let defaultValue = ReaderFontOption.system.rawValue
+    public static let defaultValue = ReaderFontOption.system.rawValue
 
-    var id: String { rawValue }
+    public var id: String { rawValue }
 
-    var title: String {
+    public var title: String {
         switch self {
         case .system: return "System"
         case .appleSDGothicNeo: return "Apple SD Gothic Neo"

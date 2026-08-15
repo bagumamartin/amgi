@@ -2,6 +2,7 @@
 import SwiftUI
 import AnkiKit
 import StatsFeature
+import ReaderFeature
 
 /// Root tab bar for the app. Pure layout: each tab wraps a feature view in
 /// a `NavigationStack`. `refreshID` (bumped by the host after sync / import /

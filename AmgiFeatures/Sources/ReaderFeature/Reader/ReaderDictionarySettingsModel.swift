@@ -2,6 +2,7 @@ import AmgiReader
 import AmgiReaderDictionary
 import Dependencies
 import Foundation
+import SwiftUI  // Array.move(fromOffsets:toOffset:)
 
 /// Dictionary-library I/O for the reader settings screen. Owns the engine
 /// dependency plus the library list, selected kind, busy flag, and last
