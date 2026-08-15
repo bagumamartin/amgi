@@ -67,7 +67,6 @@
 		626B8BFD9C75DACBE6B13B2A /* DeckConfigPresentations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AB517EE732AD3C0F9592440 /* DeckConfigPresentations.swift */; };
 		6510AAE691D538C1629A6D12 /* DeckDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C550C2CF61A0255A45E54490 /* DeckDetailView.swift */; };
 		652134A3080AAB2E8524794F /* AnkiKit in Frameworks */ = {isa = PBXBuildFile; productRef = D17643555D7431BE694A9400 /* AnkiKit */; };
-		6794E01033A5C4DE1FF5DF75 /* AnkiBackedDictionaryConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0B23ED7B10EED378E3E4BE2 /* AnkiBackedDictionaryConfigStore.swift */; };
 		679B377C1C8B788E15361E76 /* LookupAudioSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED043E82A627D528B6F1CA0E /* LookupAudioSupport.swift */; };
 		67A095604A636B213AA9661B /* RenderModeSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 431515739A7B48EA43995E77 /* RenderModeSheet.swift */; };
 		67A2ED31F59B08EBD06A4FED /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A12D2167226A912462BF60EA /* Assets.xcassets */; };
@@ -265,7 +264,6 @@
 		9B33C212E000026ABADB018F /* SyncSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncSettingsView.swift; sourceTree = "<group>"; };
 		9CD519B4B26E63A52C7C87AA /* ReaderCoverImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderCoverImage.swift; sourceTree = "<group>"; };
 		9D1DE64E39F2A91CE8DDB346 /* ProfilePickerMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfilePickerMenu.swift; sourceTree = "<group>"; };
-		A0B23ED7B10EED378E3E4BE2 /* AnkiBackedDictionaryConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnkiBackedDictionaryConfigStore.swift; sourceTree = "<group>"; };
 		A12D2167226A912462BF60EA /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A2707B671D59B6A90F12121B /* ReaderTTS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderTTS.swift; sourceTree = "<group>"; };
 		A597E301F139F342D2C29C06 /* ReaderTypographyPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderTypographyPreferences.swift; sourceTree = "<group>"; };
@@ -421,7 +419,6 @@
 		01A9E6CC625DD46CD1BEFAAF /* Reader */ = {
 			isa = PBXGroup;
 			children = (
-				A0B23ED7B10EED378E3E4BE2 /* AnkiBackedDictionaryConfigStore.swift */,
 				511DCB8ACF373447119FC5F6 /* ChapterListView.swift */,
 				EA1C214188A816DDAA4A0699 /* ChapterReaderView.swift */,
 				5DE2ECEF1E52C1879C95D357 /* EPUBChapterPageController.swift */,
@@ -912,7 +909,6 @@
 				F2448DB5E5C576F1533690E7 /* AllBooksCell.swift in Sources */,
 				8B5733CA3AEBEE368A00CD8D /* AllBooksSection.swift in Sources */,
 				BB3E89CDD647E53D949E751D /* AmgiAppApp.swift in Sources */,
-				6794E01033A5C4DE1FF5DF75 /* AnkiBackedDictionaryConfigStore.swift in Sources */,
 				F12D2524A2616E3735B61E6F /* AppearanceSettingsView.swift in Sources */,
 				FB8764C1AA520AC1B52A3F79 /* BackupView.swift in Sources */,
 				02CEE9B27A99ED4E31361BBD /* BookCoverView.swift in Sources */,

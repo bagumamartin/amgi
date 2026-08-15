@@ -1,6 +1,6 @@
 import AmgiTheme
 import AmgiUI
-import AnkiBackend
+import AnkiClients
 import Dependencies
 import Foundation
 import SwiftUI
@@ -136,14 +136,13 @@ final class CoverURLCache {
         let filename = extractImgSrc(from: raw) ?? raw
 
         // Case 3: bare filename — resolve against Anki media folder.
-        @Dependency(\.ankiBackend) var backend
-        guard let mediaPath = backend.currentMediaFolderPath else { return .none }
-        let mediaRoot = URL(fileURLWithPath: mediaPath)
-        let candidate = mediaRoot.appendingPathComponent(
-            filename.removingPercentEncoding ?? filename,
-            isDirectory: false
-        )
-        return FileManager.default.fileExists(atPath: candidate.path) ? .local(candidate) : .none
+        // `localURL` already joins against the media folder and stats the
+        // result, so the percent-decode is all this adds.
+        @Dependency(\.mediaClient) var mediaClient
+        guard let url = mediaClient.localURL(filename.removingPercentEncoding ?? filename) else {
+            return .none
+        }
+        return .local(url)
     }
 
     /// Pulls the first `src="…"` (or `src='…'`) value from an HTML
