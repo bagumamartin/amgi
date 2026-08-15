@@ -212,7 +212,7 @@ private struct ThemeSwatchButton: View {
                 )
             Text("Aa")
                 .amgiFont(.bodyEmphasis)
-                .foregroundStyle(Color(hex: theme.foregroundHex) ?? palette.textPrimary)
+                .foregroundStyle(ReaderThemeColor.color(fromHex: theme.foregroundHex, fallback: palette.textPrimary))
         }
     }
 }

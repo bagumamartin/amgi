@@ -104,32 +104,7 @@ enum ReaderTypographyPreferences {
         /// SwiftUI background for the chrome / WKWebView so there is no
         /// flash of system colour while the chapter loads.
         var backgroundColor: Color {
-            Color(hex: backgroundHex) ?? .white
-        }
-    }
-}
-
-extension Color {
-    /// Initialise from a "#RRGGBB" / "#AARRGGBB" hex literal. Returns
-    /// nil for malformed input.
-    init?(hex: String) {
-        var trimmed = hex.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.hasPrefix("#") { trimmed.removeFirst() }
-        guard let value = UInt64(trimmed, radix: 16) else { return nil }
-        switch trimmed.count {
-        case 6:
-            let r = Double((value & 0xFF0000) >> 16) / 255.0
-            let g = Double((value & 0x00FF00) >> 8) / 255.0
-            let b = Double(value & 0x0000FF) / 255.0
-            self = Color(red: r, green: g, blue: b)
-        case 8:
-            let a = Double((value & 0xFF000000) >> 24) / 255.0
-            let r = Double((value & 0x00FF0000) >> 16) / 255.0
-            let g = Double((value & 0x0000FF00) >> 8) / 255.0
-            let b = Double(value & 0x000000FF) / 255.0
-            self = Color(red: r, green: g, blue: b, opacity: a)
-        default:
-            return nil
+            ReaderThemeColor.color(fromHex: backgroundHex, fallback: .white)
         }
     }
 }
