@@ -1,7 +1,6 @@
 // AmgiApp/Sources/AmgiAppApp.swift
 import SwiftUI
 import AmgiReader
-import AmgiReaderDictionary
 import AmgiTheme
 import AmgiAppCore
 import AnkiBackend
