@@ -1,10 +1,10 @@
-import SwiftUI
+public import SwiftUI
 import AmgiTheme
 import AmgiUI
 import AnkiKit
 
-struct SyncToast: View {
-    enum Kind: Equatable {
+public struct SyncToast: View {
+    public enum Kind: Equatable {
         case progress(String)
         case success(String)
     }
@@ -13,7 +13,7 @@ struct SyncToast: View {
 
     let kind: Kind
 
-    var body: some View {
+    public var body: some View {
         HStack(spacing: 10) {
             switch kind {
             case .progress(let message):

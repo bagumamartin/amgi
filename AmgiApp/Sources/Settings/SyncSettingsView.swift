@@ -1,5 +1,6 @@
 import SwiftUI
 import AmgiTheme
+import FeatureSync
 import AmgiAppCore
 import AnkiSync
 import Sharing

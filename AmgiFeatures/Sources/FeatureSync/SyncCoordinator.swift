@@ -1,15 +1,16 @@
-import Foundation
+public import Foundation
 import SwiftUI
 import UIKit
 import AmgiAppCore
+import AmgiAppShared
 import AnkiClients
-import AnkiKit
+public import AnkiKit
 import AnkiSync
-import Dependencies
+public import Dependencies
 
 @Observable @MainActor
-final class SyncCoordinator {
-    enum SyncState: Sendable, Equatable {
+public final class SyncCoordinator {
+    public enum SyncState: Sendable, Equatable {
         case idle
         case syncing(message: String)
         case syncingMedia(total: Int, downloaded: Int)
@@ -19,7 +20,7 @@ final class SyncCoordinator {
         case noServer
     }
 
-    private(set) var state: SyncState = .idle
+    public private(set) var state: SyncState = .idle
     private(set) var logEntries: [SyncLogEntry] = []
     private(set) var requiresLogin: Bool = false
 
@@ -46,13 +47,13 @@ final class SyncCoordinator {
 
     private static let logCap = 100
 
-    init() {
+    public init() {
         registerLifecycleObservers()
     }
 
     // MARK: - Public surface (stubs filled in Phase B)
 
-    func startSync() async {
+    public func startSync() async {
         guard activeTask == nil else {
             appendLog("Sync already in progress", level: .warning)
             return
@@ -157,7 +158,7 @@ final class SyncCoordinator {
     /// Called after an in-app profile switch, once the scoping anchor has
     /// flipped: drop the old profile's transient state and re-derive from
     /// the new profile's persisted flags.
-    func resetForProfileSwitch() {
+    public func resetForProfileSwitch() {
         cancel()
         clearLog()
         requiresLogin = false
@@ -171,7 +172,7 @@ final class SyncCoordinator {
         }
     }
 
-    func cancel() {
+    public func cancel() {
         activeTask?.cancel()
         activeTask = nil
         if case .syncing = state {
@@ -259,7 +260,7 @@ private enum SyncCoordinatorKey: DependencyKey {
 }
 
 extension DependencyValues {
-    var syncCoordinator: SyncCoordinator {
+    public var syncCoordinator: SyncCoordinator {
         get { self[SyncCoordinatorKey.self] }
         set { self[SyncCoordinatorKey.self] = newValue }
     }

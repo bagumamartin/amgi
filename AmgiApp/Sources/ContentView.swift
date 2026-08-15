@@ -6,6 +6,7 @@ import AnkiKit
 import AnkiSync
 import Sharing
 import Dependencies
+import FeatureSync
 
 /// App root. Hosts the tab bar (`MainTabView`) and orchestrates the
 /// cross-cutting flows that sit above it: sync (sheet + toast), deck

@@ -1,4 +1,3 @@
-// AmgiApp/Sources/WriteWidgetSnapshot.swift
 import AmgiAppCore
 import AnkiClients
 import AnkiKit
@@ -9,7 +8,7 @@ import WidgetKit
 /// Fetches current deck data + streak, writes per-deck snapshot files to the
 /// App Group container, then signals WidgetKit to reload all timelines.
 /// Safe to call from any async context.
-func writeWidgetSnapshot() async {
+public func writeWidgetSnapshot() async {
     // Skip during XCTest runs — the lifecycle hooks that call this run inside
     // the host app's scene phase / didFinishLaunching, which fire even when
     // the app is hosting a test bundle. Calling unimplemented dependency stubs

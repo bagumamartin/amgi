@@ -7,7 +7,9 @@ import AmgiAppCore
 import AnkiBackend
 import AnkiKit
 import AnkiSync
+import AmgiAppShared
 import Dependencies
+import FeatureSync
 import Foundation
 import Sharing
 

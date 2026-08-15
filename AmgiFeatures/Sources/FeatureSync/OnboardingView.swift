@@ -1,18 +1,20 @@
-import SwiftUI
+public import SwiftUI
 import AmgiTheme
 import AmgiUI
 import AmgiAppCore
 import AnkiSync
 import Sharing
 
-struct OnboardingView: View {
+public struct OnboardingView: View {
     @Environment(\.palette) private var palette
     @Shared(.onboardingCompleted) private var onboardingCompleted
     @Shared(.syncMode) private var syncMode
     @State private var showServerSetup = false
     @State private var serverURL = ""
 
-    var body: some View {
+    public init() {}
+
+    public var body: some View {
         VStack(spacing: AmgiSpacing.xxl) {
             Spacer()
 

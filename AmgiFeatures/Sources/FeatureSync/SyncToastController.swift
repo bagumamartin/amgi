@@ -1,6 +1,6 @@
 // AmgiApp/Sources/Sync/SyncToastController.swift
 import AmgiTheme
-import SwiftUI
+public import SwiftUI
 
 /// Owns the bottom sync-toast state machine that used to live inline in
 /// `ContentView`. Translates `SyncCoordinator.SyncState` transitions into a
@@ -8,20 +8,22 @@ import SwiftUI
 /// Kept off the View so the mapping is testable in isolation.
 @Observable
 @MainActor
-final class SyncToastController {
-    private(set) var toast: SyncToast.Kind?
+public final class SyncToastController {
+    public private(set) var toast: SyncToast.Kind?
 
     @ObservationIgnored private var dismissTask: Task<Void, Never>?
 
     /// Immediate feedback when the user taps Sync, before the coordinator
     /// has had a chance to flip its state.
-    func presentSyncing() {
+    public init() {}
+
+    public func presentSyncing() {
         cancelDismiss()
         toast = .progress("Syncing\u{2026}")
     }
 
     /// Drive the toast from a coordinator state change.
-    func handle(_ state: SyncCoordinator.SyncState) {
+    public func handle(_ state: SyncCoordinator.SyncState) {
         switch state {
         case .syncing(let message):
             cancelDismiss()
@@ -43,7 +45,7 @@ final class SyncToastController {
     }
 
     /// Whether a state should pull up the sync sheet for the user.
-    static func needsAttention(_ state: SyncCoordinator.SyncState) -> Bool {
+    public static func needsAttention(_ state: SyncCoordinator.SyncState) -> Bool {
         switch state {
         case .needsFullSync, .error: return true
         default: return false
@@ -63,7 +65,7 @@ extension View {
     /// Pins the sync toast to the bottom edge with the standard transition
     /// and animation. Lifted out of `ContentView`'s body so the host keeps
     /// a flat modifier chain.
-    func syncToastOverlay(_ kind: SyncToast.Kind?) -> some View {
+    public func syncToastOverlay(_ kind: SyncToast.Kind?) -> some View {
         overlay(alignment: .bottom) {
             if let kind {
                 SyncToast(kind: kind)

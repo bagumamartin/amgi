@@ -1,10 +1,12 @@
-import SwiftUI
+public import SwiftUI
 import AmgiTheme
 
-struct AnkiMobileAttributionView: View {
+public struct AnkiMobileAttributionView: View {
     @Environment(\.palette) private var palette
 
-    var body: some View {
+    public init() {}
+
+    public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Label("Sync provided by AnkiWeb", systemImage: "icloud.and.arrow.up.fill")
                 .amgiFont(.bodyEmphasis)

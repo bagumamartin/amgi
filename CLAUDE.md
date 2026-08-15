@@ -28,8 +28,8 @@ AmgiApp (iOS app target — AmgiApp/, xcodegen → AmgiApp.xcodeproj)
 
 AmgiFeatures package — app-layer shared code + migrated features
   FeatureStats → AmgiCharts     FeatureTemplates     AmgiAppShared → AmgiAppCore
-  FeatureBrowse → AmgiAppShared
-  Only three intra-package edges exist; everything else reaches sideways into
+  FeatureBrowse → AmgiAppShared    FeatureSync → AmgiAppShared → AmgiAppCore
+  Only four intra-package edges exist; everything else reaches sideways into
   AmgiUI/AmgiTheme/AnkiKit/AnkiClients. AmgiWidget links AmgiAppCore only;
   AmgiWatchApp links AmgiAppCore + AmgiCharts. Neither may reach AnkiClients —
   that is why the sink is two targets rather than one.
@@ -83,10 +83,11 @@ dictionary UI, widgets.
 | `AmgiUI` (./AmgiUI) | Shared SwiftUI components built on `AmgiTheme`. |
 | `EPUBKit` (./Libraries/EPUBKit) | Vendored MIT-licensed EPUB parser; consumed only by `AmgiReaderEPUB`. |
 | `AmgiAppCore` (./AmgiFeatures) | The engine-free sink: preferences (`ReviewPreferences`, `ReaderPreferences`, `SyncPreferences`), `AccountStore`, app-group keys, `WidgetSnapshot(+Store)`, `StreakCalculator`, `CardFlag`. Deps: `AnkiKit`, `Sharing`. **Must never gain an `AnkiClients` dependency** — the widget and watch extensions link it, and that edge would drag the Rust engine into both. |
-| `AmgiAppShared` (./AmgiFeatures) | The engine-touching half of the sink, iOS-only: `CollectionStore`, `ImportHelper`, `ShareSheet`, `CardContextMenu(+Model)`. Exists so `AmgiAppCore` can stay engine-free. |
+| `AmgiAppShared` (./AmgiFeatures) | The engine-touching half of the sink, iOS-only: `CollectionStore`, `ImportHelper`, `ShareSheet`, `CardContextMenu(+Model)`, `writeWidgetSnapshot()`. Exists so `AmgiAppCore` can stay engine-free. |
 | `AmgiCharts` (./AmgiFeatures) | Pure chart/heatmap views over `GraphsSnapshot` + palette. No `AnkiClients` path, so its previews render without linking the xcframework. **Compiled for watchOS in its entirety** — the watch links the product, so every file here must be watchOS-clean, not just the ones the watch renders. |
 | `FeatureTemplates` (./AmgiFeatures) | Card-template editor (`DeckTemplateListView`, `TemplateEditorView`, `TemplateSourceEditor`, …). Lifted out of `Decks/` to close the Decks↔Review cycle; consumed by Settings and Review. |
 | `FeatureStats` (./AmgiFeatures) | Stats dashboard — `StatsDashboardView` Container / `StatsDashboardContent` + `State` enum / `StatsDashboardModel`. Deps: `AmgiCharts`, `AnkiClients`. |
+| `FeatureSync` (./AmgiFeatures) | Sync flow: `SyncCoordinator` (+ its `DependencyValues.syncCoordinator` key), `SyncSheet`, `LoginSheet`, `OnboardingView`, `SyncToast(+Controller)` and the `syncToastOverlay` modifier, `AnkiMobileAttributionView`. |
 | `FeatureBrowse` (./AmgiFeatures) | Note browsing + note authoring: browse list/search/selection, add & edit note, batch tagging, and the whole image-occlusion editor. Public surface is exactly four views — `BrowseView`, `AddNoteView`, `NoteEditorView`, `NoteEditingDestinationView`; models stay internal. It has **no** app-folder dependencies, which is why it extracted first: Reader, Review, Decks, and Settings all reach into it, so it had to leave the app target before they can. |
 
 ### App target

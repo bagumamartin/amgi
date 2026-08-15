@@ -154,6 +154,8 @@ targets:
         product: FeatureStats
       - package: AmgiFeatures
         product: FeatureBrowse
+      - package: AmgiFeatures
+        product: FeatureSync
       - package: swift-navigation
         product: SwiftNavigation
       - package: swift-navigation
