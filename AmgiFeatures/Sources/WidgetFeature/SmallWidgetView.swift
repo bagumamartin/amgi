@@ -1,4 +1,5 @@
-// AmgiApp/Sources/Widgets/SmallWidgetView.swift
+// AmgiFeatures/Sources/WidgetFeature/SmallWidgetView.swift
+import Foundation
 import SwiftUI
 import WidgetKit
 import AmgiTheme

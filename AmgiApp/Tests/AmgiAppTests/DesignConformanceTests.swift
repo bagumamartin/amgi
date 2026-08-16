@@ -66,8 +66,8 @@ struct DesignConformanceTests {
             "Dynamic Type would only push the message below it off-screen.",
         "TemplatesFeature/TemplateEditorView.swift":
             "Radius literals with no AmgiRadius equivalent; changing them would be a layout change (R29 is no-layout).",
-        "Widgets/LargeWidgetView.swift":
-            "Separate target (shares only AmgiTheme + AnkiKit). Renders in the system's context and cannot observe ThemeManager at render time, so palette adoption is a design decision, not a conformance sweep. Tracked separately if widget theming is wanted.",
+        "WidgetFeature/LargeWidgetView.swift":
+            "Separate process (WidgetFeature depends on AmgiAppCore + AmgiTheme only). Renders in the system's context and cannot observe ThemeManager at render time, so palette adoption is a design decision, not a conformance sweep. Tracked separately if widget theming is wanted.",
         "Watch/WatchApp.swift": watchExemptReason,
         "Watch/WatchContentView.swift": watchExemptReason,
         "Watch/WatchDeckDetailView.swift": watchExemptReason,

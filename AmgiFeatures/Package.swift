@@ -47,6 +47,7 @@ let package = Package(
         .library(name: "AmgiReviewCore", targets: ["AmgiReviewCore"]),
         .library(name: "ReviewFeature", targets: ["ReviewFeature"]),
         .library(name: "DecksFeature", targets: ["DecksFeature"]),
+        .library(name: "WidgetFeature", targets: ["WidgetFeature"]),
     ],
     dependencies: [
         .package(path: ".."),
@@ -286,6 +287,25 @@ let package = Package(
                 .product(name: "AnkiKit", package: "amgi"),
                 .product(name: "AnkiClients", package: "amgi"),
                 .product(name: "Sharing", package: "swift-sharing"),
+            ],
+            swiftSettings: sharedSwiftSettings
+        ),
+        // The iOS widget extension's entire body: the Widget, its AppIntent
+        // configuration, the timeline provider, and the three family views.
+        // Only @main AmgiWidgetBundle stays behind in the AmgiWidget target.
+        //
+        // Same hard rule as AmgiAppCore, for a sharper reason: the widget is a
+        // separate process that reads the app group via WidgetSnapshotStore.
+        // It must NEVER gain AnkiClients — it has no business being able to
+        // reach the Rust engine at all.
+        //
+        // AnkiKit is deliberately absent: no widget source imports it. The
+        // AmgiWidget target used to list it, which was vestigial.
+        .target(
+            name: "WidgetFeature",
+            dependencies: [
+                "AmgiAppCore",
+                .product(name: "AmgiTheme", package: "AmgiUI"),
             ],
             swiftSettings: sharedSwiftSettings
         ),

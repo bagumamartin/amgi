@@ -1,4 +1,5 @@
-// AmgiApp/Sources/Widgets/MediumWidgetView.swift
+// AmgiFeatures/Sources/WidgetFeature/MediumWidgetView.swift
+import Foundation
 import SwiftUI
 import WidgetKit
 import AmgiTheme

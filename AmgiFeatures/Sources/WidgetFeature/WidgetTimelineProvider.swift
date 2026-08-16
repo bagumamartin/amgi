@@ -1,4 +1,4 @@
-// AmgiApp/Sources/Widgets/WidgetTimelineProvider.swift
+// AmgiFeatures/Sources/WidgetFeature/WidgetTimelineProvider.swift
 import WidgetKit
 import Foundation
 import AmgiAppCore

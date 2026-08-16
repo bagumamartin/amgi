@@ -1,4 +1,4 @@
-// AmgiApp/Sources/Widgets/WidgetConfiguration.swift
+// AmgiFeatures/Sources/WidgetFeature/WidgetConfiguration.swift
 import AppIntents
 import WidgetKit
 import Foundation

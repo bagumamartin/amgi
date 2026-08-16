@@ -1,12 +1,14 @@
-// AmgiApp/Sources/Widgets/AmgiWidget.swift
-import WidgetKit
-import SwiftUI
+// AmgiFeatures/Sources/WidgetFeature/AmgiWidget.swift
+public import WidgetKit
+public import SwiftUI
 import AmgiTheme
 
-struct AmgiWidget: Widget {
+public struct AmgiWidget: Widget {
     let kind = "AmgiWidget"
 
-    var body: some WidgetConfiguration {
+    public init() {}
+
+    public var body: some WidgetConfiguration {
         AppIntentConfiguration(
             kind: kind,
             intent: AmgiWidgetIntent.self,

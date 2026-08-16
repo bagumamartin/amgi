@@ -1,4 +1,5 @@
-// AmgiApp/Sources/Widgets/LargeWidgetView.swift
+// AmgiFeatures/Sources/WidgetFeature/LargeWidgetView.swift
+import Foundation
 import SwiftUI
 import WidgetKit
 import AmgiTheme

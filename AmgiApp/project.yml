@@ -209,12 +209,11 @@ targets:
     sources:
       - path: Sources/Widgets
     dependencies:
-      - package: AnkiBridge
-        product: AnkiKit
-      - package: AmgiUI
-        product: AmgiTheme
+      # Everything but @main AmgiWidgetBundle lives in WidgetFeature, which
+      # brings AmgiAppCore + AmgiTheme transitively. AnkiKit was vestigial —
+      # no widget source ever imported it.
       - package: AmgiFeatures
-        product: AmgiAppCore
+        product: WidgetFeature
       - sdk: WidgetKit.framework
       - sdk: SwiftUI.framework
     settings:
