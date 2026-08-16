@@ -1,5 +1,5 @@
 // AmgiFeatures/Sources/WidgetFeature/AmgiWidget.swift
-public import WidgetKit
+import WidgetKit
 public import SwiftUI
 import AmgiTheme
 

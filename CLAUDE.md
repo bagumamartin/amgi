@@ -143,14 +143,16 @@ Three prefixes/suffixes, each answering a different question:
   (`AmgiUI`, `AmgiTheme`, `AmgiCharts`, `AmgiAppCore`, `AmgiAppShared`).
 - **`*Feature`** — app-owned **screen-level** module: `BrowseFeature`,
   `SyncFeature`, `StatsFeature`, `TemplatesFeature`, `ReaderFeature`,
-  `ReviewFeature`, `DecksFeature`. (No `StudyFeature` — Study was absorbed
-  into `ReaderFeature`. No `SettingsFeature` planned; see extraction status.)
+  `ReviewFeature`, `DecksFeature`, `WidgetFeature`. (No `StudyFeature` — Study
+  was absorbed into `ReaderFeature`. No `SettingsFeature` planned; see
+  extraction status.)
 
-  `WidgetFeature` stretches "screen-level" to cover app extensions. A widget is
-  not a screen inside the app, but the alternative — `AmgiWidgetUI` — claims the
-  reusability the `Amgi*` prefix promises and nothing has, and sits one
-  character from the `AmgiWidget` *target* name. Extensions count as
-  screen-level for the suffix; `Amgi*` still means reusable.
+  On the suffix: `WidgetFeature` stretches "screen-level" to cover app
+  extensions. A widget is not a screen inside the app, but the alternative —
+  `AmgiWidgetUI` — claims the reusability the `Amgi*` prefix promises and
+  nothing has, and sits one character from the `AmgiWidget` *target* name.
+  Extensions count as screen-level for the suffix; `Amgi*` still means
+  reusable.
 
   This used to read "**leaf** — nothing depends on it; only the app target
   imports it." That was never true (`BrowseFeature` was already imported by
@@ -241,6 +243,13 @@ by the coupling graph, not preference; all of it is done except Settings.
    allowlist keys to re-path. The real watch defect — the iOS scheme doesn't
    build `AmgiWatchApp`, so breakage is silent — is scheme wiring, not
    modularization, and is still open.
+
+   AppIntents metadata extraction **does** work from a SwiftPM static-library
+   target: the built `AmgiWidget.appex` carries a complete
+   `Metadata.appintents/extract.actionsdata` naming
+   `WidgetFeature.AmgiWidgetIntent`, `WidgetFeature.DeckEntityQuery`
+   (`defaultQueryForEntity: true`), and the `deck` parameter. Runtime
+   confirmation of the edit-sheet picker is still pending.
 
    The predicted preview payoff is **unverified**: package-target previews fail
    project-wide in this checkout with `JITError: Symbols not found:
