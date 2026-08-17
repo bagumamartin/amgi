@@ -88,7 +88,7 @@ AnkiBridge package — Anki engine surface
   AnkiBackend          ─ Swift class wrapping the 4 C FFI symbols
     ↓ C FFI: anki_open_backend / anki_run_method /
               anki_free_response / anki_close_backend
-  AnkiRustLib (binaryTarget) = AnkiRust.xcframework
+  AnkiRustLib (binaryTarget) = AnkiRustLib.xcframework
     ↑ produced by ./scripts/build-xcframework.sh
   anki-bridge-rs/      ─ Rust crate exposing the C ABI; links anki-upstream
   anki-upstream/       ─ ankitects/anki rslib (vendored, AGPL-3.0)
@@ -112,7 +112,7 @@ dictionary UI, widgets.
 | `AnkiClients` | `@DependencyClient` structs + `liveValue` implementations. The UI's preferred entry point into the Anki engine; where no client wrapper exists, feature code may use an `AnkiServices` facade directly (sanctioned second tier — don't add thin pass-through clients just to avoid it). Direct `AnkiBackend` use is reserved for the composition root and low-level asset/config plumbing. |
 | `AnkiSync` | KeychainHelper for sync credentials. |
 | `AmgiCardWeb` | WebKit-based card renderer host. |
-| `AnkiRustLib` | `binaryTarget` pointing at `AnkiRust.xcframework`. iOS-only. |
+| `AnkiRustLib` | `binaryTarget` pointing at `AnkiRustLib.xcframework`. iOS-only. |
 
 ### Sibling SPM packages (path-resolved)
 | Package / Module | Purpose |
@@ -228,11 +228,35 @@ by the coupling graph, not preference; all of it is done except Settings.
    real `#Preview(as: .systemSmall) { AmgiWidget() }` WidgetKit form. That is
    why `AmgiWidget`, the intent, and the provider all had to move too: leaving
    any of them behind pins the other two and forces rewriting all three
-   previews into a chrome-less `#Preview { SmallWidgetView(...) }`. And the
+   previews. Moving *all* of them turned out to force the rewrite anyway —
+   see the next paragraph. And the
    widget's date math (`LargeWidgetView.dayLabel(_:)`, `progressFraction`,
    `chartMax`) is still untested — testing it was offered as a smaller,
    separate change (lift into `AmgiAppCore` beside `WidgetSnapshot`) and
    declined. Don't fold it in.
+
+   **No WidgetKit preview API survives in a package target** (found
+   2026-08-17). A *widget* preview needs a widget-extension process to host it;
+   a file in a package target is previewed by XCPreviewAgent, which is an app,
+   so Xcode fails with `NoCandidatesProvidedToComputeAgent: No candidates found
+   to host preview` over a build graph that tops out at `WidgetFeature` with no
+   extension node. Not scheme wiring — the `AmgiApp` scheme already builds
+   `AmgiWidget`; an `.appex` simply cannot host a package target's preview. And
+   it is not the `#Preview(as:)` *macro*: what tags the preview as a widget is
+   **`WidgetPreviewContext`**, so rewriting to a `PreviewProvider` +
+   `previewContext(WidgetPreviewContext(family:))` fails identically, with the
+   same `(SmallWidgetView.swift, Previews, widget)` node. (Inside the `#Preview`
+   macro `previewContext` is additionally a no-op — `warning: PreviewContext is
+   ignored in a #Preview macro`.) Both were tried and both failed; don't retry
+   either.
+
+   The three widget previews are therefore plain `#Preview`s of the concrete
+   view at a hand-set frame, with the rounded widget background faked via
+   `.background(_:in:)`. Costs: no timeline scrubber, nominal rather than
+   device-exact sizing, and the `\.palette` default instead of ThemeManager's
+   live theme. Getting the real thing back means moving `AmgiWidget`, the
+   intent, and the provider back into the `AmgiWidget` target — i.e. undoing
+   this extraction.
 
    **Watch was considered and declined.** No preview payoff — every watch
    screen transitively reaches `AnkiBackend`, so its previews would die on the
@@ -251,15 +275,29 @@ by the coupling graph, not preference; all of it is done except Settings.
    (`defaultQueryForEntity: true`), and the `deck` parameter. Runtime
    confirmation of the edit-sheet picker is still pending.
 
-   The predicted preview payoff is **unverified**: package-target previews fail
-   project-wide in this checkout with `JITError: Symbols not found:
-   [_anki_open_backend, …]` while materializing `static-ReviewFeature`, and a
-   control run on the untouched `AmgiUI/Library/LibraryListContent.swift` fails
-   identically — so the breakage predates this extraction and says nothing about
-   it either way. Re-measure before claiming the win.
+   The predicted preview payoff was **unverified** at the time: package-target
+   previews failed project-wide with `JITError: Symbols not found:
+   [_anki_open_backend, …]`, and a control run on the untouched
+   `AmgiUI/Library/LibraryListContent.swift` failed identically — so the
+   breakage predated the extraction and said nothing about it either way. That
+   root cause was the static Rust archive and is **fixed as of 2026-08-17** (see
+   the preview bullet below); the widget previews specifically are still
+   unmeasured.
 
-**If you extract another module, budget for these four.** Every lift this
+**If you extract another module, budget for these five.** Every lift this
 session hit at least two:
+- **Engine-touching previews used to die on the way out — fixed 2026-08-17.**
+  A preview of a file in the app target runs against `AmgiApp.debug.dylib`,
+  which exports the four `anki_*` FFI symbols. A preview of a file in a
+  *package* target runs in XCPreviewAgent with no app host, and the JIT
+  resolves only against dylibs in the products dir. While the xcframework
+  shipped `libanki_bridge_ios.a` — a **static** archive — every preview that
+  transitively reached `AnkiBackend` failed with `JITError: Runtime linking
+  failure — Symbols not found: [_anki_open_backend, …]`. That killed both
+  `DeckListView` previews on the DecksFeature lift (2026-08-15).
+  `anki-bridge-rs` is now a `cdylib` shipped as a **dynamic**
+  `AnkiRustLib.framework`, so those symbols resolve and package previews render
+  against the live collection. Do not switch `crate-type` back to `staticlib`.
 - `DesignConformanceTests` keys its allowlist by path *and* asserts no stale
   entries, so a file move fails it in both directions at once. Update
   `permanentlyExempt` in the same commit.
