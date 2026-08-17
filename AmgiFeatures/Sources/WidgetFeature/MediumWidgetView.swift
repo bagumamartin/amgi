@@ -99,8 +99,10 @@ private extension MediumWidgetView {
     }
 }
 
-#Preview(as: .systemMedium) {
-    AmgiWidget()
-} timeline: {
-    WidgetEntry(date: Date(), snapshot: .placeholder)
+// See the note on SmallWidgetView's preview for why this uses a hand-set frame
+// instead of any WidgetKit preview API.
+#Preview {
+    MediumWidgetView(snapshot: .placeholder)
+        .frame(width: 364, height: 170)
+        .background(.fill.tertiary, in: .rect(cornerRadius: 24))
 }

@@ -165,8 +165,10 @@ private extension LargeWidgetView {
     }
 }
 
-#Preview(as: .systemLarge) {
-    AmgiWidget()
-} timeline: {
-    WidgetEntry(date: Date(), snapshot: .placeholder)
+// See the note on SmallWidgetView's preview for why this uses a hand-set frame
+// instead of any WidgetKit preview API.
+#Preview {
+    LargeWidgetView(snapshot: .placeholder)
+        .frame(width: 364, height: 382)
+        .background(.fill.tertiary, in: .rect(cornerRadius: 24))
 }

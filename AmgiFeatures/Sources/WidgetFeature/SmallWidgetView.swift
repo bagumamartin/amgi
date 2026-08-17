@@ -53,8 +53,21 @@ struct SmallWidgetView: View {
     }
 }
 
-#Preview(as: .systemSmall) {
-    AmgiWidget()
-} timeline: {
-    WidgetEntry(date: Date(), snapshot: .placeholder)
+// Deliberately a plain SwiftUI preview with a hand-set frame — no WidgetKit
+// preview API. Anything that marks this as a *widget* preview (`#Preview(as:)`
+// or `WidgetPreviewContext`, in either the macro or the PreviewProvider form)
+// makes Xcode look for a widget-extension process to host it. A file in a
+// package target is previewed by XCPreviewAgent, which is an app, so the
+// preview fails with "No candidates found to host preview" — the build graph
+// tags the node `(SmallWidgetView.swift, Previews, widget)` and finds no
+// candidate. Nothing in the package can supply that host; only moving these
+// files back into the AmgiWidget target would.
+//
+// So: the real view, at the nominal small-widget size, with the widget's
+// rounded background faked. Palette falls back to the `\.palette` default
+// rather than ThemeManager's live theme.
+#Preview {
+    SmallWidgetView(snapshot: .placeholder)
+        .frame(width: 170, height: 170)
+        .background(.fill.tertiary, in: .rect(cornerRadius: 24))
 }
