@@ -164,7 +164,7 @@ anki-bridge-rs/
 
 ### XCFramework Packaging
 
-`scripts/build-xcframework.sh` compiles all three targets, creates fat simulator lib with `lipo`, then packages into `AnkiRust.xcframework` consumed by SPM as a binary target.
+`scripts/build-xcframework.sh` compiles all three targets, wraps each `cdylib` in an `AnkiRustLib.framework`, then packages them into `AnkiRustLib.xcframework` consumed by SPM as a binary target. The framework is **dynamic** on purpose: a static archive's symbols are invisible to XCPreviewAgent's JIT, which breaks every package-target SwiftUI preview that reaches `AnkiBackend`.
 
 ### Protobuf Generation
 

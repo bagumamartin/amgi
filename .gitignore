@@ -6,7 +6,7 @@
 AmgiApp/memory/
 DerivedData/
 build/
-AnkiRust.xcframework/
+AnkiRustLib.xcframework/
 anki-bridge-rs/target/
 anki-upstream/target/
 .claude/
