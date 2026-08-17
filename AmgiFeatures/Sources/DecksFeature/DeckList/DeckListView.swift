@@ -2,7 +2,6 @@
 public import SwiftUI
 public import AmgiAppCore
 import AmgiAppShared
-import AmgiTheme
 import AmgiUI
 import AnkiKit
 import AnkiClients
@@ -94,85 +93,16 @@ public struct DeckListView: View {
 }
 
 // MARK: - Preview
-
-#if DEBUG
-#Preview {
-    // Preview clients keep refresh/delete working in the live canvas;
-    // the seeded `.loaded` state makes the first snapshot deterministic
-    // instead of racing the async `.task` load.
-    let model = withDependencies {
-        $0.deckClient = .previewValue
-        $0.statsClient = .previewValue
-    } operation: {
-        DeckListModel()
-    }
-    model.state = .loaded(
-        rows: [
-            DeckRowViewData(
-                id: 1, name: "한국어", fullName: "한국어",
-                newCount: 20, learnCount: 93, reviewCount: 74,
-                isFiltered: false, subdeckCount: 4
-            ),
-            DeckRowViewData(
-                id: 2, name: "English", fullName: "English",
-                newCount: 0, learnCount: 67, reviewCount: 200,
-                isFiltered: false, subdeckCount: 0
-            ),
-            DeckRowViewData(
-                id: 3, name: "Hardest cards", fullName: "Hardest cards",
-                newCount: 0, learnCount: 0, reviewCount: 24,
-                isFiltered: true, subdeckCount: 0
-            ),
-        ],
-        hero: HeroData(
-            totalDue: 478, deckCount: 3, streak: 36,
-            last14Days: [3, 5, 2, 7, 6, 9, 4, 8, 6, 5, 7, 3, 8, 5]
-        ),
-        heatmap: .empty
-    )
-    return NavigationStack {
-        DeckListView(model: model)
-    }
-    .environment(\.palette, .vividLight)
-}
-
-#Preview("Minimal") {
-    // Same seeded state as the default preview — mirrors it but pins the
-    // minimal theme's light palette to eyeball ring elevation + monogram
-    // tiles + cobalt accent.
-    let model = withDependencies {
-        $0.deckClient = .previewValue
-        $0.statsClient = .previewValue
-    } operation: {
-        DeckListModel()
-    }
-    model.state = .loaded(
-        rows: [
-            DeckRowViewData(
-                id: 1, name: "한국어", fullName: "한국어",
-                newCount: 20, learnCount: 93, reviewCount: 74,
-                isFiltered: false, subdeckCount: 4
-            ),
-            DeckRowViewData(
-                id: 2, name: "English", fullName: "English",
-                newCount: 0, learnCount: 67, reviewCount: 200,
-                isFiltered: false, subdeckCount: 0
-            ),
-            DeckRowViewData(
-                id: 3, name: "Hardest cards", fullName: "Hardest cards",
-                newCount: 0, learnCount: 0, reviewCount: 24,
-                isFiltered: true, subdeckCount: 0
-            ),
-        ],
-        hero: HeroData(
-            totalDue: 478, deckCount: 3, streak: 36,
-            last14Days: [3, 5, 2, 7, 6, 9, 4, 8, 6, 5, 7, 3, 8, 5]
-        ),
-        heatmap: .empty
-    )
-    return NavigationStack {
-        DeckListView(model: model)
-    }
-    .environment(\.palette, ThemeRegistry.shared.palette(id: .minimal, scheme: .light))
-}
-#endif
+//
+// None here, deliberately. Previews of a package target run in XCPreviewAgent
+// with no app host, and the JIT can only resolve symbols from dylibs in the
+// products dir — `libanki_bridge_ios.a` is a static archive, so anything whose
+// preview transitively reaches AnkiBackend fails to link with
+// "Symbols not found: [_anki_open_backend, …]". DeckListView reaches it through
+// DeckListModel, DeckDetailView, and ReviewView. It rendered while this file
+// lived in the app target (AmgiApp.debug.dylib exports those four symbols);
+// it cannot since the DecksFeature extraction.
+//
+// The deck list surface previews from `LibraryListContent` in AmgiUI instead —
+// same pixels, engine-free, including the minimal-palette variant this file
+// used to pin.

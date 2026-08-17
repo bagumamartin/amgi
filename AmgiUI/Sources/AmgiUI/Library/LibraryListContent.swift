@@ -189,6 +189,26 @@ private extension HeroData {
     .environment(\.palette, .vividLight)
 }
 
+#Preview("Loaded — Minimal palette") {
+    // Same seeded state as the populated preview, pinned to the minimal
+    // theme's light palette to eyeball ring elevation + monogram tiles +
+    // cobalt accent. Lived on DeckListView until that view moved into
+    // DecksFeature, where previews can no longer link the Rust engine.
+    NavigationStack {
+        LibraryListContent(
+            state: .loaded(
+                rows: [.sampleKorean, .sampleEnglish, .sampleCS, .sampleEspanol, .sampleFiltered],
+                hero: .samplePopulated,
+                heatmap: .dense
+            ),
+            onRefresh: {}, onStartReview: {},
+            onTapDeck: { _ in }, onDeleteDeck: { _ in }, onRenameDeck: { _ in }, onCreateDeck: {}
+        )
+        .navigationTitle("Library")
+    }
+    .environment(\.palette, ThemeRegistry.shared.palette(id: .minimal, scheme: .light))
+}
+
 #Preview("Loaded — zero due") {
     NavigationStack {
         LibraryListContent(
