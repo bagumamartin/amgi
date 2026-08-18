@@ -22,13 +22,13 @@ struct DebugView: View {
             Section("Account") {
                 HStack {
                     Text("Username")
-                    Spacer()
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     Text(KeychainHelper.loadUsername() ?? "Not logged in")
                         .foregroundStyle(palette.textSecondary)
                 }
                 HStack {
                     Text("Host Key")
-                    Spacer()
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     Text(KeychainHelper.loadHostKey() != nil ? "Stored ✓" : "None")
                         .foregroundStyle(palette.textSecondary)
                 }

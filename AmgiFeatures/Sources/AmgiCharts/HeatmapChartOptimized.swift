@@ -115,7 +115,7 @@ private extension HeatmapChartOptimized {
                 Text("Reviews")
                     .amgiFont(.sectionHeading)
                     .foregroundStyle(palette.textPrimary)
-                Spacer()
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 // Date range picker (when not compact). `Menu(content:label:)` is
                 // unavailable on watchOS; AmgiCharts compiles as one module for
@@ -242,7 +242,6 @@ private extension HeatmapChartOptimized {
 
     func legendView() -> some View {
         HStack(spacing: isCompact ? 3 : 4) {
-            Spacer()
             Text("Less").amgiFont(.micro).foregroundStyle(palette.textSecondary)
             ForEach(Array(HeatmapColorRamp.legendColors(palette: palette).enumerated()), id: \.offset) { _, color in
                 RoundedRectangle(cornerRadius: 2)
@@ -251,6 +250,7 @@ private extension HeatmapChartOptimized {
             }
             Text("More").amgiFont(.micro).foregroundStyle(palette.textSecondary)
         }
+        .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
     // MARK: - Helpers

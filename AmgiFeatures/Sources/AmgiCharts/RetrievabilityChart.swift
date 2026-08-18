@@ -87,7 +87,7 @@ public struct RetrievabilityChart: View {
                         .amgiFont(.caption)
                         .foregroundStyle(palette.textSecondary)
                 }
-                Spacer()
+                .frame(maxWidth: .infinity, alignment: .leading)
                 Text("Avg: \(averageLabel)")
                     .amgiFont(.captionBold)
                     .foregroundStyle(palette.textSecondary)

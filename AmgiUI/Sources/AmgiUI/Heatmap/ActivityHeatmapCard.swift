@@ -77,7 +77,7 @@ private struct HeatmapHeaderRow: View {
             Text("Activity")
                 .amgiFont(.sectionHeading)
                 .foregroundStyle(palette.textPrimary)
-            Spacer()
+                .frame(maxWidth: .infinity, alignment: .leading)
             Menu {
                 ForEach([90, 180, 365], id: \.self) { days in
                     Button(rangeLabel(days)) { selectedDays = days }
@@ -360,7 +360,6 @@ private struct HeatmapLegend: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Spacer()
             Text("Less").amgiFont(.micro).foregroundStyle(palette.textSecondary)
             ForEach(
                 Array(HeatmapColorRamp.legendColors(palette: palette).enumerated()),
@@ -372,6 +371,7 @@ private struct HeatmapLegend: View {
             }
             Text("More").amgiFont(.micro).foregroundStyle(palette.textSecondary)
         }
+        .frame(maxWidth: .infinity, alignment: .trailing)
     }
 }
 

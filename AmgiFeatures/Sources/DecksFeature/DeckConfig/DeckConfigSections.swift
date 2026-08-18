@@ -435,7 +435,7 @@ struct LabeledSlider: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(label)
-                Spacer()
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 Text(valueText).foregroundStyle(palette.textSecondary)
             }
             Slider(value: $value, in: range, step: step)

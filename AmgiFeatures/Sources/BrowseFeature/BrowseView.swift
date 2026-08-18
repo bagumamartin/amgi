@@ -280,11 +280,8 @@ struct BrowseContent: View {
             }
 
             if model.isLoading {
-                HStack {
-                    Spacer()
-                    ProgressView()
-                    Spacer()
-                }
+                ProgressView()
+                    .frame(maxWidth: .infinity)
             }
         }
         .navigationDestination(for: NoteRecord.self) { note in

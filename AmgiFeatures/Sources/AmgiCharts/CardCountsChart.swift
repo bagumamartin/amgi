@@ -38,7 +38,7 @@ public struct CardCountsChart: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text("Card Counts").amgiFont(.bodyEmphasis)
-                    Spacer()
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     Text("\(total) total").amgiFont(.caption).foregroundStyle(palette.textSecondary)
                 }
 
@@ -60,7 +60,7 @@ public struct CardCountsChart: View {
                             HStack(spacing: 4) {
                                 Circle().fill(item.color).frame(width: 8, height: 8)
                                 Text(item.name).amgiFont(.caption)
-                                Spacer()
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                                 Text("\(item.count)").amgiFont(.captionBold).monospacedDigit()
                             }
                         }

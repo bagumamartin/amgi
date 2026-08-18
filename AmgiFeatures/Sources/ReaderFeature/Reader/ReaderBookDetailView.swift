@@ -156,16 +156,13 @@ private struct BookHeaderView: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            HStack {
-                Spacer()
-                cover
-                    .frame(width: 140, height: 190)
-                    .background(palette.separator, in: RoundedRectangle(cornerRadius: AmgiRadius.small))
-                    .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.small))
-                    .amgiChromeShadow(RoundedRectangle(cornerRadius: AmgiRadius.small), radius: 8, y: 4, opacity: 0.18)
-                Spacer()
-            }
-            .padding(.top, 8)
+            cover
+                .frame(width: 140, height: 190)
+                .background(palette.separator, in: RoundedRectangle(cornerRadius: AmgiRadius.small))
+                .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.small))
+                .amgiChromeShadow(RoundedRectangle(cornerRadius: AmgiRadius.small), radius: 8, y: 4, opacity: 0.18)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 8)
 
             Text(book.title)
                 .amgiFont(.sectionHeading)

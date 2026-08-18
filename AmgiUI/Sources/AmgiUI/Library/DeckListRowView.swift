@@ -38,7 +38,7 @@ public struct DeckListRowView: View {
                         .amgiFont(.caption)
                         .foregroundStyle(palette.textSecondary)
                 }
-                Spacer()
+                .frame(maxWidth: .infinity, alignment: .leading)
                 trailingContent
             }
             .padding(.vertical, 14)

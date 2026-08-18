@@ -49,7 +49,7 @@ struct NotetypeRow: View {
                         .amgiFont(.caption)
                         .foregroundStyle(palette.textSecondary)
                 }
-                Spacer()
+                .frame(maxWidth: .infinity, alignment: .leading)
                 Image(systemName: "chevron.right")
                     .amgiFont(.caption)
                     .foregroundStyle(palette.textTertiary)

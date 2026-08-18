@@ -64,8 +64,8 @@ struct StatsDashboardContent: View {
         HStack(spacing: AmgiSpacing.md) {
             deckMenu
             periodMenu
-            Spacer()
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var deckMenu: some View {

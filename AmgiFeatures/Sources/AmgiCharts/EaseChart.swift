@@ -34,7 +34,7 @@ public struct EaseChart: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text("Card Ease").amgiFont(.bodyEmphasis)
-                    Spacer()
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     Text("Avg: \(averageEase)")
                         .amgiFont(.captionBold)
                         .foregroundStyle(palette.textSecondary)

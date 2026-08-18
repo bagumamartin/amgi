@@ -29,11 +29,11 @@ struct RenderModeChipRow: View {
                         .foregroundStyle(palette.textTertiary)
                         .lineLimit(1)
                 }
-                Spacer()
                 Image(systemName: "chevron.up.chevron.down")
                     .amgiFont(.micro)
                     .foregroundStyle(palette.textTertiary)
                     .accessibilityHidden(true)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
         .buttonStyle(.pressScale)

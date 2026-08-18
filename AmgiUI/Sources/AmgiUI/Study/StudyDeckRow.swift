@@ -30,7 +30,7 @@ public struct StudyDeckRow: View {
                             .foregroundStyle(palette.customStudyBadge)
                     }
                 }
-                Spacer()
+                .frame(maxWidth: .infinity, alignment: .leading)
                 Text("\(data.totalDue) cards")
                     .amgiFont(.caption)
                     .foregroundStyle(palette.textSecondary)

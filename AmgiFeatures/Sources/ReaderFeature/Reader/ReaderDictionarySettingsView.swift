@@ -170,7 +170,7 @@ private struct DictionaryRow: View {
                         .foregroundStyle(palette.textSecondary)
                 }
             }
-            Spacer()
+            .frame(maxWidth: .infinity, alignment: .leading)
             Toggle("", isOn: Binding(get: { info.isEnabled }, set: { _ in onToggle() }))
                 .labelsHidden()
                 .disabled(isBusy)

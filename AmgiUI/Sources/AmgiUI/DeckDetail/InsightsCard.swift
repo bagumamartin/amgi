@@ -65,7 +65,7 @@ public struct InsightRow: View {
         HStack {
             Text(label)
                 .foregroundStyle(palette.textPrimary)
-            Spacer()
+                .frame(maxWidth: .infinity, alignment: .leading)
             Text(value)
                 .foregroundStyle(tone ?? palette.textSecondary)
                 .monospacedDigit()

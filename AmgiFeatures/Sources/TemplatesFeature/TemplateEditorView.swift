@@ -347,7 +347,7 @@ struct TemplateEditorHeaderCard: View {
                     Text(currentTemplateName)
                         .amgiFont(.bodyEmphasis)
                         .foregroundStyle(palette.textSecondary)
-                    Spacer()
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     templatePickerMenu
                 }
             } else {

@@ -53,7 +53,7 @@ struct BatchTagSheet: View {
                                     Image(systemName: checkedTags.contains(tag) ? "checkmark.square.fill" : "square")
                                         .foregroundStyle(checkedTags.contains(tag) ? palette.accent : palette.textSecondary)
                                     Text(tag).foregroundStyle(palette.textPrimary)
-                                    Spacer()
+                                        .frame(maxWidth: .infinity, alignment: .leading)
                                 }
                             }
                         }

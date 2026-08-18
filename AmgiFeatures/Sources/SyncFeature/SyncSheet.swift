@@ -245,7 +245,7 @@ private struct SyncSheetContent: View {
                                 .foregroundStyle(palette.textTertiary)
                         }
                     }
-                    Spacer()
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     Menu {
                         Button("Change Server") { onChangeServer() }
                         Button("Logout", role: .destructive) { onLogout() }
@@ -260,7 +260,7 @@ private struct SyncSheetContent: View {
                     Label("Syncing is disabled", systemImage: "iphone")
                         .amgiFont(.caption)
                         .foregroundStyle(palette.textSecondary)
-                    Spacer()
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     Button("Set Up Server") { onSetUpServer() }
                         .amgiFont(.caption)
                 }
@@ -331,7 +331,7 @@ private struct SyncSheetContent: View {
                     Text(footerError)
                         .amgiFont(.caption)
                         .foregroundStyle(palette.danger)
-                    Spacer()
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     Button("Retry") { onRetryFooter() }
                         .amgiFont(.captionBold)
                 }

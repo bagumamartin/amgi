@@ -248,7 +248,7 @@ private extension TagsView {
             HStack {
                 Label(tag, systemImage: "tag.fill")
                     .foregroundStyle(palette.accent)
-                Spacer()
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 if model.isApplying && pendingNoteActionTag == tag {
                     ProgressView()
                         .scaleEffect(0.8)

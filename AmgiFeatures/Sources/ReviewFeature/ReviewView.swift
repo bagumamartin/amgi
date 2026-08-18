@@ -539,10 +539,10 @@ private struct ReviewCardArea: View {
                     .foregroundStyle(palette.textTertiary)
                     .lineLimit(1)
             }
-            Spacer()
             Text("sandboxed")
                 .amgiFont(.caption)
                 .foregroundStyle(palette.textTertiary)
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(.horizontal)
         .padding(.vertical, 4)

@@ -31,7 +31,7 @@ struct LargeWidgetView: View {
                     .foregroundStyle(palette.textPrimary)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                Spacer()
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 streakPill
             }
             .padding(.bottom, 12)

@@ -50,8 +50,7 @@ public struct DeckSubdeckRow: View {
                     .amgiFont(size: 16, weight: .regular)
                     .foregroundStyle(palette.textPrimary)
                     .lineLimit(1)
-
-                Spacer()
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 DeckCountBadges(
                     newCount: data.newCount,

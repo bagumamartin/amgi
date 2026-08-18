@@ -38,7 +38,7 @@ struct ImageOcclusionMaskSummaryCard: View {
                 Text(masks.isEmpty ? "No masks yet" : "\(masks.count) masks")
                     .amgiFont(.caption)
                     .foregroundStyle(palette.textSecondary)
-                Spacer()
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 Button(action: action) {
                     Text("Edit")
                 }

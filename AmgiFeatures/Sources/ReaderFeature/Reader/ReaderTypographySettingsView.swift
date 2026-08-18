@@ -105,7 +105,7 @@ struct ReaderTypographySettingsView: View {
             Stepper(value: lineHeightBinding, in: 1.2...2.0, step: 0.1) {
                 HStack {
                     Text("Line Height")
-                    Spacer()
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     Text(String(format: "%.1f", lineHeight))
                         .amgiFont(.body, .monospacedDigits)
                         .foregroundStyle(palette.textSecondary)

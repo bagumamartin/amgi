@@ -90,7 +90,7 @@ public struct DeckCustomStudyActionRow: View {
                 Text(label)
                     .amgiFont(size: 16, weight: .semibold)
                     .foregroundStyle(tone)
-                Spacer()
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 12)

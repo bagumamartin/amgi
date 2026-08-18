@@ -94,7 +94,7 @@ struct RenderModeSheet: View {
                         .amgiFont(.caption)
                         .foregroundStyle(palette.textSecondary)
                 }
-                Spacer()
+                .frame(maxWidth: .infinity, alignment: .leading)
                 if engine == globalEngine {
                     Image(systemName: "checkmark")
                         .foregroundStyle(palette.accent)
