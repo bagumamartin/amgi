@@ -1,7 +1,10 @@
 public import SwiftUI
+import AmgiAppCore
 import AmgiTheme
 import AmgiUI
 public import AnkiKit
+import Sharing
+import SwiftUINavigation
 
 /// Notetype/template editor — front, back, and CSS panes plus a render
 /// preview. Container owns the editable `Notetype`; the cosmetic subviews
@@ -18,15 +21,14 @@ public struct TemplateEditorView: View {
     let mode: TemplateEditorMode
     var onSaved: (@Sendable () async -> Void)? = nil
 
-    @AppStorage("codeEditor_fontSize") private var codeEditorFontSize: Double = 14.0
-    @AppStorage("codeEditor_fontFamily") private var codeEditorFontFamilyRaw: String = "Menlo"
+    @Shared(.appStorage(CodeEditorPreferences.Keys.fontSize))
+    private var codeEditorFontSize: Double = CodeEditorPreferences.defaultFontSize
+    @Shared(.appStorage(CodeEditorPreferences.Keys.fontFamily))
+    private var codeEditorFontFamilyRaw: String = CodeEditorPreferences.defaultFontFamily
 
     @State private var model = TemplateEditorModel()
-    @State private var showDiscardChangesConfirmation = false
-    @State private var showSaveError = false
+    @State private var destination: TemplateEditorDestination?
     @State private var editorTab: TemplateEditorTab = .front
-    @State private var showFieldManager = false
-    @State private var showPreviewSheet = false
     @State private var editorSearchText = ""
 
     public init(
@@ -75,13 +77,10 @@ public struct TemplateEditorView: View {
                 .interactiveDismissDisabled(model.hasUnsavedChanges)
                 .toolbar { toolbarContent }
                 .modifier(TemplateEditorPresentations(
-                    showSaveError: $showSaveError,
+                    destination: $destination,
                     errorMessage: model.errorMessage,
-                    showDiscardChangesConfirmation: $showDiscardChangesConfirmation,
                     onDiscard: { dismiss() },
-                    showFieldManager: $showFieldManager,
                     fieldManager: { fieldManagerSheet },
-                    showPreviewSheet: $showPreviewSheet,
                     preview: { previewSheet }
                 ))
                 .task { await model.loadNotetype(notetypeId: notetypeId, preferred: initialTemplateIndex) }
@@ -132,7 +131,7 @@ public struct TemplateEditorView: View {
                 .lineLimit(1)
         }
         ToolbarItem(placement: .topBarTrailing) {
-            Button("Fields") { showFieldManager = true }
+            Button("Fields") { destination = .fieldManager }
                 .amgiToolbarTextButton(tone: .neutral)
                 .disabled(model.isLoading)
         }
@@ -145,7 +144,7 @@ public struct TemplateEditorView: View {
                         if await model.saveTemplate(onSaved: onSaved) {
                             dismiss()
                         } else {
-                            showSaveError = true
+                            destination = .saveError
                         }
                     }
                 }
@@ -165,7 +164,7 @@ public struct TemplateEditorView: View {
                     selectedTemplateIndex: $model.selectedTemplateIndex,
                     editorTab: $editorTab,
                     onPreviewTab: { previousTab in
-                        showPreviewSheet = true
+                        destination = .preview
                         editorTab = previousTab
                     },
                     borderColor: separatorBorderColor
@@ -292,7 +291,7 @@ public struct TemplateEditorView: View {
 private extension TemplateEditorView {
     func attemptDismiss() {
         if model.hasUnsavedChanges {
-            showDiscardChangesConfirmation = true
+            destination = .discardChanges
         } else {
             dismiss()
         }
@@ -300,25 +299,22 @@ private extension TemplateEditorView {
 }
 
 struct TemplateEditorPresentations<FieldManager: View, Preview: View>: ViewModifier {
-    @Binding var showSaveError: Bool
+    @Binding var destination: TemplateEditorDestination?
     let errorMessage: String?
-    @Binding var showDiscardChangesConfirmation: Bool
     let onDiscard: () -> Void
-    @Binding var showFieldManager: Bool
     @ViewBuilder let fieldManager: () -> FieldManager
-    @Binding var showPreviewSheet: Bool
     @ViewBuilder let preview: () -> Preview
 
     func body(content: Content) -> some View {
         content
-            .alert("Save failed", isPresented: $showSaveError) {
+            .alert("Save failed", isPresented: $destination.saveError) {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(errorMessage ?? "An unknown error occurred.")
             }
             .confirmationDialog(
                 "Unsaved changes",
-                isPresented: $showDiscardChangesConfirmation,
+                isPresented: $destination.discardChanges,
                 titleVisibility: .visible
             ) {
                 Button("Discard", role: .destructive) { onDiscard() }
@@ -326,8 +322,8 @@ struct TemplateEditorPresentations<FieldManager: View, Preview: View>: ViewModif
             } message: {
                 Text("You have unsaved changes. Discard them?")
             }
-            .sheet(isPresented: $showFieldManager) { fieldManager() }
-            .sheet(isPresented: $showPreviewSheet) { preview() }
+            .sheet(isPresented: $destination.fieldManager) { fieldManager() }
+            .sheet(isPresented: $destination.preview) { preview() }
     }
 }
 

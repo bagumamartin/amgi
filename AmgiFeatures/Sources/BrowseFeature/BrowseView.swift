@@ -2,6 +2,7 @@ public import SwiftUI
 import AmgiAppShared
 import AnkiKit
 import AmgiTheme
+import SwiftUINavigation
 
 enum BrowseSortOrder: String, CaseIterable, Sendable {
     case dateDesc = "Date (newest)"
@@ -16,11 +17,7 @@ enum BrowseSortOrder: String, CaseIterable, Sendable {
 public struct BrowseView: View {
     @State private var model: BrowseModel
     @State private var selectionState = BrowseSelectionState()
-    @State private var showAddNote = false
-    @State private var showAddImageOcclusion = false
-    @State private var showTagSheet = false
-    @State private var showDeleteConfirm = false
-    @State private var pendingSwipeDelete: NoteRecord?
+    @State private var destination: BrowseDestination?
 
     public init() {
         _model = State(initialValue: BrowseModel())
@@ -57,27 +54,19 @@ public struct BrowseView: View {
         sheetContent
             .confirmationDialog(
                 "Delete this note?",
-                isPresented: Binding(
-                    get: { pendingSwipeDelete != nil },
-                    set: { if !$0 { pendingSwipeDelete = nil } }
-                ),
+                isPresented: Binding($destination.deleteNote),
                 presenting: pendingSwipeDelete
             ) { note in
                 Button("Delete", role: .destructive) {
-                    Task {
-                        await model.delete(note.id)
-                        pendingSwipeDelete = nil
-                    }
+                    Task { await model.delete(note.id) }
                 }
-                Button("Cancel", role: .cancel) {
-                    pendingSwipeDelete = nil
-                }
+                Button("Cancel", role: .cancel) {}
             } message: { _ in
                 Text("This action cannot be undone.")
             }
             .confirmationDialog(
                 "Delete \(selectionState.count) note\(selectionState.count == 1 ? "" : "s")?",
-                isPresented: $showDeleteConfirm
+                isPresented: $destination.deleteSelected
             ) {
                 Button("Delete", role: .destructive) {
                     deleteSelected()
@@ -88,21 +77,26 @@ public struct BrowseView: View {
             }
     }
 
+    private var pendingSwipeDelete: NoteRecord? {
+        if case .deleteNote(let note) = destination { return note }
+        return nil
+    }
+
     private var sheetContent: some View {
         BrowseContent(
             model: model,
             selectionState: $selectionState,
-            onSwipeDelete: { pendingSwipeDelete = $0 }
+            onSwipeDelete: { destination = .deleteNote($0) }
         )
-        .sheet(isPresented: $showAddNote) {
+        .sheet(isPresented: $destination.addNote) {
             AddNoteView {
                 Task { await model.performSearch() }
             }
         }
-        .sheet(isPresented: $showAddImageOcclusion) {
+        .sheet(isPresented: $destination.addImageOcclusion) {
             AddImageOcclusionNoteView { Task { await model.performSearch() } }
         }
-        .sheet(isPresented: $showTagSheet) {
+        .sheet(isPresented: $destination.batchTag) {
             BatchTagSheet(noteIDs: selectionState.selectedNoteIDs) {
                 Task {
                     selectionState.exitSelectMode()
@@ -118,8 +112,8 @@ public struct BrowseView: View {
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
             Menu {
-                Button("Add Note") { showAddNote = true }
-                Button("Add Image Occlusion") { showAddImageOcclusion = true }
+                Button("Add Note") { destination = .addNote }
+                Button("Add Image Occlusion") { destination = .addImageOcclusion }
             } label: {
                 Image(systemName: "plus")
             }
@@ -188,7 +182,7 @@ public struct BrowseView: View {
         ToolbarItem(placement: .bottomBar) { Spacer() }
         ToolbarItem(placement: .bottomBar) {
             Button {
-                showTagSheet = true
+                destination = .batchTag
             } label: {
                 Label("Tags", systemImage: "tag")
             }
@@ -197,7 +191,7 @@ public struct BrowseView: View {
         ToolbarItem(placement: .bottomBar) { Spacer() }
         ToolbarItem(placement: .bottomBar) {
             Button(role: .destructive) {
-                showDeleteConfirm = true
+                destination = .deleteSelected
             } label: {
                 Label("Delete", systemImage: "trash")
             }

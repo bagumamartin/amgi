@@ -11,6 +11,7 @@ import BrowseFeature
 import TemplatesFeature
 import Sharing
 import AmgiReviewCore
+import SwiftUINavigation
 
 /// Container: owns the `ReviewSession`, the review preferences, the sheet
 /// selection state, and the session lifecycle (`start()`, audio-session
@@ -43,9 +44,7 @@ public struct ReviewView: View {
     private var playAudioInSilentMode: Bool = false
 
     @State private var session: ReviewSession
-    @State private var editingNote: NoteRecord?
-    @State private var editingTemplate: ReviewSession.TemplateTarget?
-    @State private var lookupQuery: String?
+    @State private var destination: ReviewDestination?
 
     public init(deckId: DeckID, onDismiss: @escaping () -> Void) {
         self.deckId = deckId
@@ -62,9 +61,7 @@ public struct ReviewView: View {
             cardContentAlignment: cardContentAlignment,
             tapLookup: tapLookup,
             showNextReviewTime: showNextReviewTime,
-            editingNote: $editingNote,
-            editingTemplate: $editingTemplate,
-            lookupQuery: $lookupQuery,
+            destination: $destination,
             onDismiss: onDismiss
         )
         .task {
@@ -94,9 +91,7 @@ private struct ReviewContent: View {
     let cardContentAlignment: String
     let tapLookup: Bool
     let showNextReviewTime: Bool
-    @Binding var editingNote: NoteRecord?
-    @Binding var editingTemplate: ReviewSession.TemplateTarget?
-    @Binding var lookupQuery: String?
+    @Binding var destination: ReviewDestination?
     let onDismiss: () -> Void
 
     @Environment(\.palette) private var palette
@@ -122,7 +117,7 @@ private struct ReviewContent: View {
                         cardContentAlignment: cardContentAlignment,
                         tapLookup: tapLookup,
                         showNextReviewTime: showNextReviewTime,
-                        lookupQuery: $lookupQuery
+                        lookupQuery: lookupQuery
                     )
                 }
             }
@@ -198,14 +193,14 @@ private struct ReviewContent: View {
                 autoMatchCardBackground && session.cardChromeIsDark ? .dark : .light,
                 for: .navigationBar
             )
-            .sheet(item: $editingNote) { note in
+            .sheet(item: $destination.editNote) { note in
                 NavigationStack {
                     NoteEditorView(note: note) {
                         Task { await session.refreshAfterEdit() }
                     }
                 }
             }
-            .sheet(item: $editingTemplate) { target in
+            .sheet(item: $destination.editTemplate) { target in
                 NavigationStack {
                     TemplateEditorView(
                         notetypeId: target.notetypeId,
@@ -215,15 +210,24 @@ private struct ReviewContent: View {
                     )
                 }
             }
-            .sheet(item: Binding(
-                get: { lookupQuery.map(ReviewLookupQuery.init) },
-                set: { lookupQuery = $0?.text }
-            )) { wrapped in
-                lookupPopup(wrapped.text) {
-                    lookupQuery = nil
+            .sheet(isPresented: Binding($destination.lookup)) {
+                lookupPopup(lookupQuery.wrappedValue ?? "") {
+                    destination = nil
                 }
             }
         }
+    }
+
+    /// `ReviewCardArea` drives lookup from a tap on the card and knows nothing
+    /// about the destination enum, so it keeps a plain `String?`. Hand-rolled
+    /// rather than `$destination.lookup`, because a case-path binding refuses
+    /// writes while a *different* case is active — including the nil→lookup
+    /// write that opens the popup in the first place.
+    private var lookupQuery: Binding<String?> {
+        Binding(
+            get: { if case .lookup(let text) = destination { return text }; return nil },
+            set: { destination = $0.map(ReviewDestination.lookup) }
+        )
     }
 
     // MARK: - Progress
@@ -282,14 +286,14 @@ private struct ReviewContent: View {
 
             Section {
                 Button {
-                    editingNote = session.currentNote
+                    destination = session.currentNote.map(ReviewDestination.editNote)
                 } label: {
                     Label("Edit Note", systemImage: "pencil")
                 }
                 .disabled(session.currentNote == nil)
 
                 Button {
-                    editingTemplate = session.currentTemplateTarget
+                    destination = session.currentTemplateTarget.map(ReviewDestination.editTemplate)
                 } label: {
                     Label("Edit Template", systemImage: "square.and.pencil")
                 }
@@ -299,7 +303,7 @@ private struct ReviewContent: View {
                     // Empty initial query opens the popup focused for typing.
                     // Future enhancement: forward CardWebView text-selection so
                     // the query is pre-populated.
-                    lookupQuery = ""
+                    destination = .lookup("")
                 } label: {
                     Label("Look Up", systemImage: "character.book.closed")
                 }
@@ -581,14 +585,6 @@ private struct TypedAnswerField: View {
     }
 }
 
-/// Identifiable wrapper so `.sheet(item:)` can distinguish "not
-/// presented" from "presented with empty query" — the toolbar button
-/// opens the lookup popup focused on the search bar with no query yet.
-private struct ReviewLookupQuery: Identifiable {
-    let id = UUID()
-    let text: String
-}
-
 // MARK: - Previews
 
 #if DEBUG
@@ -601,9 +597,7 @@ private struct ReviewLookupQuery: Identifiable {
         cardContentAlignment: CardWebViewContentAlignment.center.rawValue,
         tapLookup: true,
         showNextReviewTime: true,
-        editingNote: .constant(nil),
-        editingTemplate: .constant(nil),
-        lookupQuery: .constant(nil),
+        destination: .constant(nil),
         onDismiss: {}
     )
 }
@@ -617,9 +611,7 @@ private struct ReviewLookupQuery: Identifiable {
         cardContentAlignment: CardWebViewContentAlignment.center.rawValue,
         tapLookup: true,
         showNextReviewTime: true,
-        editingNote: .constant(nil),
-        editingTemplate: .constant(nil),
-        lookupQuery: .constant(nil),
+        destination: .constant(nil),
         onDismiss: {}
     )
 }
@@ -633,9 +625,7 @@ private struct ReviewLookupQuery: Identifiable {
         cardContentAlignment: CardWebViewContentAlignment.center.rawValue,
         tapLookup: true,
         showNextReviewTime: true,
-        editingNote: .constant(nil),
-        editingTemplate: .constant(nil),
-        lookupQuery: .constant(nil),
+        destination: .constant(nil),
         onDismiss: {}
     )
 }

@@ -103,12 +103,16 @@ let package = Package(
         .target(
             name: "TemplatesFeature",
             dependencies: [
+                "AmgiAppCore",
                 .product(name: "AnkiKit", package: "amgi"),
                 .product(name: "AnkiClients", package: "amgi"),
                 .product(name: "AnkiServices", package: "amgi"),
                 .product(name: "AmgiTheme", package: "AmgiUI"),
                 .product(name: "AmgiUI", package: "AmgiUI"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
+                .product(name: "Sharing", package: "swift-sharing"),
+                .product(name: "SwiftUINavigation", package: "swift-navigation"),
+                .product(name: "CasePaths", package: "swift-case-paths"),
             ],
             swiftSettings: sharedSwiftSettings
         ),
@@ -236,6 +240,8 @@ let package = Package(
                 .product(name: "AmgiUI", package: "AmgiUI"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
                 .product(name: "Sharing", package: "swift-sharing"),
+                .product(name: "SwiftUINavigation", package: "swift-navigation"),
+                .product(name: "CasePaths", package: "swift-case-paths"),
             ],
             swiftSettings: sharedSwiftSettings
         ),
