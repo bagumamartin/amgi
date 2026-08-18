@@ -4,6 +4,9 @@ import AmgiTheme
 import AmgiAppCore
 import Sharing
 import AmgiReviewCore
+// MemberImportVisibility: CardRenderEngine is AmgiReviewCore's, but its
+// `displayName`/`summary` display helpers are ReviewFeature extensions.
+import ReviewFeature
 
 /// R11 "Card Rendering" settings: global engine picker plus a link to the
 /// per-template overrides list. Lives under the Review section until the

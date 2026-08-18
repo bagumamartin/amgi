@@ -1,17 +1,38 @@
 import SwiftUI
 import AmgiTheme
 import AmgiAppCore
+import CasePaths
+import SwiftUINavigation
 
 /// Profile picker / manager. Each row is one `AmgiAccount`; the active
 /// row shows a checkmark, tapping any other switches immediately. Add
 /// via `+`, swipe to delete (with optional "delete files" prompt).
 struct AccountsSettingsView: View {
+    /// Composition-root work: closes/reopens the collection, cancels sync and
+    /// flips the keychain anchor, so it stays in `AmgiAppApp.swift` and
+    /// arrives here through `SettingsView`.
+    let onSwitchProfile: (AmgiAccount) async -> Void
+
     @State private var store = AccountStore.shared
-    @State private var showAddSheet = false
-    @State private var newName = ""
-    @State private var addError: String?
-    @State private var pendingDelete: AmgiAccount?
-    @State private var deleteError: String?
+    @State private var destination: Destination?
+
+    /// One axis for the add sheet and both delete alerts. The add sheet's
+    /// name field and validation error only exist while it's up, so they
+    /// ride along in the case rather than as two more `@State`s that outlive
+    /// it — and a delete error can no longer be raised over a live sheet.
+    @CasePathable
+    enum Destination {
+        case add(NewProfile)
+        case confirmDelete(AmgiAccount)
+        case deleteFailed(String)
+    }
+
+    /// In-flight new profile: the name the sheet's text field edits, plus
+    /// whatever `AccountStore.add` rejected it with.
+    struct NewProfile {
+        var name = ""
+        var error: String?
+    }
 
     @Environment(\.palette) private var palette
 
@@ -29,15 +50,12 @@ struct AccountsSettingsView: View {
         .background(palette.background)
         .navigationTitle("Profiles")
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $showAddSheet) {
+        .sheet(isPresented: Binding($destination.add)) {
             addProfileSheet
         }
         .alert(
             "Delete \(pendingDelete?.displayName ?? "")?",
-            isPresented: Binding(
-                get: { pendingDelete != nil },
-                set: { if !$0 { pendingDelete = nil } }
-            ),
+            isPresented: Binding($destination.confirmDelete),
             presenting: pendingDelete
         ) { account in
             Button("Delete profile only", role: .destructive) {
@@ -52,12 +70,42 @@ struct AccountsSettingsView: View {
         }
         .alert(
             "Couldn't delete profile",
-            isPresented: Binding(get: { deleteError != nil }, set: { if !$0 { deleteError = nil } })
+            isPresented: Binding($destination.deleteFailed)
         ) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(deleteError ?? "")
         }
+    }
+
+    private var pendingDelete: AmgiAccount? {
+        if case .confirmDelete(let account) = destination { return account }
+        return nil
+    }
+
+    private var deleteError: String? {
+        if case .deleteFailed(let message) = destination { return message }
+        return nil
+    }
+
+    private var pendingAdd: NewProfile? {
+        if case .add(let draft) = destination { return draft }
+        return nil
+    }
+
+    private var addError: String? { pendingAdd?.error }
+
+    /// The add sheet's text field edits the draft in place inside
+    /// `destination`, so there's no second copy of the name to keep in sync.
+    private var newName: Binding<String> {
+        Binding(
+            get: { pendingAdd?.name ?? "" },
+            set: { newValue in
+                guard var draft = pendingAdd else { return }
+                draft.name = newValue
+                destination = .add(draft)
+            }
+        )
     }
 
     private var profilesSection: some View {
@@ -74,9 +122,7 @@ struct AccountsSettingsView: View {
     private var addSection: some View {
         Section {
             Button {
-                newName = ""
-                addError = nil
-                showAddSheet = true
+                destination = .add(NewProfile())
             } label: {
                 HStack(spacing: AmgiSpacing.md) {
                     SettingsIconTile(systemImage: "plus", tone: .accent)
@@ -100,7 +146,7 @@ struct AccountsSettingsView: View {
                 SettingsGroup {
                     TextField(
                         "Profile name",
-                        text: $newName,
+                        text: newName,
                         prompt: Text("e.g. Korean").foregroundStyle(palette.textTertiary)
                     )
                         .amgiFont(.body)
@@ -121,11 +167,11 @@ struct AccountsSettingsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { showAddSheet = false }
+                    Button("Cancel") { destination = nil }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Add") { attemptAdd() }
-                        .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .disabled(newName.wrappedValue.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
         }
@@ -138,7 +184,7 @@ private extension AccountsSettingsView {
     func profileRow(_ account: AmgiAccount) -> some View {
         Button {
             guard account.id != store.selectedID else { return }
-            Task { await switchProfile(to: account) }
+            Task { await onSwitchProfile(account) }
         } label: {
             HStack(spacing: AmgiSpacing.md) {
                 ProfileMonogram(name: account.displayName)
@@ -160,7 +206,7 @@ private extension AccountsSettingsView {
         }
         .swipeActions(edge: .trailing) {
             Button(role: .destructive) {
-                pendingDelete = account
+                destination = .confirmDelete(account)
             } label: {
                 Label("Delete", systemImage: "trash")
             }
@@ -169,21 +215,23 @@ private extension AccountsSettingsView {
     }
 
     func attemptAdd() {
+        guard var draft = pendingAdd else { return }
         do {
-            _ = try store.add(displayName: newName)
-            showAddSheet = false
+            _ = try store.add(displayName: draft.name)
+            destination = nil
         } catch {
-            addError = error.localizedDescription
+            draft.error = error.localizedDescription
+            destination = .add(draft)
         }
     }
 
     func attemptDelete(_ account: AmgiAccount, deleteFiles: Bool) {
         do {
             try store.remove(account, deleteFiles: deleteFiles)
+            destination = nil
         } catch {
-            deleteError = error.localizedDescription
+            destination = .deleteFailed(error.localizedDescription)
         }
-        pendingDelete = nil
     }
 }
 
@@ -221,5 +269,5 @@ private struct ProfileMonogram: View {
 // MARK: - Preview
 
 #Preview {
-    NavigationStack { AccountsSettingsView() }
+    NavigationStack { AccountsSettingsView(onSwitchProfile: { _ in }) }
 }

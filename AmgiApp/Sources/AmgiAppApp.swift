@@ -18,7 +18,8 @@ struct AnkiAppApp: App {
     @Shared(.onboardingCompleted) private var onboardingCompleted
     @Environment(\.scenePhase) private var scenePhase
     @State private var pendingReviewDeckId: DeckID? = nil
-    @AppStorage("appFont") private var appFontRaw: String = AppFont.system.rawValue
+    @Shared(.appStorage(AppearancePreferences.Keys.appFont))
+    private var appFontRaw: String = AppFont.system.rawValue
 
     private var destination: Destination {
         onboardingCompleted ? .main : .onboarding

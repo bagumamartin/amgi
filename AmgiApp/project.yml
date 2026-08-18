@@ -164,6 +164,8 @@ targets:
         product: ReviewFeature
       - package: AmgiFeatures
         product: DecksFeature
+      - package: AmgiFeatures
+        product: SettingsFeature
       - package: swift-navigation
         product: SwiftNavigation
       - package: swift-navigation

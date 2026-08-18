@@ -1,6 +1,6 @@
-import SwiftUI
+public import SwiftUI
 import AmgiTheme
-import AmgiAppCore
+public import AmgiAppCore
 import BrowseFeature
 import TemplatesFeature
 import ReaderFeature
@@ -13,10 +13,20 @@ import ReaderFeature
 /// mock names four destinations that don't exist (Privacy & Data, a global
 /// FSRS Scheduler, an auto-card-from-highlights toggle, onboarding replay)
 /// and omits three that do (Backups, Media Check, Code Editor).
-struct SettingsView: View {
+public struct SettingsView: View {
+    private let onSwitchProfile: (AmgiAccount) async -> Void
+
+    /// - Parameter onSwitchProfile: profile switching closes/reopens the
+    ///   collection, cancels sync and flips the keychain anchor — composition-
+    ///   root work that stays in `AmgiAppApp.swift`. Same shape as
+    ///   `DeckListView.onSwitchProfile`.
+    public init(onSwitchProfile: @escaping (AmgiAccount) async -> Void) {
+        self.onSwitchProfile = onSwitchProfile
+    }
+
     @Environment(\.palette) private var palette
 
-    var body: some View {
+    public var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 title
@@ -80,7 +90,7 @@ struct SettingsView: View {
                     tone: .accent,
                     detail: AccountStore.shared.current.displayName
                 ) {
-                    AccountsSettingsView()
+                    AccountsSettingsView(onSwitchProfile: onSwitchProfile)
                 }
                 SettingsSeparator()
                 SettingsRowLink(
@@ -248,6 +258,6 @@ struct SettingsView: View {
 
 #Preview {
     NavigationStack {
-        SettingsView()
+        SettingsView(onSwitchProfile: { _ in })
     }
 }

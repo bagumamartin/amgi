@@ -4,6 +4,7 @@ import AnkiKit
 import StatsFeature
 import ReaderFeature
 import DecksFeature
+import SettingsFeature
 
 /// Root tab bar for the app. Pure layout: each tab wraps a feature view in
 /// a `NavigationStack`. `refreshID` (bumped by the host after sync / import /
@@ -51,7 +52,7 @@ struct MainTabView: View {
             // 5. Settings
             Tab("Settings", systemImage: "gearshape") {
                 NavigationStack {
-                    SettingsView()
+                    SettingsView(onSwitchProfile: { await switchProfile(to: $0) })
                         .id(refreshID)
                 }
             }

@@ -7,6 +7,8 @@ import AnkiKit
 import Dependencies
 import Sharing
 import AmgiReviewCore
+// MemberImportVisibility: CardRenderEngine.displayName is a ReviewFeature extension.
+import ReviewFeature
 
 /// R11 per-template override list: each stored override as
 /// "Notetype · Template — engine", swipe-to-delete. Names resolve via

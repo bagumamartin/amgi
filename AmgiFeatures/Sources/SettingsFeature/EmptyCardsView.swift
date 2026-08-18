@@ -3,6 +3,8 @@ import AmgiTheme
 import AmgiUI
 import AnkiKit
 import BrowseFeature
+import CasePaths
+import SwiftUINavigation
 
 /// Empty Cards container: owns navigation, the delete/success/error alerts,
 /// and the note-editor sheets, and drives an `EmptyCardsModel` for the
@@ -11,88 +13,93 @@ struct EmptyCardsView: View {
     @State private var model = EmptyCardsModel()
     @Environment(\.dismiss) private var dismiss
 
-    @State private var showDeleteConfirm = false
-    @State private var showSuccess = false
-    @State private var editingNote: NoteRecord?
+    @State private var destination: Destination?
+
+    /// One axis for all three alerts and both editors. The editor split used to
+    /// be two `Binding<NoteRecord?>` projections off a single `editingNote` that
+    /// each had to filter the other's notes out by hand; as two cases the
+    /// branch is taken once, where the note is fetched. The error lives here
+    /// too rather than on the model, so no two alerts can ever be true at once.
+    @CasePathable
+    enum Destination {
+        case confirmDeleteAll
+        case deleted
+        case error(String)
+        case editNote(NoteRecord)
+        case editImageOcclusion(NoteRecord)
+    }
 
     var body: some View {
         EmptyCardsContent(
             model: model,
-            onOpenNote: { id in
-                Task {
-                    if let note = await model.fetchNote(id) { editingNote = note }
-                }
-            },
-            onRequestDeleteAll: { showDeleteConfirm = true }
+            onOpenNote: { id in Task { await openNote(id) } },
+            onRequestDeleteAll: { destination = .confirmDeleteAll }
         )
         .navigationTitle("Empty Cards")
         .navigationBarTitleDisplayMode(.inline)
-        .alert("Delete empty cards?", isPresented: $showDeleteConfirm) {
+        .alert("Delete empty cards?", isPresented: $destination.confirmDeleteAll) {
             Button("Cancel", role: .cancel) {}
-            Button("Delete", role: .destructive) {
-                Task {
-                    if await model.deleteAllEmpty() { showSuccess = true }
-                }
-            }
+            Button("Delete", role: .destructive) { Task { await deleteAll() } }
         } message: {
             Text("Delete \(model.totalEmptyCards) empty cards? This cannot be undone.")
         }
-        .alert("Done", isPresented: $showSuccess) {
+        .alert("Done", isPresented: $destination.deleted) {
             Button("OK", role: .cancel) { dismiss() }
         } message: {
             Text("Empty cards deleted.")
         }
-        .alert("Error", isPresented: Binding(
-            get: { model.errorMessage != nil },
-            set: { if !$0 { model.errorMessage = nil } }
-        )) {
+        .alert("Error", isPresented: Binding($destination.error)) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text(model.errorMessage ?? "An unknown error occurred.")
+            Text(errorMessage ?? "An unknown error occurred.")
         }
-        .task { await model.loadEmptyCards() }
-        .sheet(item: regularEditingNoteBinding) { note in
+        .task { await load() }
+        .sheet(item: $destination.editNote) { note in
             NoteEditingDestinationView(note: note, embedInNavigationStack: true) {
-                Task { await model.loadEmptyCards() }
+                Task { await load() }
             }
         }
-        .fullScreenCover(item: imageOcclusionEditingNoteBinding) { note in
+        .fullScreenCover(item: $destination.editImageOcclusion) { note in
             NoteEditingDestinationView(note: note, embedInNavigationStack: true) {
-                Task { await model.loadEmptyCards() }
+                Task { await load() }
             }
         }
     }
 
-    private var imageOcclusionEditingNoteBinding: Binding<NoteRecord?> {
-        Binding(
-            get: {
-                guard let editingNote, editingNote.isImageOcclusionNote else { return nil }
-                return editingNote
-            },
-            set: { newValue in
-                if let newValue {
-                    editingNote = newValue
-                } else if editingNote?.isImageOcclusionNote == true {
-                    editingNote = nil
-                }
-            }
-        )
+    private var errorMessage: String? {
+        guard case .error(let message) = destination else { return nil }
+        return message
     }
 
-    private var regularEditingNoteBinding: Binding<NoteRecord?> {
-        Binding(
-            get: {
-                guard let editingNote, !editingNote.isImageOcclusionNote else { return nil }
-                return editingNote
-            },
-            set: { newValue in
-                if let newValue {
-                    editingNote = newValue
-                } else if editingNote?.isImageOcclusionNote != true {
-                    editingNote = nil
-                }
+    private func load() async {
+        do {
+            try await model.loadEmptyCards()
+        } catch {
+            destination = .error(error.localizedDescription)
+        }
+    }
+
+    private func deleteAll() async {
+        do {
+            try await model.deleteAllEmpty()
+            destination = .deleted
+        } catch {
+            destination = .error(error.localizedDescription)
+        }
+    }
+
+    private func openNote(_ id: NoteID) async {
+        do {
+            guard let note = try await model.fetchNote(id) else {
+                destination = .error("That note no longer exists.")
+                return
             }
-        )
+            destination = note.isImageOcclusionNote
+                ? .editImageOcclusion(note)
+                : .editNote(note)
+        } catch {
+            destination = .error(error.localizedDescription)
+        }
     }
 }
 
@@ -206,7 +213,7 @@ struct EmptyCardsContent: View {
                 if model.isDeletingAll {
                     HStack {
                         Text("Delete All Empty Cards")
-                        Spacer()
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         ProgressView()
                     }
                 } else {

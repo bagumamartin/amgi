@@ -48,6 +48,7 @@ let package = Package(
         .library(name: "ReviewFeature", targets: ["ReviewFeature"]),
         .library(name: "DecksFeature", targets: ["DecksFeature"]),
         .library(name: "WidgetFeature", targets: ["WidgetFeature"]),
+        .library(name: "SettingsFeature", targets: ["SettingsFeature"]),
     ],
     dependencies: [
         .package(path: ".."),
@@ -308,6 +309,55 @@ let package = Package(
                 .product(name: "AmgiTheme", package: "AmgiUI"),
             ],
             swiftSettings: sharedSwiftSettings
+        ),
+        // The settings aggregator: the Settings root plus every screen it
+        // pushes to (appearance, accounts, sync, review, card rendering,
+        // reader, code editor, template overrides, maintenance, empty cards,
+        // media check, backups, about) and the shared row/control chrome.
+        //
+        // It is the app's fan-in point, so it depends on nearly every other
+        // feature — that is inherent to what a settings screen is, not a
+        // layering smell. Public surface is SettingsView alone.
+        //
+        // Two consequences of that fan-in, both deliberate:
+        //   - It imports ReaderFeature (ReaderSettingsView, dictionary
+        //     settings), so it joins the Cxx chain and needs
+        //     .interoperabilityMode(.Cxx) — and loses compilation caching
+        //     with it (rdar://122829880). Unavoidable while the reader's own
+        //     settings screens live in ReaderFeature.
+        //   - It imports AnkiBackend directly, for MaintenanceModel's
+        //     closeCollection() in "Reset Everything". No other *Feature does;
+        //     AnkiClients already links it, so this costs no new linkage.
+        //
+        // switchProfile(to:) stays in AmgiAppApp.swift (it closes/reopens the
+        // collection, cancels sync, flips the keychain anchor), so
+        // SettingsView takes it as onSwitchProfile — same shape as
+        // DeckListView.
+        .target(
+            name: "SettingsFeature",
+            dependencies: [
+                "AmgiAppCore",
+                "AmgiReviewCore",
+                "BrowseFeature",
+                "ReaderFeature",
+                "ReviewFeature",
+                "SyncFeature",
+                "TemplatesFeature",
+                .product(name: "AnkiKit", package: "amgi"),
+                .product(name: "AnkiBackend", package: "amgi"),
+                .product(name: "AnkiClients", package: "amgi"),
+                .product(name: "AnkiServices", package: "amgi"),
+                .product(name: "AnkiSync", package: "amgi"),
+                .product(name: "AmgiCardWeb", package: "amgi"),
+                .product(name: "AmgiTheme", package: "AmgiUI"),
+                .product(name: "AmgiUI", package: "AmgiUI"),
+                .product(name: "Dependencies", package: "swift-dependencies"),
+                .product(name: "Sharing", package: "swift-sharing"),
+                .product(name: "SwiftNavigation", package: "swift-navigation"),
+                .product(name: "SwiftUINavigation", package: "swift-navigation"),
+                .product(name: "CasePaths", package: "swift-case-paths"),
+            ],
+            swiftSettings: sharedSwiftSettings + [.interoperabilityMode(.Cxx)]
         ),
     ],
     swiftLanguageModes: [.v6]

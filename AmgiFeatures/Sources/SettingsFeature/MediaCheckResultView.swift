@@ -129,7 +129,7 @@ private extension MediaCheckResultView {
                     if model.isTrashingUnused {
                         HStack {
                             Text("Trash unused files")
-                            Spacer()
+                                .frame(maxWidth: .infinity, alignment: .leading)
                             ProgressView()
                         }
                     } else {
@@ -147,7 +147,7 @@ private extension MediaCheckResultView {
                     if model.isDeletingTrash {
                         HStack {
                             Text("Empty trash")
-                            Spacer()
+                                .frame(maxWidth: .infinity, alignment: .leading)
                             ProgressView()
                         }
                     } else {
@@ -164,7 +164,7 @@ private extension MediaCheckResultView {
                     if model.isRestoringTrash {
                         HStack {
                             Text("Restore trash")
-                            Spacer()
+                                .frame(maxWidth: .infinity, alignment: .leading)
                             ProgressView()
                         }
                     } else {

@@ -36,10 +36,12 @@ AmgiFeatures package — app-layer shared code + migrated features
                              AmgiReviewCore, AmgiAppShared
              DecksFeature  → ReviewFeature, BrowseFeature, AmgiAppShared
              WidgetFeature → AmgiAppCore        (the iOS widget extension)
+             SettingsFeature → Reader, Review, Browse, Templates, Sync,
+                             AmgiReviewCore, AmgiAppCore   (the aggregator)
   Everything else reaches sideways into AmgiUI/AmgiTheme/AnkiKit/AnkiClients.
 
   **Cxx chain.** ReaderFeature declares `.interoperabilityMode(.Cxx)`, and so
-  does the app target. Only ReaderFeature actually touches C++
+  do SettingsFeature and the app target. Only ReaderFeature actually touches C++
   (AmgiReaderDictionary → hoshidicts); the app inherits it because Cxx interop
   is transitive through the module graph — a target that imports a Cxx-mode
   module gets the CHoshiDicts modulemap in its own Clang dependency scan and
@@ -63,6 +65,13 @@ AmgiFeatures package — app-layer shared code + migrated features
   importing Review or Decks no longer does. Keep it that way: reach for an
   injection point in a sink over an import of a Cxx-mode module.
 
+  SettingsFeature (2026-08-18) joined the chain and stays there: it hosts
+  ReaderSettingsView and links to `ReaderDictionarySettingsView`, so it imports
+  ReaderFeature for real UI, not a single injectable view. Inverting that the
+  way ReviewFeature's was would mean injecting two whole settings screens
+  through the environment to save caching on one target. Not worth it unless
+  the reader's settings screens move out of ReaderFeature.
+
   AmgiWidget links WidgetFeature only, which brings AmgiAppCore + AmgiTheme
   and must never reach AnkiClients. That, by itself, is why the sink is two
   targets rather than one.
@@ -76,7 +85,7 @@ AmgiFeatures package — app-layer shared code + migrated features
   AmgiApp/project.yml, not this note.)
 
 AnkiBridge package — Anki engine surface
-  SwiftUI feature code (AmgiFeatures/Sources/*Feature, AmgiApp/Sources/Settings)
+  SwiftUI feature code (AmgiFeatures/Sources/*Feature)
     ↓ @Dependency(\.xxxClient)
   AnkiClients          ─ thin @DependencyClient structs, live values
     ↓
@@ -134,6 +143,7 @@ dictionary UI, widgets.
 | `AmgiReviewCore` (./AmgiFeatures) | The review state machine (`ReviewSession`) + `TemplateRenderOverrides`. Watch-shared: `AmgiWatchApp` links it, so it must stay watchOS-clean — no `AmgiAppShared`, no UI, guard UIKit with `#if canImport(UIKit)`. Exists because project.yml used to cherry-pick these files into the watch target by path, compiling them twice as two distinct types. Same role `AmgiCharts` plays for stats. |
 | `ReviewFeature` (./AmgiFeatures) | The review screen: WebKit card host, flip chrome, rating bar, native renderer, render-mode UI. Engine logic belongs in `AmgiReviewCore`, presentation here. Public surface: `ReviewView`, `CardWebViewContentAlignment`, and the `CardRenderEngine` display helpers. Deliberately does **not** import `ReaderFeature`: it takes the dictionary popup from `EnvironmentValues.lookupPopup` instead, which is what keeps it (and Decks) out of the Cxx chain. Don't re-add the import. |
 | `DecksFeature` (./AmgiFeatures) | Deck list, deck detail, deck config + FSRS simulator, profile picker. Public surface is `DeckListView` alone. `DeckListView.init` takes `onSwitchProfile` because `switchProfile(to:)` is composition-root work (closes/reopens the collection, cancels sync, flips the keychain anchor) and stays in `AmgiAppApp.swift`. No Cxx settings — it left the chain when `ReviewFeature` did, with no source change of its own. |
+| `SettingsFeature` (./AmgiFeatures) | The Settings root plus every screen it pushes to (appearance, accounts, sync, review behaviour, card rendering, reader display, code editor, template overrides, database maintenance, empty cards, media check, backups, about) and the shared `SettingsRow`/`SettingsControls` chrome. Public surface is `SettingsView` alone. It is the app's fan-in point, so it depends on nearly every other feature — inherent to a settings screen, not a layering smell. Two consequences: it's in the **Cxx chain** (imports `ReaderFeature`), and it's the only `*Feature` that imports `AnkiBackend` (`MaintenanceModel.resetEverything` needs `closeCollection()`; `AnkiClients` already links it, so this costs no new linkage). `SettingsView.init` takes `onSwitchProfile` for the same reason `DeckListView.init` does. Extracted 2026-08-18. |
 | `WidgetFeature` (./AmgiFeatures) | Everything the iOS widget extension does: the `AmgiWidget` `Widget`, its `AmgiWidgetIntent` AppIntents configuration + `DeckEntity` query, the `AppIntentTimelineProvider` that replays `WidgetSnapshot.projectedEntries`, and the three family views. Only `@main AmgiWidgetBundle` stays in the `AmgiWidget` target. Public surface is `AmgiWidget` alone. Deps: `AmgiAppCore`, `AmgiTheme` — **must never gain `AnkiClients`**; the widget is a separate process that reads the app group and has no business reaching the Rust engine. Extracted 2026-08-16. |
 
 ### Module naming convention
@@ -143,9 +153,8 @@ Three prefixes/suffixes, each answering a different question:
   (`AmgiUI`, `AmgiTheme`, `AmgiCharts`, `AmgiAppCore`, `AmgiAppShared`).
 - **`*Feature`** — app-owned **screen-level** module: `BrowseFeature`,
   `SyncFeature`, `StatsFeature`, `TemplatesFeature`, `ReaderFeature`,
-  `ReviewFeature`, `DecksFeature`, `WidgetFeature`. (No `StudyFeature` — Study
-  was absorbed into `ReaderFeature`. No `SettingsFeature` planned; see
-  extraction status.)
+  `ReviewFeature`, `DecksFeature`, `WidgetFeature`, `SettingsFeature`. (No
+  `StudyFeature` — Study was absorbed into `ReaderFeature`.)
 
   On the suffix: `WidgetFeature` stretches "screen-level" to cover app
   extensions. A widget is not a screen inside the app, but the alternative —
@@ -180,24 +189,32 @@ most misread pair. The suffix keeps the app layer visually distinct.
 
 ### App target
 - `AmgiApp/` — Xcode project, generated by xcodegen from `project.yml`.
-- Remaining folders: `AmgiApp/Sources/{Settings,Watch}`, a `Widgets/` stub
-  holding only `@main AmgiWidgetBundle.swift` + `Info.plist`, plus six root
-  files (`AmgiAppApp`, `ContentView`, `MainTabView`, `DebugView`,
+- Remaining folders: `AmgiApp/Sources/Watch`, a `Widgets/` stub holding only
+  `@main AmgiWidgetBundle.swift` + `Info.plist`, plus six root files
+  (`AmgiAppApp`, `ContentView`, `MainTabView`, `DebugView`,
   `DeckImportModifier`, `RetroactiveIdentifiable`). Everything else migrated
-  into `AmgiFeatures`/`AmgiUI`.
+  into `AmgiFeatures`/`AmgiUI`. The iOS app target proper is now those six
+  files — `Watch/` and `Widgets/` are in `AmgiApp.sources.excludes`.
 - Widget target depends on `WidgetFeature` alone (which brings `AmgiAppCore` +
   `AmgiTheme`). The old `AnkiKit` dependency was vestigial and was dropped on
   2026-08-16 — no widget source ever imported it. Keep its deps narrow.
 - Direct `AnkiBackend` imports left in the app target: `AmgiAppApp` (the
-  composition root, correct), `DebugView`, `Settings/MaintenanceModel`, and
-  `Watch/`. No `*Feature` module imports it, and none should — a feature target
-  that links `AnkiRustLib` stops rendering previews.
+  composition root, correct), `DebugView`, and `Watch/`. Exactly one `*Feature`
+  imports it — `SettingsFeature/MaintenanceModel`, for `closeCollection()` in
+  "Reset Everything" — and it should stay the only one. The old reason for the
+  ban ("a feature target that links `AnkiRustLib` stops rendering previews")
+  died with the dynamic-framework fix on 2026-08-17, and every feature that
+  links `AnkiClients` already links `AnkiBackend` transitively anyway; what
+  survives is taste, so route through an `AnkiServices` facade where one exists.
 - `project.yml` must contain **no per-file `path:` entries under `Sources/`**.
   Cross-target file sharing goes through a product (see `AmgiReviewCore`).
 
 ### Extraction status (2026-08-15)
-The app target went from ~18.7k LOC to ~4.4k in one session. Order was forced
-by the coupling graph, not preference; all of it is done except Settings.
+The app target went from ~18.7k LOC to ~4.4k in one session, then to ~1.2k
+when Settings followed on 2026-08-18. That last figure is 505 lines of root
+files plus 735 in `Watch/` — and `Watch/` is excluded from the iOS target, so
+the iOS app itself is now ~500 lines. Order was forced by the coupling graph,
+not preference.
 
 1. **`Sources/Shared` dissolved.** Neither file was shared — `DeckCountsView`
    had one consumer (the watch), the tags UI had one (Settings). Went to
@@ -215,9 +232,17 @@ by the coupling graph, not preference; all of it is done except Settings.
    shared; `ReviewAudioSession` was dead on the watch.
 4. **`ReviewFeature`**, then **`DecksFeature`** — Decks presents `ReviewView`,
    so it had to follow Review.
-5. **Settings stays.** It is the aggregator — it consumes types from every
-   other feature and is now a thin shell over public module APIs. Extracting it
-   would buy a boundary nothing needs.
+5. **`SettingsFeature`** (2026-08-18) — all 19 files, last out. This entry
+   used to read "Settings stays … extracting it would buy a boundary nothing
+   needs"; the user asked for the extraction anyway and it was cheaper than
+   that note implied. The whole coupling surface was two touchpoints:
+   `MainTabView` presenting `SettingsView`, and one call to the free function
+   `switchProfile(to:)`, now an `onSwitchProfile` init closure exactly like
+   `DeckListView`'s. The prediction that held: the boundary buys little on its
+   own. What it does buy is that the app target is now only its composition
+   root, and Settings compiles as a package target. What it costs is real —
+   SettingsFeature is in the Cxx chain (see above) and so loses compilation
+   caching, and it imports 7 of the 12 sibling products.
 6. **`WidgetFeature`** (2026-08-16) — six of seven files out of the `AmgiWidget`
    extension target; only `@main AmgiWidgetBundle` + `Info.plist` remain.
    Note this did **not** shrink the app target: `Sources/Widgets` was already

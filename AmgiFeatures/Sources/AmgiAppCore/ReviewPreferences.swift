@@ -86,6 +86,22 @@ public enum ReaderPreferences {
     }
 }
 
+public enum AppearancePreferences {
+    public enum Keys {
+        public static let appFont = "appFont"
+    }
+}
+
+public enum CodeEditorPreferences {
+    public enum Keys {
+        public static let fontSize = "codeEditor_fontSize"
+        public static let fontFamily = "codeEditor_fontFamily"
+    }
+
+    public static let defaultFontSize: Double = 14
+    public static let defaultFontFamily = "Menlo"
+}
+
 public enum SyncPreferences {
     public enum Keys {
         public static let modeBase = "syncMode"

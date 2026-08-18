@@ -1,13 +1,16 @@
 import SwiftUI
+import AmgiAppCore
 import AmgiTheme
+import Sharing
 
 /// Font + family preferences for the HTML/CSS source editor used inside
 /// `TemplateEditorView` (and any future code-editor surface). Both keys
-/// are plain `@AppStorage` strings so they survive across rebuilds and
-/// are readable from any editor file without a Sharing dependency.
+/// live in `CodeEditorPreferences` so the editor reads the same storage.
 struct CodeEditorSettingsView: View {
-    @AppStorage("codeEditor_fontSize") private var fontSize: Double = 14.0
-    @AppStorage("codeEditor_fontFamily") private var fontFamilyRaw: String = CodeFontFamily.menlo.rawValue
+    @Shared(.appStorage(CodeEditorPreferences.Keys.fontSize))
+    private var fontSize: Double = CodeEditorPreferences.defaultFontSize
+    @Shared(.appStorage(CodeEditorPreferences.Keys.fontFamily))
+    private var fontFamilyRaw: String = CodeEditorPreferences.defaultFontFamily
 
     @Environment(\.palette) private var palette
 
@@ -22,7 +25,7 @@ struct CodeEditorSettingsView: View {
                     title: "Size",
                     systemImage: "textformat.size",
                     tone: .accent,
-                    value: $fontSize,
+                    value: Binding($fontSize),
                     range: minFontSize...maxFontSize,
                     step: 1
                 ) { "\(Int($0))pt" }
@@ -31,7 +34,7 @@ struct CodeEditorSettingsView: View {
                     title: "Family",
                     systemImage: "textformat",
                     tone: .link,
-                    selection: $fontFamilyRaw
+                    selection: Binding($fontFamilyRaw)
                 ) {
                     ForEach(CodeFontFamily.allCases) { family in
                         Text(family.displayName).tag(family.rawValue)
@@ -62,8 +65,8 @@ struct CodeEditorSettingsView: View {
     }
 }
 
-/// Code-editor font family choices. Stored as `rawValue` in
-/// `@AppStorage("codeEditor_fontFamily")`. Resolves to a SwiftUI
+/// Code-editor font family choices. Stored as `rawValue` under
+/// `CodeEditorPreferences.Keys.fontFamily`. Resolves to a SwiftUI
 /// `Font` via `font(_:)`.
 enum CodeFontFamily: String, CaseIterable, Identifiable {
     case menlo = "Menlo"

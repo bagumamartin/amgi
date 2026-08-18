@@ -56,9 +56,9 @@ struct DesignConformanceTests {
             "UIKit init where the SwiftUI palette isn't reachable.",
         "BrowseFeature/ImageOcclusionMaskSummaryCard.swift":
             "Preview thumbnail clip radius matches the canvas it mirrors, not a card radius.",
-        "Settings/AppearanceSettingsView.swift":
+        "SettingsFeature/AppearanceSettingsView.swift":
             "Radius literals with no AmgiRadius equivalent; changing them would be a layout change (R29 is no-layout).",
-        "Settings/CodeEditorSettingsView.swift":
+        "SettingsFeature/CodeEditorSettingsView.swift":
             "Radius literals with no AmgiRadius equivalent; changing them would be a layout change (R29 is no-layout).",
         "ReviewFeature/ReviewView.swift":
             "64pt success glyph in the session-finished empty state. A fixed-size SF Symbol, " +

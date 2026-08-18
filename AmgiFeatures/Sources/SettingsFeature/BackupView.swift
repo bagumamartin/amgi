@@ -196,7 +196,7 @@ private struct BackupRow: View {
                     .amgiFont(.caption)
                     .foregroundStyle(palette.textSecondary)
             }
-            Spacer()
+            .frame(maxWidth: .infinity, alignment: .leading)
             ShareLink(item: entry.url) {
                 Image(systemName: "square.and.arrow.up")
                     .foregroundStyle(accent)

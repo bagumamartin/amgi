@@ -1,10 +1,13 @@
 import SwiftUI
+import AmgiAppCore
 import AmgiTheme
 import AmgiUI
+import Sharing
 
 struct AppearanceSettingsView: View {
     @Bindable var manager: ThemeManager
-    @AppStorage("appFont") private var appFontRaw: String = AppFont.system.rawValue
+    @Shared(.appStorage(AppearancePreferences.Keys.appFont))
+    private var appFontRaw: String = AppFont.system.rawValue
 
     var body: some View {
         SettingsPage {
@@ -28,7 +31,7 @@ struct AppearanceSettingsView: View {
                     title: "Font",
                     systemImage: "textformat",
                     tone: .accent,
-                    selection: $appFontRaw
+                    selection: Binding($appFontRaw)
                 ) {
                     Text("System").tag(AppFont.system.rawValue)
                     Text("Serif").tag(AppFont.serif.rawValue)
@@ -91,7 +94,7 @@ private struct ThemeCard: View {
                     Image(systemName: "checkmark.circle.fill")
                 }
                 Text(label).bold()
-                Spacer()
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(AmgiSpacing.md)
             .frame(maxWidth: .infinity)
