@@ -166,7 +166,8 @@ anki-bridge-rs/
 
 The two macOS libs are `lipo`-ed into a universal slice. The bridge has no
 platform-specific code, so the same four C functions serve the iOS app, the
-native macOS app (`AmgiAppMac` target, shares `AmgiApp/Sources` behind
+native macOS app (the multiplatform `AmgiApp` target, with platform-specific
+source guarded behind
 `#if os()` guards), and the watchOS app.
 
 ### XCFramework Packaging

@@ -15,16 +15,20 @@ public struct LibraryListContent: View {
     }
 
     let state: State
+    @Binding var sortOrder: DeckSortOrder
     let onRefresh: () async -> Void
     let onStartReview: () -> Void
     let onTapDeck: (DeckRowViewData) -> Void
     let onDeleteDeck: (Int64) async -> Void
     let onRenameDeck: (DeckRowViewData) -> Void
 
+    // Nested `State` enum shadows SwiftUI's `@State`; qualify the wrapper.
+    @SwiftUI.State private var deleteTarget: DeckRowViewData?
     @Environment(\.palette) private var palette
 
     public init(
         state: State,
+        sortOrder: Binding<DeckSortOrder>,
         onRefresh: @escaping () async -> Void,
         onStartReview: @escaping () -> Void,
         onTapDeck: @escaping (DeckRowViewData) -> Void,
@@ -32,6 +36,7 @@ public struct LibraryListContent: View {
         onRenameDeck: @escaping (DeckRowViewData) -> Void
     ) {
         self.state = state
+        self._sortOrder = sortOrder
         self.onRefresh = onRefresh
         self.onStartReview = onStartReview
         self.onTapDeck = onTapDeck
@@ -51,6 +56,22 @@ public struct LibraryListContent: View {
             )
         case .loaded(let rows, let hero, let heatmap):
             loadedList(rows: rows, hero: hero, heatmap: heatmap)
+                .alert(
+                    "Delete \"\(deleteTarget?.name ?? "")\"?",
+                    isPresented: Binding(
+                        get: { deleteTarget != nil },
+                        set: { if !$0 { deleteTarget = nil } }
+                    )
+                ) {
+                    Button("Delete", role: .destructive) {
+                        guard let target = deleteTarget else { return }
+                        deleteTarget = nil
+                        Task { await onDeleteDeck(target.id) }
+                    }
+                    Button("Cancel", role: .cancel) { deleteTarget = nil }
+                } message: {
+                    Text("This will permanently delete the deck and all its cards.")
+                }
         }
     }
 
@@ -59,23 +80,28 @@ public struct LibraryListContent: View {
         List {
             Section {
                 LibraryHeroCard(data: hero, onStartReview: onStartReview)
-                    .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 0, trailing: 0))
+                    // Matching top/bottom insets so the List doesn't clip
+                    // the card's corners and shadow. Horizontal width is
+                    // the centered column (`LibraryColumn.maxWidth`).
+                    .listRowInsets(EdgeInsets(top: 20, leading: 0, bottom: 20, trailing: 0))
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
             }
 
-            Section("Decks") {
+            Section {
                 ForEach(rows) { row in
                     DeckListRowView(
                         data: row,
                         onTap: { onTapDeck(row) },
-                        onDelete: { Task { await onDeleteDeck(row.id) } },
+                        onRequestDelete: { deleteTarget = row },
                         onRename: { onRenameDeck(row) }
                     )
                     .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
                     .listRowBackground(palette.surfaceElevated)
                     .listRowSeparatorTint(palette.separator)
                 }
+            } header: {
+                DeckSectionHeader(title: "Decks", sortOrder: $sortOrder)
             }
 
             Section {
@@ -86,9 +112,22 @@ public struct LibraryListContent: View {
             }
         }
         .libraryListStyle()
+        .environment(\.defaultMinListRowHeight, 0)
+        .scrollClipDisabled()
         .scrollContentBackground(.hidden)
+        // Cap the List itself — not scroll margins derived from the List's
+        // width. Measuring after `contentMargins` collapsed to ~800 and
+        // dropped the cap whenever the iPad sidebar stole space.
+        .frame(maxWidth: LibraryColumn.maxWidth)
+        .frame(maxWidth: .infinity)
         .refreshable { await onRefresh() }
     }
+}
+
+/// Shared Library column width. Hero, decks, and activity all live in
+/// this List, so they stay aligned. Independent of sidebar / split width.
+private enum LibraryColumn {
+    static let maxWidth: CGFloat = 800
 }
 
 private extension View {
@@ -138,7 +177,7 @@ private extension DeckRowViewData {
 private extension HeroData {
     static let samplePopulated = HeroData(
         totalDue: 680, deckCount: 7, streak: 36,
-        last14Days: [3, 5, 2, 7, 6, 9, 4, 8, 6, 5, 7, 3, 8, 5]
+        recentDayTotals: HeroData.sampleDayTotals()
     )
 }
 
@@ -150,6 +189,7 @@ private extension HeroData {
                 hero: .samplePopulated,
                 heatmap: .dense
             ),
+            sortOrder: .constant(.mostUsed),
             onRefresh: {}, onStartReview: {},
             onTapDeck: { _ in }, onDeleteDeck: { _ in }, onRenameDeck: { _ in }
         )
@@ -164,9 +204,10 @@ private extension HeroData {
             state: .loaded(
                 rows: [.sampleEspanol],
                 hero: HeroData(totalDue: 0, deckCount: 1, streak: 12,
-                               last14Days: Array(repeating: 0, count: 14)),
+                               recentDayTotals: Array(repeating: 0, count: HeroData.sparklineCapacity)),
                 heatmap: .sparse
             ),
+            sortOrder: .constant(.mostUsed),
             onRefresh: {}, onStartReview: {},
             onTapDeck: { _ in }, onDeleteDeck: { _ in }, onRenameDeck: { _ in }
         )
@@ -179,6 +220,7 @@ private extension HeroData {
     NavigationStack {
         LibraryListContent(
             state: .loading,
+            sortOrder: .constant(.mostUsed),
             onRefresh: {}, onStartReview: {},
             onTapDeck: { _ in }, onDeleteDeck: { _ in }, onRenameDeck: { _ in }
         )
@@ -191,6 +233,7 @@ private extension HeroData {
     NavigationStack {
         LibraryListContent(
             state: .empty,
+            sortOrder: .constant(.mostUsed),
             onRefresh: {}, onStartReview: {},
             onTapDeck: { _ in }, onDeleteDeck: { _ in }, onRenameDeck: { _ in }
         )

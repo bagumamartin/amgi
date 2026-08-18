@@ -2,7 +2,12 @@ public import Foundation
 import Security
 
 public enum KeychainHelper: Sendable {
-    private static let service = "com.ankiapp.sync"
+    // Amgi owns its sync-server credentials. Derive the namespace from the
+    // host app bundle so each app target remains isolated without embedding
+    // an app-specific identifier in the shared sync package.
+    private static var service: String {
+        "\(Bundle.main.bundleIdentifier ?? "app").sync"
+    }
     private static let hostKeyAccount = "sync-host-key"
     private static let usernameAccount = "sync-username"
     private static let endpointAccount = "sync-endpoint"

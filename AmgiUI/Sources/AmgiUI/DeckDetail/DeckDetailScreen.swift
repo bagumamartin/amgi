@@ -22,6 +22,7 @@ public struct DeckDetailScreen<HeatmapSlot: View>: View {
     }
 
     public let state: DeckDetailViewState
+    @Binding public var sortOrder: DeckSortOrder
     public let heatmapSlot: () -> HeatmapSlot
     public let onAction: (Action) -> Void
 
@@ -29,10 +30,12 @@ public struct DeckDetailScreen<HeatmapSlot: View>: View {
 
     public init(
         state: DeckDetailViewState,
+        sortOrder: Binding<DeckSortOrder>,
         @ViewBuilder heatmapSlot: @escaping () -> HeatmapSlot,
         onAction: @escaping (Action) -> Void
     ) {
         self.state = state
+        self._sortOrder = sortOrder
         self.heatmapSlot = heatmapSlot
         self.onAction = onAction
     }
@@ -112,7 +115,7 @@ public struct DeckDetailScreen<HeatmapSlot: View>: View {
     private var subdecksSection: some View {
         if case .loaded(let data) = state, !data.subdecks.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
-                sectionHeader("SUBDECKS")
+                DeckSectionHeader(title: "SUBDECKS", sortOrder: $sortOrder)
                 DeckSubdecksCard(rows: data.subdecks) { row in
                     onAction(.subdeckSelected(row))
                 }
@@ -202,6 +205,7 @@ private let _krEmpty = DeckDetailViewData(
     NavigationStack {
         DeckDetailScreen(
             state: .loaded(_krDefault),
+            sortOrder: .constant(.mostUsed),
             heatmapSlot: { EmptyView() },
             onAction: { _ in }
         )
@@ -213,6 +217,7 @@ private let _krEmpty = DeckDetailViewData(
     NavigationStack {
         DeckDetailScreen(
             state: .loaded(_krFiltered),
+            sortOrder: .constant(.mostUsed),
             heatmapSlot: { EmptyView() },
             onAction: { _ in }
         )
@@ -224,6 +229,7 @@ private let _krEmpty = DeckDetailViewData(
     NavigationStack {
         DeckDetailScreen(
             state: .loaded(_krEmpty),
+            sortOrder: .constant(.mostUsed),
             heatmapSlot: { EmptyView() },
             onAction: { _ in }
         )
@@ -235,6 +241,7 @@ private let _krEmpty = DeckDetailViewData(
     NavigationStack {
         DeckDetailScreen(
             state: .loading,
+            sortOrder: .constant(.mostUsed),
             heatmapSlot: { EmptyView() },
             onAction: { _ in }
         )
@@ -246,6 +253,7 @@ private let _krEmpty = DeckDetailViewData(
     NavigationStack {
         DeckDetailScreen(
             state: .loaded(_krDefault),
+            sortOrder: .constant(.mostUsed),
             heatmapSlot: { EmptyView() },
             onAction: { _ in }
         )
@@ -258,6 +266,7 @@ private let _krEmpty = DeckDetailViewData(
     NavigationStack {
         DeckDetailScreen(
             state: .loaded(_krDefault),
+            sortOrder: .constant(.mostUsed),
             heatmapSlot: {
                 Rectangle()
                     .fill(Palette.vividLight.accentSoft)

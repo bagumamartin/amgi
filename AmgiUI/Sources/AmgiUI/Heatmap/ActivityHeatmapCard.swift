@@ -24,9 +24,10 @@ public struct ActivityHeatmapCard: View {
 
     // MARK: - Computed grid geometry
 
-    private let cellSize: CGFloat = 11
-    private let cellSpacing: CGFloat = 2
-    private let weekdayLabelWidth: CGFloat = 18
+    private let weekdayLabelWidth: CGFloat = HeatmapGridMetrics.weekdayLabelWidth
+
+    @State private var gridWidth: CGFloat = 0
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     private var weeksToShow: Int { selectedDays / 7 + 1 }
 
@@ -88,6 +89,10 @@ public struct ActivityHeatmapCard: View {
         return (0...daysFromMonday).reduce(0) { $0 + (filteredCounts[-$1] ?? 0) }
     }
 
+    private var fittedCellSize: CGFloat {
+        HeatmapGridMetrics.cellSize(width: gridWidth, weekCount: weeks.count)
+    }
+
     private var reviewsToday: Int { filteredCounts[0] ?? 0 }
 
     // MARK: - Body
@@ -103,22 +108,55 @@ public struct ActivityHeatmapCard: View {
                         total: totalReviews,
                         thisMonth: reviewsThisMonth,
                         thisWeek: reviewsThisWeek,
-                        today: reviewsToday
+                        today: reviewsToday,
+                        spread: horizontalSizeClass != .regular
                     )
                     HeatmapScrollGrid(
                         weeks: weeks,
                         monthLabels: monthLabels,
                         data: data,
-                        cellSize: cellSize,
-                        cellSpacing: cellSpacing,
+                        cellSize: fittedCellSize,
+                        cellSpacing: HeatmapGridMetrics.cellSpacing,
                         weekdayLabelWidth: weekdayLabelWidth,
+                        containerWidth: gridWidth,
                         dayOffset: dayOffset,
                         tooltipOffset: $tooltipOffset
                     )
-                    HeatmapLegend(cellSize: cellSize)
+                    .frame(height: HeatmapGridMetrics.gridHeight(cellSize: fittedCellSize))
+                    .onGeometryChange(for: CGFloat.self) { proxy in
+                        proxy.size.width
+                    } action: { gridWidth = $0 }
+                    HeatmapLegend(cellSize: fittedCellSize)
                 }
             }
         }
+    }
+}
+
+// MARK: - Grid metrics
+
+private enum HeatmapGridMetrics {
+    static let minCell: CGFloat = 11
+    static let maxCell: CGFloat = 28
+    static let cellSpacing: CGFloat = 2
+    static let weekdayLabelWidth: CGFloat = 18
+    static let monthHeaderHeight: CGFloat = 14
+
+    static func cellSize(width: CGFloat, weekCount: Int) -> CGFloat {
+        guard weekCount > 0, width > weekdayLabelWidth else { return minCell }
+        let available = width - weekdayLabelWidth
+        let fitted = (available - CGFloat(weekCount - 1) * cellSpacing) / CGFloat(weekCount)
+        return min(maxCell, max(minCell, fitted))
+    }
+
+    static func contentWidth(weekCount: Int, cellSize: CGFloat) -> CGFloat {
+        weekdayLabelWidth
+            + CGFloat(weekCount) * cellSize
+            + CGFloat(max(weekCount - 1, 0)) * cellSpacing
+    }
+
+    static func gridHeight(cellSize: CGFloat) -> CGFloat {
+        monthHeaderHeight + 7 * cellSize + 6 * cellSpacing
     }
 }
 
@@ -176,15 +214,19 @@ private struct HeatmapSummaryRow: View {
     let thisMonth: Int
     let thisWeek: Int
     let today: Int
+    /// Compact iPhone: four equal columns. Regular: a tight leading cluster
+    /// so stats don't stretch across the iPad/Mac card.
+    let spread: Bool
 
     @Environment(\.palette) private var palette
 
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: spread ? 0 : 28) {
             summaryItem(value: total, label: "Total")
             summaryItem(value: thisMonth, label: "Month")
             summaryItem(value: thisWeek, label: "Week")
             summaryItem(value: today, label: "Today")
+            if !spread { Spacer(minLength: 0) }
         }
     }
 
@@ -197,7 +239,7 @@ private struct HeatmapSummaryRow: View {
                 .amgiFont(.micro)
                 .foregroundStyle(palette.textSecondary)
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: spread ? .infinity : nil)
     }
 }
 
@@ -210,32 +252,46 @@ private struct HeatmapScrollGrid: View {
     let cellSize: CGFloat
     let cellSpacing: CGFloat
     let weekdayLabelWidth: CGFloat
+    let containerWidth: CGFloat
     let dayOffset: (Date) -> Int
     @Binding var tooltipOffset: Int?
 
+    private var contentWidth: CGFloat {
+        HeatmapGridMetrics.contentWidth(weekCount: weeks.count, cellSize: cellSize)
+    }
+
+    private var needsScroll: Bool {
+        containerWidth > 0 && contentWidth > containerWidth + 0.5
+    }
+
     var body: some View {
-        ScrollView(.horizontal) {
-            VStack(alignment: .leading, spacing: 0) {
-                HeatmapMonthHeader(
-                    weeks: weeks,
-                    monthLabels: monthLabels,
-                    cellSize: cellSize,
-                    cellSpacing: cellSpacing,
-                    weekdayLabelWidth: weekdayLabelWidth
-                )
-                HeatmapCellGrid(
-                    weeks: weeks,
-                    data: data,
-                    cellSize: cellSize,
-                    cellSpacing: cellSpacing,
-                    weekdayLabelWidth: weekdayLabelWidth,
-                    dayOffset: dayOffset,
-                    tooltipOffset: $tooltipOffset
-                )
-            }
+        let grid = VStack(alignment: .leading, spacing: 0) {
+            HeatmapMonthHeader(
+                weeks: weeks,
+                monthLabels: monthLabels,
+                cellSize: cellSize,
+                cellSpacing: cellSpacing,
+                weekdayLabelWidth: weekdayLabelWidth
+            )
+            HeatmapCellGrid(
+                weeks: weeks,
+                data: data,
+                cellSize: cellSize,
+                cellSpacing: cellSpacing,
+                weekdayLabelWidth: weekdayLabelWidth,
+                dayOffset: dayOffset,
+                tooltipOffset: $tooltipOffset
+            )
         }
-        .scrollIndicators(.never)
-        .defaultScrollAnchor(.trailing)
+
+        if needsScroll {
+            ScrollView(.horizontal) { grid }
+                .scrollIndicators(.never)
+                .defaultScrollAnchor(.trailing)
+        } else {
+            grid
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }
 
@@ -432,6 +488,15 @@ private struct HeatmapLegend: View {
         .padding(16)
         .background(Color.gray.opacity(0.1))
         .environment(\.palette, .mutedLight)
+}
+
+#Preview("Dense — regular width") {
+    ActivityHeatmapCard(data: .dense)
+        .padding(16)
+        .frame(width: 720)
+        .background(Color.gray.opacity(0.1))
+        .environment(\.horizontalSizeClass, .regular)
+        .environment(\.palette, .vividLight)
 }
 
 #Preview("Dense — dark mode") {

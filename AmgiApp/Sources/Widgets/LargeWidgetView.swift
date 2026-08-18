@@ -8,12 +8,8 @@ struct LargeWidgetView: View {
     let snapshot: WidgetSnapshot
 
     private var totalDue: Int { snapshot.totalDue }
-    private var reviewedTotal: Int { snapshot.reviewedToday + totalDue }
 
-    private var progressFraction: Double {
-        guard reviewedTotal > 0 else { return 0 }
-        return min(1.0, Double(snapshot.reviewedToday) / Double(reviewedTotal))
-    }
+    private var progressFraction: Double { snapshot.todayProgressFraction }
 
     private var chartMax: Int {
         snapshot.lastSevenDays.max() ?? 1
@@ -60,7 +56,7 @@ struct LargeWidgetView: View {
                 }
                 .frame(height: 4)
 
-                Text("\(snapshot.reviewedToday) reviewed today · \(totalDue) remaining")
+                Text("\(snapshot.reviewedToday) of \(snapshot.dueBaselineToday) today · \(totalDue) remaining")
                     .font(.system(size: 11))
                     .foregroundStyle(palette.textTertiary)
             }

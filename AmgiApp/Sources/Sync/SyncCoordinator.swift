@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import SwiftUI
 #if canImport(UIKit)
 import UIKit
@@ -26,6 +27,7 @@ final class SyncCoordinator {
     private(set) var state: SyncState = .idle
     private(set) var logEntries: [SyncLogEntry] = []
     private(set) var requiresLogin: Bool = false
+    private(set) var shouldPresentAttention = false
 
     var lastSuccessfulSync: Date? {
         lastSyncedAtUnix > 0 ? Date(timeIntervalSince1970: lastSyncedAtUnix) : nil
@@ -33,6 +35,12 @@ final class SyncCoordinator {
 
     @ObservationIgnored @Dependency(\.syncClient) var syncClient
     @ObservationIgnored private var activeTask: Task<Void, Never>?
+    @ObservationIgnored private var debounceTask: Task<Void, Never>?
+    @ObservationIgnored private var periodicTask: Task<Void, Never>?
+    @ObservationIgnored private var isApplicationActive = true
+    @ObservationIgnored private var automaticFailurePending = false
+    @ObservationIgnored private let pathMonitor = NWPathMonitor()
+    @ObservationIgnored private var currentPath: NWPath?
     // iOS-only: extends the execution window when the app is backgrounded
     // mid-sync. Desktop sync runs while the app is active, so macOS needs
     // no equivalent.
@@ -48,23 +56,44 @@ final class SyncCoordinator {
     @Shared(.appStorage(SyncPreferences.Keys.needsFullSyncForCurrentUser()))
     private var needsFullSyncFlag: Bool = false
 
+    @ObservationIgnored
+    @Shared(.appStorage(SyncPreferences.Keys.autoSyncEnabledForCurrentUser()))
+    private var autoSyncEnabled: Bool = true
+
+    @ObservationIgnored
+    @Shared(.appStorage(SyncPreferences.Keys.autoSyncNetworkPolicyForCurrentUser()))
+    private var autoSyncNetworkPolicyRaw: String = SyncPreferences.NetworkPolicy.wifiOnly.rawValue
+
     private static let logCap = 100
 
     init() {
+        pathMonitor.pathUpdateHandler = { [weak self] path in
+            Task { @MainActor in self?.currentPath = path }
+        }
+        pathMonitor.start(queue: DispatchQueue(label: "com.amgiapp.sync-network"))
         registerLifecycleObservers()
     }
 
     // MARK: - Public surface (stubs filled in Phase B)
 
-    func startSync() async {
+    func startSync(isAutomatic: Bool = false) async {
         guard activeTask == nil else {
-            appendLog("Sync already in progress", level: .warning)
+            return
+        }
+
+        guard KeychainHelper.loadEndpoint() != nil else {
+            state = .noServer
+            return
+        }
+
+        if isAutomatic && !networkAllowsAutomaticSync {
             return
         }
 
         clearLog()
         state = .syncing(message: "Connecting…")
         appendLog("Starting sync")
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: SyncPreferences.Keys.autoSyncLastAttemptForCurrentUser())
 
         let task = Task { [weak self] in
             guard let self else { return }
@@ -76,6 +105,9 @@ final class SyncCoordinator {
                     self.state = .success(summary)
                     self.$lastSyncedAtUnix.withLock { $0 = Date().timeIntervalSince1970 }
                     self.$needsFullSyncFlag.withLock { $0 = false }
+                    UserDefaults.standard.removeObject(forKey: SyncPreferences.Keys.autoSyncLastErrorForCurrentUser())
+                    self.automaticFailurePending = false
+                    self.shouldPresentAttention = false
                     self.activeTask = nil
                 }
             } catch let error as SyncError where error == .fullSyncRequired {
@@ -86,6 +118,8 @@ final class SyncCoordinator {
                         localIsEmpty: false
                     ))
                     self.$needsFullSyncFlag.withLock { $0 = true }
+                    self.automaticFailurePending = isAutomatic
+                    self.shouldPresentAttention = !isAutomatic
                     self.activeTask = nil
                 }
             } catch let error as SyncError where error == .authFailed {
@@ -93,6 +127,7 @@ final class SyncCoordinator {
                     self.appendLog("Authentication failed", level: .error)
                     self.requiresLogin = true
                     self.state = .error("Authentication failed — please sign in again")
+                    self.recordAutomaticFailure(error.localizedDescription, isAutomatic: isAutomatic)
                     self.activeTask = nil
                 }
             } catch {
@@ -101,6 +136,7 @@ final class SyncCoordinator {
                     guard self.activeTask != nil else { return }
                     self.appendLog("Sync failed: \(error.localizedDescription)", level: .error)
                     self.state = .error(error.localizedDescription)
+                    self.recordAutomaticFailure(error.localizedDescription, isAutomatic: isAutomatic)
                     self.activeTask = nil
                 }
             }
@@ -144,12 +180,17 @@ final class SyncCoordinator {
 
     func signOut() async {
         cancel()
+        $autoSyncEnabled.withLock { $0 = false }
+        debounceTask?.cancel()
+        periodicTask?.cancel()
         KeychainHelper.deleteEndpoint()
         KeychainHelper.deleteHostKey()
         KeychainHelper.deleteUsername()
         appendLog("Signed out")
         state = .noServer
         requiresLogin = false
+        shouldPresentAttention = false
+        automaticFailurePending = false
     }
 
     func cancel() {
@@ -177,9 +218,88 @@ final class SyncCoordinator {
     func clearLog() {
         logEntries.removeAll()
     }
+
+    // MARK: - Automatic sync
+
+    func requestAutomaticSync(reason: String) {
+        guard autoSyncEnabled, KeychainHelper.loadEndpoint() != nil else { return }
+        debounceTask?.cancel()
+        debounceTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled, let self else { return }
+            appendLog("Automatic sync requested: \(reason)")
+            await startSync(isAutomatic: true)
+        }
+    }
+
+    func setApplicationActive(_ active: Bool) {
+        isApplicationActive = active
+        if active {
+            startAutomaticScheduling()
+            if automaticFailurePending {
+                automaticFailurePending = false
+                shouldPresentAttention = true
+            }
+        } else {
+            periodicTask?.cancel()
+            periodicTask = nil
+        }
+    }
+
+    func startAutomaticScheduling() {
+        guard autoSyncEnabled, isApplicationActive, periodicTask == nil else { return }
+        periodicTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(15 * 60))
+                guard !Task.isCancelled, let self else { return }
+                await startSync(isAutomatic: true)
+            }
+        }
+    }
+
+    func enableAutomaticSync() {
+        $autoSyncEnabled.withLock { $0 = true }
+        startAutomaticScheduling()
+        requestAutomaticSync(reason: "Sync server configured")
+    }
+
+    func disableAutomaticSync() {
+        $autoSyncEnabled.withLock { $0 = false }
+        debounceTask?.cancel()
+        periodicTask?.cancel()
+        periodicTask = nil
+    }
+
+    func dismissAttention() {
+        shouldPresentAttention = false
+    }
 }
 
 private extension SyncCoordinator {
+    var networkPolicy: SyncPreferences.NetworkPolicy {
+        SyncPreferences.NetworkPolicy(rawValue: autoSyncNetworkPolicyRaw) ?? .wifiOnly
+    }
+
+    var networkAllowsAutomaticSync: Bool {
+        switch networkPolicy {
+        case .disabled: return false
+        case .any: return true
+        case .wifiOnly:
+            guard let currentPath else { return true }
+            return currentPath.status == .satisfied && currentPath.usesInterfaceType(.wifi)
+        }
+    }
+
+    func recordAutomaticFailure(_ message: String, isAutomatic: Bool) {
+        guard isAutomatic else {
+            shouldPresentAttention = true
+            return
+        }
+        UserDefaults.standard.set(message, forKey: SyncPreferences.Keys.autoSyncLastErrorForCurrentUser())
+        automaticFailurePending = true
+        shouldPresentAttention = false
+    }
+
     func registerLifecycleObservers() {
         // iOS background/foreground transitions only: they bracket the
         // beginBackgroundTask window that keeps a mid-flight sync alive

@@ -30,6 +30,7 @@ final class ReviewSession {
     let deckId: DeckID
 
     @ObservationIgnored @Dependency(\.decksService) var decks
+    @ObservationIgnored @Dependency(\.deckClient) var deckClient
     @ObservationIgnored @Dependency(\.schedulerService) var scheduler
     @ObservationIgnored @Dependency(\.cardRenderingService) var cardRendering
     @ObservationIgnored @Dependency(\.collectionService) var collection
@@ -43,6 +44,14 @@ final class ReviewSession {
     private(set) var showAnswer: Bool = false
     private(set) var sessionStats: SessionStats = .init()
     private(set) var remainingCounts: DeckCounts = .zero
+    /// Category composition at the start of the session. The review chrome
+    /// uses this stable snapshot to paint its segmented progress fill; live
+    /// counts still drive the remaining-card label.
+    private(set) var sessionInitialCounts: DeckCounts = .zero
+    /// Denominator for session progress (n/N label + bar). Frozen at
+    /// session start and only allowed to grow when learning cards re-enter
+    /// the queue — never shrinks, so the bar doesn't jump backward.
+    private(set) var sessionProgressTotal: Int = 0
     private(set) var deckName: String = ""
     private(set) var isFinished: Bool = false
     private(set) var canUndo: Bool = false
@@ -70,6 +79,14 @@ final class ReviewSession {
     private var notetypeCache: [NotetypeID: Notetype] = [:]
     private var currentQueuedCard: QueuedReviewCard?
     private var lastRating: Rating? = nil
+    /// `DeckID(0)` is Amgi's virtual “All Decks” review scope. Anki's
+    /// scheduler itself has one current deck, so this holds the remaining
+    /// active top-level deck IDs that will be selected as each queue empties.
+    private var remainingAllDeckIDs: [DeckID] = []
+    /// Snapshot counts for scopes that have not yet been selected. Combining
+    /// these with the live current-queue counts keeps progress meaningful
+    /// while a collection-wide session moves from deck to deck.
+    private var remainingAllDeckCounts: [DeckID: DeckCounts] = [:]
 
     // Typed-answer state
     private var renderedFrontHTML: String = ""
@@ -130,6 +147,7 @@ final class ReviewSession {
         // Resolve the Sendable service facades here, in the caller's
         // dependency scope, then hand them to the off-actor work.
         let decks = self.decks
+        let deckClient = self.deckClient
         let scheduler = self.scheduler
         let notes = self.notes
         let notetypes = self.notetypes
@@ -139,18 +157,54 @@ final class ReviewSession {
         Task {
             defer { isAdvancing = false }
             do {
-                let (queue, name) = try await Task.detached { () -> (QueuedCardsResult, String) in
-                    try decks.setCurrentDeck(deckId)
+                let allDeckScope = deckId.rawValue == 0
+                let activeDeckIDs: [DeckID]
+                if allDeckScope {
+                    let tree = try await deckClient.fetchTree()
+                    let activeDecks = tree.filter { $0.counts.total > 0 }
+                    activeDeckIDs = activeDecks.map(\.id)
+                    remainingAllDeckCounts = Dictionary(
+                        uniqueKeysWithValues: activeDecks.map { ($0.id, $0.counts) }
+                    )
+                } else {
+                    activeDeckIDs = [deckId]
+                    remainingAllDeckCounts = [:]
+                }
+                guard let initialDeckID = activeDeckIDs.first else {
+                    deckName = allDeckScope ? "All Decks" : ""
+                    isFinished = true
+                    return
+                }
+                var pendingDeckIDs = Array(activeDeckIDs.dropFirst())
+                let firstDeckToLoad = initialDeckID
+                remainingAllDeckCounts.removeValue(forKey: firstDeckToLoad)
+                var result = try await Task.detached { () -> (QueuedCardsResult, String) in
+                    try decks.setCurrentDeck(firstDeckToLoad)
                     let name = (try? decks.getCurrentDeck().name) ?? ""
                     return (try scheduler.getQueuedCards(200), name)
                 }.value
+
+                // Counts can become stale between Library/widget snapshot
+                // generation and launch. Skip an empty selected deck rather
+                // than treating it as the end of an all-decks session.
+                while allDeckScope, result.0.cards.isEmpty, let nextDeckID = pendingDeckIDs.first {
+                    pendingDeckIDs.removeFirst()
+                    let deckToLoad = nextDeckID
+                    remainingAllDeckCounts.removeValue(forKey: deckToLoad)
+                    result = try await Task.detached { () -> (QueuedCardsResult, String) in
+                        try decks.setCurrentDeck(deckToLoad)
+                        let name = (try? decks.getCurrentDeck().name) ?? ""
+                        return (try scheduler.getQueuedCards(200), name)
+                    }.value
+                }
+
+                let (queue, name) = result
                 cardQueue = queue.cards
-                deckName = name
-                remainingCounts = DeckCounts(
-                    newCount: queue.newCount,
-                    learnCount: queue.learningCount,
-                    reviewCount: queue.reviewCount
-                )
+                remainingAllDeckIDs = pendingDeckIDs
+                deckName = allDeckScope ? "All Decks" : name
+                remainingCounts = countsIncludingUnselectedDecks(queue)
+                sessionInitialCounts = remainingCounts
+                updateSessionProgressTotal()
                 print("[ReviewSession] Started with \(cardQueue.count) cards, counts: new=\(queue.newCount) learn=\(queue.learningCount) review=\(queue.reviewCount)")
                 await advanceToNextCard(notes: notes, notetypes: notetypes, notetypesClient: notetypesClient, cardRendering: cardRendering)
             } catch {
@@ -181,6 +235,7 @@ final class ReviewSession {
         let notetypes = self.notetypes
         let notetypesClient = self.notetypesClient
         let cardRendering = self.cardRendering
+        let decks = self.decks
 
         pendingToast = RatingToast(rating: rating, interval: queued.nextIntervals[rating] ?? "")
 
@@ -193,10 +248,23 @@ final class ReviewSession {
             // after max(backend round-trip, toast display).
             let minToastDisplay = Task { try? await Task.sleep(for: .milliseconds(450)) }
             do {
-                let queue = try await Task.detached {
+                var queue = try await Task.detached {
                     try scheduler.answerReviewCard(cardId, rating, timeSpent, states)
                     return try scheduler.getQueuedCards(200)
                 }.value
+
+                // An all-decks session keeps Anki's scheduler on one real
+                // deck at a time. Once that deck's queue is empty, advance
+                // to the next active top-level deck instead of ending the
+                // aggregate session.
+                while queue.cards.isEmpty, let nextDeckID = remainingAllDeckIDs.first {
+                    remainingAllDeckIDs.removeFirst()
+                    remainingAllDeckCounts.removeValue(forKey: nextDeckID)
+                    queue = try await Task.detached {
+                        try decks.setCurrentDeck(nextDeckID)
+                        return try scheduler.getQueuedCards(200)
+                    }.value
+                }
 
                 sessionStats.reviewed += 1
                 if rating != .again { sessionStats.correct += 1 }
@@ -205,11 +273,8 @@ final class ReviewSession {
                 canUndo = true
 
                 cardQueue = queue.cards
-                remainingCounts = DeckCounts(
-                    newCount: queue.newCount,
-                    learnCount: queue.learningCount,
-                    reviewCount: queue.reviewCount
-                )
+                remainingCounts = countsIncludingUnselectedDecks(queue)
+                updateSessionProgressTotal()
                 await minToastDisplay.value
                 await advanceToNextCard(notes: notes, notetypes: notetypes, notetypesClient: notetypesClient, cardRendering: cardRendering)
             } catch {
@@ -251,11 +316,8 @@ final class ReviewSession {
                 lastRating = nil
 
                 cardQueue = queue.cards
-                remainingCounts = DeckCounts(
-                    newCount: queue.newCount,
-                    learnCount: queue.learningCount,
-                    reviewCount: queue.reviewCount
-                )
+                remainingCounts = countsIncludingUnselectedDecks(queue)
+                updateSessionProgressTotal()
                 await advanceToNextCard(notes: notes, notetypes: notetypes, notetypesClient: notetypesClient, cardRendering: cardRendering)
             } catch {
                 print("[ReviewSession] Undo failed: \(error)")
@@ -343,6 +405,30 @@ final class ReviewSession {
 }
 
 private extension ReviewSession {
+    /// Current scheduler counts cover the selected deck; the virtual
+    /// all-decks scope adds the untouched top-level decks that are still
+    /// waiting to be selected.
+    func countsIncludingUnselectedDecks(_ queue: QueuedCardsResult) -> DeckCounts {
+        var counts = DeckCounts(
+            newCount: queue.newCount,
+            learnCount: queue.learningCount,
+            reviewCount: queue.reviewCount
+        )
+        for pending in remainingAllDeckCounts.values {
+            counts.newCount += pending.newCount
+            counts.learnCount += pending.learnCount
+            counts.reviewCount += pending.reviewCount
+        }
+        return counts
+    }
+
+    /// Keeps the session denominator stable: set once at start, then only
+    /// grow when re-learning inflates the remaining queue.
+    func updateSessionProgressTotal() {
+        let current = max(sessionStats.reviewed + remainingCounts.total, 1)
+        sessionProgressTotal = max(sessionProgressTotal, current)
+    }
+
     // MARK: - Private: card advancement
 
     /// Advances to the next queued card. Pops the queue on the main actor,
@@ -698,6 +784,8 @@ extension ReviewSession {
         session.isFinished = isFinished
         session.sessionStats = SessionStats(reviewed: reviewed, correct: 6, totalTimeMs: 42_000)
         session.remainingCounts = counts
+        session.sessionInitialCounts = counts
+        session.sessionProgressTotal = max(reviewed + counts.total, 1)
         session.deckName = "한국어 · Vocab Typing"
         session.nextIntervals = [.again: "<1m", .hard: "8m", .good: "1d", .easy: "4d"]
         session.canUndo = reviewed > 0

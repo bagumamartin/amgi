@@ -50,22 +50,38 @@ struct MainTabView: View {
     let onSelectStudyDeck: (DeckID) -> Void
 
     /// Persisted so menu commands and the sidebar share one source of truth.
-    @Shared(.appStorage("amgi.root.section")) private var sectionRaw: String = MainSection.study.rawValue
+    @Shared(.appStorage(NavigationPreferences.rootSection)) private var sectionRaw: String = MainSection.study.rawValue
 
     private var sections: [MainSection] {
-        MainSection.allCases.filter { $0 != .read || showReaderTab }
+        MainSection.allCases.filter { section in
+            switch section {
+            case .read: return showReaderTab
+            #if os(macOS)
+            // Settings lives in its own window (⌘,) on macOS — not a section.
+            case .settings: return false
+            #endif
+            default: return true
+            }
+        }
     }
 
     private var selection: MainSection {
-        MainSection(rawValue: sectionRaw) ?? .study
+        let resolved = MainSection(rawValue: sectionRaw) ?? .study
+        #if os(macOS)
+        return resolved == .settings ? .study : resolved
+        #else
+        return resolved
+        #endif
     }
 
     /// Writes the `@Shared` raw value directly (nonmutating), so the binding
     /// closures can escape without capturing a mutable `self`.
     private var selectionBinding: Binding<MainSection> {
         Binding(
-            get: { MainSection(rawValue: sectionRaw) ?? .study },
-            set: { sectionRaw = $0.rawValue }
+            get: { selection },
+            set: { newSection in
+                $sectionRaw.withLock { $0 = newSection.rawValue }
+            }
         )
     }
 
@@ -101,7 +117,7 @@ struct MainTabView: View {
         switch section {
         case .library:
             NavigationStack {
-                DeckListView()
+                DeckListView(onStartReview: { onSelectStudyDeck(DeckID(0)) })
                     .toolbar { libraryToolbar }
             }
         case .read:

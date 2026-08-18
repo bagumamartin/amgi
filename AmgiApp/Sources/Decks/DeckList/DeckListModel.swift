@@ -14,24 +14,55 @@ import Foundation
 final class DeckListModel {
     var state: LibraryListContent.State = .loading
 
+    private var deckRows: [DeckListRow] = []
+    private var heroData: HeroData = .zero
+    private var heatmapData: HeatmapCardData = .empty
+    private var lastSortOrder: DeckSortOrder = .mostUsed
+    private var usageRanks: [Int64: DeckUsageRank] = [:]
+
     @ObservationIgnored @Dependency(\.deckClient) private var deckClient
     @ObservationIgnored @Dependency(\.statsClient) private var statsClient
     @ObservationIgnored @Dependency(\.collectionStore) private var store
 
-    func load() async {
+    func load(sortOrder: DeckSortOrder) async {
+        lastSortOrder = sortOrder
         do {
             let tree = try await store.tree()
             if tree.isEmpty {
+                deckRows = []
                 state = .empty
                 return
             }
-            let rows = tree.map(DeckListRow.init(node:))
-            let (hero, heatmap) = await buildHeroAndHeatmap(rows: rows)
-            state = .loaded(rows: rows.map(\.viewData), hero: hero, heatmap: heatmap)
+            deckRows = tree.map(DeckListRow.init(node:))
+            async let heroHeatmap = buildHeroAndHeatmap(rows: deckRows)
+            async let ranks = usageRanks(neededFor: sortOrder, rows: deckRows)
+            let (hero, heatmap) = await heroHeatmap
+            heroData = hero
+            heatmapData = heatmap
+            usageRanks = await ranks
+            publishLoaded(sortOrder: sortOrder)
+            // Keep the installed widget aligned with the Library projection
+            // the user is currently seeing, including top-level deck totals.
+            // Cross-platform: both the iOS and macOS widget extensions read
+            // from the same App Group snapshot files.
+            Task { await writeWidgetSnapshot() }
         } catch {
             print("[DeckListModel] Error loading decks: \(error)")
             state = .empty
         }
+    }
+
+    func resort(sortOrder: DeckSortOrder) {
+        lastSortOrder = sortOrder
+        guard !deckRows.isEmpty else { return }
+        if sortOrder == .mostUsed && usageRanks.isEmpty {
+            Task {
+                usageRanks = await fetchUsageRanks(for: deckRows)
+                guard lastSortOrder == .mostUsed else { return }
+                publishLoaded(sortOrder: .mostUsed)
+            }
+        }
+        publishLoaded(sortOrder: sortOrder)
     }
 
     func delete(_ id: DeckID) async {
@@ -40,15 +71,40 @@ final class DeckListModel {
             store.apply(changes)   // generation bump → the view's .task(id:) reloads
         } catch {
             print("[DeckListModel] Delete failed: \(error)")
-            await load()           // error path: no invalidation happened, reload manually
+            await load(sortOrder: lastSortOrder)
         }
     }
 
     /// First loaded deck that has cards waiting, projected to a `DeckInfo`
     /// for navigation. Nil while loading/empty or when nothing is due.
-    func firstReviewableDeck() -> DeckInfo? {
-        guard case .loaded(let rows, _, _) = state else { return nil }
-        return rows.first(where: { $0.totalCount > 0 })?.asDeckInfo
+    func firstReviewableDeck(sortOrder: DeckSortOrder) -> DeckInfo? {
+        guard !deckRows.isEmpty else { return nil }
+        let sorted = DeckSorting.libraryRows(deckRows, order: sortOrder, ranks: usageRanks)
+        return sorted.first(where: { $0.counts.total > 0 })?.asDeckInfo
+    }
+
+    private func publishLoaded(sortOrder: DeckSortOrder) {
+        let sorted = DeckSorting.libraryRows(deckRows, order: sortOrder, ranks: usageRanks)
+        state = .loaded(
+            rows: sorted.map(\.viewData),
+            hero: heroData,
+            heatmap: heatmapData
+        )
+    }
+
+    private func usageRanks(
+        neededFor sortOrder: DeckSortOrder,
+        rows: [DeckListRow]
+    ) async -> [Int64: DeckUsageRank] {
+        guard sortOrder == .mostUsed else { return usageRanks }
+        return await fetchUsageRanks(for: rows)
+    }
+
+    private func fetchUsageRanks(for rows: [DeckListRow]) async -> [Int64: DeckUsageRank] {
+        await DeckUsageRanking.ranks(
+            for: rows.map { (id: $0.id, fullName: $0.fullName) },
+            statsClient: statsClient
+        )
     }
 
     static func buildHeatmap(
@@ -77,7 +133,7 @@ private extension DeckListModel {
                     totalDue: totalDue,
                     deckCount: deckCount,
                     streak: 0,
-                    last14Days: Array(repeating: 0, count: 14)
+                    recentDayTotals: Array(repeating: 0, count: HeroData.sparklineCapacity)
                 ),
                 HeatmapCardData.empty
             )
@@ -87,7 +143,10 @@ private extension DeckListModel {
             totalDue: totalDue,
             deckCount: deckCount,
             streak: StreakCalculator.streak(reviews: reviewCounts),
-            last14Days: StreakCalculator.lastNDaysTotals(reviews: reviewCounts, days: 14)
+            recentDayTotals: StreakCalculator.lastNDaysTotals(
+                reviews: reviewCounts,
+                days: HeroData.sparklineCapacity
+            )
         )
         return (hero, Self.buildHeatmap(reviews: reviewCounts))
     }

@@ -7,7 +7,7 @@ import DependenciesMacros
 import Foundation
 import Logging
 
-private let logger = Logger(label: "com.ankiapp.sync.service")
+private let logger = Logger(label: "\(Bundle.main.bundleIdentifier ?? "app").sync.service")
 
 @DependencyClient
 public struct SyncService: Sendable {

@@ -4,7 +4,8 @@
 <dict>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
-		<string>com.amgiapp.AmgiApp.widget-refresh</string>
+		<string>$(PRODUCT_BUNDLE_IDENTIFIER).widget-refresh</string>
+		<string>$(PRODUCT_BUNDLE_IDENTIFIER).automatic-sync</string>
 	</array>
 	<key>CFBundleDisplayName</key>
 	<string>Amgi</string>
@@ -24,7 +25,7 @@
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>com.amgiapp.AmgiApp</string>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>amgi</string>

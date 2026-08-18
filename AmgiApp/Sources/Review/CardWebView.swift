@@ -30,6 +30,7 @@ struct CardWebView {
     let onAudioStateChange: ((Bool) -> Void)?
     let onCardBackgroundColorChange: ((PlatformColor, Bool) -> Void)?
     let onLookupRequested: ((String?, String?, CGPoint) -> Void)?
+    let onQuestionCanvasTap: (() -> Void)?
 
     init(
         html: String,
@@ -48,7 +49,8 @@ struct CardWebView {
         bottomContentInset: CGFloat = 0,
         onAudioStateChange: ((Bool) -> Void)? = nil,
         onCardBackgroundColorChange: ((PlatformColor, Bool) -> Void)? = nil,
-        onLookupRequested: ((String?, String?, CGPoint) -> Void)? = nil
+        onLookupRequested: ((String?, String?, CGPoint) -> Void)? = nil,
+        onQuestionCanvasTap: (() -> Void)? = nil
     ) {
         self.html = html
         self.cardCSS = cardCSS
@@ -67,6 +69,7 @@ struct CardWebView {
         self.onAudioStateChange = onAudioStateChange
         self.onCardBackgroundColorChange = onCardBackgroundColorChange
         self.onLookupRequested = onLookupRequested
+        self.onQuestionCanvasTap = onQuestionCanvasTap
     }
 
     @MainActor
@@ -74,7 +77,8 @@ struct CardWebView {
         CardWebViewCoordinator(
             onAudioStateChange: onAudioStateChange,
             onCardBackgroundColorChange: onCardBackgroundColorChange,
-            onLookupRequested: onLookupRequested
+            onLookupRequested: onLookupRequested,
+            onQuestionCanvasTap: onQuestionCanvasTap
         )
     }
 
@@ -88,20 +92,24 @@ struct CardWebView {
         config.userContentController.add(coordinator, name: "amgiSpeakTts")
         config.userContentController.add(coordinator, name: "amgiStopTts")
         config.userContentController.add(coordinator, name: "amgiCardTheme")
-        config.userContentController.add(coordinator, name: "amgiLookupText")
-
-        // Tap-to-lookup. Mirrors ChapterWebView's handler: skip when
-        // there's an active selection, walk text nodes from the tap
-        // caret for ~32 chars, post to native. Only injected when the
-        // host wired `onLookupRequested` so cards still behave normally
-        // when lookup is off.
-        if onLookupRequested != nil {
+        #if os(iOS)
+        if !isAnswerSide && (onLookupRequested != nil || onQuestionCanvasTap != nil) {
+            if onLookupRequested != nil {
+                config.userContentController.add(coordinator, name: "amgiLookupText")
+            }
+            if onQuestionCanvasTap != nil {
+                config.userContentController.add(coordinator, name: "amgiRevealAnswer")
+            }
             config.userContentController.addUserScript(WKUserScript(
-                source: Self.tapLookupBootstrapJS,
+                source: Self.tapInteractionBootstrapJS(
+                    lookupEnabled: onLookupRequested != nil,
+                    revealEnabled: onQuestionCanvasTap != nil
+                ),
                 injectionTime: .atDocumentEnd,
                 forMainFrameOnly: true
             ))
         }
+        #endif
 
         // Enable media playback without user interaction
         config.mediaTypesRequiringUserActionForPlayback = []
@@ -129,7 +137,10 @@ struct CardWebView {
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "amgiSpeakTts")
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "amgiStopTts")
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "amgiCardTheme")
+        #if os(iOS)
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "amgiLookupText")
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: "amgiRevealAnswer")
+        #endif
         coordinator.stopTTS()
     }
 
@@ -149,12 +160,17 @@ struct CardWebView {
                 showReplayButtons: showInlineAudioReplayButtons
             )
         )
+        // A number of exported templates (including MarginNote exports) use
+        // literal black text and a white surface without providing a dark
+        // mode variant. Preserve authored colors in light mode, while making
+        // only those default-looking values theme-aware in dark mode.
+        let effectiveCardCSS = Self.themeCompatibleCardCSS(cardCSS, isDarkMode: isDarkMode)
         let bodyPaddingBottom = 16
         let cardPaddingBottom = 0
         let alignTop = contentAlignment == .top
         let bodyClass = Self.bodyClasses(cardOrdinal: cardOrdinal, isDarkMode: isDarkMode)
         let pageSignature = "\(isDarkMode)"
-        let cssSignature = "\(cardCSS.hashValue)"
+        let cssSignature = "\(effectiveCardCSS.hashValue)"
         let contentSignature = "\(autoplayEnabled)|\(isAnswerSide)|\(lookupPopupEnabled)|\(replayMode.rawValue)|\(cardOrdinal)|\(alignTop)|\(bodyPaddingBottom)|\(cardPaddingBottom)|\(cssSignature)|\(processedHTML.hashValue)|\(prefetchHTML?.hashValue ?? 0)"
         coordinator.openLinksExternally = openLinksExternally
         coordinator.currentWebView = webView
@@ -167,7 +183,7 @@ struct CardWebView {
         let showCardScript = Self.showCardScript(
             processedHTML: processedHTML,
             prefetchHTML: prefetchHTML,
-            cardCSS: cardCSS,
+            cardCSS: effectiveCardCSS,
             isAnswerSide: isAnswerSide,
             lookupPopupEnabled: lookupPopupEnabled,
             bodyClass: bodyClass,
@@ -250,46 +266,126 @@ struct CardWebView {
         return str
     }()
 
-    /// Tap-to-lookup user script. Listens for click events at the
-    /// capture phase, skips when there's an active selection (so taps
-    /// that dismiss selection don't also fire a lookup), grabs ~32
-    /// chars of text from the caret point, and posts to the native
-    /// `amgiLookupText` handler with the phrase + tap coordinates +
-    /// surrounding sentence context. Mirrors the chapter reader's
-    /// gesture so reviewer + reader behave the same.
-    private static let tapLookupBootstrapJS = """
-    document.addEventListener('click', function(e) {
-      const sel = window.getSelection();
-      if (sel && sel.toString().length > 0) { return; }
-      const range = document.caretRangeFromPoint(e.clientX, e.clientY);
-      if (!range) { return; }
-      let phrase = '';
-      let node = range.startContainer;
-      let offset = range.startOffset;
-      while (node && phrase.length < 32) {
-        if (node.nodeType === Node.TEXT_NODE) {
-          const t = node.nodeValue || '';
-          phrase += t.substring(offset);
-          offset = 0;
-        }
-        if (node.firstChild) {
-          node = node.firstChild;
-        } else {
-          while (node && !node.nextSibling) { node = node.parentNode; }
-          node = node && node.nextSibling;
-        }
-      }
-      phrase = phrase.replace(/\\s+/g, ' ').trim();
-      if (phrase.length > 0) {
-        window.webkit.messageHandlers.amgiLookupText.postMessage({
-          text: phrase,
-          sentence: '',
-          x: e.clientX,
-          y: e.clientY
-        });
-      }
-    }, true);
-    """
+    #if os(iOS)
+    private static func tapInteractionBootstrapJS(
+        lookupEnabled: Bool,
+        revealEnabled: Bool
+    ) -> String {
+        let lookupGuard = lookupEnabled ? "true" : "false"
+        let revealGuard = revealEnabled ? "true" : "false"
+        return """
+        (function() {
+          const lookupEnabled = \(lookupGuard);
+          const revealEnabled = \(revealGuard);
+          const longPressDelay = 500;
+          const movementThreshold = 12;
+          var touchState = null;
+          var lastTouchActionAt = 0;
+
+          function interactiveTarget(target) {
+            return target && target.closest(
+              'a, button, input, textarea, select, option, video, audio, iframe,' +
+              ' [role="button"], [contenteditable="true"], [data-amgi-interactive],' +
+              ' [onclick], .replay-button, .replay-btn, .sound-btn, .soundLink,' +
+              ' #image-occlusion-canvas'
+            );
+          }
+
+          function selectedTextExists() {
+            const selection = window.getSelection();
+            return !!(selection && selection.toString().length > 0);
+          }
+
+          function interactionDisabled() {
+            return !!amgiCardState().isAnswerSide || !!document.getElementById('typeans');
+          }
+
+          function touchPoint(event) {
+            const touch = event.changedTouches && event.changedTouches[0];
+            return touch ? { x: touch.clientX, y: touch.clientY } : null;
+          }
+
+          function textPayloadAt(point) {
+            if (!lookupEnabled || !point || typeof amgiCardLookupPayloadAt !== 'function') return null;
+            return amgiCardLookupPayloadAt(point.x, point.y, 16);
+          }
+
+          function sendLookup(point) {
+            const payload = textPayloadAt(point);
+            if (!payload || !window.webkit.messageHandlers.amgiLookupText) return false;
+            window.webkit.messageHandlers.amgiLookupText.postMessage(payload);
+            return true;
+          }
+
+          function cancelTouch() {
+            if (!touchState) return;
+            window.clearTimeout(touchState.timer);
+            touchState = null;
+          }
+
+          document.addEventListener('touchstart', function(event) {
+            if (event.touches.length !== 1 || selectedTextExists() || interactionDisabled()) return;
+            const target = event.target instanceof Element ? event.target : null;
+            if (!target || interactiveTarget(target)) return;
+            const point = touchPoint(event);
+            if (!point) return;
+
+            touchState = {
+              target: target,
+              start: point,
+              moved: false,
+              longPressed: false,
+              timer: window.setTimeout(function() {
+                if (!touchState || touchState.moved || !lookupEnabled) return;
+                if (sendLookup(touchState.start)) {
+                  touchState.longPressed = true;
+                }
+              }, longPressDelay)
+            };
+          }, { passive: true });
+
+          document.addEventListener('touchmove', function(event) {
+            if (!touchState) return;
+            const point = touchPoint(event);
+            if (!point) return;
+            const dx = point.x - touchState.start.x;
+            const dy = point.y - touchState.start.y;
+            if (Math.sqrt(dx * dx + dy * dy) > movementThreshold) {
+              touchState.moved = true;
+              cancelTouch();
+            }
+          }, { passive: true });
+
+          document.addEventListener('touchend', function(event) {
+            if (!touchState) return;
+            const state = touchState;
+            const point = touchPoint(event) || state.start;
+            window.clearTimeout(state.timer);
+            touchState = null;
+            if (state.moved || state.longPressed || selectedTextExists() || interactionDisabled()) return;
+            if (!revealEnabled || interactiveTarget(state.target)) return;
+            lastTouchActionAt = Date.now();
+            window.webkit.messageHandlers.amgiRevealAnswer.postMessage(null);
+          }, { passive: true });
+
+          document.addEventListener('touchcancel', cancelTouch, { passive: true });
+
+          // WebKit normally delivers touchstart/touchend, but a host scroll
+          // gesture can occasionally drop that sequence while still emitting
+          // the synthesized click. Keep a guarded fallback so a simple tap
+          // remains a reveal without duplicating the touch path.
+          document.addEventListener('click', function(event) {
+            if (Date.now() - lastTouchActionAt < 700) return;
+            if (!revealEnabled || interactionDisabled() || selectedTextExists()) return;
+            const target = event.target instanceof Element ? event.target : null;
+            if (!target || interactiveTarget(target)) return;
+            lastTouchActionAt = Date.now();
+            window.webkit.messageHandlers.amgiRevealAnswer.postMessage(null);
+          }, false);
+        })();
+        """
+    }
+    #endif
 }
 
 private extension CardWebView {
@@ -370,6 +466,35 @@ private extension CardWebView {
             let prefetchLit = jsStringLiteral(prefetchHTML ?? "")
             return applyCSS + "_showQuestion(\(htmlLit),\(prefetchLit),\(jsStringLiteral(bodyClass)),\(autoplay),\(jsStringLiteral(replayMode)),\(alignTopStr),\(bodyPaddingBottom),\(cardPaddingBottom),\(lookupEnabled)" + ");"
         }
+    }
+
+    /// Makes common light-only exported templates readable in dark mode
+    /// without applying a destructive global invert/filter to their content.
+    /// Deliberate colors, images, diagrams, and background images are left
+    /// alone; only exact black/white defaults in color declarations are
+    /// replaced with the bridge's theme variables.
+    static func themeCompatibleCardCSS(_ css: String, isDarkMode: Bool) -> String {
+        guard isDarkMode, !css.isEmpty else { return css }
+
+        var result = css
+        let blackPattern = #"(?i)(\bcolor\s*:\s*)(#(?:000|000000)|black|rgb\s*\(\s*0\s*,\s*0\s*,\s*0\s*\))\b"#
+        let whitePattern = #"(?i)(\bbackground(?:-color)?\s*:\s*)(#(?:fff|ffffff)|white|rgb\s*\(\s*255\s*,\s*255\s*,\s*255\s*\))\b"#
+
+        if let regex = try? NSRegularExpression(pattern: blackPattern) {
+            result = regex.stringByReplacingMatches(
+                in: result,
+                range: NSRange(result.startIndex..., in: result),
+                withTemplate: "$1var(--amgi-card-fg)"
+            )
+        }
+        if let regex = try? NSRegularExpression(pattern: whitePattern) {
+            result = regex.stringByReplacingMatches(
+                in: result,
+                range: NSRange(result.startIndex..., in: result),
+                withTemplate: "$1var(--amgi-card-bg)"
+            )
+        }
+        return result
     }
 
     /// Converts Anki `[sound:filename.ext]` markers to a hidden `<audio>` + styled play button.
@@ -574,6 +699,7 @@ private extension CardWebView {
         return classes.joined(separator: " ")
     }
 
+    @MainActor
     static func htmlClasses(isDarkMode: Bool) -> String {
         var classes: [String] = []
 

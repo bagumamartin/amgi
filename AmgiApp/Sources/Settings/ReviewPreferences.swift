@@ -97,6 +97,10 @@ enum SyncPreferences {
         static let mediaLastSyncedAtBase = "sync_pref_media_last_synced_at"
         static let lastCollectionSyncedAtBase = "sync_pref_collection_last_synced_at"
         static let needsFullSyncBase = "sync_pref_needs_full_sync"
+        static let autoSyncEnabledBase = "sync_pref_auto_sync_enabled"
+        static let autoSyncNetworkPolicyBase = "sync_pref_auto_sync_network_policy"
+        static let autoSyncLastAttemptBase = "sync_pref_auto_sync_last_attempt"
+        static let autoSyncLastErrorBase = "sync_pref_auto_sync_last_error"
 
         static func modeForCurrentUser() -> String {
             scoped(modeBase)
@@ -125,6 +129,22 @@ enum SyncPreferences {
         static func needsFullSyncForCurrentUser() -> String {
             scoped(needsFullSyncBase)
         }
+
+        static func autoSyncEnabledForCurrentUser() -> String {
+            scoped(autoSyncEnabledBase)
+        }
+
+        static func autoSyncNetworkPolicyForCurrentUser() -> String {
+            scoped(autoSyncNetworkPolicyBase)
+        }
+
+        static func autoSyncLastAttemptForCurrentUser() -> String {
+            scoped(autoSyncLastAttemptBase)
+        }
+
+        static func autoSyncLastErrorForCurrentUser() -> String {
+            scoped(autoSyncLastErrorBase)
+        }
     }
 
     enum Mode: String, CaseIterable, Identifiable {
@@ -144,6 +164,14 @@ enum SyncPreferences {
         static let defaultValue = seconds60.rawValue
 
         var id: Int { rawValue }
+    }
+
+    enum NetworkPolicy: String, CaseIterable, Identifiable, Sendable {
+        case any = "Any Network"
+        case wifiOnly = "Wi-Fi Only"
+        case disabled = "Never"
+
+        var id: String { rawValue }
     }
 
     static let officialServerLabel = "AnkiWeb"

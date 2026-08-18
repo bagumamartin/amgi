@@ -14,11 +14,25 @@ struct SheetCoverModifier: ViewModifier {
     let onReviewDismiss: () -> Void
     let sheetContent: (DeckDetailSheet) -> AnyView
 
+    @Environment(\.openWindow) private var openWindow
+
     func body(content: Content) -> some View {
         content
+            #if os(macOS)
+            // macOS HIG: review opens in its own window; the deck-detail
+            // screen returns to the underlying content instead of being
+            // covered by a full-screen modal.
+            .onChange(of: destination.wrappedValue) { _, newValue in
+                guard case .review? = newValue else { return }
+                ReviewWindowQueue.shared.enqueue(deckId)
+                openWindow(id: "review")
+                destination.wrappedValue = nil
+            }
+            #else
             .fullScreenCover(isPresented: destination.review) {
                 ReviewView(deckId: deckId) { onReviewDismiss() }
             }
+            #endif
             .sheet(item: destination.sheet) { sheet in
                 sheetContent(sheet)
             }

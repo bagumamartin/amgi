@@ -26,17 +26,19 @@ struct LookupStructuredContentView {
 
     @MainActor
     func makeCoordinator() -> Coordinator {
-        Coordinator(
+        let mediaClient = dictionaryLookupClient
+        return Coordinator(
             dictionary: dictionary,
             glossaries: glossaries,
             dictionaryStyle: dictionaryStyle,
             onLookupRequested: onLookupRequested,
             loadMediaData: { dict, mediaPath in
-                try await dictionaryLookupClient.mediaFile(dict, mediaPath)
+                try await mediaClient.mediaFile(dict, mediaPath)
             }
         )
     }
 
+    @MainActor
     fileprivate func makeConfiguredWebView(coordinator: Coordinator) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
@@ -59,6 +61,7 @@ struct LookupStructuredContentView {
         return webView
     }
 
+    @MainActor
     fileprivate func applyUpdate(coordinator: Coordinator) {
         coordinator.update(
             dictionary: dictionary,
@@ -67,6 +70,7 @@ struct LookupStructuredContentView {
         )
     }
 
+    @MainActor
     fileprivate static func tearDownWebView(_ webView: WKWebView) {
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "openLink")
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "lookupText")

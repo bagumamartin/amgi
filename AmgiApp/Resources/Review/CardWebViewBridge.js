@@ -6,9 +6,12 @@
 __AMGI_BASE_TAG__
 <style>
     :root {
-        color-scheme: __AMGI_COLOR_SCHEME__;
+        /* Let WebKit follow the host app/system appearance dynamically. */
+        color-scheme: light dark;
         --amgi-default-card-bg: __AMGI_DEFAULT_CARD_BG__;
         --amgi-default-card-fg: __AMGI_TEXT_COLOR__;
+        --amgi-card-fg: __AMGI_TEXT_COLOR__;
+        --amgi-card-bg: __AMGI_DEFAULT_CARD_BG__;
     }
     html, body {
         background: transparent;
@@ -19,7 +22,7 @@ __AMGI_BASE_TAG__
     body {
         font-family: -apple-system, system-ui;
         font-size: 18px; line-height: 1.5;
-        color: var(--amgi-default-card-fg); background: var(--amgi-default-card-bg);
+        color: var(--amgi-card-fg); background: var(--amgi-card-bg);
         padding: 0 0 var(--amgi-body-padding-bottom, 16px);
         margin: 20px; min-height: calc(100vh - 40px); box-sizing: border-box; text-align: center;
         overflow-wrap: break-word;
@@ -371,20 +374,64 @@ function amgiCardLookupPayloadAt(x, y, scanLength) {
     };
 }
 
-document.addEventListener('click', function(event) {
-    var state = amgiCardState();
-    if (state.renderedAt && Date.now() - state.renderedAt < 300) return;
-    var payload = amgiCardLookupPayloadAt(event.clientX, event.clientY, 16);
-    if (!payload) return;
-    window.webkit.messageHandlers.amgiLookupText.postMessage(payload);
-}, false);
-
 function amgiSetCardCSS(cssText) {
     var style = document.getElementById('amgi-card-css');
     if (!style) return;
     var next = cssText || '';
     if (style.textContent === next) return;
     style.textContent = next;
+}
+
+// Some exported templates provide a light surface with explicit white text
+// (or the inverse). CSS-only fallback rules cannot know which surface an
+// element actually renders on, so repair only clear contrast failures after
+// the card DOM is present. Images, drawings, media, and form controls are
+// intentionally excluded.
+function amgiRepairThemeContrast() {
+    if (document.documentElement.getAttribute('data-bs-theme') !== 'dark') return;
+
+    function parseColor(value) {
+        var match = (value || '').match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/i);
+        if (!match) return null;
+        return {
+            r: parseInt(match[1], 10),
+            g: parseInt(match[2], 10),
+            b: parseInt(match[3], 10),
+            a: match[4] == null ? 1 : parseFloat(match[4]),
+        };
+    }
+
+    function luminance(color) {
+        if (!color) return 0;
+        return (0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b) / 255;
+    }
+
+    function visibleBackground(element) {
+        var current = element;
+        while (current && current !== document.documentElement) {
+            var background = parseColor(window.getComputedStyle(current).backgroundColor);
+            if (background && background.a > 0.04) return background;
+            current = current.parentElement;
+        }
+        return null;
+    }
+
+    var excluded = 'img, svg, canvas, video, audio, input, textarea, select, option, button';
+    document.querySelectorAll('#qa *').forEach(function(element) {
+        if (element.matches(excluded)) return;
+        var style = window.getComputedStyle(element);
+        var foreground = parseColor(style.color);
+        var background = visibleBackground(element);
+        if (!foreground || !background) return;
+
+        var foregroundLuminance = luminance(foreground);
+        var backgroundLuminance = luminance(background);
+        if (backgroundLuminance > 0.70 && foregroundLuminance > 0.82) {
+            element.style.setProperty('color', '#1a1a1a', 'important');
+        } else if (backgroundLuminance < 0.30 && foregroundLuminance < 0.24) {
+            element.style.setProperty('color', '#f5f5f5', 'important');
+        }
+    });
 }
 
 // ── Resource preloading ──────────────────────────────────────────────
@@ -1233,6 +1280,7 @@ async function amgiUpdateQA(html, state, onupdate, onshown) {
 
         amgiSetupImageOcclusion();
         await amgiRunHooks(window.onShownHook);
+        amgiRepairThemeContrast();
     } finally {
         // Avoid a forced fade-in on every flip/next-card update; it reads
         // as a content reload once MathJax and scripts are involved.

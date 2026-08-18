@@ -26,6 +26,9 @@ struct SettingsView: View {
                 NavigationLink("Card Rendering") {
                     CardRenderingSettingsView()
                 }
+                NavigationLink("Shortcuts") {
+                    ShortcutsSettingsView()
+                }
             }
 
             Section("Reader") {

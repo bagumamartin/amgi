@@ -20,20 +20,27 @@ struct CreateDeckSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("Deck name, use :: for subdecks", text: $name)
+                    TextField("Name", text: $name, prompt: Text("Use :: for subdecks"))
                         .autocorrectionDisabled()
                 }
             }
+            #if os(macOS)
+            .formStyle(.grouped)
+            .frame(minWidth: 340, idealWidth: 400, maxWidth: 520)
+            .presentationSizing(.fitted)
+            #endif
             .navigationTitle("New Deck")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .keyboardShortcut(.cancelAction)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Create") {
                         Task { await create() }
                     }
+                    .keyboardShortcut(.defaultAction)
                     .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || isSaving)
                 }
             }

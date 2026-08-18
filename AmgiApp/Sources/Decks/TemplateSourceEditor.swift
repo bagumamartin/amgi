@@ -19,6 +19,7 @@ struct TemplateSourceEditor: UIViewRepresentable {
     var fontSize: Double = 14.0
     var fontFamilyRaw: String = "Menlo"
 
+    @MainActor
     func makeCoordinator() -> Coordinator {
         Coordinator(text: $text)
     }
@@ -460,10 +461,12 @@ private struct MacTemplateSourceHost: NSViewRepresentable {
     let font: NSFont
     let bridge: TemplateEditorBridge
 
+    @MainActor
     func makeCoordinator() -> Coordinator {
         Coordinator(text: $text)
     }
 
+    @MainActor
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSTextView.scrollableTextView()
         scrollView.drawsBackground = false
@@ -496,6 +499,7 @@ private struct MacTemplateSourceHost: NSViewRepresentable {
         return scrollView
     }
 
+    @MainActor
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         guard let textView = nsView.documentView as? NSTextView else { return }
         // Mirror the iOS update path: refresh the binding reference on every
@@ -518,6 +522,7 @@ private struct MacTemplateSourceHost: NSViewRepresentable {
         context.coordinator.applySearch(searchQuery, in: textView)
     }
 
+    @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         @Binding var text: String
 

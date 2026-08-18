@@ -1,6 +1,7 @@
 import SwiftUI
 import AmgiCardWeb
 import AmgiTheme
+import AmgiUI
 import AnkiBackend
 import AnkiKit
 import Dependencies
@@ -77,6 +78,12 @@ struct ReviewView: View {
             ReviewAudioSession.apply(playInSilent: newValue)
         }
         .onDisappear {
+            #if os(macOS)
+            // The review lives in its own window; on close there's no
+            // parent cover to run the onDismiss bookkeeping, so broadcast
+            // for the main window's ContentView to invalidate the store.
+            NotificationCenter.default.post(name: .amgiReviewFinished, object: nil)
+            #endif
             Task { await writeWidgetSnapshot() }
         }
     }
@@ -104,12 +111,19 @@ private struct ReviewContent: View {
     let onDismiss: () -> Void
 
     @Environment(\.palette) private var palette
+    @State private var showRenderModeSheet = false
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 if showRemainingDays {
-                    progressBar
+                    SessionProgressBar(
+                        initialCounts: session.sessionInitialCounts,
+                        position: cardPosition,
+                        total: sessionTotal,
+                        remaining: session.remainingCounts.total
+                    )
                 }
 
                 if session.isFinished {
@@ -125,7 +139,14 @@ private struct ReviewContent: View {
                     )
                 }
             }
-            .background(palette.background)
+            // The review chrome (progress strip, card well, answer-button
+            // region) should sit on the same background as the navigation
+            // bar above it. When auto-matching is on that's the card's own
+            // chrome colour (light/dark aware per card); otherwise fall back
+            // to the theme palette, which is itself resolved for the active
+            // colour scheme.
+            .background(autoMatchCardBackground ? session.cardChromeColor : palette.background)
+            .environment(\.palette, contentPalette)
             .overlay {
                 // Scope the fade to the toast subtree only. Attaching
                 // `.animation(value:)` to the whole VStack also animated the
@@ -134,8 +155,28 @@ private struct ReviewContent: View {
                 toastOverlay
                     .animation(.easeInOut(duration: 0.15), value: session.pendingToast)
             }
+            #if os(macOS)
+            // The macOS menu bar targets whichever review window is focused.
+            // Do not install this closure-backed focused value on iPadOS: the
+            // scene observes it to rebuild commands while this view recreates
+            // it during rendering, which can cause a same-frame update loop
+            // and leave the review hierarchy temporarily unresponsive.
+            .focusedSceneValue(\.reviewActions, ReviewActions(
+                undo: { session.undo() },
+                editNote: { editingNote = session.currentNote },
+                lookup: { lookupQuery = "" },
+                replayAudio: {
+                    if session.isAudioPlaying {
+                        session.bumpStopAudioRequest()
+                    } else {
+                        session.bumpReplayRequest()
+                    }
+                }
+            ))
+            #endif
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                #if !os(macOS)
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
                         onDismiss()
@@ -144,26 +185,47 @@ private struct ReviewContent: View {
                     }
                     .accessibilityLabel("Close")
                 }
+                #endif
+                #if os(iOS)
                 ToolbarItem(placement: .principal) {
-                    Text(session.deckName)
-                        .amgiFont(.bodyEmphasis)
-                        .foregroundStyle(palette.textPrimary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                }
-                if showRemainingDays {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Text("\(cardPosition)/\(max(sessionTotal, 1))")
-                            .amgiFont(.caption)
-                            .monospacedDigit()
-                            .foregroundStyle(palette.textSecondary)
-                            .accessibilityLabel("Card \(cardPosition) of \(max(sessionTotal, 1))")
+                    HStack(spacing: AmgiSpacing.sm) {
+                        Circle()
+                            .fill(deckTone)
+                            .frame(width: 6, height: 6)
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 1) {
+                            if !deckSubtitle.isEmpty {
+                                Text(deckSubtitle)
+                                    .amgiFont(.micro)
+                                    .foregroundStyle(palette.textSecondary)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.7)
+                            }
+                            Text(deckTitle)
+                                .amgiFont(.bodyEmphasis)
+                                .foregroundStyle(palette.textPrimary)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                        }
                     }
                 }
+                #endif
                 ToolbarItem(placement: .topBarTrailing) {
                     cardActionsMenu
                 }
             }
+            #if os(macOS)
+            // macOS HIG: the deck name is the window title (no inline title
+            // bar) and Escape is the standard cancel/close path alongside
+            // the window controls (⌘W, traffic light). Guarded so Escape
+            // never closes mid-typing in a `{{type:}}` card.
+            .navigationTitle(session.deckName)
+            .onExitCommand {
+                if !session.requiresTypedAnswerInput {
+                    dismiss()
+                }
+            }
+            #endif
             #if os(iOS)
             .toolbarBackground(
                 autoMatchCardBackground ? session.cardChromeColor : Color.clear,
@@ -178,6 +240,14 @@ private struct ReviewContent: View {
                 for: .navigationBar
             )
             #endif
+            .sheet(isPresented: $showRenderModeSheet) {
+                RenderModeSheet(
+                    explainer: renderModeExplainer,
+                    template: session.currentTemplateTarget,
+                    templateName: session.templateName,
+                    onChanged: { session.reresolveCurrentCard() }
+                )
+            }
             .sheet(item: $editingNote) { note in
                 NavigationStack {
                     NoteEditorView(note: note) {
@@ -216,39 +286,43 @@ private struct ReviewContent: View {
 
     // MARK: - Progress
 
-    /// Total cards in this session = already reviewed + still queued. The
-    /// queued total shifts as learning cards re-enter the queue, so this
-    /// tracks the session rather than a fixed count.
+    /// Frozen session denominator — see `ReviewSession.sessionProgressTotal`.
     private var sessionTotal: Int {
-        session.sessionStats.reviewed + session.remainingCounts.total
+        max(session.sessionProgressTotal, 1)
     }
 
-    /// 1-indexed position of the current card, clamped so it never exceeds
-    /// the (moving) total.
+    /// 1-indexed position of the current card, clamped to the session total.
     private var cardPosition: Int {
-        min(session.sessionStats.reviewed + 1, max(sessionTotal, 1))
+        min(session.sessionStats.reviewed + 1, sessionTotal)
     }
 
-    private var progressFraction: Double {
-        sessionTotal > 0 ? Double(session.sessionStats.reviewed) / Double(sessionTotal) : 0
+    private var deckTone: Color {
+        DeckTonePalette.tone(for: session.deckName)
     }
 
-    /// Thin session-progress bar under the navigation bar (replaces the old
-    /// counts row). The numeric position lives in the toolbar.
-    private var progressBar: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                Capsule().fill(palette.separator)
-                Capsule()
-                    .fill(palette.accent)
-                    .frame(width: max(0, geo.size.width * progressFraction))
-            }
-        }
-        .frame(height: 3)
-        .padding(.horizontal)
-        .padding(.top, 6)
-        .padding(.bottom, 2)
-        .animation(.easeInOut(duration: 0.3), value: progressFraction)
+    /// Leaf deck name, with the parent path stripped. The backend hands
+    /// back a "Parent::Child" path; the leaf alone is what a reviewer
+    /// actually needs to identify which deck they're studying.
+    private var deckTitle: String {
+        session.deckName.components(separatedBy: "::").last?.trimmingCharacters(in: .whitespaces) ?? session.deckName
+    }
+
+    /// The parent path of the current deck, shown as a small subtitle above
+    /// the title so context isn't lost. Empty for top-level decks.
+    private var deckSubtitle: String {
+        let parts = session.deckName.components(separatedBy: "::")
+        guard parts.count > 1 else { return "" }
+        return parts.dropLast().joined(separator: " - ")
+    }
+
+    /// Palette for the review content. When auto-matching the card's
+    /// background, the chrome must resolve light/dark against the *card*
+    /// (not the system appearance) — otherwise dark-mode text lands on a
+    /// light card, or vice-versa, and becomes unreadable. This mirrors the
+    /// toolbar's `toolbarColorScheme` behaviour for the body below it.
+    private var contentPalette: Palette {
+        guard autoMatchCardBackground else { return palette }
+        return ThemeManager.shared.palette(forExplicitScheme: session.cardChromeIsDark ? .dark : .light)
     }
 
     // MARK: - Card actions
@@ -299,8 +373,14 @@ private struct ReviewContent: View {
                 .disabled(session.currentNote == nil)
             }
 
+            Divider()
+            Button {
+                showRenderModeSheet = true
+            } label: {
+                Label("Card Rendering", systemImage: "paintbrush")
+            }
+
             if showContextMenuButton {
-                Divider()
                 if let cardId = session.currentCardId {
                     CardContextMenu(cardId: cardId, noteId: session.currentNote?.id)
                 }
@@ -320,10 +400,50 @@ private struct ReviewContent: View {
             }
         }
         .accessibilityLabel("Card options")
+        #if os(macOS)
+        .help("Card options")
+        #endif
+    }
+
+    private var renderModeExplainer: String {
+        switch session.resolvedMode {
+        case .native:
+            return "rendered natively — passes the simplicity check."
+        case .html:
+            let prefs = currentRenderEnginePreferences(
+                mid: session.currentNote?.mid,
+                ord: Int(session.currentCardOrdinal)
+            )
+            if (prefs.override ?? prefs.global) == .alwaysHTML {
+                return "rendered as HTML — selected for this card."
+            }
+            return "rendered as HTML — uses features the native renderer doesn't support."
+        }
     }
 
     private var finishedView: some View {
         VStack(spacing: AmgiSpacing.lg) {
+            #if os(macOS)
+            Spacer()
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 40))
+                .foregroundStyle(palette.positive)
+            Text("Congratulations!")
+                .font(.title2.weight(.semibold))
+                .foregroundStyle(palette.textPrimary)
+            Text("You've reviewed \(session.sessionStats.reviewed) cards")
+                .foregroundStyle(palette.textSecondary)
+            if session.sessionStats.reviewed > 0 {
+                Text("Accuracy: \(Int(session.sessionStats.accuracy * 100))%")
+                    .foregroundStyle(palette.textSecondary)
+            }
+            Spacer()
+            Button("Done") { dismiss() }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .keyboardShortcut(.defaultAction)
+                .padding()
+            #else
             Spacer()
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 64))
@@ -343,6 +463,7 @@ private struct ReviewContent: View {
             Button("Done") { onDismiss() }
                 .buttonStyle(AmgiPrimaryButtonStyle())
                 .padding()
+            #endif
         }
     }
 }
@@ -364,12 +485,11 @@ private extension ReviewContent {
 
 // MARK: - Card Area
 
-/// The card region of the reviewer: render-mode chip, the flip surface, and
-/// the reveal/rating controls. Extracted from `ReviewContent` so that session
-/// mutations it doesn't read (audio-playing toggles, toast, deck counts) skip
-/// its body — otherwise every such change re-runs `CardWebView.updateUIView`
-/// and its regex HTML processing. Owns the render-mode sheet flag and the
-/// native audio player, which are only relevant here.
+/// The card region of the reviewer: flip surface plus reveal/rating controls.
+/// Extracted from `ReviewContent` so session mutations it doesn't read
+/// (audio-playing toggles, toast, deck counts) skip its body — otherwise every
+/// such change re-runs `CardWebView.updateUIView` and its HTML processing.
+/// Owns the native audio player, which is only relevant here.
 private struct ReviewCardArea: View {
     let session: ReviewSession
     let openLinksExternally: Bool
@@ -379,20 +499,10 @@ private struct ReviewCardArea: View {
     @Binding var lookupQuery: String?
 
     @Environment(\.palette) private var palette
-    @State private var showRenderModeSheet = false
     @State private var nativeAudioPlayer = NativeCardAudioPlayer()
 
     var body: some View {
         VStack(spacing: 0) {
-            RenderModeChipRow(
-                isNative: isNativeMode,
-                isAuto: session.resolvedByAuto,
-                templateName: session.templateName,
-                onTap: { showRenderModeSheet = true }
-            )
-            .padding(.horizontal)
-            .padding(.vertical, 4)
-
             cardFlipRegion
             .onChange(of: session.stopAudioRequestID) { _, _ in
                 if isNativeMode { nativeAudioPlayer.stop() }
@@ -406,7 +516,6 @@ private struct ReviewCardArea: View {
                 if isNativeMode { session.updateAudioPlaying(playing) }
             }
             .onDisappear { nativeAudioPlayer.stop() }
-            .sheet(isPresented: $showRenderModeSheet) { renderModeSheet }
 
             Spacer()
 
@@ -425,25 +534,59 @@ private struct ReviewCardArea: View {
                     .keyboardShortcut(.space, modifiers: [])
             }
         }
+        #if os(macOS)
+        // macOS HIG: bound the review column to a comfortable reading width
+        // and center it, so full-screen/wide windows don't stretch the card,
+        // chip row, and buttons edge to edge (left-anchored).
+        .frame(maxWidth: 900)
+        .frame(maxWidth: .infinity)
+        #endif
     }
 
     private var revealButton: some View {
         Button {
             session.revealAnswer()
         } label: {
+            #if os(macOS)
+            // macOS HIG: standard-sized prominent button — not the iOS
+            // full-width slab. Space (and Return in the typed-answer field)
+            // already reveal from the keyboard.
+            Text("Show Answer")
+            #else
             Text("Show Answer")
                 .amgiFont(.bodyEmphasis)
                 .frame(maxWidth: .infinity)
                 .padding()
+            #endif
         }
         .buttonStyle(.borderedProminent)
+        // A single consistent accent blue for every deck — the per-deck
+        // hashed tone was meant for deck tiles, not the primary action,
+        // and made "Show Answer" shift colour as you moved between decks.
+        .tint(palette.accent)
+        #if os(macOS)
+        .controlSize(.large)
+        .help("Show Answer (Space)")
+        #else
+        // A full-width primary action is ergonomic on an iPhone, but becomes
+        // an impersonal, hard-to-scan slab on iPad. Cap its readable/tappable
+        // width while keeping it centered; compact widths remain naturally
+        // full-width because their available space is below the cap.
+        .frame(maxWidth: 560)
+        .frame(maxWidth: .infinity)
+        #endif
         .disabled(session.isAdvancing)
-        .padding()
+        .padding(.horizontal, AmgiSpacing.lg)
+        .padding(.vertical, AmgiSpacing.md)
     }
 
     private var isNativeMode: Bool {
         if case .native = session.resolvedMode { return true }
         return false
+    }
+
+    private var deckTone: Color {
+        DeckTonePalette.tone(for: session.deckName)
     }
 
     /// The reveal region. Native cards get the 3D flip (pure SwiftUI, crisp);
@@ -460,35 +603,11 @@ private struct ReviewCardArea: View {
         }
     }
 
-    private var renderModeSheet: some View {
-        RenderModeSheet(
-            explainer: renderModeExplainer,
-            template: session.currentTemplateTarget,
-            templateName: session.templateName,
-            onChanged: { session.reresolveCurrentCard() }
-        )
-    }
 
     private var mediaFolder: URL? {
         @Dependency(\.ankiBackend) var backend
         guard let path = backend.currentMediaFolderPath else { return nil }
         return URL(fileURLWithPath: path)
-    }
-
-    private var renderModeExplainer: String {
-        switch session.resolvedMode {
-        case .native:
-            return "rendered natively — passes the simplicity check."
-        case .html:
-            let prefs = currentRenderEnginePreferences(
-                mid: session.currentNote?.mid,
-                ord: Int(session.currentCardOrdinal)
-            )
-            if (prefs.override ?? prefs.global) == .alwaysHTML {
-                return "rendered as HTML — selected for this card."
-            }
-            return "rendered as HTML — uses features the native renderer doesn't support."
-        }
     }
 
     @ViewBuilder
@@ -498,55 +617,47 @@ private struct ReviewCardArea: View {
             NativeCardView(
                 content: isBack ? back : front,
                 isAnswerSide: isBack,
-                mediaFolder: mediaFolder
+                mediaFolder: mediaFolder,
+                onQuestionCanvasTap: questionCanvasReveal,
+                onTextLookup: textLookupCallback
             )
         case .html:
-            VStack(spacing: 0) {
-                webChromeStrip
-                CardWebView(
-                    html: isBack ? session.backHTML : session.frontHTML,
-                    cardCSS: session.cardCSS,
-                    isAnswerSide: isBack,
-                    cardOrdinal: session.currentCardOrdinal,
-                    replayRequestID: session.replayRequestID,
-                    stopAudioRequestID: session.stopAudioRequestID,
-                    openLinksExternally: openLinksExternally,
-                    contentAlignment: CardWebViewContentAlignment(rawValue: cardContentAlignment) ?? .center,
-                    onAudioStateChange: { playing in session.updateAudioPlaying(playing) },
-                    onCardBackgroundColorChange: { color, isDark in
-                        session.updateCardChrome(color: color, isDark: isDark)
-                    },
-                    // No tap-lookup while the typed-answer input is up — the
-                    // dictionary would hand over the answer to be typed.
-                    onLookupRequested: tapLookup && !session.requiresTypedAnswerInput ? { text, _, _ in
-                        if let text, !text.isEmpty { lookupQuery = text }
-                    } : nil
-                )
-            }
+            CardWebView(
+                html: isBack ? session.backHTML : session.frontHTML,
+                cardCSS: session.cardCSS,
+                isAnswerSide: isBack,
+                cardOrdinal: session.currentCardOrdinal,
+                replayRequestID: session.replayRequestID,
+                stopAudioRequestID: session.stopAudioRequestID,
+                openLinksExternally: openLinksExternally,
+                lookupPopupEnabled: tapLookup && !session.requiresTypedAnswerInput,
+                contentAlignment: CardWebViewContentAlignment(rawValue: cardContentAlignment) ?? .center,
+                onAudioStateChange: { playing in session.updateAudioPlaying(playing) },
+                onCardBackgroundColorChange: { color, isDark in
+                    session.updateCardChrome(color: color, isDark: isDark)
+                },
+                // No tap-lookup while the typed-answer input is up — the
+                // dictionary would hand over the answer to be typed.
+                onLookupRequested: tapLookup && !session.requiresTypedAnswerInput ? { text, _, _ in
+                    if let text, !text.isEmpty { lookupQuery = text }
+                } : nil,
+                onQuestionCanvasTap: questionCanvasReveal
+            )
         }
     }
 
-    /// Slim chrome above the sandboxed WebView card (R11): HTML badge ·
-    /// template name · "sandboxed".
-    private var webChromeStrip: some View {
-        HStack(spacing: 8) {
-            Text("HTML")
-                .amgiFont(.caption)
-                .fontWeight(.semibold)
-                .foregroundStyle(palette.warning)
-            if let name = session.templateName {
-                Text(name)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(palette.textTertiary)
-            }
-            Spacer()
-            Text("sandboxed")
-                .amgiFont(.caption)
-                .foregroundStyle(palette.textTertiary)
-        }
-        .padding(.horizontal)
-        .padding(.vertical, 4)
+    private var questionCanvasReveal: (() -> Void)? {
+        #if os(iOS)
+        guard !session.showAnswer,
+              !session.isAdvancing,
+              !session.requiresTypedAnswerInput
+        else { return nil }
+        return { session.revealAnswer() }
+        #else
+        return nil
+        #endif
     }
+
 
     private func playNativeAudio() {
         guard case .native(let front, let back) = session.resolvedMode else { return }
@@ -562,6 +673,14 @@ private struct ReviewCardArea: View {
             isDisabled: session.isAdvancing,
             onRate: { rating in session.answer(rating: rating) }
         )
+    }
+
+    private var textLookupCallback: ((String) -> Void)? {
+        guard tapLookup, !session.requiresTypedAnswerInput else { return nil }
+        return { text in
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { lookupQuery = trimmed }
+        }
     }
 }
 

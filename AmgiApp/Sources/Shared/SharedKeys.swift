@@ -1,5 +1,11 @@
 import Sharing
 
+enum NavigationPreferences {
+    static let rootSection = "amgi_root_section"
+    static let legacyRootSection = "amgi.root.section"
+    static let deckSortOrder = "amgi.deck_sort_order"
+}
+
 enum SyncMode: String, Sendable, RawRepresentable {
     case local
     case custom

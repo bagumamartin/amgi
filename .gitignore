@@ -12,6 +12,7 @@ anki-upstream/target/
 .claude/
 .superpowers/
 /.agent-shell/
+.qwen/
 
 # Local design scratch (mockups, screenshots, JSX prototypes)
 design/

@@ -4,6 +4,7 @@ import AmgiUI
 import AnkiKit
 import AnkiClients
 import Dependencies
+import Sharing
 
 /// Owns the `DeckDetailModel` (data state) and a single `Destination?`
 /// that drives every modal axis: full-screen review, sheets, alerts,
@@ -17,6 +18,7 @@ struct DeckDetailView: View {
 
     @Environment(\.palette) private var palette
     @Dependency(\.collectionStore) private var store
+    @Shared(.appStorage(NavigationPreferences.deckSortOrder)) private var sortOrderRaw: String = DeckSortOrder.mostUsed.rawValue
     @State private var model: DeckDetailModel
     @State private var destination: DeckDetailDestination?
     @State private var newSubdeckName = ""
@@ -25,6 +27,15 @@ struct DeckDetailView: View {
     init(deck: DeckInfo) {
         self.deck = deck
         _model = State(initialValue: DeckDetailModel(deck: deck))
+    }
+
+    private var sortOrderBinding: Binding<DeckSortOrder> {
+        Binding(
+            get: { DeckSortOrder(rawValue: sortOrderRaw) ?? .mostUsed },
+            set: { newOrder in
+                $sortOrderRaw.withLock { $0 = newOrder.rawValue }
+            }
+        )
     }
 
     private var shortTitle: String {
@@ -83,7 +94,11 @@ struct DeckDetailView: View {
             ),
             isFiltered: deck.isFiltered,
             isEmpty: isEmpty,
-            subdecks: model.childDecks.map(Self.subdeckRow(from:)),
+            subdecks: DeckSorting.subdeckRows(
+                model.childDecks,
+                order: sortOrderBinding.wrappedValue,
+                ranks: model.usageRanks
+            ).map(Self.subdeckRow(from:)),
             insights: insights,
             isActionInFlight: model.actionInFlight
         ))
@@ -127,6 +142,7 @@ struct DeckDetailView: View {
     private var contentWithToolbar: some View {
         DeckDetailScreen(
             state: viewState,
+            sortOrder: sortOrderBinding,
             heatmapSlot: { EmptyView() }, // R03 will inject its chart here.
             onAction: handle
         )

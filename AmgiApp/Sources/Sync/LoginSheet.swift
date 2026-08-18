@@ -35,19 +35,36 @@ struct LoginSheet: View {
                         Task { await login() }
                     } label: {
                         if isLoading {
-                            ProgressView().frame(maxWidth: .infinity)
+                            ProgressView()
+                                #if !os(macOS)
+                                .frame(maxWidth: .infinity)
+                                #endif
                         } else {
-                            Text("Sign In").frame(maxWidth: .infinity)
+                            Text("Sign In")
+                                #if !os(macOS)
+                                .frame(maxWidth: .infinity)
+                                #endif
                         }
                     }
+                    #if os(macOS)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .keyboardShortcut(.defaultAction)
+                    #endif
                     .disabled(username.isEmpty || password.isEmpty || isLoading)
                 }
             }
+            #if os(macOS)
+            .formStyle(.grouped)
+            .frame(minWidth: 340, idealWidth: 400, maxWidth: 520)
+            .presentationSizing(.fitted)
+            #endif
             .navigationTitle("Login")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { isPresented = false }
+                        .keyboardShortcut(.cancelAction)
                 }
             }
         }

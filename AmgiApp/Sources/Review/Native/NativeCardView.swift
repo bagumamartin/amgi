@@ -17,8 +17,24 @@ struct NativeCardView: View {
     let content: NativeCardContent
     let isAnswerSide: Bool
     let mediaFolder: URL?
+    let onQuestionCanvasTap: (() -> Void)?
+    let onTextLookup: ((String) -> Void)?
 
     @Environment(\.palette) private var palette
+
+    init(
+        content: NativeCardContent,
+        isAnswerSide: Bool,
+        mediaFolder: URL?,
+        onQuestionCanvasTap: (() -> Void)? = nil,
+        onTextLookup: ((String) -> Void)? = nil
+    ) {
+        self.content = content
+        self.isAnswerSide = isAnswerSide
+        self.mediaFolder = mediaFolder
+        self.onQuestionCanvasTap = onQuestionCanvasTap
+        self.onTextLookup = onTextLookup
+    }
 
     var body: some View {
         ScrollView {
@@ -27,16 +43,30 @@ struct NativeCardView: View {
                 cornerRadius: AmgiRadius.card,
                 contentInsets: EdgeInsets(top: 40, leading: 24, bottom: 40, trailing: 24)
             ) {
-                VStack(spacing: AmgiSpacing.lg) {
-                    ForEach(Array(content.blocks.enumerated()), id: \.offset) { index, block in
-                        blockView(block, isFirst: index == firstTextIndex)
+                ZStack {
+                    VStack(spacing: AmgiSpacing.lg) {
+                        ForEach(Array(content.blocks.enumerated()), id: \.offset) { index, block in
+                            blockView(block, isFirst: index == firstTextIndex)
+                        }
                     }
+                    .frame(maxWidth: .infinity)
                 }
-                .frame(maxWidth: .infinity)
             }
+            .frame(maxWidth: .infinity)
             .padding(.horizontal)
             .padding(.top, 8)
         }
+        // The review canvas is deliberately larger than a short native card.
+        // Own the gesture here, rather than on the card's intrinsic surface,
+        // so its padding and the remaining canvas reveal too.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        #if os(iOS)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard !isAnswerSide else { return }
+            onQuestionCanvasTap?()
+        }
+        #endif
     }
 
     private var firstTextIndex: Int? {
@@ -64,18 +94,18 @@ struct NativeCardView: View {
     private func blockView(_ block: NativeCardContent.Block, isFirst: Bool) -> some View {
         switch block {
         case .text(let attributed):
-            if isFirst {
-                Text(attributed)
-                    .font(.system(size: isAnswerSide ? 34 : 48, weight: .semibold, design: .serif))
-                    .minimumScaleFactor(0.5)
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(palette.textPrimary)
-            } else {
-                Text(attributed)
-                    .font(.system(size: 20, design: .serif))
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(palette.textPrimary)
-            }
+            let font: Font = isFirst
+                ? .system(size: isAnswerSide ? 34 : 48, weight: .semibold, design: .serif)
+                : .system(size: 20, design: .serif)
+            Text(attributed)
+                .font(font)
+                .minimumScaleFactor(isFirst ? 0.5 : 1)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(palette.textPrimary)
+            #if os(iOS)
+            .contentShape(Rectangle())
+            .highPriorityGesture(textLookupGesture(for: String(attributed.characters)))
+            #endif
         case .image(let filename):
             if let image = mediaImage(filename) {
                 image
@@ -90,6 +120,17 @@ struct NativeCardView: View {
                 .padding(.horizontal, 24)
         }
     }
+
+    #if os(iOS)
+    private func textLookupGesture(for text: String) -> some Gesture {
+        LongPressGesture(minimumDuration: 0.5, maximumDistance: 12)
+            .onEnded { _ in
+            guard !isAnswerSide else { return }
+            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            onTextLookup?(text)
+        }
+    }
+    #endif
 }
 
 #if DEBUG

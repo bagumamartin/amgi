@@ -368,6 +368,7 @@ private struct ChapterWebView {
         )
     }
 
+    @MainActor
     fileprivate func makeConfiguredWebView(coordinator: Coordinator) -> WKWebView {
         let config = WKWebViewConfiguration()
         let userContent = WKUserContentController()
@@ -401,6 +402,7 @@ private struct ChapterWebView {
         return webView
     }
 
+    @MainActor
     fileprivate func applyUpdate(to webView: WKWebView, coordinator: Coordinator) {
         coordinator.pendingInitialProgress = initialProgress
         if coordinator.loadedHTML != html {

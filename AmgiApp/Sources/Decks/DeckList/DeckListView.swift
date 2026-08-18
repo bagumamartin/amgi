@@ -5,27 +5,48 @@ import AmgiUI
 import AnkiKit
 import AnkiClients
 import Dependencies
+import Sharing
 
 /// Library container: owns navigation, sheets, and the toolbar, and drives
 /// a `DeckListModel` for load/refresh + deck mutations. Rendering is
 /// delegated to `LibraryListContent` (AmgiUI); data assembly lives in the
 /// model. The View is intentionally thin — presentation wiring only.
 struct DeckListView: View {
+    /// Library's hero represents the complete active collection rather than
+    /// a particular deck. The host presents the virtual all-decks review
+    /// scope when this is invoked.
+    let onStartReview: () -> Void
     @Dependency(\.collectionStore) private var store
+    @Shared(.appStorage(NavigationPreferences.deckSortOrder)) private var sortOrderRaw: String = DeckSortOrder.mostUsed.rawValue
     @State private var model: DeckListModel
     @State private var showCreateSheet = false
     @State private var renameTarget: DeckRowViewData?
     @State private var pendingDeck: DeckInfo?
 
-    init(model: DeckListModel = DeckListModel()) {
+    private var sortOrderBinding: Binding<DeckSortOrder> {
+        Binding(
+            get: { DeckSortOrder(rawValue: sortOrderRaw) ?? .mostUsed },
+            set: { newOrder in
+                $sortOrderRaw.withLock { $0 = newOrder.rawValue }
+                model.resort(sortOrder: newOrder)
+            }
+        )
+    }
+
+    init(
+        model: DeckListModel = DeckListModel(),
+        onStartReview: @escaping () -> Void = {}
+    ) {
         _model = State(initialValue: model)
+        self.onStartReview = onStartReview
     }
 
     var body: some View {
         LibraryListContent(
             state: model.state,
-            onRefresh: { await model.load() },
-            onStartReview: { pendingDeck = model.firstReviewableDeck() },
+            sortOrder: sortOrderBinding,
+            onRefresh: { await model.load(sortOrder: sortOrderBinding.wrappedValue) },
+            onStartReview: onStartReview,
             onTapDeck: { row in pendingDeck = row.asDeckInfo },
             onDeleteDeck: { rawID in await model.delete(DeckID(rawID)) },
             onRenameDeck: { row in renameTarget = row }
@@ -48,7 +69,12 @@ struct DeckListView: View {
         // Keyed on the store's generation: any Invalidation (deck mutation,
         // sync, import, review-end) re-runs the load; `.task` still cancels
         // on disappear.
-        .task(id: store.generation) { await model.load() }
+        .task(id: store.generation) {
+            await model.load(sortOrder: sortOrderBinding.wrappedValue)
+        }
+        .onAppear {
+            model.resort(sortOrder: sortOrderBinding.wrappedValue)
+        }
     }
 
     @ToolbarContentBuilder
@@ -103,7 +129,7 @@ struct DeckListView: View {
         ],
         hero: HeroData(
             totalDue: 478, deckCount: 3, streak: 36,
-            last14Days: [3, 5, 2, 7, 6, 9, 4, 8, 6, 5, 7, 3, 8, 5]
+            recentDayTotals: HeroData.sampleDayTotals()
         ),
         heatmap: .empty
     )
@@ -143,7 +169,7 @@ struct DeckListView: View {
         ],
         hero: HeroData(
             totalDue: 478, deckCount: 3, streak: 36,
-            last14Days: [3, 5, 2, 7, 6, 9, 4, 8, 6, 5, 7, 3, 8, 5]
+            recentDayTotals: HeroData.sampleDayTotals()
         ),
         heatmap: .empty
     )

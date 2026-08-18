@@ -6,7 +6,7 @@ import DependenciesMacros
 import Foundation
 import Logging
 
-private let logger = Logger(label: "com.ankiapp.sync.client")
+private let logger = Logger(label: "\(Bundle.main.bundleIdentifier ?? "app").sync.client")
 
 /// How long a merge-flow backup is kept before it's considered stale. A failed
 /// merge deliberately leaves its backup on disk for recovery; this window is

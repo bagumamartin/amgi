@@ -20,6 +20,7 @@ final class DeckDetailModel {
 
     var counts: DeckCounts = .zero
     var childDecks: [DeckTreeNode] = []
+    var usageRanks: [Int64: DeckUsageRank] = [:]
     var statsSnapshot: DeckDetailStats.Snapshot?
 
     var actionInFlight = false
@@ -60,8 +61,17 @@ final class DeckDetailModel {
         do {
             let tree = try await store.tree()
             childDecks = Self.findChildren(in: tree, parentId: deck.id)
+            if !childDecks.isEmpty {
+                usageRanks = await DeckUsageRanking.ranks(
+                    for: childDecks.map { (id: $0.id, fullName: $0.fullName) },
+                    statsClient: statsClient
+                )
+            } else {
+                usageRanks = [:]
+            }
         } catch {
             childDecks = []
+            usageRanks = [:]
         }
     }
 

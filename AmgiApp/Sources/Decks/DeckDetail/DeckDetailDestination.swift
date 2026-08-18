@@ -4,7 +4,7 @@ import CasePaths
 /// Single source of truth for every modal axis on the deck-detail screen:
 /// full-screen review, action sheets, alerts, and the file importer.
 @CasePathable
-enum DeckDetailDestination {
+enum DeckDetailDestination: Equatable {
     case review
     case alert(DeckDetailAlert)
     case sheet(DeckDetailSheet)
@@ -12,7 +12,7 @@ enum DeckDetailDestination {
 }
 
 @CasePathable
-enum DeckDetailSheet: Identifiable {
+enum DeckDetailSheet: Identifiable, Equatable {
     case addNote
     case showDeckOptions
     case exportFile(URL)
@@ -27,7 +27,7 @@ enum DeckDetailSheet: Identifiable {
 }
 
 @CasePathable
-enum DeckDetailAlert {
+enum DeckDetailAlert: Equatable {
     case empty
     case error(String)
     case info(String)

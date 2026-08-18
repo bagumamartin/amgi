@@ -1,8 +1,9 @@
 // AmgiApp/Sources/Widgets/WidgetSnapshotStore.swift
 import Foundation
+import AmgiTheme
 
 enum WidgetSnapshotStore {
-    public static let groupId = "group.com.amgiapp"
+    public static let groupId = AppGroup.identifier
 
     static func write(_ snapshot: WidgetSnapshot) throws {
         guard let url = fileURL(deckId: snapshot.deckId) else {

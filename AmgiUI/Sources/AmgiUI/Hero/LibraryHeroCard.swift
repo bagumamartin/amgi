@@ -2,8 +2,8 @@ public import SwiftUI
 import AmgiTheme
 
 /// Library hero card. Built on `AmgiHeroSummary`. Wraps it to supply the
-/// streak pill (top-right decoration slot) and the CTA + sparkline
-/// (footer slot).
+/// streak pill (top-right decoration slot), the CTA (footer), and the
+/// 14-day sparkline (sidecar — stacked on compact, beside copy on regular).
 ///
 /// `data.totalDue == 0` disables the CTA; the rest still renders so
 /// the user sees their streak + sparkline.
@@ -12,6 +12,7 @@ public struct LibraryHeroCard: View {
     let onStartReview: () -> Void
 
     @Environment(\.palette) private var palette
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     public init(data: HeroData, onStartReview: @escaping () -> Void) {
         self.data = data
@@ -25,24 +26,29 @@ public struct LibraryHeroCard: View {
             subtitle: subtitleText,
             background: heroGradient,
             decoration: { StreakBadge(days: data.streak) },
-            footer: {
-                VStack(spacing: 12) {
-                    Button(action: onStartReview) {
-                        Label("Start today's review", systemImage: "play.fill")
-                            .frame(maxWidth: .infinity)
-                            .font(.system(size: 16, weight: .semibold))
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .tint(.white.opacity(0.22))
-                    .foregroundStyle(.white)
-                    .disabled(data.totalDue == 0)
-
-                    SparklineBars(values: data.last14Days)
-                        .frame(height: 28)
-                }
-            }
+            footer: { startReviewButton },
+            sidecar: { sparkline }
         )
+    }
+
+    private var isRegular: Bool { horizontalSizeClass == .regular }
+
+    private var startReviewButton: some View {
+        Button(action: onStartReview) {
+            Label("Start today's review", systemImage: "play.fill")
+                .frame(maxWidth: .infinity)
+                .font(.system(size: 16, weight: .semibold))
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+        .tint(.white.opacity(0.22))
+        .foregroundStyle(.white)
+        .disabled(data.totalDue == 0)
+    }
+
+    private var sparkline: some View {
+        SparklineBars(values: data.recentDayTotals)
+            .frame(height: isRegular ? nil : 36)
     }
 
     private var subtitleText: String {
@@ -86,17 +92,31 @@ private struct SparklineBars: View {
     let values: [Int]
 
     var body: some View {
-        let maxValue = max(values.max() ?? 0, 1)
         GeometryReader { geo in
+            let visible = Self.visibleSlice(values: values, width: geo.size.width)
+            let maxValue = max(visible.max() ?? 0, 1)
             HStack(alignment: .bottom, spacing: 4) {
-                ForEach(Array(values.enumerated()), id: \.offset) { _, value in
+                ForEach(Array(visible.enumerated()), id: \.offset) { _, value in
                     RoundedRectangle(cornerRadius: 1.5, style: .continuous)
                         .fill(.white.opacity(0.55))
                         .frame(height: max(4, geo.size.height * CGFloat(value) / CGFloat(maxValue)))
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .bottom)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         }
+    }
+
+    /// Keep each bar close to the iPhone pitch (14 bars in the compact
+    /// column width). Wider graphs show more trailing days instead of
+    /// stretching the same 14 bars.
+    static func visibleSlice(values: [Int], width: CGFloat) -> [Int] {
+        let days = HeroData.compactSparklineDays
+        let pitch = LibraryHeroMetrics.compactColumnWidth / CGFloat(days)
+        guard pitch > 0, width > 0 else {
+            return Array(values.suffix(days))
+        }
+        let count = min(values.count, max(days, Int(width / pitch)))
+        return Array(values.suffix(count))
     }
 }
 
@@ -109,12 +129,29 @@ private struct SparklineBars: View {
             totalDue: 680,
             deckCount: 7,
             streak: 36,
-            last14Days: [3, 5, 2, 7, 6, 9, 4, 8, 6, 5, 7, 3, 8, 5]
+            recentDayTotals: HeroData.sampleDayTotals()
         ),
         onStartReview: {}
     )
     .padding(16)
     .background(Color.gray.opacity(0.12))
+    .environment(\.palette, .vividLight)
+}
+
+#Preview("Regular — split layout") {
+    LibraryHeroCard(
+        data: HeroData(
+            totalDue: 741,
+            deckCount: 8,
+            streak: 5,
+            recentDayTotals: HeroData.sampleDayTotals()
+        ),
+        onStartReview: {}
+    )
+    .padding(16)
+    .frame(width: 720)
+    .background(Color.gray.opacity(0.12))
+    .environment(\.horizontalSizeClass, .regular)
     .environment(\.palette, .vividLight)
 }
 
@@ -124,7 +161,7 @@ private struct SparklineBars: View {
             totalDue: 0,
             deckCount: 4,
             streak: 12,
-            last14Days: [3, 5, 0, 0, 6, 9, 4, 8, 6, 0, 7, 3, 8, 0]
+            recentDayTotals: HeroData.sampleDayTotals()
         ),
         onStartReview: {}
     )
@@ -139,7 +176,7 @@ private struct SparklineBars: View {
             totalDue: 42,
             deckCount: 3,
             streak: 0,
-            last14Days: Array(repeating: 0, count: 14)
+            recentDayTotals: Array(repeating: 0, count: HeroData.sparklineCapacity)
         ),
         onStartReview: {}
     )

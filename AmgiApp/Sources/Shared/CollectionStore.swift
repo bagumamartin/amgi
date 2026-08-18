@@ -3,6 +3,12 @@ import AnkiKit
 import Dependencies
 import Foundation
 
+enum CollectionChangeOrigin: Sendable, Equatable {
+    case localUser
+    case remoteSync
+    case refresh
+}
+
 /// Single refresh authority for Collection reads — deck tree (+ its due
 /// counts) in v1. Screens key `.task(id: store.generation)` so an
 /// Invalidation re-runs their load; mutations hand their
@@ -15,6 +21,7 @@ final class CollectionStore {
     private(set) var generation = 0
 
     @ObservationIgnored @Dependency(\.deckClient) private var deckClient
+    @ObservationIgnored @Dependency(\.syncCoordinator) private var syncCoordinator
 
     @ObservationIgnored private var cachedTree: [DeckTreeNode]?
     @ObservationIgnored private var cachedGeneration = -1
@@ -46,13 +53,23 @@ final class CollectionStore {
         return tree
     }
 
-    func apply(_ changes: CollectionChanges) {
+    func apply(_ changes: CollectionChanges, origin: CollectionChangeOrigin = .localUser) {
         guard changes.affectsDeckTree else { return }
         generation += 1
+        if origin == .localUser {
+            syncCoordinator.requestAutomaticSync(reason: "Local collection change")
+        }
     }
 
-    func invalidateAll() {
+    func invalidateAll(origin: CollectionChangeOrigin = .refresh) {
         generation += 1
+        if origin == .localUser {
+            syncCoordinator.requestAutomaticSync(reason: "Local collection change")
+        }
+    }
+
+    func markLocalMutation(reason: String) {
+        syncCoordinator.requestAutomaticSync(reason: reason)
     }
 }
 

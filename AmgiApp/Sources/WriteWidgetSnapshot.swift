@@ -1,6 +1,6 @@
 // AmgiApp/Sources/WriteWidgetSnapshot.swift
 import Foundation
-#if os(iOS)
+#if os(iOS) || os(macOS)
 import AnkiClients
 import AnkiKit
 import Dependencies
@@ -11,11 +11,14 @@ import WidgetKit
 /// App Group container, then signals WidgetKit to reload all timelines.
 /// Safe to call from any async context.
 ///
-/// iOS-only for now: the macOS build ships without a widget extension, and
-/// macOS App Group identifiers need a team-ID prefix. The call sites stay
-/// unconditional; this is a no-op on macOS.
+/// Cross-platform (iOS + macOS): `AmgiWidget` builds for both destinations
+/// (see project.yml) and both apps share the same `group.com.bagumamartin.AmgiApp`
+/// App Group container. Apple lifted the old macOS restriction that required
+/// Team-ID-prefixed group identifiers in Feb 2025 — iOS-style `group.` IDs are
+/// now supported on macOS for all product types, provided the App Group
+/// capability is enabled for the macOS app target's signing in Xcode.
 func writeWidgetSnapshot() async {
-    #if os(iOS)
+    #if os(iOS) || os(macOS)
     // Skip during XCTest runs — the lifecycle hooks that call this run inside
     // the host app's scene phase / didFinishLaunching, which fire even when
     // the app is hosting a test bundle. Calling unimplemented dependency stubs
@@ -26,12 +29,16 @@ func writeWidgetSnapshot() async {
         return
     }
 
-    @Dependency(\.deckClient) var deckClient
+    @Dependency(\.collectionStore) var collectionStore
     @Dependency(\.statsClient) var statsClient
 
     do {
-        // 1. Fetch deck list
-        let decks: [DeckInfo] = try await deckClient.fetchAll()
+        // Match the Library hero: top-level nodes already include their
+        // descendants' due counts, so summing a flat deck list would count
+        // parent/subdeck cards more than once.
+        let tree = try await collectionStore.tree()
+        let libraryDecks = tree.map(\.asDeckInfo)
+        let individualDecks = tree.flattened()
 
         // 2. Fetch 28-day stats graph for streak + daily counts
         let graphs = try await statsClient.fetchGraphs("", 28)
@@ -44,15 +51,28 @@ func writeWidgetSnapshot() async {
 
         let reviewedToday = graphs.today.answerCount
         let now = Date()
+        let calendar = Calendar.current
+
+        func dueBaseline(deckId: Int64, totalDue: Int) -> Int {
+            let currentSum = max(reviewedToday + totalDue, 1)
+            guard let existing = WidgetSnapshotStore.read(deckId: deckId),
+                  calendar.isDate(existing.snapshotDate, inSameDayAs: now) else {
+                return currentSum
+            }
+            return max(existing.dueBaselineToday, 1)
+        }
+
+        let allDecksTotalDue = libraryDecks.reduce(0) { $0 + $1.counts.total }
 
         // 5. Write all-decks aggregate snapshot (deckId = 0)
         let allDecksSnapshot = WidgetSnapshot(
             deckId: 0,
             deckName: "All Decks",
-            newCount: decks.reduce(0) { $0 + $1.counts.newCount },
-            learnCount: decks.reduce(0) { $0 + $1.counts.learnCount },
-            reviewCount: decks.reduce(0) { $0 + $1.counts.reviewCount },
+            newCount: libraryDecks.reduce(0) { $0 + $1.counts.newCount },
+            learnCount: libraryDecks.reduce(0) { $0 + $1.counts.learnCount },
+            reviewCount: libraryDecks.reduce(0) { $0 + $1.counts.reviewCount },
             reviewedToday: reviewedToday,
+            dueBaselineToday: dueBaseline(deckId: 0, totalDue: allDecksTotalDue),
             streak: streak,
             lastSevenDays: lastSevenDays,
             snapshotDate: now
@@ -60,7 +80,7 @@ func writeWidgetSnapshot() async {
         try WidgetSnapshotStore.write(allDecksSnapshot)
 
         // 6. Write per-deck snapshots
-        for deck in decks {
+        for deck in individualDecks {
             let snapshot = WidgetSnapshot(
                 deckId: deck.id.rawValue,
                 deckName: deck.name,
@@ -68,6 +88,7 @@ func writeWidgetSnapshot() async {
                 learnCount: deck.counts.learnCount,
                 reviewCount: deck.counts.reviewCount,
                 reviewedToday: reviewedToday,
+                dueBaselineToday: dueBaseline(deckId: deck.id.rawValue, totalDue: deck.counts.total),
                 streak: streak,
                 lastSevenDays: lastSevenDays,
                 snapshotDate: now

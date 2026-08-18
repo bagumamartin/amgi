@@ -40,6 +40,7 @@ final class CardWebViewCoordinator: NSObject, WKNavigationDelegate, WKScriptMess
     private let onAudioStateChange: ((Bool) -> Void)?
     private let onCardBackgroundColorChange: ((PlatformColor, Bool) -> Void)?
     private let onLookupRequested: ((String?, String?, CGPoint) -> Void)?
+    private let onQuestionCanvasTap: (() -> Void)?
 
     // MARK: Private state
 
@@ -51,11 +52,13 @@ final class CardWebViewCoordinator: NSObject, WKNavigationDelegate, WKScriptMess
     init(
         onAudioStateChange: ((Bool) -> Void)? = nil,
         onCardBackgroundColorChange: ((PlatformColor, Bool) -> Void)? = nil,
-        onLookupRequested: ((String?, String?, CGPoint) -> Void)? = nil
+        onLookupRequested: ((String?, String?, CGPoint) -> Void)? = nil,
+        onQuestionCanvasTap: (() -> Void)? = nil
     ) {
         self.onAudioStateChange = onAudioStateChange
         self.onCardBackgroundColorChange = onCardBackgroundColorChange
         self.onLookupRequested = onLookupRequested
+        self.onQuestionCanvasTap = onQuestionCanvasTap
         super.init()
         speechSynthesizer.delegate = self
     }
@@ -106,6 +109,11 @@ final class CardWebViewCoordinator: NSObject, WKNavigationDelegate, WKScriptMess
             return
         }
 
+        if message.name == "amgiRevealAnswer" {
+            onQuestionCanvasTap?()
+            return
+        }
+
         guard message.name == "amgiOpenLink" else { return }
         let href: String?
         if let string = message.body as? String {
@@ -141,7 +149,10 @@ final class CardWebViewCoordinator: NSObject, WKNavigationDelegate, WKScriptMess
     // MARK: - TTS
 
     func stopTTS() {
-        guard speechSynthesizer.isSpeaking else { return }
+        // Don't probe `isSpeaking` on the main thread — the synthesizer's
+        // engine runs on a lower-QoS thread and the synchronous read causes a
+        // priority inversion. `stopSpeaking(.immediate)` is a no-op when idle,
+        // so stopping unconditionally is safe and never waits on the engine.
         speechSynthesizer.stopSpeaking(at: .immediate)
         onAudioStateChange?(false)
     }

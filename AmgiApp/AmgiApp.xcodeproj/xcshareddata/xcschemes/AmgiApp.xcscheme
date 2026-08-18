@@ -21,20 +21,6 @@
                ReferencedContainer = "container:AmgiApp.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
-         <BuildActionEntry
-            buildForTesting = "YES"
-            buildForRunning = "YES"
-            buildForProfiling = "YES"
-            buildForArchiving = "YES"
-            buildForAnalyzing = "YES">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "9B3B324834735D7AA9620491"
-               BuildableName = "AmgiWidget.appex"
-               BlueprintName = "AmgiWidget"
-               ReferencedContainer = "container:AmgiApp.xcodeproj">
-            </BuildableReference>
-         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction

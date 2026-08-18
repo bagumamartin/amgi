@@ -124,7 +124,7 @@ open AmgiApp/AmgiApp.xcodeproj
 
 ### 6. Build and Run
 
-Select an iOS Simulator or device with the **AmgiApp** scheme, then build and run (Cmd+R). For the native Mac app, select **My Mac** with the **AmgiAppMac** scheme.
+Select the **AmgiApp** scheme, then choose an iOS Simulator/device or **My Mac** as the run destination. The same scheme and target support both platforms.
 
 ## Tech Stack
 

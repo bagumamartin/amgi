@@ -17,19 +17,25 @@ import Sharing
 struct AnkiAppApp: App {
     @Shared(.onboardingCompleted) private var onboardingCompleted
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openWindow) private var openWindow
     @State private var pendingReviewDeckId: DeckID? = nil
     @AppStorage("appFont") private var appFontRaw: String = AppFont.system.rawValue
     // Mirrors MainTabView's persisted selection so menu commands can switch
-    // sections; syncCoordinator backs the "Sync Now" command.
-    @Shared(.appStorage("amgi.root.section")) private var rootSection: String = MainSection.study.rawValue
+    // sections.
+    @Shared(.appStorage(NavigationPreferences.rootSection)) private var rootSection: String = MainSection.study.rawValue
     @Shared(.appStorage(ReaderPreferences.Keys.showTab)) private var showReaderTab: Bool = true
-    @Dependency(\.syncCoordinator) private var syncCoordinator
+    #if os(macOS)
+    @Shared(.reviewShortcuts) private var reviewShortcuts: [String: ReviewShortcut] = [:]
+    @FocusedValue(\.reviewActions) private var reviewActions
+    #endif
 
     private var destination: Destination {
         onboardingCompleted ? .main : .onboarding
     }
 
     init() {
+        migrateRootSectionPreference()
+
         #if DEBUG
 //        if KeychainHelper.loadEndpoint() == nil {
 //            try? KeychainHelper.saveEndpoint("https://sync.ankiweb.net")
@@ -39,16 +45,26 @@ struct AnkiAppApp: App {
 //        }
         #endif
 
-        // Widget snapshot refresh (BGTaskScheduler + App Group snapshots) is
-        // iOS-only for now; the macOS build has no widget extension.
+        // Widget snapshot refresh via BGTaskScheduler is iOS-only: the
+        // BackgroundTasks framework doesn't exist on macOS. AmgiWidget itself
+        // does build for macOS (see project.yml) and shares the same App
+        // Group snapshot files; macOS gets its own refresh strategy below,
+        // since unlike iOS it doesn't suspend the process while unfocused.
         #if os(iOS)
         BGTaskScheduler.shared.register(
-            forTaskWithIdentifier: "com.amgiapp.AmgiApp.widget-refresh",
+            forTaskWithIdentifier: BackgroundTaskID.widgetRefresh,
             using: nil
         ) { @Sendable task in
             handleWidgetRefreshTask(task)
         }
+        BGTaskScheduler.shared.register(
+            forTaskWithIdentifier: BackgroundTaskID.automaticSync,
+            using: nil
+        ) { @Sendable task in
+            handleAutomaticSyncTask(task)
+        }
         scheduleWidgetRefreshTask()
+        scheduleAutomaticSyncTask()
         #endif
 
         // Multi-profile bootstrap: migrate legacy single-collection
@@ -86,6 +102,21 @@ struct AnkiAppApp: App {
             // (AmgiReaderDictionary) free of Anki imports.
             $0.dictionaryConfigStore = AnkiBackedDictionaryConfigStore.makeStore()
         }
+
+        #if os(macOS)
+        // macOS has no BGTaskScheduler, but it also doesn't suspend a running
+        // app the way iOS does when it's not frontmost — the process keeps
+        // running until the user quits it. A simple in-process polling loop
+        // is the native-feeling equivalent of iOS's BGAppRefreshTask: it keeps
+        // the desktop widget fresh (new due counts, midnight rollover, streak)
+        // without requiring the app window to be active. Like iOS's
+        // background tasks, this stops the instant the app is quit (⌘Q) and
+        // resumes on the next launch.
+        //
+        // Started *after* `prepareDependencies` so the loop's task inherits
+        // the opened backend (see `startMacWidgetRefreshLoop`).
+        startMacWidgetRefreshLoop()
+        #endif
     }
 
     var body: some Scene {
@@ -115,51 +146,178 @@ struct AnkiAppApp: App {
                           .queryItems?.first(where: { $0.name == "deckId" })?.value,
                       let deckId = Int64(deckIdStr)
                 else { return }
-                pendingReviewDeckId = DeckID(deckId)
+                openWidgetReview(deckId: DeckID(deckId))
             }
             .themedRoot()
             .environment(\.appFont, AppFont(rawValue: appFontRaw) ?? .system)
+            #if os(macOS)
+            // macOS HIG: settings/editor forms render as grouped rows (the
+            // default macOS form style produces a floating-label layout).
+            .formStyle(.grouped)
+            #endif
         }
         #if os(macOS)
         .defaultSize(width: 1180, height: 800)
         .commands {
+            CommandGroup(replacing: .undoRedo) {
+                Button("Undo") { reviewActions?.undo() }
+                    .keyboardShortcut(reviewShortcut(.undo).keyEquivalent, modifiers: reviewShortcut(.undo).modifiers)
+                    .disabled(reviewActions == nil)
+            }
+            CommandMenu("Card") {
+                Button("Edit Note") { reviewActions?.editNote() }
+                    .keyboardShortcut(reviewShortcut(.editNote).keyEquivalent, modifiers: reviewShortcut(.editNote).modifiers)
+                    .disabled(reviewActions == nil)
+                Divider()
+                Button("Look Up") { reviewActions?.lookup() }
+                    .keyboardShortcut(reviewShortcut(.lookup).keyEquivalent, modifiers: reviewShortcut(.lookup).modifiers)
+                    .disabled(reviewActions == nil)
+                Button("Replay Audio") { reviewActions?.replayAudio() }
+                    .keyboardShortcut(reviewShortcut(.replayAudio).keyEquivalent, modifiers: reviewShortcut(.replayAudio).modifiers)
+                    .disabled(reviewActions == nil)
+            }
             CommandGroup(replacing: .appSettings) {
-                Button("Settings…") { rootSection = MainSection.settings.rawValue }
+                Button("Settings…") { openWindow(id: "settings") }
                     .keyboardShortcut(",", modifiers: .command)
             }
             CommandMenu("Go") {
-                Button("Library") { rootSection = MainSection.library.rawValue }
+                Button("Library") { $rootSection.withLock { $0 = MainSection.library.rawValue } }
                     .keyboardShortcut("1", modifiers: .command)
                 if showReaderTab {
-                    Button("Read") { rootSection = MainSection.read.rawValue }
+                    Button("Read") { $rootSection.withLock { $0 = MainSection.read.rawValue } }
                         .keyboardShortcut("2", modifiers: .command)
                 }
-                Button("Study") { rootSection = MainSection.study.rawValue }
+                Button("Study") { $rootSection.withLock { $0 = MainSection.study.rawValue } }
                     .keyboardShortcut("3", modifiers: .command)
-                Button("Stats") { rootSection = MainSection.stats.rawValue }
+                Button("Stats") { $rootSection.withLock { $0 = MainSection.stats.rawValue } }
                     .keyboardShortcut("4", modifiers: .command)
-                Button("Settings") { rootSection = MainSection.settings.rawValue }
-                    .keyboardShortcut("5", modifiers: .command)
             }
             CommandGroup(after: .toolbar) {
                 Button("Sync Now") {
-                    Task { await syncCoordinator.startSync() }
+                    // ContentView presents the sync sheet, which performs
+                    // the endpoint/credential preflight and can show Login.
+                    NotificationCenter.default.post(name: .amgiPresentSync, object: nil)
                 }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
             }
         }
         #endif
+
+        #if os(macOS)
+        // macOS HIG: settings live in their own preferences window (⌘,)
+        // reached from the app menu, with a source-list sidebar of panes —
+        // not a tab inside the main window. See `SettingsWindowHost`.
+        Window("Settings", id: "settings") {
+            SettingsWindowHost()
+                .frame(minWidth: 640, minHeight: 440)
+                .themedRoot()
+                .environment(\.appFont, AppFont(rawValue: appFontRaw) ?? .system)
+                .formStyle(.grouped)
+        }
+        .defaultSize(width: 780, height: 560)
+        .windowResizability(.contentMinSize)
+        .defaultLaunchBehavior(.suppressed)
+        #endif
+
+        #if os(macOS)
+        // macOS HIG: study opens in its own resizable window (Anki Desktop
+        // pattern) rather than covering the main window — the sidebar stays
+        // reachable and review is a normal macOS document-like window with
+        // standard close (⌘W / traffic light / Escape). `WindowGroup` (not
+        // `Window`) lets the user open several review windows at once, one
+        // per deck. This SDK's scene initializers carry no value, so each
+        // window claims its deck from `ReviewWindowQueue` on appear.
+        WindowGroup("Study", id: "review") {
+            ReviewWindowHost()
+                .frame(minWidth: 640, minHeight: 480)
+                .themedRoot()
+                .environment(\.appFont, AppFont(rawValue: appFontRaw) ?? .system)
+                .formStyle(.grouped)
+        }
+        .defaultSize(width: 820, height: 640)
+        .windowResizability(.contentMinSize)
+        .defaultLaunchBehavior(.suppressed)
+        #endif
     }
 }
 
 private extension AnkiAppApp {
+    func migrateRootSectionPreference() {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: NavigationPreferences.rootSection) == nil,
+              let legacyValue = defaults.string(forKey: NavigationPreferences.legacyRootSection)
+        else { return }
+
+        $rootSection.withLock { $0 = legacyValue }
+    }
+
+    #if os(macOS)
+    func reviewShortcut(_ action: ReviewShortcutAction) -> ReviewShortcut {
+        reviewShortcuts[action.rawValue] ?? action.defaultShortcut
+    }
+    #endif
+
     enum Destination {
         case onboarding
         case main
     }
+
+    /// WidgetKit's default "All Decks" configuration is represented by the
+    /// synthetic ID 0. `ReviewSession` owns that explicit aggregate scope and
+    /// progresses through every active top-level deck. A configured widget
+    /// still opens its selected, real deck directly.
+    @MainActor
+    private func openWidgetReview(deckId: DeckID) {
+        pendingReviewDeckId = deckId
+    }
 }
 
+#if os(macOS)
+/// Root content of a single review window. Each window claims its deck from
+/// `ReviewWindowQueue` on appear and holds it in its own `@State`, so several
+/// decks can be reviewed concurrently in separate windows.
+private struct ReviewWindowHost: View {
+    @State private var deckID: DeckID?
+
+    var body: some View {
+        Group {
+            if let deckID {
+                ReviewView(deckId: deckID) { }
+            } else {
+                VStack(spacing: AmgiSpacing.md) {
+                    Image(systemName: "graduationcap")
+                        .font(.largeTitle)
+                        .foregroundStyle(.secondary)
+                    Text("No deck selected")
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .onAppear {
+            if deckID == nil {
+                deckID = ReviewWindowQueue.shared.dequeue()
+            }
+        }
+    }
+}
+#endif
+
 #if os(iOS)
+/// Background task identifiers, derived from the app's bundle identifier
+/// rather than hardcoded. Keeps registration + scheduling in sync with
+/// `BGTaskSchedulerPermittedIdentifiers` (which uses
+/// `$(PRODUCT_BUNDLE_IDENTIFIER).<suffix>` in Info.plist) even if the bundle
+/// ID changes.
+private enum BackgroundTaskID {
+    static let widgetRefresh = "\(bundleID).widget-refresh"
+    static let automaticSync = "\(bundleID).automatic-sync"
+
+    private static var bundleID: String {
+        Bundle.main.bundleIdentifier ?? "com.amgi.app"
+    }
+}
+
 private struct UncheckedSendableBox<T>: @unchecked Sendable { let value: T }
 
 private func handleWidgetRefreshTask(_ task: BGTask) {
@@ -175,15 +333,54 @@ private func handleWidgetRefreshTask(_ task: BGTask) {
     }
 }
 
+private func handleAutomaticSyncTask(_ task: BGTask) {
+    let box = UncheckedSendableBox(value: task)
+    let work = Task { @MainActor in
+        NotificationCenter.default.post(name: .amgiPerformBackgroundSync, object: nil)
+        try? await Task.sleep(for: .seconds(20))
+        box.value.setTaskCompleted(success: !Task.isCancelled)
+        scheduleAutomaticSyncTask()
+    }
+    task.expirationHandler = {
+        work.cancel()
+        box.value.setTaskCompleted(success: false)
+    }
+}
+
 /// Schedules a BGAppRefreshTask to fire shortly after the next midnight.
 /// The task writes a fresh widget snapshot so the widget shows today's counts
 /// even if the user hasn't opened the app yet.
 private func scheduleWidgetRefreshTask() {
-    let request = BGAppRefreshTaskRequest(identifier: "com.amgiapp.AmgiApp.widget-refresh")
+    let request = BGAppRefreshTaskRequest(identifier: BackgroundTaskID.widgetRefresh)
     let cal = Calendar.current
     let tomorrow = cal.startOfDay(for: cal.date(byAdding: .day, value: 1, to: Date()) ?? Date())
     // Fire 5 minutes after midnight so Anki's day rollover has settled.
     request.earliestBeginDate = cal.date(byAdding: .minute, value: 5, to: tomorrow) ?? tomorrow
     try? BGTaskScheduler.shared.submit(request)
+}
+
+private func scheduleAutomaticSyncTask() {
+    let request = BGAppRefreshTaskRequest(identifier: BackgroundTaskID.automaticSync)
+    request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
+    try? BGTaskScheduler.shared.submit(request)
+}
+#endif
+
+#if os(macOS)
+/// Refreshes the widget snapshot every 15 minutes for as long as the app
+/// process is alive, independent of window focus. Skipped under XCTest via
+/// the same guard `writeWidgetSnapshot()` uses internally.
+private func startMacWidgetRefreshLoop() {
+    // An inheriting `Task` (not `Task.detached`) so the loop carries the
+    // dependency context set up by `prepareDependencies` — i.e. the opened
+    // `AnkiBackend`. `Task.detached` would start a fresh task tree with
+    // default dependencies (a fresh, unopened backend), making every
+    // `writeWidgetSnapshot()` fail at runtime.
+    Task(priority: .background) {
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(15 * 60))
+            await writeWidgetSnapshot()
+        }
+    }
 }
 #endif

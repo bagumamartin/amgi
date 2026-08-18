@@ -86,6 +86,10 @@ private extension SyncSheet {
             return
         }
 
+        if case .syncing = coordinator.state {
+            return
+        }
+
         guard KeychainHelper.loadHostKey() != nil else {
             showLogin = true
             return
@@ -482,7 +486,7 @@ private struct ServerSetupSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("Server URL", text: $serverURL)
+                    TextField("URL", text: $serverURL, prompt: Text("https://sync.example.com"))
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)
@@ -496,14 +500,21 @@ private struct ServerSetupSheet: View {
                     Button("Save") {
                         save()
                     }
+                    .keyboardShortcut(.defaultAction)
                     .disabled(serverURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
+            #if os(macOS)
+            .formStyle(.grouped)
+            .frame(minWidth: 360, idealWidth: 420, maxWidth: 540)
+            .presentationSizing(.fitted)
+            #endif
             .navigationTitle("Server Setup")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { isPresented = false }
+                        .keyboardShortcut(.cancelAction)
                 }
             }
         }
@@ -519,9 +530,11 @@ private extension ServerSetupSheet {
         }
         try? KeychainHelper.saveEndpoint(url)
         $syncMode.withLock { $0 = .custom }
+        UserDefaults.standard.set(true, forKey: SyncPreferences.Keys.autoSyncEnabledForCurrentUser())
         // Clear existing auth since server changed
         KeychainHelper.deleteHostKey()
         KeychainHelper.deleteCurrentEndpoint()
+        NotificationCenter.default.post(name: .amgiSyncConfigurationChanged, object: nil)
         isPresented = false
         onComplete()
     }

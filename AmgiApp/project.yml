@@ -1,6 +1,6 @@
 name: AmgiApp
 options:
-  bundleIdPrefix: com.amgiapp
+  bundleIdPrefix: com.bagumamartin
   deploymentTarget:
     iOS: "18.0"
     macOS: "15.0"
@@ -31,6 +31,11 @@ settings:
     # cost: first cold build is ~20s slower while the CAS populates. No
     # incremental-build change. See .build-benchmark/optimization-plan.md.
     COMPILATION_CACHE_ENABLE_CACHING: YES
+    SWIFT_ENABLE_EXPLICIT_MODULES: YES
+    # Shared App Group container ID. Used by the app/widget entitlements via
+    # $(APP_GROUP_IDENTIFIER) and mirrored by the runtime constant
+    # `AppGroup.identifier` in AmgiTheme. Keep the two in sync.
+    APP_GROUP_IDENTIFIER: group.com.bagumamartin.AmgiApp
   configs:
     Debug:
       # Eager linking: let downstream targets link against generated stubs
@@ -61,7 +66,6 @@ schemes:
     build:
       targets:
         AmgiApp: all
-        AmgiWidget: all
     run:
       config: Debug
     test:
@@ -74,18 +78,10 @@ schemes:
         AmgiWatchApp: all
     run:
       config: Debug
-  AmgiAppMac:
-    build:
-      targets:
-        AmgiAppMac: all
-    run:
-      config: Debug
-    test:
-      config: Debug
 targets:
   AmgiApp:
     type: application
-    platform: iOS
+    supportedDestinations: [iOS, macOS]
     sources:
       - path: Sources
         type: group
@@ -129,13 +125,19 @@ targets:
       - package: swift-sharing
         product: Sharing
       - sdk: WidgetKit.framework
+        destinationFilters: [iOS, macOS]
       - target: AmgiWidget
         embed: true
+        destinationFilters: [iOS, macOS]
     settings:
       base:
         INFOPLIST_FILE: Info.plist
-        PRODUCT_BUNDLE_IDENTIFIER: com.amgiapp.AmgiApp
+        PRODUCT_BUNDLE_IDENTIFIER: com.bagumamartin.AmgiApp
         CODE_SIGN_ENTITLEMENTS: AmgiApp.entitlements
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "Apple Development"
+        "CODE_SIGN_IDENTITY[sdk=macosx*]": "Apple Development"
+        DEVELOPMENT_TEAM: 39557WW39R
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # Cxx interop chain. The app imports AmgiReaderDictionary, which
         # is built with .interoperabilityMode(.Cxx) for the hoshidicts
@@ -152,70 +154,9 @@ targets:
         CLANG_CXX_LIBRARY: "libc++"
         OTHER_SWIFT_FLAGS: "$(inherited) -cxx-interoperability-mode=default"
 
-  # Native macOS build of the same source tree. Shares AmgiApp/Sources with
-  # the iOS target (platform divergence lives behind #if os() guards in the
-  # sources). No widget extension embed: the WidgetKit extension and the
-  # BGTaskScheduler refresh loop are iOS-only for now.
-  AmgiAppMac:
-    type: application
-    platform: macOS
-    sources:
-      - path: Sources
-        type: group
-        excludes:
-          - "Widgets"
-          - "Watch"
-      - path: Resources/Assets.xcassets
-      - path: Resources/mathjax
-        type: folder
-      - path: Resources/Review
-        type: folder
-      - path: Resources/Fonts
-        type: folder
-      - path: Resources/EPUBReader
-        type: folder
-    dependencies:
-      - package: AnkiBridge
-        product: AnkiKit
-      - package: AnkiBridge
-        product: AnkiServices
-      - package: AnkiBridge
-        product: AnkiClients
-      - package: AnkiBridge
-        product: AnkiSync
-      - package: AnkiBridge
-        product: AnkiBackend
-      - package: AnkiBridge
-        product: AmgiCardWeb
-      - package: AmgiReader
-        product: AmgiReader
-      - package: AmgiReader
-        product: AmgiReaderDictionary
-      - package: AmgiUI
-        product: AmgiTheme
-      - package: AmgiUI
-        product: AmgiUI
-      - package: swift-navigation
-        product: SwiftNavigation
-      - package: swift-navigation
-        product: SwiftUINavigation
-      - package: swift-sharing
-        product: Sharing
-    settings:
-      base:
-        INFOPLIST_FILE: Info-macOS.plist
-        PRODUCT_BUNDLE_IDENTIFIER: com.amgiapp.AmgiApp
-        CODE_SIGN_ENTITLEMENTS: AmgiApp.entitlements
-        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        # Same Cxx interop chain as the iOS target — see the comment there.
-        SWIFT_CXX_INTEROPERABILITY_MODE: default
-        CLANG_CXX_LANGUAGE_STANDARD: "c++20"
-        CLANG_CXX_LIBRARY: "libc++"
-        OTHER_SWIFT_FLAGS: "$(inherited) -cxx-interoperability-mode=default"
-
   AmgiWidget:
     type: app-extension
-    platform: iOS
+    supportedDestinations: [iOS, macOS]
     sources:
       - path: Sources/Widgets
       - path: Sources/Shared/WidgetSnapshot.swift
@@ -229,9 +170,13 @@ targets:
       - sdk: SwiftUI.framework
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.amgiapp.AmgiApp.widget
+        PRODUCT_BUNDLE_IDENTIFIER: com.bagumamartin.AmgiApp.widget
         INFOPLIST_FILE: Sources/Widgets/Info.plist
         CODE_SIGN_ENTITLEMENTS: AmgiWidget.entitlements
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "Apple Development"
+        "CODE_SIGN_IDENTITY[sdk=macosx*]": "Apple Development"
+        DEVELOPMENT_TEAM: 39557WW39R
 
   AmgiWatchApp:
     type: application
@@ -285,10 +230,10 @@ targets:
         product: Sharing
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.amgiapp.AmgiApp.watch
+        PRODUCT_BUNDLE_IDENTIFIER: com.bagumamartin.AmgiApp.watch
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_WKCompanionAppBundleIdentifier: com.amgiapp.AmgiApp
+        INFOPLIST_KEY_WKCompanionAppBundleIdentifier: com.bagumamartin.AmgiApp
 
   AmgiAppTests:
     type: bundle.unit-test
@@ -301,7 +246,7 @@ targets:
       base:
         BUNDLE_LOADER: $(TEST_HOST)
         TEST_HOST: $(BUILT_PRODUCTS_DIR)/AmgiApp.app/AmgiApp
-        PRODUCT_BUNDLE_IDENTIFIER: com.amgiapp.AmgiAppTests
+        PRODUCT_BUNDLE_IDENTIFIER: com.bagumamartin.AmgiAppTests
         GENERATE_INFOPLIST_FILE: YES
         # Tests inherit @testable AmgiApp's transitive Cxx-mode import
         # of AmgiReaderDictionary, so they need the same Clang+Swift

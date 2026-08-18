@@ -7,21 +7,20 @@ import AmgiTheme
 public struct DeckListRowView: View {
     let data: DeckRowViewData
     let onTap: () -> Void
-    let onDelete: () -> Void
+    let onRequestDelete: () -> Void
     let onRename: () -> Void
 
-    @State private var showDeleteAlert = false
     @Environment(\.palette) private var palette
 
     public init(
         data: DeckRowViewData,
         onTap: @escaping () -> Void,
-        onDelete: @escaping () -> Void,
+        onRequestDelete: @escaping () -> Void,
         onRename: @escaping () -> Void
     ) {
         self.data = data
         self.onTap = onTap
-        self.onDelete = onDelete
+        self.onRequestDelete = onRequestDelete
         self.onRename = onRename
     }
 
@@ -46,19 +45,17 @@ public struct DeckListRowView: View {
         }
         .buttonStyle(.plain)
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button(role: .destructive) { showDeleteAlert = true } label: {
+            // Non-destructive swipe: `.destructive` tells List the row is
+            // already gone, which crashes if the data source hasn't removed
+            // it yet. Confirmation lives in `LibraryListContent`.
+            Button { onRequestDelete() } label: {
                 Label("Delete", systemImage: "trash")
             }
+            .tint(.red)
             Button { onRename() } label: {
                 Label("Rename", systemImage: "pencil")
             }
             .tint(.orange)
-        }
-        .alert("Delete \"\(data.name)\"?", isPresented: $showDeleteAlert) {
-            Button("Delete", role: .destructive, action: onDelete)
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This will permanently delete the deck and all its cards.")
         }
     }
 
@@ -144,7 +141,7 @@ private struct DeckTile: View {
             isFiltered: false,
             subdeckCount: 4
         ),
-        onTap: {}, onDelete: {}, onRename: {}
+        onTap: {}, onRequestDelete: {}, onRename: {}
     )
     .padding()
     .environment(\.palette, .vividLight)
@@ -162,7 +159,7 @@ private struct DeckTile: View {
             isFiltered: false,
             subdeckCount: 0
         ),
-        onTap: {}, onDelete: {}, onRename: {}
+        onTap: {}, onRequestDelete: {}, onRename: {}
     )
     .padding()
     .environment(\.palette, .vividLight)
@@ -180,7 +177,7 @@ private struct DeckTile: View {
             isFiltered: true,
             subdeckCount: 0
         ),
-        onTap: {}, onDelete: {}, onRename: {}
+        onTap: {}, onRequestDelete: {}, onRename: {}
     )
     .padding()
     .environment(\.palette, .vividLight)

@@ -41,6 +41,14 @@ public final class ThemeManager: @unchecked Sendable {
         return registry.palette(id: themeID, scheme: resolved)
     }
 
+    /// Resolve the active theme for an *explicit* scheme, ignoring the user's
+    /// appearance override. Used by surfaces that must match a specific
+    /// light/dark background (like the review chrome adopting a card's own
+    /// background colour) rather than the system appearance.
+    public func palette(forExplicitScheme scheme: ColorScheme) -> Palette {
+        registry.palette(id: themeID, scheme: scheme)
+    }
+
     private enum Keys {
         static let themeID = "theme.id"
         static let legacyTheme = "theme.selection"

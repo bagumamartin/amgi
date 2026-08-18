@@ -54,8 +54,7 @@ struct DesignConformanceTests {
             "Radius literals with no AmgiRadius equivalent; changing them would be a layout change (R29 is no-layout).",
         "Review/ReviewView.swift":
             "64pt display numeral; no AmgiFont role at this size.",
-        "Review/RenderModeChipRow.swift":
-            "Template-name chip renders code in .caption.monospaced(); AmgiFont has no monospaced role.",
+
         "Decks/DeckTemplateList/TemplateEditorView.swift":
             "Radius literals with no AmgiRadius equivalent; changing them would be a layout change (R29 is no-layout).",
         "Widgets/LargeWidgetView.swift":

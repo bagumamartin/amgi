@@ -467,6 +467,16 @@ struct RichNoteFieldEditor: View {
                 preservesSourceHTML: preservesSourceHTML,
                 bridge: bridge
             )
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            // The NSTextView host draws no background/border of its own; give
+            // the field a subtle macOS control boundary so it reads as an
+            // editable field rather than floating text.
+            .background(.quinary, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .strokeBorder(.quaternary, lineWidth: 1)
+            }
             toolbar
         }
     }

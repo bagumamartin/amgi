@@ -168,10 +168,10 @@ struct EmptyCardsContent: View {
                 } label: {
                     HStack(alignment: .top, spacing: AmgiSpacing.sm) {
                         VStack(alignment: .leading, spacing: AmgiSpacing.xxs) {
-                            Text("Note id: \(entry.id)")
+                            Text(verbatim: "Note id: \(entry.id)")
                                 .font(.system(size: AmgiFont.body.size, weight: AmgiFont.body.weight).monospacedDigit())
                                 .foregroundStyle(palette.textPrimary)
-                            Text("\(entry.emptyCards) of \(entry.totalCards) cards empty")
+                            Text(verbatim: "\(entry.emptyCards) of \(entry.totalCards) cards empty")
                                 .amgiFont(.caption)
                                 .foregroundStyle(palette.textSecondary)
                             Text("Deck: \(entry.deckName)")

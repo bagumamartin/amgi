@@ -1,10 +1,16 @@
 import SwiftUI
 import AmgiTheme
 import AnkiSync
+import Dependencies
 import Sharing
 
 struct SyncSettingsView: View {
     @Shared(.syncMode) private var syncMode
+    @Shared(.appStorage(SyncPreferences.Keys.autoSyncEnabledForCurrentUser()))
+    private var autoSyncEnabled: Bool = true
+    @Shared(.appStorage(SyncPreferences.Keys.autoSyncNetworkPolicyForCurrentUser()))
+    private var autoSyncNetworkPolicyRaw: String = SyncPreferences.NetworkPolicy.wifiOnly.rawValue
+    @Dependency(\.syncCoordinator) private var coordinator
     @State private var endpoint: String? = KeychainHelper.loadEndpoint()
     @State private var username: String? = KeychainHelper.loadUsername()
     @State private var isLoggedIn: Bool = KeychainHelper.loadHostKey() != nil
@@ -35,6 +41,25 @@ struct SyncSettingsView: View {
                         Text(isLoggedIn ? "Stored" : "Not signed in")
                             .foregroundStyle(palette.textSecondary)
                     }
+                }
+
+                Section("Automatic Sync") {
+                    Toggle("Sync automatically", isOn: Binding($autoSyncEnabled))
+                        .onChange(of: autoSyncEnabled) { _, enabled in
+                            if enabled {
+                                coordinator.enableAutomaticSync()
+                            } else {
+                                coordinator.disableAutomaticSync()
+                            }
+                        }
+                    Picker("Network", selection: Binding($autoSyncNetworkPolicyRaw)) {
+                        ForEach(SyncPreferences.NetworkPolicy.allCases) { policy in
+                            Text(policy.rawValue).tag(policy.rawValue)
+                        }
+                    }
+                    Text("Changes sync after a short pause and periodically every 15 minutes.")
+                        .font(.caption)
+                        .foregroundStyle(palette.textSecondary)
                 }
 
                 Section {
@@ -83,6 +108,7 @@ struct SyncSettingsView: View {
 
 private extension SyncSettingsView {
     func logout() {
+        coordinator.disableAutomaticSync()
         KeychainHelper.deleteHostKey()
         KeychainHelper.deleteUsername()
         username = nil
@@ -90,6 +116,7 @@ private extension SyncSettingsView {
     }
 
     func disableSync() {
+        coordinator.disableAutomaticSync()
         KeychainHelper.deleteHostKey()
         KeychainHelper.deleteUsername()
         KeychainHelper.deleteEndpoint()
@@ -110,7 +137,7 @@ private struct ServerSetupView: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("https://sync.example.com", text: $url)
+                    TextField("URL", text: $url, prompt: Text("https://sync.example.com"))
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)
@@ -122,14 +149,21 @@ private struct ServerSetupView: View {
 
                 Section {
                     Button("Save", action: save)
+                        .keyboardShortcut(.defaultAction)
                         .disabled(trimmed.isEmpty)
                 }
             }
+            #if os(macOS)
+            .formStyle(.grouped)
+            .frame(minWidth: 360, idealWidth: 420, maxWidth: 540)
+            .presentationSizing(.fitted)
+            #endif
             .navigationTitle("Sync Server")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .keyboardShortcut(.cancelAction)
                 }
             }
         }
@@ -148,7 +182,9 @@ private extension ServerSetupView {
         }
         try? KeychainHelper.saveEndpoint(normalized)
         $syncMode.withLock { $0 = .custom }
+        UserDefaults.standard.set(true, forKey: SyncPreferences.Keys.autoSyncEnabledForCurrentUser())
         KeychainHelper.deleteHostKey()  // force re-auth on next sync
+        NotificationCenter.default.post(name: .amgiSyncConfigurationChanged, object: nil)
         onSave()
         dismiss()
     }
