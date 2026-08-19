@@ -75,7 +75,13 @@ struct OcclusionCanvasView: UIViewRepresentable {
 
     func updateUIView(_ uiView: OcclusionCanvasUIView, context: Context) {
         uiView.image = image
-        uiView.masks = masks
+        // While a mask drag is in flight the canvas owns `masks`: it edits its
+        // own copy per frame and commits once, on gesture end. Assigning here
+        // would clobber the in-progress drag with the pre-drag state on any
+        // unrelated SwiftUI update.
+        if !uiView.isDraggingMasks {
+            uiView.masks = masks
+        }
         uiView.selectedMaskIndex = selectedMaskIndex
         uiView.highlightedMaskIndices = highlightedMaskIndices
         uiView.activeSelectionIndices = activeSelectionIndices
@@ -156,9 +162,12 @@ struct OcclusionCanvasView: UIViewRepresentable {
             onRequestTextEdit?(index)
         }
 
-        func updateMask(at index: Int, to mask: IOMask) {
-            guard masks.indices.contains(index) else { return }
-            masks[index] = mask
+        /// Push the canvas's own mask array back into SwiftUI. Called once
+        /// when a drag ends, not per frame -- see `OcclusionCanvasUIView`'s
+        /// drag buffering.
+        func commitMasks(_ newMasks: [IOMask]) {
+            guard masks != newMasks else { return }
+            masks = newMasks
         }
 
         func beginTransform() {
@@ -215,7 +224,11 @@ final class OcclusionCanvasUIView: UIView {
     private let minimumNormalizedDimension: CGFloat = 0.02
     private let minimumTextScale: CGFloat = 0.25
 
-    var image: UIImage
+    var image: UIImage {
+        // `updateUIView` assigns this on every SwiftUI pass, almost always the
+        // same instance — compare identity so the cache survives.
+        didSet { if image !== oldValue { scaledImageCache = nil } }
+    }
     var masks: [IOMask] = []
     var selectedMaskIndex: Int?
     var shapeType: IOShapeType = .rect
@@ -228,6 +241,21 @@ final class OcclusionCanvasUIView: UIView {
     private var currentDragRect: CGRect?
     private var polygonPoints: [CGPoint] = []
     private var activeDrag: ActiveDrag?
+
+    /// `image` pre-scaled to the rect it's actually drawn at, and the size that
+    /// cache is valid for.
+    ///
+    /// `draw(_:)` runs on every frame of a mask drag, and `image.draw(in:)`
+    /// resamples the full source each time — for a photo-library pick that's a
+    /// 12 MP resample into a ~380pt rect, per frame. Resampling once per size
+    /// change and blitting the result costs one extra display-sized bitmap.
+    private var scaledImageCache: UIImage?
+    private var scaledImageSize: CGSize = .zero
+
+    /// True while a move/resize/rotate/vertex drag is in flight. During that
+    /// window the view mutates `masks` directly and SwiftUI must not overwrite
+    /// it; the final value is pushed through the coordinator on gesture end.
+    var isDraggingMasks: Bool { activeDrag != nil }
 
     init(image: UIImage) {
         self.image = image
@@ -248,10 +276,25 @@ final class OcclusionCanvasUIView: UIView {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    /// The source image resampled to `size`, cached until the size or the
+    /// image itself changes.
+    private func scaledImage(at size: CGSize) -> UIImage {
+        if let scaledImageCache, scaledImageSize == size { return scaledImageCache }
+        let renderer = UIGraphicsImageRenderer(size: size, format: .preferred())
+        let scaled = renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
+        scaledImageCache = scaled
+        scaledImageSize = size
+        return scaled
+    }
+
     override func draw(_ rect: CGRect) {
         guard let ctx = UIGraphicsGetCurrentContext() else { return }
         let imgRect = imageRect(in: bounds)
-        image.draw(in: imgRect)
+        if imgRect.width >= 1, imgRect.height >= 1 {
+            scaledImage(at: imgRect.size).draw(at: imgRect.origin)
+        }
 
         let inactiveFill = UIColor(red: 1, green: 0.92, blue: 0.64, alpha: maskOpacity).cgColor
         let inactiveStroke = UIColor(red: 0.13, green: 0.13, blue: 0.13, alpha: 1).cgColor
@@ -327,7 +370,11 @@ final class OcclusionCanvasUIView: UIView {
             setNeedsDisplay()
         case .ended:
             if activeDrag != nil {
+                // Clear the drag first so `updateUIView` stops guarding, then
+                // commit -- the model snapshots `masks` inside
+                // `finishTransform()`, so the write has to land before it.
                 activeDrag = nil
+                coordinator?.commitMasks(masks)
                 coordinator?.finishTransform()
                 setNeedsDisplay()
                 return
@@ -342,6 +389,8 @@ final class OcclusionCanvasUIView: UIView {
             setNeedsDisplay()
         default:
             if activeDrag != nil {
+                activeDrag = nil
+                coordinator?.commitMasks(masks)
                 coordinator?.finishTransform()
             }
             activeDrag = nil
@@ -711,6 +760,14 @@ private extension OcclusionCanvasUIView {
         return .move(maskIndices: [hitIndex], start: location, originals: [hitIndex: hitMask])
     }
 
+    /// Apply one frame of a drag to the canvas's own `masks`. Deliberately
+    /// does *not* write through the coordinator's binding: doing that per frame
+    /// round-tripped every drag through SwiftUI state.
+    private func setMaskDuringDrag(at index: Int, to mask: IOMask) {
+        guard masks.indices.contains(index) else { return }
+        masks[index] = mask
+    }
+
     private func updateMaskDrag(_ drag: ActiveDrag, location: CGPoint, imgRect: CGRect) {
         switch drag {
         case .move(let maskIndices, let start, let originals):
@@ -720,15 +777,15 @@ private extension OcclusionCanvasUIView {
                       let updated = movedMask(original, delta: delta, imgRect: imgRect) else {
                     continue
                 }
-                coordinator?.updateMask(at: maskIndex, to: updated)
+                setMaskDuringDrag(at: maskIndex, to: updated)
             }
         case .resize(let maskIndex, let handle, let original):
             guard let updated = resizedMask(original, handle: handle, location: location, imgRect: imgRect) else { return }
-            coordinator?.updateMask(at: maskIndex, to: updated)
+            setMaskDuringDrag(at: maskIndex, to: updated)
         case .rotate(let maskIndex, let pivot, let startAngle, let original):
             let currentAngle = atan2(location.y - pivot.y, location.x - pivot.x)
             guard let updated = rotatedMask(original, delta: currentAngle - startAngle, imgRect: imgRect) else { return }
-            coordinator?.updateMask(at: maskIndex, to: updated)
+            setMaskDuringDrag(at: maskIndex, to: updated)
         case .polygonVertex(let maskIndex, let vertexIndex):
             guard case .polygon(let points, let extras) = masks[maskIndex] else { return }
             var updatedPoints = points
@@ -736,7 +793,7 @@ private extension OcclusionCanvasUIView {
                 x: max(0, min(1, (location.x - imgRect.minX) / imgRect.width)),
                 y: max(0, min(1, (location.y - imgRect.minY) / imgRect.height))
             )
-            coordinator?.updateMask(at: maskIndex, to: .polygon(points: updatedPoints, extras: extras))
+            setMaskDuringDrag(at: maskIndex, to: .polygon(points: updatedPoints, extras: extras))
         }
         setNeedsDisplay()
     }

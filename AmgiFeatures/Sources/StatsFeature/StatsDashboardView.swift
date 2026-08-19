@@ -9,11 +9,20 @@ import Dependencies
 public struct StatsDashboardView: View {
     @Environment(\.palette) private var palette
 
+    /// Bumped by the host after sync / import / review so the dashboard
+    /// reloads. Keyed into `.task` rather than applied as an `.id` — an `.id`
+    /// change discards the whole subtree's identity, throwing away the
+    /// selected deck, the period, and the scroll position to achieve a reload
+    /// the task already does.
+    private let refreshID: UUID?
+
     @State private var model = StatsDashboardModel()
     @State private var period: StatsPeriod = .month
     @State private var selectedDeck: DeckInfo?
 
-    public init() {}
+    public init(refreshID: UUID? = nil) {
+        self.refreshID = refreshID
+    }
 
     public var body: some View {
         StatsDashboardContent(
@@ -34,7 +43,7 @@ public struct StatsDashboardView: View {
         // `.task` already re-runs whenever the view re-enters the hierarchy —
         // an `.onAppear` reload alongside it fetched every graph twice per
         // visit, which on "All Time" means scanning the whole revlog twice.
-        .task {
+        .task(id: refreshID) {
             await model.loadDecks()
             await reloadStats()
         }

@@ -69,12 +69,46 @@ struct ChapterReaderView: View {
     @State private var pendingNoteText: String?
     @State private var lastTapPhrase: String?
 
+    /// The wrapped chapter HTML, rebuilt only when the chapter or a
+    /// typography preference changes.
+    ///
+    /// `scrollViewDidScroll` writes `scrollProgress`, and a `@State` write
+    /// invalidates unconditionally — so `body` re-runs at scroll-event rate.
+    /// Building this in `body` meant interpolating the whole chapter into a
+    /// template string (and running `prefersLatinWordLayout`'s two
+    /// whole-document regexes) on every scrolled frame, then having
+    /// `updateUIView` compare the result against the last one with a
+    /// full-string `!=`.
+    @State private var renderedHTML: String = ""
+
     @Environment(\.palette) private var palette
+
+    /// Every input `wrappedHTML` reads. Keys the rebuild task, so a
+    /// preference change re-renders and a scroll does not.
+    private var renderInputs: ChapterRenderInputs {
+        ChapterRenderInputs(
+            chapterID: chapter.id,
+            fontSize: fontSize,
+            lineHeight: lineHeight,
+            horizontalPadding: horizontalPadding,
+            verticalPadding: verticalPadding,
+            justifyText: justifyText,
+            themeModeRaw: themeModeRaw,
+            selectedFontRaw: selectedFontRaw,
+            customTextColorHex: customTextColorHex,
+            customBackgroundColorHex: customBackgroundColorHex,
+            characterSpacing: characterSpacing,
+            avoidPageBreak: avoidPageBreak,
+            hideFurigana: hideFurigana,
+            customHintColorHex: customHintColorHex,
+            verticalLayout: verticalLayout
+        )
+    }
 
     var body: some View {
         ZStack(alignment: .top) {
             ChapterWebView(
-                html: wrappedHTML(chapter.content),
+                html: renderedHTML,
                 initialProgress: didRestoreInitialProgress ? nil : initialRestoreProgress,
                 progress: $scrollProgress,
                 onTapLookup: tapLookup
@@ -151,6 +185,9 @@ struct ChapterReaderView: View {
         }
         .onAppear {
             didRestoreInitialProgress = false
+        }
+        .task(id: renderInputs) {
+            renderedHTML = wrappedHTML(chapter.content)
         }
         .task(id: chapter.id) {
             guard let saved = await progress.resolved(bookID: book.id),
@@ -334,6 +371,28 @@ extension Notification.Name {
     static let amgiReaderRequestSelection = Notification.Name("amgiReaderRequestSelection")
 }
 
+/// The full input set `ChapterReaderView.wrappedHTML` reads, so the rebuild
+/// can be keyed on it. Deliberately excludes `scrollProgress` and the chapter
+/// body itself — the chapter is identified by `chapterID`, and progress
+/// doesn't affect the rendered HTML.
+private struct ChapterRenderInputs: Equatable {
+    let chapterID: Int64
+    let fontSize: Double
+    let lineHeight: Double
+    let horizontalPadding: Double
+    let verticalPadding: Double
+    let justifyText: Bool
+    let themeModeRaw: String
+    let selectedFontRaw: String
+    let customTextColorHex: String
+    let customBackgroundColorHex: String
+    let characterSpacing: Double
+    let avoidPageBreak: Bool
+    let hideFurigana: Bool
+    let customHintColorHex: String
+    let verticalLayout: Bool
+}
+
 /// Wrapper so an empty-string query is still presentable via .sheet(item:);
 /// `.sheet(item:)` requires `Identifiable` and treats nil as "dismissed".
 private struct LookupQuery: Identifiable {
@@ -389,6 +448,10 @@ private struct ChapterWebView: UIViewRepresentable {
 
     func updateUIView(_ webView: WKWebView, context: Context) {
         context.coordinator.pendingInitialProgress = initialProgress
+        // The host builds the HTML in a `.task`, so the very first update
+        // arrives empty. Loading it would flash a blank document before the
+        // real one lands one runloop later.
+        guard !html.isEmpty else { return }
         if context.coordinator.loadedHTML != html {
             context.coordinator.loadedHTML = html
             context.coordinator.didFinishLoad = false

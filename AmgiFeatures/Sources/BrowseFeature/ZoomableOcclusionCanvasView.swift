@@ -50,7 +50,11 @@ struct ZoomableOcclusionCanvasView: UIViewRepresentable {
     func updateUIView(_ uiView: ZoomableOcclusionCanvasContainer, context: Context) {
         uiView.updateImage(image)
         uiView.canvasView.image = image
-        uiView.canvasView.masks = masks
+        // See `OcclusionCanvasView.updateUIView`: the canvas owns `masks` for
+        // the duration of a drag.
+        if !uiView.canvasView.isDraggingMasks {
+            uiView.canvasView.masks = masks
+        }
         uiView.canvasView.selectedMaskIndex = selectedMaskIndex
         uiView.canvasView.activeSelectionIndices = selectedMaskIndices
         uiView.canvasView.highlightedMaskIndices = highlightedMaskIndices

@@ -66,7 +66,7 @@ struct ReaderCoverImage<Placeholder: View>: View {
                 switch phase {
                 case .success(let image):
                     image.resizable().scaledToFill()
-                        .overlay(Rectangle().stroke(imageOutlineColor, lineWidth: 1))
+                        .overlay { Rectangle().stroke(imageOutlineColor, lineWidth: 1) }
                 default:
                     placeholder()
                 }
@@ -76,7 +76,7 @@ struct ReaderCoverImage<Placeholder: View>: View {
             // the source files are frequently thousands of pixels wide.
             DownsampledImage(url: url, maxPixelSize: AmgiImagePixelSize.cover) { image in
                 image.resizable().scaledToFill()
-                    .overlay(Rectangle().stroke(imageOutlineColor, lineWidth: 1))
+                    .overlay { Rectangle().stroke(imageOutlineColor, lineWidth: 1) }
             } placeholder: {
                 placeholder()
             }

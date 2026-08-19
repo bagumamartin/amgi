@@ -36,6 +36,10 @@ struct EPUBChapterReaderView: View {
     @State private var endOfBookToastVisible: Bool = false
     @State private var didShowEndOfBookToast: Bool = false
     @State private var endOfBookToastDismiss: Task<Void, Never>?
+    /// Coalesces progress writes. Every page turn used to encode into
+    /// UserDefaults and fire a detached write into the Anki collection;
+    /// swiping through a chapter issued one of each per page.
+    @State private var progressSaveDebounce: Task<Void, Never>?
 
     @Shared(.appStorage(ReaderPreferences.Keys.verticalLayout))
     private var verticalLayout: Bool = false
@@ -104,8 +108,8 @@ struct EPUBChapterReaderView: View {
         .overlay(alignment: .top) { pagesLeftCapsule }
         .overlay(alignment: .bottom) { bottomChromeBar }
         .navigationBarBackButtonHidden(true)
-        .toolbar(.hidden, for: .navigationBar)
-        .toolbar(.hidden, for: .tabBar)
+        .toolbarVisibility(.hidden, for: .navigationBar)
+        .toolbarVisibility(.hidden, for: .tabBar)
         .task { await model.preloadChapterContents(for: book) }
         .task(id: chapterIndex) { await prepareRestoreIfNeeded() }
         .sheet(isPresented: $typographySheetVisible) {
@@ -126,6 +130,7 @@ struct EPUBChapterReaderView: View {
         }
         .onDisappear {
             endOfBookToastDismiss?.cancel()
+            progressSaveDebounce?.cancel()
             flushProgress()
         }
     }
@@ -180,37 +185,48 @@ struct EPUBChapterReaderView: View {
         return "\(remaining) pages left in chapter"
     }
 
+    /// Both top capsules are removed from the tree when the chrome is hidden
+    /// rather than faded to `opacity(0)`. They are translucent material — and
+    /// on iOS 26, Liquid Glass — floating over a live WKWebView, so a
+    /// zero-opacity layer that stays in the render tree is a backdrop sample
+    /// per frame for something the reader can't see. They live in their own
+    /// `.overlay`s and share layout with nothing, so removal costs no
+    /// alignment; `.transition(.opacity)` keeps the fade `toggleChrome`
+    /// animates.
     @ViewBuilder
     private var closeCapsule: some View {
-        Button {
-            dismiss()
-        } label: {
-            Image(systemName: "xmark")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(palette.textSecondary)
-                .frame(width: 44, height: 44)
-                .amgiMaterial(.regular, in: Circle())
-                .amgiMaterialElevation(Circle())
+        if chromeVisible {
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(palette.textSecondary)
+                    .frame(width: 44, height: 44)
+                    .amgiMaterial(.regular, in: Circle(), interactive: true)
+                    .amgiMaterialElevation(Circle())
+            }
+            .accessibilityLabel("Close")
+            .padding(.top, 8)
+            .padding(.trailing, 16)
+            .transition(.opacity)
         }
-        .accessibilityLabel("Close")
-        .padding(.top, 8)
-        .padding(.trailing, 16)
-        .opacity(chromeVisible ? 1 : 0)
-        .allowsHitTesting(chromeVisible)
     }
 
     @ViewBuilder
     private var pagesLeftCapsule: some View {
-        Text(pagesLeftText)
-            .amgiFont(.captionBold)
-            .foregroundStyle(palette.textSecondary)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 6)
-            .amgiMaterial(.regular, in: Capsule())
-            .amgiMaterialElevation(Capsule())
-            .padding(.top, 8)
-            .opacity(chromeVisible ? 1 : 0)
-            .allowsHitTesting(false)
+        if chromeVisible {
+            Text(pagesLeftText)
+                .amgiFont(.captionBold)
+                .foregroundStyle(palette.textSecondary)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
+                .amgiMaterial(.regular, in: Capsule())
+                .amgiMaterialElevation(Capsule())
+                .padding(.top, 8)
+                .allowsHitTesting(false)
+                .transition(.opacity)
+        }
     }
 
     @ViewBuilder
@@ -234,7 +250,7 @@ struct EPUBChapterReaderView: View {
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(palette.textPrimary)
                 .frame(width: 44, height: 44)
-                .amgiMaterial(.regular, in: Circle())
+                .amgiMaterial(.regular, in: Circle(), interactive: true)
                 .amgiMaterialElevation(Circle())
         }
         .accessibilityLabel("Reading Style")
@@ -245,8 +261,27 @@ struct EPUBChapterReaderView: View {
     /// Bottom chrome bar: page-counter capsule centred, menu hamburger
     /// on the trailing side. HStack guarantees vertical-center alignment
     /// between the two pills regardless of their individual heights.
+    /// The two bottom pills are the only pair of glass surfaces in this screen
+    /// that share a row, so they get a `GlassEffectContainer`: inside one,
+    /// glass samples the backdrop once for the group and neighbours blend as
+    /// they approach instead of each drawing its own isolated lens. The top
+    /// pair (`closeCapsule`, `pagesLeftCapsule`) sit in separate overlays at
+    /// opposite ends and never approach, so they don't need one.
+    ///
+    /// The `#available` branch swaps view structure, but availability is fixed
+    /// for the life of the process — unlike Reduce Transparency it can't flip
+    /// under a running view, so no identity is lost.
     @ViewBuilder
     private var bottomChromeBar: some View {
+        if #available(iOS 26, *) {
+            GlassEffectContainer(spacing: 16) { bottomChromePills }
+        } else {
+            bottomChromePills
+        }
+    }
+
+    @ViewBuilder
+    private var bottomChromePills: some View {
         HStack(alignment: .center) {
             // Leading spacer keeps the page-counter visually centred even
             // though the trailing menuCapsule is wider than nothing.
@@ -324,13 +359,17 @@ private extension EPUBChapterReaderView {
         didRequestInitialRestore = true
     }
 
+    /// Debounced: `flushProgress` reads `progressFraction` when it fires, so a
+    /// run of page turns collapses into one write of the position the reader
+    /// actually settled on. `onDisappear` cancels this and flushes directly,
+    /// so leaving mid-debounce still persists.
     func saveProgress() {
-        guard let chapter = currentChapter else { return }
-        progressCoordinator.save(
-            bookID: book.id,
-            chapterID: chapter.id,
-            progress: progressFraction
-        )
+        progressSaveDebounce?.cancel()
+        progressSaveDebounce = Task {
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            flushProgress()
+        }
     }
 
     func flushProgress() {

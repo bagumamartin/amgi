@@ -29,6 +29,12 @@ enum BookshelfSortMode: String, CaseIterable, Identifiable {
 /// `ReaderLibraryContent`; the model owns all I/O so the View is thin
 /// presentation wiring with no direct engine access.
 public struct ReaderLibraryView: View {
+    /// Bumped by the host after sync / import / review so the shelf reloads.
+    /// Keyed into `.task` rather than applied as an `.id` — an `.id` change
+    /// discards the whole subtree, throwing away the search text and scroll
+    /// position to achieve a reload the task already does.
+    private let refreshID: UUID?
+
     @State private var model: ReaderLibraryModel
 
     @Shared(.appStorage(ReaderPreferenceKey.deckName)) private var deckName: String = ""
@@ -39,13 +45,15 @@ public struct ReaderLibraryView: View {
     @State private var isImporting: Bool = false
     @State private var showConfiguration: Bool = false
 
-    public init() {
+    public init(refreshID: UUID? = nil) {
+        self.refreshID = refreshID
         _model = State(initialValue: ReaderLibraryModel())
     }
 
     /// Preview / test seam — lets a caller inside the module inject a
     /// pre-populated model. Deliberately not public.
     init(model: ReaderLibraryModel) {
+        self.refreshID = nil
         _model = State(initialValue: model)
     }
 
@@ -81,7 +89,7 @@ public struct ReaderLibraryView: View {
         .onChange(of: sortModeRaw) { _, _ in model.rebuildViewData(searchText: searchText, sortMode: sortMode) }
         .onChange(of: deckName) { _, _ in model.startReload(searchText: searchText, sortMode: sortMode) }
         .refreshable { await model.reload(searchText: searchText, sortMode: sortMode) }
-        .task { model.startReload(searchText: searchText, sortMode: sortMode) }
+        .task(id: refreshID) { model.startReload(searchText: searchText, sortMode: sortMode) }
         .sheet(isPresented: $showConfiguration) {
             NavigationStack {
                 ReaderConfigurationView {

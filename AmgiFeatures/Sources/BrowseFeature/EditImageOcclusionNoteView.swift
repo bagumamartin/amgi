@@ -40,7 +40,7 @@ struct EditImageOcclusionNoteView: View {
             model: model,
             onEditMasks: { showOcclusionEditor = true }
         )
-        .toolbar(.hidden, for: .tabBar)
+        .toolbarVisibility(.hidden, for: .tabBar)
         .navigationTitle("Edit Image Occlusion")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

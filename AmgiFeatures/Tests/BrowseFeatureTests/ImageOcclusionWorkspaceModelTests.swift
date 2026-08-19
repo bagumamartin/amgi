@@ -1,4 +1,5 @@
 import Testing
+import SwiftUI
 import UIKit
 @testable import BrowseFeature
 
@@ -262,7 +263,8 @@ struct ImageOcclusionWorkspaceModelTests {
         model.undoManager = undoManager
 
         model.handleTransformDidBegin()
-        // The canvas mutates `masks` directly through its binding mid-gesture.
+        // The canvas commits the dragged masks through its binding before it
+        // reports the gesture end -- see `canvasCommitsMasksBeforeReportingEnd`.
         model.masks = [rect(0.5)]
         model.handleTransformDidEnd()
 
@@ -273,5 +275,64 @@ struct ImageOcclusionWorkspaceModelTests {
             return
         }
         #expect(abs(left - 0.1) < 0.0001)
+    }
+
+    /// `OcclusionCanvasUIView` buffers a drag in its own `masks` and pushes the
+    /// result through `Coordinator.commitMasks` once, on gesture end. That
+    /// commit has to land *before* `finishTransform()`, because the model
+    /// snapshots `masks` inside it to decide whether an undo step is warranted.
+    /// Swapping the two lines loses every drag from the undo stack silently, so
+    /// this pins the order the canvas calls them in.
+    @Test("the canvas commits dragged masks before it reports the gesture end")
+    func canvasCommitsMasksBeforeReportingEnd() {
+        let undoManager = UndoManager()
+        let model = ImageOcclusionWorkspaceModel(image: image(), initialMasks: [rect(0.1)])
+        model.undoManager = undoManager
+
+        let coordinator = OcclusionCanvasView.Coordinator(
+            masks: Binding(get: { model.masks }, set: { model.masks = $0 }),
+            selectedMaskIndex: Binding(get: { model.selectedMaskIndex }, set: { model.selectedMaskIndex = $0 }),
+            onRequestText: nil,
+            onRequestTextEdit: nil,
+            onAppend: nil,
+            onSelectionChange: nil,
+            onTransformDidBegin: { model.handleTransformDidBegin() },
+            onTransformDidEnd: { model.handleTransformDidEnd() }
+        )
+
+        // One drag, in the order `handlePan` performs it.
+        coordinator.beginTransform()
+        coordinator.commitMasks([rect(0.5)])
+        coordinator.finishTransform()
+
+        #expect(undoManager.canUndo)
+        undoManager.undo()
+        guard case .rect(let restored, _, _, _, _) = model.masks[0] else {
+            Issue.record("expected a rect")
+            return
+        }
+        #expect(abs(restored - 0.1) < 0.0001)
+    }
+
+    @Test("committing an unchanged mask array does not touch the document")
+    func noopCommitDoesNotWriteBack() {
+        let model = ImageOcclusionWorkspaceModel(image: image(), initialMasks: [rect(0.1)])
+        var writes = 0
+        let coordinator = OcclusionCanvasView.Coordinator(
+            masks: Binding(get: { model.masks }, set: { writes += 1; model.masks = $0 }),
+            selectedMaskIndex: .constant(nil),
+            onRequestText: nil,
+            onRequestTextEdit: nil,
+            onAppend: nil,
+            onSelectionChange: nil,
+            onTransformDidBegin: nil,
+            onTransformDidEnd: nil
+        )
+
+        coordinator.commitMasks([rect(0.1)])
+        #expect(writes == 0)
+
+        coordinator.commitMasks([rect(0.5)])
+        #expect(writes == 1)
     }
 }

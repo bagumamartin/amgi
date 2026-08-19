@@ -34,8 +34,8 @@ public struct StudyReadingRec: View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .fill(tileFill)
             .frame(width: cardWidth, height: cardHeight)
-            .overlay(coverImage)
-            .overlay(textOverlay, alignment: .bottomLeading)
+            .overlay { coverImage }
+            .overlay(alignment: .bottomLeading) { textOverlay }
     }
 
     @ViewBuilder

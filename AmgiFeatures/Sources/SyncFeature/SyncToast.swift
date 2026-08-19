@@ -30,7 +30,10 @@ public struct SyncToast: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .amgiMaterial(.light, in: Capsule())
-        .overlay(Capsule().stroke(.quaternary, lineWidth: 0.5))
+        // No hairline overlay here: `amgiMaterialElevation` already draws the
+        // ring under a `.ring` palette and drops it under glass. A second
+        // stroke double-drew the edge on iOS 26, which is the one thing that
+        // seam exists to prevent.
         .amgiMaterialElevation(Capsule(), radius: 8, y: 2, opacity: 0.12)
         .padding(.bottom, 12)
     }

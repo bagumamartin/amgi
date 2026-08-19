@@ -23,14 +23,13 @@ final class NoteEditorModel {
         self.note = note
     }
 
-    /// Positional binding into `fieldValues` for the field at `index`.
-    func fieldBinding(for index: Int) -> Binding<String> {
-        Binding(
-            get: { index < self.fieldValues.count ? self.fieldValues[index] : "" },
-            set: { newValue in
-                if index < self.fieldValues.count { self.fieldValues[index] = newValue }
-            }
-        )
+    /// Positional projection into `fieldValues`, read through `@Bindable` as
+    /// `$model[fieldAt: index]`. A subscript rather than a
+    /// `Binding(get:set:)`-returning method so the field editors get a stable
+    /// binding instead of a freshly-allocated closure pair on every body pass.
+    subscript(fieldAt index: Int) -> String {
+        get { index < fieldValues.count ? fieldValues[index] : "" }
+        set { if index < fieldValues.count { fieldValues[index] = newValue } }
     }
 
     func loadNote() {

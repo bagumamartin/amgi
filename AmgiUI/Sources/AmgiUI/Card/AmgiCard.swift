@@ -46,7 +46,7 @@ public struct AmgiCard<Content: View>: View {
     public var body: some View {
         content()
             .padding(contentInsets)
-            .background(backgroundView)
+            .background { backgroundView }
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .overlay {
                 if palette.elevation == .ring {

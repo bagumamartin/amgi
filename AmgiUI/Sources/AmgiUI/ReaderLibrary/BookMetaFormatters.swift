@@ -8,13 +8,21 @@ public enum BookMetaFormatters {
         return trimmed.split(whereSeparator: { $0.isWhitespace }).last.map(String.init)
     }
 
+    /// Allocated once — this runs per library row, and `RelativeDateTimeFormatter`
+    /// is expensive to construct. `nonisolated(unsafe)` because `Formatter`
+    /// subclasses aren't `Sendable`; the instance is configured here and only
+    /// ever read, and every caller is already on the main actor.
+    nonisolated(unsafe) private static let relativeFormatter: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .full
+        return f
+    }()
+
     public static func relativeReadingDate(_ date: Date, reference now: Date = .init()) -> String {
         let delta = now.timeIntervalSince(date)
         if delta < 60 * 60 * 24 { return "Today" }
         if delta < 60 * 60 * 48 { return "Yesterday" }
 
-        let f = RelativeDateTimeFormatter()
-        f.unitsStyle = .full
-        return f.localizedString(for: date, relativeTo: now)
+        return relativeFormatter.localizedString(for: date, relativeTo: now)
     }
 }

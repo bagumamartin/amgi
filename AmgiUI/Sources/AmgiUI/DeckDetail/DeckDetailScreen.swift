@@ -263,7 +263,7 @@ private let _krEmpty = DeckDetailViewData(
                 Rectangle()
                     .fill(Palette.vividLight.accentSoft)
                     .frame(height: 80)
-                    .overlay(Text("heatmap (R03)").font(.caption).foregroundStyle(.secondary))
+                    .overlay { Text("heatmap (R03)").font(.caption).foregroundStyle(.secondary) }
             },
             onAction: { _ in }
         )

@@ -55,10 +55,21 @@ struct ImageOcclusionWorkspaceView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            toolPalette
+            IOToolPalette(
+                shapeType: model.shapeType,
+                hasSelection: !model.activeSelectionIndices.isEmpty,
+                onSelectTool: { model.shapeType = $0 },
+                onApplyFill: { model.applyFill($0) },
+                onCustomFill: {
+                    destination = .fillEditor(IOFillDraft(color: model.fillEditorSeedColor))
+                },
+                onSelectOcclusionMode: { model.applyOcclusionMode($0) }
+            )
+            .equatable()
+
             canvas
         }
-        .toolbar(.hidden, for: .tabBar)
+        .toolbarVisibility(.hidden, for: .tabBar)
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { workspaceToolbar }
@@ -110,154 +121,39 @@ struct ImageOcclusionWorkspaceView: View {
         }
     }
 
-    private var toolPalette: some View {
-        HStack(spacing: 4) {
-            ForEach(IOShapeType.allCases, id: \.self) { tool in
-                ioPaletteButton(
-                    title: tool.label,
-                    systemImage: tool.systemImage,
-                    isSelected: model.shapeType == tool
-                ) {
-                    model.shapeType = tool
-                }
-                .frame(maxWidth: .infinity)
-            }
-
-            Menu {
-                ForEach(IOMaskFillOption.allCases, id: \.self) { option in
-                    Button(option.label) {
-                        model.applyFill(option.hex)
-                    }
-                }
-                Divider()
-                Button("Custom") {
-                    destination = .fillEditor(IOFillDraft(color: model.fillEditorSeedColor))
-                }
-                Button("Default") {
-                    model.applyFill(nil as String?)
-                }
-            } label: {
-                ioPaletteChip(
-                    title: "Fill",
-                    systemImage: "paintpalette",
-                    isSelected: false
-                )
-            }
-            .frame(maxWidth: .infinity)
-            .disabled(model.activeSelectionIndices.isEmpty)
-
-            Menu {
-                ForEach(IOOcclusionMode.allCases, id: \.self) { mode in
-                    Button(mode.label) {
-                        model.applyOcclusionMode(mode)
-                    }
-                }
-            } label: {
-                ioPaletteChip(
-                    title: "Mode",
-                    systemImage: "square.stack.3d.up",
-                    isSelected: false
-                )
-            }
-            .frame(maxWidth: .infinity)
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 8)
-        .background(palette.surface)
-    }
-
     private var bottomToolbars: some View {
         VStack(spacing: 8) {
-            editingToolbar
-            arrangeToolbar
+            IOEditingToolbar(
+                selectionCount: model.activeSelectionIndices.count,
+                hasMasks: !model.masks.isEmpty,
+                allMasksSelected: model.allMasksSelected,
+                showsTranslucentMasks: showsTranslucentMasks,
+                undoManager: undoManager,
+                canUndo: undoManager?.canUndo ?? false,
+                canRedo: undoManager?.canRedo ?? false,
+                onDelete: { model.deleteSelection() },
+                onDuplicate: { model.duplicateSelection() },
+                onToggleSelectAll: { model.toggleSelectAll() },
+                onInvertSelection: { model.invertSelection() },
+                onToggleTranslucency: { showsTranslucentMasks.toggle() }
+            )
+            .equatable()
+
+            IOArrangeToolbar(
+                selectionCount: model.activeSelectionIndices.count,
+                canUngroup: model.canUngroup,
+                onGroup: { model.groupSelection() },
+                onUngroup: { model.ungroupSelection() },
+                onAlign: { model.alignSelection($0) },
+                onZoom: { sendZoomCommand($0) }
+            )
+            .equatable()
         }
         .padding(.top, 10)
         .padding(.bottom, 10)
         .background(palette.surface)
         .overlay(alignment: .top) {
             Divider()
-        }
-    }
-
-    private var editingToolbar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                toolbarIconButton(systemImage: "arrow.uturn.backward") {
-                    undoManager?.undo()
-                }
-                .disabled(!(undoManager?.canUndo ?? false))
-
-                toolbarIconButton(systemImage: "arrow.uturn.forward") {
-                    undoManager?.redo()
-                }
-                .disabled(!(undoManager?.canRedo ?? false))
-
-                toolbarIconButton(systemImage: "trash") {
-                    model.deleteSelection()
-                }
-                .disabled(model.activeSelectionIndices.isEmpty)
-
-                toolbarIconButton(systemImage: "plus.square.on.square") {
-                    model.duplicateSelection()
-                }
-                .disabled(model.activeSelectionIndices.isEmpty)
-
-                toolbarIconButton(systemImage: model.allMasksSelected ? "checkmark.circle.fill" : "checkmark.circle") {
-                    model.toggleSelectAll()
-                }
-                .disabled(model.masks.isEmpty)
-
-                toolbarIconButton(systemImage: "arrow.left.arrow.right") {
-                    model.invertSelection()
-                }
-                .disabled(model.masks.isEmpty)
-
-                toolbarIconButton(systemImage: showsTranslucentMasks ? "circle.lefthalf.filled" : "circle") {
-                    showsTranslucentMasks.toggle()
-                }
-                .disabled(model.masks.isEmpty)
-            }
-            .padding(.horizontal, 16)
-        }
-    }
-
-    private var arrangeToolbar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                toolbarIconButton(systemImage: "link") {
-                    model.groupSelection()
-                }
-                .disabled(model.activeSelectionIndices.count < 2)
-
-                toolbarIconButton(systemImage: "link.slash", fallbackSystemImage: "scissors") {
-                    model.ungroupSelection()
-                }
-                .disabled(!model.canUngroup)
-
-                Menu {
-                    ForEach(IOMaskAlignMode.allCases, id: \.self) { mode in
-                        Button(mode.label) {
-                            model.alignSelection(mode)
-                        }
-                    }
-                } label: {
-                    toolbarIcon(systemImage: "align.horizontal.left")
-                }
-                .disabled(model.activeSelectionIndices.isEmpty)
-
-                toolbarIconButton(systemImage: "plus.magnifyingglass") {
-                    sendZoomCommand(.zoomIn)
-                }
-
-                toolbarIconButton(systemImage: "minus.magnifyingglass") {
-                    sendZoomCommand(.zoomOut)
-                }
-
-                toolbarIconButton(systemImage: "arrow.up.left.and.down.right.magnifyingglass") {
-                    sendZoomCommand(.fit)
-                }
-            }
-            .padding(.horizontal, 16)
         }
     }
 }
@@ -402,26 +298,195 @@ private extension ImageOcclusionWorkspaceView {
         zoomCommand = command
         zoomCommandID += 1
     }
+}
 
-    @ViewBuilder
-    func ioPaletteButton(
-        title: String,
-        systemImage: String,
-        isSelected: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            ioPaletteChip(title: title, systemImage: systemImage, isSelected: isSelected)
-        }
-        .buttonStyle(.pressScale)
+// MARK: - Chrome components
+
+/// The palette and the two bottom toolbars are separate `View` types rather
+/// than computed properties on the workspace so a `masks` mutation — which
+/// the canvas performs on every frame of a drag, via the `$model.masks`
+/// binding — re-evaluates only the canvas. As computed properties they shared
+/// the workspace's invalidation boundary, so every drag frame also rebuilt
+/// three `ForEach`es, four `Menu`s and ~13 buttons, each of which resolves its
+/// SF Symbol through `UIImage(systemName:)`.
+///
+/// The `Equatable` conformances compare only the value inputs. The action
+/// closures are freshly allocated on each parent body pass and would otherwise
+/// always compare unequal, which would defeat the skip entirely.
+private struct IOToolPalette: View, Equatable {
+    @Environment(\.palette) private var palette
+
+    let shapeType: IOShapeType
+    let hasSelection: Bool
+    let onSelectTool: (IOShapeType) -> Void
+    let onApplyFill: (String?) -> Void
+    let onCustomFill: () -> Void
+    let onSelectOcclusionMode: (IOOcclusionMode) -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.shapeType == rhs.shapeType && lhs.hasSelection == rhs.hasSelection
     }
 
-    @ViewBuilder
-    func ioPaletteChip(
-        title: String,
-        systemImage: String,
-        isSelected: Bool
-    ) -> some View {
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(IOShapeType.allCases, id: \.self) { tool in
+                Button {
+                    onSelectTool(tool)
+                } label: {
+                    IOPaletteChip(
+                        title: tool.label,
+                        systemImage: tool.systemImage,
+                        isSelected: shapeType == tool
+                    )
+                }
+                .buttonStyle(.pressScale)
+                .frame(maxWidth: .infinity)
+            }
+
+            Menu {
+                ForEach(IOMaskFillOption.allCases, id: \.self) { option in
+                    Button(option.label) { onApplyFill(option.hex) }
+                }
+                Divider()
+                Button("Custom") { onCustomFill() }
+                Button("Default") { onApplyFill(nil) }
+            } label: {
+                IOPaletteChip(title: "Fill", systemImage: "paintpalette", isSelected: false)
+            }
+            .frame(maxWidth: .infinity)
+            .disabled(!hasSelection)
+
+            Menu {
+                ForEach(IOOcclusionMode.allCases, id: \.self) { mode in
+                    Button(mode.label) { onSelectOcclusionMode(mode) }
+                }
+            } label: {
+                IOPaletteChip(title: "Mode", systemImage: "square.stack.3d.up", isSelected: false)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 8)
+        .background(palette.surface)
+    }
+}
+
+private struct IOEditingToolbar: View, Equatable {
+    let selectionCount: Int
+    let hasMasks: Bool
+    let allMasksSelected: Bool
+    let showsTranslucentMasks: Bool
+    /// Held as the manager rather than as `onUndo`/`onRedo` closures: when
+    /// `==` returns true SwiftUI keeps the *old* view value, closures and all,
+    /// so a captured manager would outlive an `undoManager` swap that left
+    /// `canUndo`/`canRedo` unchanged. Identity is part of the comparison.
+    let undoManager: UndoManager?
+    let canUndo: Bool
+    let canRedo: Bool
+    let onDelete: () -> Void
+    let onDuplicate: () -> Void
+    let onToggleSelectAll: () -> Void
+    let onInvertSelection: () -> Void
+    let onToggleTranslucency: () -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.selectionCount == rhs.selectionCount
+            && lhs.hasMasks == rhs.hasMasks
+            && lhs.allMasksSelected == rhs.allMasksSelected
+            && lhs.showsTranslucentMasks == rhs.showsTranslucentMasks
+            && lhs.undoManager === rhs.undoManager
+            && lhs.canUndo == rhs.canUndo
+            && lhs.canRedo == rhs.canRedo
+    }
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                IOToolbarIconButton(systemImage: "arrow.uturn.backward") { undoManager?.undo() }
+                    .disabled(!canUndo)
+
+                IOToolbarIconButton(systemImage: "arrow.uturn.forward") { undoManager?.redo() }
+                    .disabled(!canRedo)
+
+                IOToolbarIconButton(systemImage: "trash", action: onDelete)
+                    .disabled(selectionCount == 0)
+
+                IOToolbarIconButton(systemImage: "plus.square.on.square", action: onDuplicate)
+                    .disabled(selectionCount == 0)
+
+                IOToolbarIconButton(
+                    systemImage: allMasksSelected ? "checkmark.circle.fill" : "checkmark.circle",
+                    action: onToggleSelectAll
+                )
+                .disabled(!hasMasks)
+
+                IOToolbarIconButton(systemImage: "arrow.left.arrow.right", action: onInvertSelection)
+                    .disabled(!hasMasks)
+
+                IOToolbarIconButton(
+                    systemImage: showsTranslucentMasks ? "circle.lefthalf.filled" : "circle",
+                    action: onToggleTranslucency
+                )
+                .disabled(!hasMasks)
+            }
+            .padding(.horizontal, 16)
+        }
+    }
+}
+
+private struct IOArrangeToolbar: View, Equatable {
+    let selectionCount: Int
+    let canUngroup: Bool
+    let onGroup: () -> Void
+    let onUngroup: () -> Void
+    let onAlign: (IOMaskAlignMode) -> Void
+    let onZoom: (IOCanvasZoomCommand) -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.selectionCount == rhs.selectionCount && lhs.canUngroup == rhs.canUngroup
+    }
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                IOToolbarIconButton(systemImage: "link", action: onGroup)
+                    .disabled(selectionCount < 2)
+
+                IOToolbarIconButton(
+                    systemImage: "link.slash",
+                    fallbackSystemImage: "scissors",
+                    action: onUngroup
+                )
+                .disabled(!canUngroup)
+
+                Menu {
+                    ForEach(IOMaskAlignMode.allCases, id: \.self) { mode in
+                        Button(mode.label) { onAlign(mode) }
+                    }
+                } label: {
+                    IOToolbarIcon(systemImage: "align.horizontal.left")
+                }
+                .disabled(selectionCount == 0)
+
+                IOToolbarIconButton(systemImage: "plus.magnifyingglass") { onZoom(.zoomIn) }
+                IOToolbarIconButton(systemImage: "minus.magnifyingglass") { onZoom(.zoomOut) }
+                IOToolbarIconButton(
+                    systemImage: "arrow.up.left.and.down.right.magnifyingglass"
+                ) { onZoom(.fit) }
+            }
+            .padding(.horizontal, 16)
+        }
+    }
+}
+
+private struct IOPaletteChip: View {
+    @Environment(\.palette) private var palette
+
+    let title: String
+    let systemImage: String
+    let isSelected: Bool
+
+    var body: some View {
         VStack(spacing: 3) {
             Image(systemName: systemImage)
                 .font(.system(size: 12, weight: .semibold))
@@ -434,23 +499,37 @@ private extension ImageOcclusionWorkspaceView {
         .foregroundStyle(isSelected ? Color.white : palette.textPrimary)
         .frame(maxWidth: .infinity, minHeight: 42)
         .padding(.horizontal, 2)
-        .background(isSelected ? palette.accent : palette.surfaceElevated, in: RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous))
+        .background(
+            isSelected ? palette.accent : palette.surfaceElevated,
+            in: RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous)
+        )
     }
+}
 
-    @ViewBuilder
-    func toolbarIconButton(systemImage: String, fallbackSystemImage: String? = nil, action: @escaping () -> Void) -> some View {
+private struct IOToolbarIconButton: View {
+    let systemImage: String
+    var fallbackSystemImage: String? = nil
+    let action: () -> Void
+
+    var body: some View {
         Button(action: action) {
-            toolbarIcon(systemImage: systemImage, fallbackSystemImage: fallbackSystemImage)
+            IOToolbarIcon(systemImage: systemImage, fallbackSystemImage: fallbackSystemImage)
         }
         .buttonStyle(.pressScale)
     }
+}
 
-    @ViewBuilder
-    func toolbarIcon(systemImage: String, fallbackSystemImage: String? = nil) -> some View {
-        let resolvedSymbol = if UIImage(systemName: systemImage) != nil {
-            systemImage
+private struct IOToolbarIcon: View {
+    let systemImage: String
+    var fallbackSystemImage: String? = nil
+
+    var body: some View {
+        // Only the one caller that passes a fallback pays for the lookup;
+        // probing `UIImage(systemName:)` for the rest just discards the result.
+        let resolvedSymbol = if let fallbackSystemImage, UIImage(systemName: systemImage) == nil {
+            fallbackSystemImage
         } else {
-            fallbackSystemImage ?? "questionmark"
+            systemImage
         }
 
         Image(systemName: resolvedSymbol)

@@ -77,12 +77,12 @@ struct AddNoteContent: View {
             }
 
             Section("Fields") {
-                ForEach(Array(model.fieldNames.enumerated()), id: \.offset) { index, name in
+                ForEach(Array(model.fieldNames.enumerated()), id: \.element) { index, name in
                     VStack(alignment: .leading, spacing: 4) {
                         Text(name)
                             .amgiFont(.caption)
                             .foregroundStyle(palette.textSecondary)
-                        RichNoteFieldEditor(htmlText: model.fieldBinding(for: index))
+                        RichNoteFieldEditor(htmlText: $model[fieldAt: index])
                     }
                 }
             }

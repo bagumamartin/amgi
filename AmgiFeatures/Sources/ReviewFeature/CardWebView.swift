@@ -119,77 +119,96 @@ struct CardWebView: UIViewRepresentable {
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
-        // Convert Anki [sound:filename.mp3] tags to <audio> HTML elements.
-        // The Rust renderer keeps these tags literal; the client must expand them.
         let isDarkMode = colorScheme == .dark
-        let processedHTML = Self.deferCardScripts(in:
-            Self.expandTTSTags(
-                in: Self.expandSoundTags(
-                    html,
-                    isDarkMode: isDarkMode,
-                    showReplayButtons: showInlineAudioReplayButtons
-                ),
-                isDarkMode: isDarkMode,
-                showReplayButtons: showInlineAudioReplayButtons
-            )
-        )
-        let bodyPaddingBottom = 16
-        let cardPaddingBottom = 0
         let alignTop = contentAlignment == .top
-        let bodyClass = Self.bodyClasses(cardOrdinal: cardOrdinal, isDarkMode: isDarkMode)
+
+        // Both signatures are derived from the *inputs*, never from the
+        // processed output. `processedHTML` costs three whole-document regex
+        // passes, so hashing it to decide whether anything changed meant
+        // paying that cost on every render and usually throwing it away.
+        // `ReviewContent` reads a dozen `session.*` properties, so an
+        // audio-state flip, an undo, or a flag tap each used to run all three.
+        // `html`, `isDarkMode`, and `showInlineAudioReplayButtons` are its only
+        // inputs, so they discriminate exactly as well.
         let pageSignature = "\(isDarkMode)"
-        let cssSignature = "\(cardCSS.hashValue)"
-        let contentSignature = "\(autoplayEnabled)|\(isAnswerSide)|\(lookupPopupEnabled)|\(replayMode.rawValue)|\(cardOrdinal)|\(alignTop)|\(bodyPaddingBottom)|\(cardPaddingBottom)|\(cssSignature)|\(processedHTML.hashValue)|\(prefetchHTML?.hashValue ?? 0)"
+        let contentSignature = "\(autoplayEnabled)|\(isAnswerSide)|\(lookupPopupEnabled)|\(replayMode.rawValue)|\(cardOrdinal)|\(alignTop)|\(showInlineAudioReplayButtons)|\(cardCSS.hashValue)|\(html.hashValue)|\(prefetchHTML?.hashValue ?? 0)"
+
+        // Bookkeeping that has to track every render, expensive or not.
         context.coordinator.openLinksExternally = openLinksExternally
         context.coordinator.currentWebView = webView
         webView.overrideUserInterfaceStyle = isDarkMode ? .dark : .light
 
-        // Build the JS call that shows the card – passed via evaluateJavaScript so
-        // HTML content never lives inside a <script> literal in the page source.
-        let showCardScript = Self.showCardScript(
-            processedHTML: processedHTML,
-            prefetchHTML: prefetchHTML,
-            cardCSS: cardCSS,
-            isAnswerSide: isAnswerSide,
-            lookupPopupEnabled: lookupPopupEnabled,
-            bodyClass: bodyClass,
-            autoplayEnabled: autoplayEnabled,
-            replayMode: replayMode.rawValue,
-            alignTop: alignTop,
-            bodyPaddingBottom: bodyPaddingBottom,
-            cardPaddingBottom: cardPaddingBottom
-        )
-        context.coordinator.stopTTS()
+        let pageChanged = context.coordinator.lastPageSignature != pageSignature
+        let contentChanged = context.coordinator.lastContentSignature != contentSignature
 
-        if context.coordinator.lastPageSignature != pageSignature {
-            context.coordinator.lastPageSignature = pageSignature
-            context.coordinator.lastContentSignature = contentSignature
-            context.coordinator.isPageLoaded = false
-            context.coordinator.pendingUpdateScript = nil
-            let htmlClass = Self.htmlClasses(isDarkMode: isDarkMode)
-            let playIconHTML = Self.audioButtonIconHTML(systemName: "play.circle", alt: "Play", isDarkMode: isDarkMode)
-            let pauseIconHTML = Self.audioButtonIconHTML(systemName: "pause.circle", alt: "Pause", isDarkMode: isDarkMode)
-            let baseTag = CardAssetPath.mediaBaseTag()
-            // Stash the show-card call so we can run it once the page finishes loading.
-            context.coordinator.pendingUpdateScript = showCardScript
-
-            let styledHTML = Self.buildFrameHTML(
-                htmlClass: htmlClass,
-                isDarkMode: isDarkMode,
-                playIconHTML: playIconHTML,
-                pauseIconHTML: pauseIconHTML,
-                baseTag: baseTag
+        if pageChanged || contentChanged {
+            // Convert Anki [sound:filename.mp3] tags to <audio> HTML elements.
+            // The Rust renderer keeps these tags literal; the client must expand them.
+            let processedHTML = Self.deferCardScripts(in:
+                Self.expandTTSTags(
+                    in: Self.expandSoundTags(
+                        html,
+                        isDarkMode: isDarkMode,
+                        showReplayButtons: showInlineAudioReplayButtons
+                    ),
+                    isDarkMode: isDarkMode,
+                    showReplayButtons: showInlineAudioReplayButtons
+                )
             )
+            let bodyPaddingBottom = 16
+            let cardPaddingBottom = 0
+            let bodyClass = Self.bodyClasses(cardOrdinal: cardOrdinal, isDarkMode: isDarkMode)
 
-            // Use cardBaseURL so that MathJax, fonts, and other resources load correctly.
-            // The CardAssetScheme handler processes amgi-asset:// URLs.
-            webView.loadHTMLString(styledHTML, baseURL: CardAssetPath.cardBaseURL)
-        } else if context.coordinator.lastContentSignature != contentSignature {
-            context.coordinator.lastContentSignature = contentSignature
-            if context.coordinator.isPageLoaded {
-                webView.evaluateJavaScript(showCardScript, completionHandler: nil)
-            } else {
+            // Build the JS call that shows the card – passed via evaluateJavaScript so
+            // HTML content never lives inside a <script> literal in the page source.
+            let showCardScript = Self.showCardScript(
+                processedHTML: processedHTML,
+                prefetchHTML: prefetchHTML,
+                cardCSS: cardCSS,
+                isAnswerSide: isAnswerSide,
+                lookupPopupEnabled: lookupPopupEnabled,
+                bodyClass: bodyClass,
+                autoplayEnabled: autoplayEnabled,
+                replayMode: replayMode.rawValue,
+                alignTop: alignTop,
+                bodyPaddingBottom: bodyPaddingBottom,
+                cardPaddingBottom: cardPaddingBottom
+            )
+            // Only when the card content actually changes. Unconditionally,
+            // any unrelated re-render — including the audio callback writing
+            // `isAudioPlaying` back onto the session — cut off speech that was
+            // still playing.
+            context.coordinator.stopTTS()
+
+            if pageChanged {
+                context.coordinator.lastPageSignature = pageSignature
+                context.coordinator.lastContentSignature = contentSignature
+                context.coordinator.isPageLoaded = false
+                let htmlClass = Self.htmlClasses(isDarkMode: isDarkMode)
+                let playIconHTML = Self.audioButtonIconHTML(systemName: "play.circle", alt: "Play", isDarkMode: isDarkMode)
+                let pauseIconHTML = Self.audioButtonIconHTML(systemName: "pause.circle", alt: "Pause", isDarkMode: isDarkMode)
+                let baseTag = CardAssetPath.mediaBaseTag()
+                // Stash the show-card call so we can run it once the page finishes loading.
                 context.coordinator.pendingUpdateScript = showCardScript
+
+                let styledHTML = Self.buildFrameHTML(
+                    htmlClass: htmlClass,
+                    isDarkMode: isDarkMode,
+                    playIconHTML: playIconHTML,
+                    pauseIconHTML: pauseIconHTML,
+                    baseTag: baseTag
+                )
+
+                // Use cardBaseURL so that MathJax, fonts, and other resources load correctly.
+                // The CardAssetScheme handler processes amgi-asset:// URLs.
+                webView.loadHTMLString(styledHTML, baseURL: CardAssetPath.cardBaseURL)
+            } else {
+                context.coordinator.lastContentSignature = contentSignature
+                if context.coordinator.isPageLoaded {
+                    webView.evaluateJavaScript(showCardScript, completionHandler: nil)
+                } else {
+                    context.coordinator.pendingUpdateScript = showCardScript
+                }
             }
         }
         if replayRequestID != context.coordinator.lastReplayRequestID {
@@ -351,6 +370,23 @@ private extension CardWebView {
         }
     }
 
+    // Compiled once instead of per call. These are fixed patterns, and
+    // `NSRegularExpression(pattern:)` parses and compiles the pattern every
+    // time — three of those ran on each card render.
+    // `NSRegularExpression` is documented as thread-safe for matching, so the
+    // `unsafe` here is only about Swift not knowing that.
+    nonisolated(unsafe) private static let soundTagRegex = try? NSRegularExpression(
+        pattern: #"\[sound:([^\]]+)\]"#, options: []
+    )
+    nonisolated(unsafe) private static let ttsTagRegex = try? NSRegularExpression(
+        pattern: #"\[anki:tts([^\]]*)\](.*?)\[/anki:tts\]"#,
+        options: [.dotMatchesLineSeparators, .caseInsensitive]
+    )
+    nonisolated(unsafe) private static let scriptTagRegex = try? NSRegularExpression(
+        pattern: #"<script\b([^>]*)>"#,
+        options: [.caseInsensitive]
+    )
+
     /// Converts Anki `[sound:filename.ext]` markers to a hidden `<audio>` + styled play button.
     static func expandSoundTags(
         _ html: String,
@@ -358,9 +394,7 @@ private extension CardWebView {
         showReplayButtons: Bool
     ) -> String {
         // Pattern: [sound:anything_without_closing_bracket]
-        guard let regex = try? NSRegularExpression(
-            pattern: #"\[sound:([^\]]+)\]"#, options: []
-        ) else { return html }
+        guard let regex = soundTagRegex else { return html }
         let range = NSRange(html.startIndex..., in: html)
         let matches = regex.matches(in: html, range: range)
         var result = html
@@ -387,10 +421,7 @@ private extension CardWebView {
         isDarkMode: Bool,
         showReplayButtons: Bool
     ) -> String {
-        guard let regex = try? NSRegularExpression(
-            pattern: #"\[anki:tts([^\]]*)\](.*?)\[/anki:tts\]"#,
-            options: [.dotMatchesLineSeparators, .caseInsensitive]
-        ) else { return html }
+        guard let regex = ttsTagRegex else { return html }
 
         let range = NSRange(html.startIndex..., in: html)
         let matches = regex.matches(in: html, range: range)
@@ -422,10 +453,7 @@ private extension CardWebView {
     }
 
     static func deferCardScripts(in html: String) -> String {
-        guard let regex = try? NSRegularExpression(
-            pattern: #"<script\b([^>]*)>"#,
-            options: [.caseInsensitive]
-        ) else { return html }
+        guard let regex = scriptTagRegex else { return html }
 
         let range = NSRange(html.startIndex..., in: html)
         let matches = regex.matches(in: html, range: range)

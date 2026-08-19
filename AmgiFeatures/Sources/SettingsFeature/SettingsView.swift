@@ -41,7 +41,7 @@ public struct SettingsView: View {
             .padding(.bottom, AmgiSpacing.xl)
         }
         .background(palette.background)
-        .toolbar(.hidden, for: .navigationBar)
+        .toolbarVisibility(.hidden, for: .navigationBar)
     }
 
     // MARK: - Title

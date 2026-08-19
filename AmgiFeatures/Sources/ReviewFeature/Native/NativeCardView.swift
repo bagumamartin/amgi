@@ -45,18 +45,19 @@ struct NativeCardView: View {
     private func blockView(_ block: NativeCardContent.Block, isFirst: Bool) -> some View {
         switch block {
         case .text(let attributed):
-            if isFirst {
-                Text(attributed)
-                    .font(.system(size: isAnswerSide ? 34 : 48, weight: .semibold, design: .serif))
-                    .minimumScaleFactor(0.5)
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(palette.textPrimary)
-            } else {
-                Text(attributed)
-                    .font(.system(size: 20, design: .serif))
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(palette.textPrimary)
-            }
+            // One `Text` with ternary modifier arguments rather than an
+            // if/else over two `Text`s: the branches differed only in font and
+            // scale factor, and `_ConditionalContent` would give the same
+            // block two structural identities.
+            Text(attributed)
+                .font(.system(
+                    size: isFirst ? (isAnswerSide ? 34 : 48) : 20,
+                    weight: isFirst ? .semibold : .regular,
+                    design: .serif
+                ))
+                .minimumScaleFactor(isFirst ? 0.5 : 1)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(palette.textPrimary)
         case .image(let filename):
             // Decoded and downsampled off the main thread — a full-resolution
             // decode here lands squarely in the answer-reveal frame.

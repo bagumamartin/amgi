@@ -41,7 +41,7 @@ struct WatchReviewView: View {
         }
         .background(Color.black)
         ._statusBarHidden()
-        .toolbar(.hidden, for: .navigationBar)
+        .toolbarVisibility(.hidden, for: .navigationBar)
         .ignoresSafeArea(edges: .top)
         .onTapGesture { playAudio(from: session.showAnswer ? session.backHTML : session.frontHTML) }
         .onTapGesture(count: 2) { dismiss() }

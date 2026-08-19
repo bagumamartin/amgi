@@ -42,8 +42,19 @@ public extension View {
     ///
     /// Pair with `amgiMaterialElevation(_:)`, not `amgiChromeShadow(_:)`:
     /// glass supplies its own edge, so the ring/shadow must drop out with it.
-    func amgiMaterial<S: Shape>(_ weight: AmgiMaterialWeight, in shape: S) -> some View {
-        modifier(AmgiMaterialModifier(weight: weight, shape: shape))
+    ///
+    /// Pass `interactive: true` for a surface the user can tap or focus — it
+    /// makes the glass react to touch (scale, highlight, shimmer) instead of
+    /// sitting inert. It is a parameter rather than an `AmgiMaterialWeight`
+    /// case because it is orthogonal to weight and has no pre-26 meaning:
+    /// a `Material` has no interactive axis, so the fallback ignores it and
+    /// pre-26 press feedback stays the caller's job (`.pressScale`).
+    func amgiMaterial<S: Shape>(
+        _ weight: AmgiMaterialWeight,
+        in shape: S,
+        interactive: Bool = false
+    ) -> some View {
+        modifier(AmgiMaterialModifier(weight: weight, shape: shape, interactive: interactive))
     }
 }
 
@@ -52,6 +63,7 @@ private struct AmgiMaterialModifier<S: Shape>: ViewModifier {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     let weight: AmgiMaterialWeight
     let shape: S
+    let interactive: Bool
 
     /// The non-glass fill, type-erased so Reduce Transparency picks a *value*
     /// instead of selecting between two view structures. That setting is
@@ -77,7 +89,7 @@ private struct AmgiMaterialModifier<S: Shape>: ViewModifier {
         // `@State` — that's when this becomes the bug it looks like.
         #if os(iOS)
         if #available(iOS 26, *), !reduceTransparency {
-            content.glassEffect(.regular, in: shape)
+            content.glassEffect(.regular.interactive(interactive), in: shape)
         } else {
             content.background(fill, in: shape)
         }

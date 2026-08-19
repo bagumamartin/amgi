@@ -68,14 +68,23 @@ final class AddImageOcclusionModel {
            let img = UIImage(data: data) {
             selectedImage = img
 
-            // Write a temporary file for the upload path
+            // Write a temporary file for the upload path. The encode and the
+            // write both go off the main actor: this model is @MainActor, and
+            // re-encoding a full-resolution camera photo there froze the UI
+            // for the length of the encode right after the picker dismissed.
             let tempDir = FileManager.default.temporaryDirectory
             let filename = "io_pick_\(Int(Date().timeIntervalSince1970)).jpg"
             let url = tempDir.appendingPathComponent(filename)
-            if let jpegData = img.jpegData(compressionQuality: 0.92) {
-                try? jpegData.write(to: url)
-                imageURL = url
-            }
+            let wrote = await Task.detached(priority: .userInitiated) {
+                guard let jpegData = img.jpegData(compressionQuality: 0.92) else { return false }
+                do {
+                    try jpegData.write(to: url)
+                    return true
+                } catch {
+                    return false
+                }
+            }.value
+            if wrote { imageURL = url }
         }
     }
 

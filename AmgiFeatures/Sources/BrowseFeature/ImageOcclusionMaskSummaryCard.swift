@@ -6,11 +6,9 @@ import AmgiUI
 // MARK: - imageOcclusionPreviewHeight
 
 @MainActor
-func imageOcclusionPreviewHeight(for image: UIImage) -> CGFloat {
-    let screenBounds = UIScreen.main.bounds
-    let screenWidth = screenBounds.width - 32
+func imageOcclusionPreviewHeight(for image: UIImage, width: CGFloat) -> CGFloat {
     let ratio = image.size.height / max(image.size.width, 1)
-    let idealHeight = screenWidth * ratio
+    let idealHeight = width * ratio
     return min(max(idealHeight, 180), 260)
 }
 
@@ -21,6 +19,7 @@ struct ImageOcclusionMaskSummaryCard: View {
     let image: UIImage
     let masks: [IOMask]
     let action: () -> Void
+    @State private var canvasWidth: CGFloat = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -30,7 +29,8 @@ struct ImageOcclusionMaskSummaryCard: View {
                 selectedMaskIndex: .constant(nil),
                 shapeType: .select
             )
-            .frame(height: imageOcclusionPreviewHeight(for: image))
+            .frame(height: imageOcclusionPreviewHeight(for: image, width: canvasWidth))
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { canvasWidth = $0 }
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .allowsHitTesting(false)
 
