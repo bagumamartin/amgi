@@ -22,6 +22,20 @@ settings:
     # package ↔ app boundary. Keep in lockstep with the package manifests.
     OTHER_SWIFT_FLAGS: "$(inherited) -enable-upcoming-feature NonisolatedNonsendingByDefault"
     ENABLE_USER_SCRIPT_SANDBOXING: YES
+    # Enhanced Security (Xcode 26). Project level per Apple's capability
+    # definition. Cascades -Wshadow, -Wempty-body, ENABLE_SECURITY_COMPILER_
+    # WARNINGS, CLANG_CXX_STANDARD_LIBRARY_HARDENING and the typed-allocator
+    # settings onto every target. The runtime half lives in
+    # AmgiApp.entitlements (com.apple.security.hardened-process*).
+    ENABLE_ENHANCED_SECURITY: YES
+    # ...but NOT arm64e. ENABLE_ENHANCED_SECURITY would otherwise cascade
+    # ENABLE_POINTER_AUTHENTICATION: YES to every target, and nothing here can
+    # link arm64e: AnkiRustLib.xcframework ships arm64-only slices (verified
+    # with lipo on all three), and it cannot gain an arm64e one because Rust
+    # has no arm64e target. AmgiApp, AmgiAppTests and AmgiWatchApp all link
+    # it; AmgiWatchApp is watchOS, which has no arm64e at all. Revisit only if
+    # Rust ships arm64e support.
+    ENABLE_POINTER_AUTHENTICATION: NO
     LOCALIZED_STRING_SWIFTUI_SUPPORT: YES
     STRING_CATALOG_GENERATE_SYMBOLS: YES
     # Build perf: CAS-backed compilation caching. The CAS path and explicit
