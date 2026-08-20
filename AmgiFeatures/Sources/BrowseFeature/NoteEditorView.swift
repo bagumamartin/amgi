@@ -41,7 +41,7 @@ public struct NoteEditorView: View {
                 }
             }
             .overlay { savedToast }
-            .task { model.loadNote() }
+            .task { await model.loadNote() }
     }
 
     @ViewBuilder

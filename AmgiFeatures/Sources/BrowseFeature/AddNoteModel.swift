@@ -1,4 +1,5 @@
 import AmgiAppShared
+import AnkiBackend
 import AnkiKit
 import AnkiClients
 import AnkiServices
@@ -53,7 +54,8 @@ final class AddNoteModel {
         }
 
         do {
-            notetypeNames = try notetypesService.getNotetypeNames()
+            let service = notetypesService
+            notetypeNames = try await backendOffload { try service.getNotetypeNames() }
             // Honour an incoming draft's preferred notetype when it matches
             // one the user actually has; otherwise fall back to the first.
             let chosen = initialDraft?.notetypeID
@@ -61,7 +63,7 @@ final class AddNoteModel {
                 ?? notetypeNames.first
             if let chosen {
                 selectedNotetypeId = chosen.id
-                loadFields()
+                await loadFields()
             }
         } catch {
             print("[AddNote] Error loading notetypes: \(error)")
@@ -72,10 +74,12 @@ final class AddNoteModel {
         }
     }
 
-    func loadFields() {
+    func loadFields() async {
         guard selectedNotetypeId.rawValue != 0 else { return }
         do {
-            let notetype = try notetypesService.getNotetype(selectedNotetypeId)
+            let service = notetypesService
+            let id = selectedNotetypeId
+            let notetype = try await backendOffload { try service.getNotetype(id) }
             fieldNames = notetype.fieldNames
             // Pre-fill from the incoming draft by mapping
             // `fieldValues[name] → fieldValues[positionalIndex]` against the
@@ -97,10 +101,17 @@ final class AddNoteModel {
         errorMessage = nil
         defer { isSaving = false }
         do {
-            var template = try notesService.newNote(selectedNotetypeId)
-            template.fields = fieldValues
-            template.tags = tags.split(separator: " ").map(String.init)
-            try notesService.addNote(template, selectedDeckId)
+            let notes = notesService
+            let notetypeID = selectedNotetypeId
+            let deckID = selectedDeckId
+            let fields = fieldValues
+            let tagList = tags.split(separator: " ").map(String.init)
+            try await backendOffload {
+                var template = try notes.newNote(notetypeID)
+                template.fields = fields
+                template.tags = tagList
+                try notes.addNote(template, deckID)
+            }
             // addNote doesn't surface OpChanges yet — invalidate the shared
             // tree cache conservatively so every host (DeckDetail, reader
             // lookup, Browse) sees fresh counts.

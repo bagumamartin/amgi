@@ -1,3 +1,4 @@
+import AnkiBackend
 import AnkiKit
 import AnkiClients
 import AnkiServices
@@ -32,9 +33,11 @@ final class NoteEditorModel {
         set { if index < fieldValues.count { fieldValues[index] = newValue } }
     }
 
-    func loadNote() {
+    func loadNote() async {
         do {
-            let notetype = try notetypesService.getNotetype(note.mid)
+            let service = notetypesService
+            let mid = note.mid
+            let notetype = try await backendOffload { try service.getNotetype(mid) }
             fieldNames = notetype.fieldNames
         } catch {
             print("[NoteEditorModel] Error loading notetype: \(error)")

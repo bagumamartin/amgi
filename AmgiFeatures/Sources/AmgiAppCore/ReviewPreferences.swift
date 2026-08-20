@@ -1,3 +1,4 @@
+import AnkiKit
 public import Foundation
 
 public enum ReaderThemeMode: String, CaseIterable, Identifiable {
@@ -184,7 +185,7 @@ private extension SyncPreferences.Keys {
 
 private extension SyncPreferences {
     static func currentProfileID() -> String {
-        let selectedUser = UserDefaults.standard.string(forKey: "amgi.selectedUser") ?? "default"
+        let selectedUser = ProfileScope.current()
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
         let mapped = selectedUser.unicodeScalars.map { scalar -> Character in
             allowed.contains(scalar) ? Character(scalar) : "_"

@@ -1,6 +1,7 @@
 import SwiftUI
 import AmgiTheme
 import AmgiAppCore
+import AnkiSync
 import CasePaths
 import SwiftUINavigation
 
@@ -228,6 +229,11 @@ private extension AccountsSettingsView {
     func attemptDelete(_ account: AmgiAccount, deleteFiles: Bool) {
         do {
             try store.remove(account, deleteFiles: deleteFiles)
+            // Credentials are keyed by profile slug, and the slug is derived
+            // from the display name — so recreating a profile with the same
+            // name would otherwise silently re-adopt the deleted account's
+            // AnkiWeb login. Remove them with the profile.
+            KeychainHelper.deleteAll(forProfile: account.id)
             destination = nil
         } catch {
             destination = .deleteFailed(error.localizedDescription)

@@ -1,3 +1,4 @@
+import AnkiBackend
 import AnkiKit
 import AnkiClients
 import AnkiServices
@@ -48,7 +49,8 @@ final class AddImageOcclusionModel {
             return
         }
 
-        if let currentDeckId = try? decksService.getCurrentDeck().id,
+        let service = decksService
+        if let currentDeckId = try? await backendOffload({ try service.getCurrentDeck() }).id,
            decks.contains(where: { $0.id == currentDeckId }) {
             selectedDeckId = currentDeckId
             return

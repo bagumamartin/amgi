@@ -1,3 +1,4 @@
+import AnkiBackend
 public import AnkiKit
 import AnkiServices
 import Dependencies
@@ -16,7 +17,7 @@ enum ImportError: Error, LocalizedError {
 }
 
 public enum ImportHelper {
-    public static func importPackage(from url: URL) throws -> String {
+    public static func importPackage(from url: URL) async throws -> String {
         guard url.startAccessingSecurityScopedResource() else {
             throw ImportError.accessDenied
         }
@@ -29,7 +30,8 @@ public enum ImportHelper {
         defer { try? FileManager.default.removeItem(at: tempFile) }
 
         @Dependency(\.importExportService) var importExportService
-        return try importExportService.importAnkiPackage(tempFile.path)
+        let path = tempFile.path
+        return try await backendOffload { try importExportService.importAnkiPackage(path) }
     }
 
     public static func exportCollection(to filename: String = "collection.colpkg") throws -> URL {

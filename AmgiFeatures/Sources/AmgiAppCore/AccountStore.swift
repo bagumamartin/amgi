@@ -1,4 +1,5 @@
 public import Foundation
+import AnkiKit
 import Observation
 
 /// One Anki profile. Each profile owns an isolated collection
@@ -38,7 +39,7 @@ public final class AccountStore {
     public static let shared = AccountStore()
 
     private static let accountsKey = "amgi.accounts"
-    private static let selectedKey = "amgi.selectedUser"
+    private static let selectedKey = ProfileScope.anchorKey
 
     public private(set) var accounts: [AmgiAccount]
     public private(set) var selectedID: String
@@ -111,25 +112,30 @@ public final class AccountStore {
 
     // MARK: - Filesystem helpers
 
+    /// Parent of every profile directory.
+    ///
+    /// Before multi-profile support this *was* the collection directory, so
+    /// anything reaching for it directly is either doing legacy migration or
+    /// operating on all profiles at once. Per-profile work wants
+    /// `profileDirectory(for:)`.
+    public static var collectionRoot: URL {
+        let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask
+        ).first ?? URL.applicationSupportDirectory
+        return appSupport.appendingPathComponent("AnkiCollection", isDirectory: true)
+    }
+
     /// Per-profile collection directory. Files inside follow Anki's
     /// layout: `collection.anki2`, `media/`, `media.db`.
     public static func profileDirectory(for id: String) -> URL {
-        let appSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory, in: .userDomainMask
-        ).first!
-        return appSupport
-            .appendingPathComponent("AnkiCollection", isDirectory: true)
-            .appendingPathComponent(id, isDirectory: true)
+        collectionRoot.appendingPathComponent(id, isDirectory: true)
     }
 
     /// One-time migration on first multi-profile launch: if there's a
     /// legacy `AnkiCollection/collection.anki2` outside any profile
     /// dir, move it into the default profile's directory.
     public static func migrateLegacyCollectionIfNeeded() {
-        let appSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory, in: .userDomainMask
-        ).first!
-        let legacyRoot = appSupport.appendingPathComponent("AnkiCollection", isDirectory: true)
+        let legacyRoot = collectionRoot
         let legacyCollection = legacyRoot.appendingPathComponent("collection.anki2")
         let target = profileDirectory(for: AmgiAccount.defaultID)
         let targetCollection = target.appendingPathComponent("collection.anki2")

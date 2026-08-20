@@ -1,3 +1,4 @@
+import AnkiBackend
 import AnkiKit
 import AnkiServices
 import AnkiSync
@@ -95,7 +96,7 @@ extension SyncClient: DependencyKey {
                 progress?("Backing up local collection...")
                 logger.info("Merge: exporting local backup to \(backupPath)")
                 do {
-                    try importExportService.exportApkgForMerge(backupPath)
+                    try await backendOffload { try importExportService.exportApkgForMerge(backupPath) }
                 } catch {
                     try? FileManager.default.removeItem(at: backupURL)
                     throw SyncError(message: "Merge failed during backup: \(error.localizedDescription)")
@@ -122,7 +123,7 @@ extension SyncClient: DependencyKey {
 
                 progress?("Merging in local data...")
                 try await wrap("merge import") {
-                    _ = try importExportService.importApkgForMerge(backupPath)
+                    _ = try await backendOffload { try importExportService.importApkgForMerge(backupPath) }
                 }
 
                 progress?("Uploading merged collection...")

@@ -179,9 +179,8 @@ private extension DeckDetailModel {
         importInProgress = true
         defer { importInProgress = false }
         do {
-            let summary = try await Task.detached {
-                try ImportHelper.importPackage(from: url)
-            }.value
+            // ImportHelper offloads the engine work itself now.
+            let summary = try await ImportHelper.importPackage(from: url)
             // Import can touch anything; the generation bump reloads this
             // screen and the Library behind it.
             store.apply(.all)

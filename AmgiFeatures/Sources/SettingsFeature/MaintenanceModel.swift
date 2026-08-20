@@ -1,3 +1,4 @@
+import AmgiAppCore
 import AnkiBackend
 import AnkiServices
 import AnkiSync
@@ -16,24 +17,50 @@ final class MaintenanceModel {
     @ObservationIgnored @Dependency(\.ankiBackend) private var backend
     @ObservationIgnored @Dependency(\.collectionService) private var collectionService
 
-    func checkDatabase() {
+    private(set) var isChecking = false
+
+    func checkDatabase() async {
+        isChecking = true
+        defer { isChecking = false }
         do {
-            try collectionService.checkDatabase()
+            // A full-collection integrity check is one of the longest
+            // blocking calls the engine has; running it on the main actor
+            // froze Settings outright and risked a watchdog kill.
+            let service = collectionService
+            try await backendOffload { try service.checkDatabase() }
             statusMessage = "Database check passed"
         } catch {
             statusMessage = "Database check error: \(error.localizedDescription)"
         }
     }
 
-    func resetEverything() {
-        KeychainHelper.deleteHostKey()
-        KeychainHelper.deleteUsername()
-        try? backend.closeCollection()
-        let appSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory, in: .userDomainMask
-        ).first!
-        let ankiDir = appSupport.appendingPathComponent("AnkiCollection", isDirectory: true)
-        try? FileManager.default.removeItem(at: ankiDir)
-        statusMessage = "Reset complete. Please restart the app."
+    /// Deletes the **active profile's** collection and credentials.
+    ///
+    /// Scoped to one profile deliberately. The keychain helpers are
+    /// per-profile, so the old whole-`AnkiCollection` delete destroyed every
+    /// profile's data while leaving the other profiles' logins and registry
+    /// entries intact — the app would restart listing profiles whose data
+    /// was gone but whose sync credentials still worked, and the next sync
+    /// could push an empty collection up.
+    func resetEverything() async {
+        let profileID = AccountStore.shared.current.id
+        let profileDirectory = AccountStore.profileDirectory(for: profileID)
+        let backend = self.backend
+        do {
+            try await backendOffload { try backend.closeCollection() }
+        } catch {
+            // Already closed, or never opened — deletion is still correct.
+        }
+        KeychainHelper.deleteAll(forProfile: profileID)
+        do {
+            try FileManager.default.removeItem(at: profileDirectory)
+            statusMessage = "Reset complete. Please restart the app."
+        } catch CocoaError.fileNoSuchFile {
+            statusMessage = "Reset complete. Please restart the app."
+        } catch {
+            // Reporting success on a failed delete left the user believing
+            // their data was gone when it was not.
+            statusMessage = "Reset failed: \(error.localizedDescription)"
+        }
     }
 }

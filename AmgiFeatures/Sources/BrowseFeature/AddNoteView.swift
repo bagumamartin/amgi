@@ -72,7 +72,7 @@ struct AddNoteContent: View {
                     }
                 }
                 .onChange(of: model.selectedNotetypeId) {
-                    model.loadFields()
+                    Task { await model.loadFields() }
                 }
             }
 

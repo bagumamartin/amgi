@@ -528,6 +528,9 @@ actor DictionaryLookupRuntime {
     }
 
     private func currentProfileID() -> String {
+        // Canonical definition is AnkiKit.ProfileScope; duplicated here
+        // because the AmgiReader package has no dependency edge to
+        // AnkiBridge and one string does not justify adding one.
         let raw = UserDefaults.standard.string(forKey: "amgi.selectedUser") ?? "default"
         return Self.sanitizedUserFolderName(raw)
     }

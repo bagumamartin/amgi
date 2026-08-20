@@ -1,4 +1,5 @@
 import AnkiClients
+import AnkiBackend
 import AnkiKit
 import AnkiServices
 import Dependencies
@@ -102,7 +103,8 @@ final class BrowseModel {
     func loadInitial() async {
         await loadDecks()
         allTags = ((try? await tagClient.getAllTags()) ?? []).sorted()
-        if let pairs = try? notetypesService.getNotetypeNames() {
+        let notetypes = notetypesService
+        if let pairs = try? await backendOffload({ try notetypes.getNotetypeNames() }) {
             notetypeNames = Dictionary(uniqueKeysWithValues: pairs.map { ($0.id, $0.name) })
         }
     }

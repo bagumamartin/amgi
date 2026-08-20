@@ -16,7 +16,7 @@ struct MaintenanceView: View {
                     systemImage: "stethoscope",
                     tone: .info
                 ) {
-                    model.checkDatabase()
+                    Task { await model.checkDatabase() }
                 }
             }
             SettingsFootnote("Verifies the integrity of your local Anki collection.")
@@ -32,7 +32,7 @@ struct MaintenanceView: View {
                     showResetConfirm = true
                 }
             }
-            SettingsFootnote("Deletes the local collection and credentials. You will need to sync or re-import after.")
+            SettingsFootnote("Deletes this profile's collection and credentials. You will need to sync or re-import after.")
 
             if !model.statusMessage.isEmpty {
                 SettingsSectionHeader(title: "Status")
@@ -53,10 +53,10 @@ struct MaintenanceView: View {
             isPresented: $showResetConfirm,
             titleVisibility: .visible
         ) {
-            Button("Reset", role: .destructive) { model.resetEverything() }
+            Button("Reset", role: .destructive) { Task { await model.resetEverything() } }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This deletes the local collection database, media, and stored credentials. The action cannot be undone.")
+            Text("This deletes the active profile's collection database, media, and stored credentials. Other profiles are unaffected. The action cannot be undone.")
         }
     }
 }

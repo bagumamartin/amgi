@@ -38,13 +38,15 @@ private extension DeckImportModifier {
                 showAlert = true
                 return
             }
-            do {
-                message = try ImportHelper.importPackage(from: url)
-                onRefresh()
-            } catch {
-                message = "Import failed: \(error.localizedDescription)"
+            Task {
+                do {
+                    message = try await ImportHelper.importPackage(from: url)
+                    onRefresh()
+                } catch {
+                    message = "Import failed: \(error.localizedDescription)"
+                }
+                showAlert = true
             }
-            showAlert = true
         case .failure(let error):
             message = "Could not select file: \(error.localizedDescription)"
             showAlert = true
