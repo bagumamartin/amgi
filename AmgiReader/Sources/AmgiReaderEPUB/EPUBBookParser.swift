@@ -77,6 +77,7 @@ public actor EPUBBookParser {
         return ParsedEPUBBook(
             book: book,
             chapterContentURLs: mapped.chapterContentURLs,
+            contentDirectory: document.contentDirectory,
             coverImageURL: coverURL,
             language: language,
             pageCount: mapped.totalPageEstimate

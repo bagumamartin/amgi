@@ -66,8 +66,9 @@ struct DesignConformanceTests {
             "Dynamic Type would only push the message below it off-screen.",
         "TemplatesFeature/TemplateEditorView.swift":
             "Radius literals with no AmgiRadius equivalent; changing them would be a layout change (R29 is no-layout).",
-        "WidgetFeature/LargeWidgetView.swift":
-            "Separate process (WidgetFeature depends on AmgiAppCore + AmgiTheme only). Renders in the system's context and cannot observe ThemeManager at render time, so palette adoption is a design decision, not a conformance sweep. Tracked separately if widget theming is wanted.",
+        "WidgetFeature/LargeWidgetView.swift": widgetExemptReason,
+        "WidgetFeature/MediumWidgetView.swift": widgetExemptReason,
+        "WidgetFeature/SmallWidgetView.swift": widgetExemptReason,
         "Watch/WatchApp.swift": watchExemptReason,
         "Watch/WatchContentView.swift": watchExemptReason,
         "Watch/WatchDeckDetailView.swift": watchExemptReason,
@@ -80,6 +81,16 @@ struct DesignConformanceTests {
     /// watchOS target (PR #14): the palette/ThemeManager pipeline is iOS-scoped;
     /// the watch app ships its own compact HIG styling inline.
     /// Palette adoption on watchOS is a design decision, not a conformance sweep.
+    /// Separate process (WidgetFeature depends on AmgiAppCore + AmgiTheme
+    /// only). Renders in the system's context and cannot observe
+    /// ThemeManager at render time, so palette adoption is a design
+    /// decision, not a conformance sweep. The family views additionally
+    /// fake the rounded widget background in their `#Preview`s with a raw
+    /// radius, because no WidgetKit preview API survives in a package
+    /// target — see CLAUDE.md.
+    private static let widgetExemptReason =
+        "Separate process rendering in the system's context; previews fake widget chrome with a raw radius."
+
     private static let watchExemptReason =
         "watchOS target — palette/ThemeManager is iOS-scoped; watch styles inline."
 

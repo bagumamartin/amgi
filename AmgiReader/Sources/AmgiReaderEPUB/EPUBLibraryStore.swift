@@ -27,6 +27,7 @@ public actor EPUBLibraryStore {
     private var index: EPUBLibraryIndexFile
     private var bookCache: [String: ReaderBook] = [:]
     private var chapterURLCache: [String: [Int64: URL]] = [:]
+    private var contentRootCache: [String: URL] = [:]
     private let parser = EPUBBookParser()
 
     public init(rootDirectory: URL? = nil) {
@@ -108,6 +109,7 @@ public actor EPUBLibraryStore {
 
         bookCache[bookID] = parsed.book
         chapterURLCache[bookID] = parsed.chapterContentURLs
+        contentRootCache[bookID] = parsed.contentDirectory
         return parsed.book
     }
 
@@ -135,6 +137,7 @@ public actor EPUBLibraryStore {
         index.entries.remove(at: idx)
         bookCache.removeValue(forKey: bookID)
         chapterURLCache.removeValue(forKey: bookID)
+        contentRootCache.removeValue(forKey: bookID)
         try writeIndex()
     }
 
@@ -145,6 +148,17 @@ public actor EPUBLibraryStore {
         guard let entry = index.entries.first(where: { $0.bookID == bookID }) else { return nil }
         _ = await rebuildBook(from: entry)
         return chapterURLCache[bookID]?[chapterID]
+    }
+
+    /// The book's content root (the OPF directory). WebViews are granted
+    /// read access to this rather than to the chapter file's own parent, so
+    /// a chapter in `OEBPS/Text/` can still load `OEBPS/Styles/` and
+    /// `OEBPS/Images/`.
+    public func contentRootURL(bookID: String) async -> URL? {
+        if let root = contentRootCache[bookID] { return root }
+        guard let entry = index.entries.first(where: { $0.bookID == bookID }) else { return nil }
+        _ = await rebuildBook(from: entry)
+        return contentRootCache[bookID]
     }
 
     public func coverURL(bookID: String) async -> URL? {
@@ -168,6 +182,7 @@ public actor EPUBLibraryStore {
         do {
             let parsed = try await parser.parse(fileURL: epubURL)
             chapterURLCache[entry.bookID] = parsed.chapterContentURLs
+            contentRootCache[entry.bookID] = parsed.contentDirectory
             return parsed.book
         } catch {
             return nil

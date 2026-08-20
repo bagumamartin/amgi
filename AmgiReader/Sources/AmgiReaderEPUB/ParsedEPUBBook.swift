@@ -12,6 +12,10 @@ public import AmgiReader
 public struct ParsedEPUBBook: Sendable {
     public var book: ReaderBook
     public var chapterContentURLs: [Int64: URL]
+    /// Directory containing the OPF — the book's content root. WebViews get
+    /// read access to this, so sibling `Styles/` and `Images/` folders
+    /// referenced by a chapter in `Text/` actually resolve.
+    public var contentDirectory: URL
     public var coverImageURL: URL?
     public var language: String?
     public var pageCount: Int
@@ -19,12 +23,14 @@ public struct ParsedEPUBBook: Sendable {
     public init(
         book: ReaderBook,
         chapterContentURLs: [Int64: URL],
+        contentDirectory: URL,
         coverImageURL: URL?,
         language: String?,
         pageCount: Int
     ) {
         self.book = book
         self.chapterContentURLs = chapterContentURLs
+        self.contentDirectory = contentDirectory
         self.coverImageURL = coverImageURL
         self.language = language
         self.pageCount = pageCount
