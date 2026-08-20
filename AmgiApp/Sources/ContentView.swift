@@ -37,6 +37,17 @@ struct ContentView: View {
             onImport: { showImport = true },
             onSelectStudyDeck: { pendingReviewDeckId = $0 }
         )
+        .alert(
+            "Couldn't switch profile",
+            isPresented: Binding(
+                get: { AccountStore.shared.switchFailure != nil },
+                set: { if !$0 { AccountStore.shared.switchFailure = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) { AccountStore.shared.switchFailure = nil }
+        } message: {
+            Text(AccountStore.shared.switchFailure ?? "")
+        }
         .sheet(isPresented: $showSync) {
             store.invalidateAll()
             refreshID = UUID()          // still drives the tabs not yet on CollectionStore

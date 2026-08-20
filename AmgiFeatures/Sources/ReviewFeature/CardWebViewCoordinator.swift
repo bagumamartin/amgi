@@ -281,9 +281,13 @@ private extension CardWebViewCoordinator {
     }
 
     func presentSafariView(url: URL) {
+        // `.first` could pick a background scene and `windows.first` is not
+        // necessarily the key window, so under multi-window or Stage Manager
+        // a tapped card link could present on the wrong window — or nowhere.
         guard let scene = UIApplication.shared.connectedScenes
-            .compactMap({ $0 as? UIWindowScene }).first,
-              let root = scene.windows.first?.rootViewController else {
+            .compactMap({ $0 as? UIWindowScene })
+            .first(where: { $0.activationState == .foregroundActive }),
+              let root = scene.keyWindow?.rootViewController else {
             UIApplication.shared.open(url)
             return
         }

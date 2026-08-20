@@ -15,6 +15,10 @@ public final class CollectionStore {
     /// Bumped by every Invalidation that affects the deck tree.
     public private(set) var generation = 0
 
+    /// Nonisolated so `CollectionStoreKey`'s lazy statics can be initialized
+    /// from any thread. Only stored-property defaults run here.
+    public nonisolated init() {}
+
     @ObservationIgnored @Dependency(\.deckClient) private var deckClient
 
     @ObservationIgnored private var cachedTree: [DeckTreeNode]?
@@ -58,8 +62,15 @@ public final class CollectionStore {
 }
 
 private enum CollectionStoreKey: DependencyKey {
-    static let liveValue: CollectionStore = MainActor.assumeIsolated { CollectionStore() }
-    static let testValue: CollectionStore = MainActor.assumeIsolated { CollectionStore() }
+    // `static let` is initialized lazily by whichever thread touches it
+    // first, which is not guaranteed to be the main thread. The old
+    // `MainActor.assumeIsolated { ... }` would therefore trip "Incorrect
+    // actor executor assumption" and abort the process if first resolved
+    // from any Task.detached (there are 15+) or a background test.
+    // CollectionStore has no explicit init, so a nonisolated one is safe and
+    // removes the assumption entirely.
+    static let liveValue = CollectionStore()
+    static let testValue = CollectionStore()
 }
 
 extension DependencyValues {

@@ -1,14 +1,18 @@
 import SwiftUI
 import AmgiTheme
 import AmgiAppCore
+import AnkiBackend
+import AnkiServices
+import Dependencies
 import CasePaths
 import SwiftNavigation
 import SwiftUINavigation
 
-/// Local backups of the active profile's `collection.anki2`. Each backup
+/// Local `.colpkg` backups of the active profile's collection. Each backup
 /// is a timestamped copy stored under `Documents/Backups for <profile>/`.
 /// The user can create, share (AirDrop / Files / Mail) and delete them.
 struct BackupView: View {
+    @Dependency(\.importExportService) private var importExportService
     let username: String
 
     @State private var backups: [BackupEntry] = []
@@ -129,7 +133,7 @@ private extension BackupView {
             options: .skipsHiddenFiles
         )) ?? []
         backups = files
-            .filter { $0.pathExtension == "anki2" }
+            .filter { $0.pathExtension == "colpkg" || $0.pathExtension == "anki2" }
             .map { url in
                 let values = try? url.resourceValues(
                     forKeys: [.contentModificationDateKey, .fileSizeKey]
@@ -157,15 +161,21 @@ private extension BackupView {
                     userInfo: [NSLocalizedDescriptionKey: "Cannot access backup directory."]
                 )
             }
-            let sourceURL = AccountStore.profileDirectory(for: AccountStore.shared.current.id)
-                .appendingPathComponent("collection.anki2")
             let formatter = DateFormatter()
             formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
             let timestamp = formatter.string(from: .now)
-            let destURL = dir.appendingPathComponent("\(timestamp).anki2")
-            try await Task.detached(priority: .userInitiated) {
-                try FileManager.default.copyItem(at: sourceURL, to: destURL)
-            }.value
+            let destURL = dir.appendingPathComponent("\(timestamp).colpkg")
+            // Export through the engine rather than copying collection.anki2.
+            // The collection is open in WAL mode, so a raw file copy captured
+            // neither the -wal sidecar nor a checkpoint — the backup could be
+            // a torn or stale snapshot that fails to open, discovered exactly
+            // when the user needs it. .colpkg is also what Anki itself uses,
+            // so these restore by import on desktop too.
+            let outPath = destURL.path
+            let service = importExportService
+            try await backendOffload {
+                try service.exportCollectionPackage(outPath, true)
+            }
             loadBackups()
             destination = .success("Saved \(destURL.lastPathComponent).")
         } catch {

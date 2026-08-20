@@ -1,3 +1,5 @@
+import AmgiAppCore
+import OSLog
 import Foundation
 import UIKit
 import WebKit
@@ -278,7 +280,9 @@ final class EPUBChapterPageController: UIViewController {
           if (typeof window.__amgiRelayout === 'function') { window.__amgiRelayout(); }
         })();
         """
-        webView.evaluateJavaScript(js, completionHandler: nil)
+        webView.evaluateJavaScript(js) { _, error in
+            if let error { Log.reader.error("relayout script failed: \(error)") }
+        }
         applyHostBackgroundColor()
     }
 
@@ -288,7 +292,9 @@ final class EPUBChapterPageController: UIViewController {
         let delay = DispatchTime.now() + 0.25
         DispatchQueue.main.asyncAfter(deadline: delay) { [weak self] in
             guard let webView = self?.webView else { return }
-            webView.evaluateJavaScript("window.__amgiScrollToFraction(\(fraction));", completionHandler: nil)
+            webView.evaluateJavaScript("window.__amgiScrollToFraction(\(fraction));") { _, error in
+                if let error { Log.reader.error("scrollToFraction script failed: \(error)") }
+            }
         }
     }
 

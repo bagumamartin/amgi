@@ -31,6 +31,7 @@ public final class SyncCoordinator {
     @ObservationIgnored @Dependency(\.syncClient) var syncClient
     @ObservationIgnored private var activeTask: Task<Void, Never>?
     @ObservationIgnored private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
+    @ObservationIgnored nonisolated(unsafe) private var lifecycleObservers: [any NSObjectProtocol] = []
 
     // Profile-scoped persisted state. Computed per access — the key embeds
     // the active profile id, and this coordinator is a singleton that
@@ -47,8 +48,22 @@ public final class SyncCoordinator {
 
     private static let logCap = 100
 
-    public init() {
-        registerLifecycleObservers()
+    /// Nonisolated so `SyncCoordinatorKey`'s lazy statics can be initialized
+    /// from any thread — a `static let` is initialized by whichever thread
+    /// touches it first, so the old `MainActor.assumeIsolated` would abort
+    /// the process on first resolution from a detached task or background
+    /// test. Observer registration is main-actor work, so it hops.
+    public nonisolated init() {
+        Task { @MainActor [self] in registerLifecycleObservers() }
+    }
+
+    deinit {
+        // Tokens from addObserver(forName:object:queue:) were previously
+        // discarded, so the observers outlived any non-singleton instance
+        // and kept calling into a dead coordinator.
+        for token in lifecycleObservers {
+            NotificationCenter.default.removeObserver(token)
+        }
     }
 
     // MARK: - Public surface (stubs filled in Phase B)
@@ -202,7 +217,7 @@ public final class SyncCoordinator {
 private extension SyncCoordinator {
     func registerLifecycleObservers() {
         let center = NotificationCenter.default
-        center.addObserver(
+        lifecycleObservers.append(center.addObserver(
             forName: UIApplication.didEnterBackgroundNotification,
             object: nil,
             queue: .main
@@ -210,8 +225,8 @@ private extension SyncCoordinator {
             Task { @MainActor in
                 self?.beginBackgroundExecutionIfNeeded()
             }
-        }
-        center.addObserver(
+        })
+        lifecycleObservers.append(center.addObserver(
             forName: UIApplication.willEnterForegroundNotification,
             object: nil,
             queue: .main
@@ -219,7 +234,7 @@ private extension SyncCoordinator {
             Task { @MainActor in
                 self?.endBackgroundExecutionIfNeeded()
             }
-        }
+        })
 
         if needsFullSyncFlag {
             state = .needsFullSync(SyncFullSyncRequirement(
@@ -255,8 +270,8 @@ private extension SyncCoordinator {
 }
 
 private enum SyncCoordinatorKey: DependencyKey {
-    static let liveValue: SyncCoordinator = MainActor.assumeIsolated { SyncCoordinator() }
-    static let testValue: SyncCoordinator = MainActor.assumeIsolated { SyncCoordinator() }
+    static let liveValue = SyncCoordinator()
+    static let testValue = SyncCoordinator()
 }
 
 extension DependencyValues {

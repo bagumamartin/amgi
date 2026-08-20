@@ -44,6 +44,11 @@ public final class AccountStore {
     public private(set) var accounts: [AmgiAccount]
     public private(set) var selectedID: String
 
+    /// Set when a profile switch could not reopen *any* collection, leaving
+    /// the app with nothing open. Surfaced by the root view so the state is
+    /// visible rather than presenting as a mysteriously empty app.
+    public var switchFailure: String?
+
     private init() {
         let defaults = UserDefaults.standard
         if let data = defaults.data(forKey: Self.accountsKey),

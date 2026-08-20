@@ -21,6 +21,11 @@ struct AnkiAppApp: App {
     @Shared(.appStorage(AppearancePreferences.Keys.appFont))
     private var appFontRaw: String = AppFont.system.rawValue
 
+    /// Set when the collection could not be opened at launch. A plain `let`
+    /// rather than `@State`: it is decided once in `init` and never changes
+    /// for the lifetime of this App value.
+    private let startupError: String?
+
     private var destination: Destination {
         onboardingCompleted ? .main : .onboarding
     }
@@ -34,27 +39,47 @@ struct AnkiAppApp: App {
             AccountStore.shared.current
         }
 
-        try! prepareDependencies {
-            let backend = try AnkiBackend(preferredLangs: ["en"])
-            try openCollection(for: activeProfile.id, backend: backend)
-            try? backend.checkDatabase()
-            $0.ankiBackend = backend
-            $0.syncCoordinator = SyncCoordinator()
-            // Wire the Anki-backed concrete realization of the dictionary
-            // engine's abstract config store. Keeps the engine package
-            // (AmgiReaderDictionary) free of Anki imports.
-            $0.dictionaryConfigStore = AnkiBackedDictionaryConfigStore.makeStore()
+        // `try!` here turned any collection-open failure into a crash inside
+        // init — on every launch, permanently, with no in-app recovery. A
+        // corrupt collection.anki2, a schema written by a newer Anki, or a
+        // full disk left the user with delete-and-reinstall as their only
+        // option, which destroys the local collection. That state is exactly
+        // what an interrupted full-download or import leaves behind.
+        //
+        // checkDatabase() is also gone from the launch path: it is one of
+        // the longest blocking calls the engine has, and running it before
+        // the first frame made cold launch scale with collection size. It
+        // remains available as an explicit action in Settings > Maintenance.
+        var failure: String?
+        do {
+            try prepareDependencies {
+                let backend = try AnkiBackend(preferredLangs: ["en"])
+                try openCollection(for: activeProfile.id, backend: backend)
+                $0.ankiBackend = backend
+                $0.syncCoordinator = SyncCoordinator()
+                // Wire the Anki-backed concrete realization of the dictionary
+                // engine's abstract config store. Keeps the engine package
+                // (AmgiReaderDictionary) free of Anki imports.
+                $0.dictionaryConfigStore = AnkiBackedDictionaryConfigStore.makeStore()
+            }
+        } catch {
+            failure = error.localizedDescription
         }
+        startupError = failure
     }
 
     var body: some Scene {
         WindowGroup {
             Group {
-                switch destination {
-                case .onboarding:
-                    OnboardingView()
-                case .main:
-                    ContentView(pendingReviewDeckId: $pendingReviewDeckId)
+                if let startupError {
+                    StartupErrorView(message: startupError)
+                } else {
+                    switch destination {
+                    case .onboarding:
+                        OnboardingView()
+                    case .main:
+                        ContentView(pendingReviewDeckId: $pendingReviewDeckId)
+                    }
                 }
             }
             // Rebuild the entire view tree when the active profile changes —
@@ -124,11 +149,22 @@ func switchProfile(to account: AmgiAccount) async {
     store.select(account)
     do {
         try openCollection(for: account.id, backend: backend)
-        try? backend.checkDatabase()
     } catch {
         // Roll back rather than leave the app with no open collection.
         store.select(previous)
-        try? openCollection(for: previous.id, backend: backend)
+        do {
+            try openCollection(for: previous.id, backend: backend)
+        } catch let rollbackError {
+            // Both the switch and the rollback failed, so nothing is open.
+            // Discarding this left every screen failing its fetch with no
+            // explanation — the app looked empty rather than broken.
+            Log.decks.error("Profile switch and rollback both failed: \(rollbackError)")
+            store.switchFailure = """
+                Couldn't open either profile's collection. Quit and reopen \
+                Amgi. If that doesn't help, reset the collection from \
+                Settings > Maintenance.
+                """
+        }
         return
     }
     syncCoordinator.resetForProfileSwitch()

@@ -1,3 +1,5 @@
+import AmgiAppCore
+import OSLog
 import SwiftUI
 import WebKit
 import UIKit
@@ -205,7 +207,11 @@ struct CardWebView: UIViewRepresentable {
             } else {
                 context.coordinator.lastContentSignature = contentSignature
                 if context.coordinator.isPageLoaded {
-                    webView.evaluateJavaScript(showCardScript, completionHandler: nil)
+                    webView.evaluateJavaScript(showCardScript) { _, error in
+                        // A JS exception in _showQuestion/_showAnswer renders
+                        // a blank card; dropping the error left no diagnostic.
+                        if let error { Log.review.error("showCard script failed: \(error)") }
+                    }
                 } else {
                     context.coordinator.pendingUpdateScript = showCardScript
                 }
@@ -213,12 +219,16 @@ struct CardWebView: UIViewRepresentable {
         }
         if replayRequestID != context.coordinator.lastReplayRequestID {
             context.coordinator.lastReplayRequestID = replayRequestID
-            webView.evaluateJavaScript("window.amgiReplayAll && window.amgiReplayAll('" + replayMode.rawValue + "');", completionHandler: nil)
+            webView.evaluateJavaScript("window.amgiReplayAll && window.amgiReplayAll('" + replayMode.rawValue + "');") { _, error in
+                if let error { Log.review.error("replayAll script failed: \(error)") }
+            }
         }
 
         if stopAudioRequestID != context.coordinator.lastStopAudioRequestID {
             context.coordinator.lastStopAudioRequestID = stopAudioRequestID
-            webView.evaluateJavaScript("window.amgiStopAllAudio && window.amgiStopAllAudio();", completionHandler: nil)
+            webView.evaluateJavaScript("window.amgiStopAllAudio && window.amgiStopAllAudio();") { _, error in
+                if let error { Log.review.error("stopAllAudio script failed: \(error)") }
+            }
         }
 
         // Force bottom content inset so card content can always scroll above the floating

@@ -47,7 +47,7 @@ struct WatchReviewView: View {
         .onTapGesture(count: 2) { dismiss() }
         .task {
             do {
-                try await AVAudioSession.sharedInstance().setCategory(
+                try AVAudioSession.sharedInstance().setCategory(
                     .playback,
                     mode: .default,
                     policy: .longFormAudio
