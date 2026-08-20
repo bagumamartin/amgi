@@ -156,10 +156,19 @@ final class CardWebViewCoordinator: NSObject, WKNavigationDelegate, WKScriptMess
             return
         }
 
-        // Allow local card document loads and same-document anchors.
+        // Cards render untrusted, shared-deck-authored HTML and JS, so the
+        // only navigations allowed are the app's own asset scheme and the
+        // about: document itself. `file:` and `javascript:` were whitelisted
+        // here, which removed the app's own guard against a card navigating
+        // the frame to a local file or injecting script through a URL.
         let scheme = url.scheme?.lowercased()
-        if url.isFileURL || scheme == "about" || scheme == "javascript" || scheme == CardAssetPath.scheme {
+        if scheme == "about" || scheme == CardAssetPath.scheme {
             decisionHandler(.allow)
+            return
+        }
+        if url.isFileURL || scheme == "javascript" {
+            Log.review.error("Blocked \(scheme ?? "unknown", privacy: .public) navigation from card content")
+            decisionHandler(.cancel)
             return
         }
 

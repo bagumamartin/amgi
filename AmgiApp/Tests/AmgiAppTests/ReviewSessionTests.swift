@@ -128,7 +128,7 @@ import AnkiServices
         } operation: {
             let s = ReviewSession(deckId: DeckID(42))
             s.start()
-            try await Task.sleep(for: .milliseconds(50))
+            try await pollUntil { s.isFinished && !s.isAdvancing }
             #expect(s.isFinished,
                     "Session with empty queue should be finished after start()")
             #expect(s.remainingCounts == .zero)
@@ -250,7 +250,7 @@ import AnkiServices
         } operation: {
             let session = ReviewSession(deckId: DeckID(1))
             session.start()
-            try await Task.sleep(for: .milliseconds(50))
+            try await pollUntil { !session.isAdvancing }
             let target = session.currentTemplateTarget
             #expect(target != nil)
             #expect(target?.notetypeId == NotetypeID(200))
@@ -277,7 +277,7 @@ import AnkiServices
         } operation: {
             let session = ReviewSession(deckId: DeckID(1))
             session.start()
-            try await Task.sleep(for: .milliseconds(50))
+            try await pollUntil { !session.isAdvancing }
 
             // Audio start
             session.updateAudioPlaying(true)
@@ -334,7 +334,7 @@ import AnkiServices
         } operation: {
             let session = ReviewSession(deckId: DeckID(1))
             session.start()
-            try await Task.sleep(for: .milliseconds(50))
+            try await pollUntil { !session.isAdvancing }
 
             let originalNoteId = session.currentNote?.id
             #expect(state.renderCallCount == 1)
@@ -379,7 +379,7 @@ import AnkiServices
         } operation: {
             let s = ReviewSession(deckId: DeckID(1))
             s.start()
-            try await Task.sleep(for: .milliseconds(50))
+            try await pollUntil { !s.isAdvancing }
             #expect(s.currentNote == note1)
 
             s.answer(rating: .good)
@@ -414,7 +414,7 @@ import AnkiServices
             let s = ReviewSession(deckId: DeckID(1))
             s.start()
             #expect(s.isAdvancing, "start() sets isAdvancing synchronously before its Task runs")
-            try await Task.sleep(for: .milliseconds(50))
+            try await pollUntil { !s.isAdvancing }
             #expect(!s.isAdvancing, "isAdvancing clears after the transition settles")
             #expect(!s.isFinished, "a non-empty queue should not finish")
         }

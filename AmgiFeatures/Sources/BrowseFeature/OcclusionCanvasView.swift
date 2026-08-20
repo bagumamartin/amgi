@@ -541,7 +541,12 @@ private extension OcclusionCanvasUIView {
     }
 
     func imageRect(in bounds: CGRect) -> CGRect {
+        // Guard the divisors the way the sibling canvases already do. A
+        // zero-sized image (first layout pass, or a decode failure) made
+        // this Inf/NaN, which then propagated into mask coordinates through
+        // the unclamped conversions below.
         let s = image.size
+        guard s.width > 0, s.height > 0 else { return .zero }
         let scale = min(bounds.width / s.width, bounds.height / s.height)
         let w = s.width * scale, h = s.height * scale
         return CGRect(x: (bounds.width - w) / 2, y: (bounds.height - h) / 2, width: w, height: h)
@@ -799,6 +804,10 @@ private extension OcclusionCanvasUIView {
     }
 
     func movedMask(_ mask: IOMask, delta: CGPoint, imgRect: CGRect) -> IOMask? {
+        // Unlike the clamped conversions elsewhere in this file, dx/dy flow
+        // straight into mask coordinates — so a zero-sized imgRect would put
+        // NaN in the note and sync it.
+        guard imgRect.width > 0, imgRect.height > 0 else { return nil }
         let dx = delta.x / imgRect.width
         let dy = delta.y / imgRect.height
         switch mask {

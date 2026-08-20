@@ -532,6 +532,11 @@ private extension CardWebView {
             .replacingOccurrences(of: "'", with: "\\'")
             .replacingOccurrences(of: "\n", with: "\\n")
             .replacingOccurrences(of: "\r", with: "\\r")
+            // JavaScript treats U+2028 and U+2029 as line terminators in
+            // some contexts; escaping them costs nothing and removes the
+            // question entirely.
+            .replacingOccurrences(of: "\u{2028}", with: "\\u2028")
+            .replacingOccurrences(of: "\u{2029}", with: "\\u2029")
             // Escape </script> so it doesn't prematurely close the enclosing <script> block
             .replacingOccurrences(of: "</script>", with: "<\\/script>", options: .caseInsensitive)
         return "'\(escaped)'"

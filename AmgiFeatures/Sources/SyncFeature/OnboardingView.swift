@@ -11,6 +11,7 @@ public struct OnboardingView: View {
     @Shared(.syncMode) private var syncMode
     @State private var showServerSetup = false
     @State private var serverURL = ""
+    @State private var endpointError: String?
 
     public init() {}
 
@@ -42,6 +43,12 @@ public struct OnboardingView: View {
                             .textInputAutocapitalization(.never)
                             .keyboardType(.URL)
                             .padding(.horizontal)
+
+                        if let endpointError {
+                            Text(endpointError)
+                                .amgiStatusText(.danger, font: .caption)
+                                .padding(.horizontal)
+                        }
 
                         Button("Continue") {
                             saveAndContinue()
@@ -93,13 +100,15 @@ public struct OnboardingView: View {
 
 private extension OnboardingView {
     func saveAndContinue() {
-        var url = serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !url.hasPrefix("http://") && !url.hasPrefix("https://") {
-            url = "https://" + url
+        do {
+            let url = try SyncEndpoint.normalized(serverURL)
+            try KeychainHelper.saveEndpoint(url)
+            endpointError = nil
+            $syncMode.withLock { $0 = .custom }
+            $onboardingCompleted.withLock { $0 = true }
+        } catch {
+            endpointError = error.localizedDescription
         }
-        try? KeychainHelper.saveEndpoint(url)
-        $syncMode.withLock { $0 = .custom }
-        $onboardingCompleted.withLock { $0 = true }
     }
 }
 

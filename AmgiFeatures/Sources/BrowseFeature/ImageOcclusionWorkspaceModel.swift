@@ -482,18 +482,33 @@ private extension ImageOcclusionWorkspaceModel {
     }
 
     func hexString(for color: Color) -> String {
+        // Convert to sRGB first and clamp each channel. A Display P3 colour
+        // from the system picker returns components outside 0...1, so
+        // Int(round(c * 255)) could go negative — and %02X renders a
+        // negative Int as eight hex characters, not two. The result was an
+        // unparseable `fill` value that lost the mask's colour on reload and
+        // got written into the note and synced.
         let uiColor = UIColor(color)
         var red: CGFloat = 0
         var green: CGFloat = 0
         var blue: CGFloat = 0
-        var alpha: CGFloat = 0
-        uiColor.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        var alpha: CGFloat = 1
+        let converted = uiColor.cgColor.converted(
+            to: CGColorSpace(name: CGColorSpace.sRGB)!,
+            intent: .defaultIntent,
+            options: nil
+        ).map(UIColor.init(cgColor:)) ?? uiColor
+        // getRed returns false for pattern colours; the zeroed components
+        // plus opaque alpha then give a defined black rather than garbage.
+        if !converted.getRed(&red, green: &green, blue: &blue, alpha: &alpha) {
+            red = 0; green = 0; blue = 0; alpha = 1
+        }
+        func channel(_ value: CGFloat) -> Int {
+            min(255, max(0, Int((value * 255).rounded())))
+        }
         return String(
             format: "%02X%02X%02X%02X",
-            Int(round(red * 255)),
-            Int(round(green * 255)),
-            Int(round(blue * 255)),
-            Int(round(alpha * 255))
+            channel(red), channel(green), channel(blue), channel(alpha)
         )
     }
 

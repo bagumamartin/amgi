@@ -146,9 +146,15 @@ private func parseMasks(from occlusions: String) -> [IOMask] {
     return result
 }
 
-private func parseIOProperties(from source: String) -> [String: String] {
+func parseIOProperties(from source: String) -> [String: String] {
+    // Anchor the key to the `:` token delimiter (or the start of the
+    // string). Matching a bare `([A-Za-z]+)=` treated any such sequence
+    // *inside a value* as the start of a new property, so a text mask
+    // reading "E=mc2" or "y=2x+1" — routine in a science deck — was cut at
+    // the `=`, the text was lost, and a bogus property was invented. The
+    // corrupted token was then written back into the note and synced.
     guard !source.isEmpty,
-          let regex = try? NSRegularExpression(pattern: "([A-Za-z]+)=") else {
+          let regex = try? NSRegularExpression(pattern: "(?:^|:)([A-Za-z]+)=") else {
         return [:]
     }
 
@@ -160,7 +166,10 @@ private func parseIOProperties(from source: String) -> [String: String] {
     for (index, match) in matches.enumerated() {
         let key = nsSource.substring(with: match.range(at: 1))
         let valueStart = match.range.location + match.range.length
-        let valueEnd = index + 1 < matches.count ? matches[index + 1].range.location - 1 : nsSource.length
+        // The next match now starts *at* its leading `:` (only the very
+        // first match can be `^`-anchored), so the delimiter is already
+        // excluded — no -1 here.
+        let valueEnd = index + 1 < matches.count ? matches[index + 1].range.location : nsSource.length
         guard valueEnd >= valueStart else { continue }
         let value = nsSource.substring(with: NSRange(location: valueStart, length: valueEnd - valueStart))
         properties[key] = value

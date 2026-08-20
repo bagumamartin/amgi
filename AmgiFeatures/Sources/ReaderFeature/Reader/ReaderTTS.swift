@@ -7,7 +7,11 @@ import Foundation
 /// the room. Language hint comes from the book's metadata when available;
 /// when missing, we sniff the text for Hangul/Kana/Han characters and
 /// pick a sensible voice.
-final class ReaderTTS: @unchecked Sendable {
+/// `AVSpeechSynthesizer` is not documented thread-safe and is
+/// main-thread-affine in practice, so this is isolated rather than
+/// `@unchecked Sendable`.
+@MainActor
+final class ReaderTTS {
     static let shared = ReaderTTS()
 
     private let synthesizer = AVSpeechSynthesizer()

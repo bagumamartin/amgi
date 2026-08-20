@@ -27,6 +27,16 @@ public func writeWidgetSnapshot() async {
         // 1. Fetch deck list
         let decks: [DeckInfo] = try await deckClient.fetchAll()
 
+        // Sweep in a defer so it still runs when a later step throws.
+        // As the last statement of the `do` it was skipped entirely on any
+        // failure, leaving the *previous* profile's deck names and due
+        // counts in the shared container to keep rendering on the lock
+        // screen after a profile switch.
+        defer {
+            WidgetSnapshotStore.removeSnapshots(notIn: Set([0] + decks.map(\.id.rawValue)))
+            WidgetCenter.shared.reloadAllTimelines()
+        }
+
         // 2. Fetch 28-day stats graph for streak + daily counts
         let graphs = try await statsClient.fetchGraphs("", 28)
 
@@ -99,12 +109,7 @@ public func writeWidgetSnapshot() async {
             try WidgetSnapshotStore.write(snapshot)
         }
 
-        // 7. Sweep snapshots for decks that no longer exist (deleted decks,
-        // other profiles) so the container mirrors the active collection.
-        WidgetSnapshotStore.removeSnapshots(notIn: Set([0] + decks.map(\.id.rawValue)))
-
-        // 8. Tell WidgetKit to reload all widget timelines
-        WidgetCenter.shared.reloadAllTimelines()
+        // 7+8. Sweep + timeline reload happen in the defer above.
     } catch {
         Log.widget.error("Failed: \(error)")
     }

@@ -1,5 +1,6 @@
 import AnkiRustLib
 import AnkiProto
+import Synchronization
 public import Foundation
 private import SwiftProtobuf
 
@@ -7,14 +8,20 @@ public final class AnkiBackend: Sendable {
     private let backendPtr: Int64
     private let lock = NSLock()
 
-    private nonisolated(unsafe) var mediaFolderPath: String?
+    /// Written during `openCollection` and read from arbitrary threads —
+    /// the card asset scheme handler and the watch's review screen among
+    /// them. A `Mutex` rather than `nonisolated(unsafe)` storage: the
+    /// previous unsynchronized `var` was a genuine data race on a `String?`
+    /// across a profile switch, and the annotation was suppressing the check
+    /// that would have said so.
+    private let mediaFolderStorage = Mutex<String?>(nil)
 
     /// Absolute path of the open collection's media folder, or nil if no
-    /// collection is currently open. Backed by `nonisolated(unsafe)` storage
-    /// that is set during `openCollection` and cleared during `close`. Safe to
-    /// read from any thread for the duration of an open collection, but callers
+    /// collection is currently open. Safe to read from any thread; callers
     /// must not assume stability across `close` / `openCollection` cycles.
-    public var currentMediaFolderPath: String? { mediaFolderPath }
+    public var currentMediaFolderPath: String? {
+        mediaFolderStorage.withLock { $0 }
+    }
 
     public init(preferredLangs: [String] = ["en"]) throws {
         var initMsg = Anki_Backend_BackendInit()
@@ -88,7 +95,7 @@ public final class AnkiBackend: Sendable {
         mediaFolderPath: String,
         mediaDbPath: String
     ) throws {
-        self.mediaFolderPath = mediaFolderPath
+        mediaFolderStorage.withLock { $0 = mediaFolderPath }
 
         var req = Anki_Collection_OpenCollectionRequest()
         req.collectionPath = collectionPath

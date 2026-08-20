@@ -168,6 +168,7 @@ private struct ServerSetupView: View {
     @Environment(\.palette) private var palette
     @Shared(.syncMode) private var syncMode
     @State private var url: String = KeychainHelper.loadEndpoint() ?? ""
+    @State private var endpointError: String?
     let onSave: () -> Void
 
     var body: some View {
@@ -193,7 +194,7 @@ private struct ServerSetupView: View {
                         .padding(.vertical, AmgiSpacing.md)
                         .frame(minHeight: 44)
                 }
-                SettingsFootnote("Enter the URL of your Anki-compatible sync server.")
+                SettingsFootnote(endpointError ?? "Enter the URL of your Anki-compatible sync server.")
 
                 SettingsGroup {
                     SettingsButtonRow(
@@ -223,15 +224,17 @@ private struct ServerSetupView: View {
 
 private extension ServerSetupView {
     func save() {
-        var normalized = trimmed
-        if !normalized.hasPrefix("http://") && !normalized.hasPrefix("https://") {
-            normalized = "https://" + normalized
+        do {
+            let normalized = try SyncEndpoint.normalized(trimmed)
+            try KeychainHelper.saveEndpoint(normalized)
+            endpointError = nil
+            $syncMode.withLock { $0 = .custom }
+            KeychainHelper.deleteHostKey()  // force re-auth on next sync
+            onSave()
+            dismiss()
+        } catch {
+            endpointError = error.localizedDescription
         }
-        try? KeychainHelper.saveEndpoint(normalized)
-        $syncMode.withLock { $0 = .custom }
-        KeychainHelper.deleteHostKey()  // force re-auth on next sync
-        onSave()
-        dismiss()
     }
 }
 

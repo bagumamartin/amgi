@@ -1,8 +1,14 @@
 public import Foundation
 public import SwiftUI
 
+/// Main-actor isolated rather than `@unchecked Sendable`: `themeID` and
+/// `appearance` are mutable, observable, and reachable from a global
+/// singleton, so the old annotation asserted a safety that wasn't there —
+/// and suppressed the one check that would have caught a cross-actor write
+/// corrupting the observation registrar.
+@MainActor
 @Observable
-public final class ThemeManager: @unchecked Sendable {
+public final class ThemeManager {
     public static let shared = ThemeManager()
 
     public var themeID: ThemeID {

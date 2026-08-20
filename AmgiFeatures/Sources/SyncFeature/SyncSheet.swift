@@ -1,3 +1,4 @@
+import AmgiUI
 public import SwiftUI
 import AmgiTheme
 import AmgiAppCore
@@ -483,6 +484,7 @@ private struct ServerSetupSheet: View {
     @Shared(.syncMode) private var syncMode
 
     @State private var serverURL: String = KeychainHelper.loadEndpoint() ?? ""
+    @State private var endpointError: String?
 
     var body: some View {
         NavigationStack {
@@ -492,6 +494,10 @@ private struct ServerSetupSheet: View {
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)
+                    if let endpointError {
+                        Text(endpointError)
+                            .amgiStatusText(.danger, font: .caption)
+                    }
                 } header: {
                     Text("Sync Server")
                 } footer: {
@@ -519,17 +525,19 @@ private struct ServerSetupSheet: View {
 
 private extension ServerSetupSheet {
     func save() {
-        var url = serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !url.hasPrefix("http://") && !url.hasPrefix("https://") {
-            url = "https://" + url
+        do {
+            let url = try SyncEndpoint.normalized(serverURL)
+            try KeychainHelper.saveEndpoint(url)
+            endpointError = nil
+            $syncMode.withLock { $0 = .custom }
+            // Clear existing auth since server changed
+            KeychainHelper.deleteHostKey()
+            KeychainHelper.deleteCurrentEndpoint()
+            isPresented = false
+            onComplete()
+        } catch {
+            endpointError = error.localizedDescription
         }
-        try? KeychainHelper.saveEndpoint(url)
-        $syncMode.withLock { $0 = .custom }
-        // Clear existing auth since server changed
-        KeychainHelper.deleteHostKey()
-        KeychainHelper.deleteCurrentEndpoint()
-        isPresented = false
-        onComplete()
     }
 }
 
