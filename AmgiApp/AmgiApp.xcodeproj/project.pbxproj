@@ -27,7 +27,6 @@
 		5197DE6744C39404AA7BCC59 /* AmgiCharts in Frameworks */ = {isa = PBXBuildFile; productRef = 16A0D6E4347ACFB21E40E615 /* AmgiCharts */; };
 		5206D53A52E116E129C0E956 /* AnkiSync in Frameworks */ = {isa = PBXBuildFile; productRef = 1D52A2C890DE8794E39904C4 /* AnkiSync */; };
 		556FBD2BE239FF491BAAECB2 /* BrowseFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 2F8EB1A41829323C618C55E2 /* BrowseFeature */; };
-		570828091E1FF534441427EA /* DebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B219D0FE129E5978B1B69180 /* DebugView.swift */; };
 		58CAEF6BE5C190FC9FE8D511 /* AmgiTheme in Frameworks */ = {isa = PBXBuildFile; productRef = DCE589747DD31E211851D79C /* AmgiTheme */; };
 		5AC7AEF49C47D4B2562630EC /* WatchDeckListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A60169056780E6B8795FACC7 /* WatchDeckListView.swift */; };
 		5F5B77D77DD4749D9539DE34 /* AmgiReviewCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8A765015A79B5CB13C813D22 /* AmgiReviewCore */; };
@@ -68,7 +67,6 @@
 		DE0DB0C2E15B0BFDE4E06947 /* DeckCountsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A6A2AFAF4DB553619328067 /* DeckCountsView.swift */; };
 		E45540503268E00A3CAC9B04 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2B60A11C277A30E8180CB0F1 /* WidgetKit.framework */; };
 		F207ABF52BCCFE464CB3A4E7 /* WatchDeckDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B53F4EE2614A1232A890203 /* WatchDeckDetailView.swift */; };
-		F20F8BB863FC78D7DCEF5D4B /* WatchThemeCompatibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F34C1C52CEF3B2E6F9C92E1 /* WatchThemeCompatibility.swift */; };
 		F37C1A973A4F933CE3C9B39C /* AmgiAppShared in Frameworks */ = {isa = PBXBuildFile; productRef = ACD15169111E238EEB55BFCB /* AmgiAppShared */; };
 /* End PBXBuildFile section */
 
@@ -114,7 +112,6 @@
 		3D443C314BCDE2081B6CF7B2 /* WatchStatsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchStatsView.swift; sourceTree = "<group>"; };
 		44792958B343213988DC8FFB /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		57514F10406A5930D1E01B7F /* WatchLoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchLoginView.swift; sourceTree = "<group>"; };
-		5F34C1C52CEF3B2E6F9C92E1 /* WatchThemeCompatibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchThemeCompatibility.swift; sourceTree = "<group>"; };
 		6FC065BB94EC4D03C744D66D /* AmgiUI */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AmgiUI; path = ../AmgiUI; sourceTree = SOURCE_ROOT; };
 		795E67571E8B9C7014F5A3E7 /* EPUBReader */ = {isa = PBXFileReference; lastKnownFileType = folder; name = EPUBReader; path = Resources/EPUBReader; sourceTree = SOURCE_ROOT; };
 		8194F942C511DFA83C0CB371 /* AmgiAppApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmgiAppApp.swift; sourceTree = "<group>"; };
@@ -125,19 +122,18 @@
 		A12D2167226A912462BF60EA /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A60169056780E6B8795FACC7 /* WatchDeckListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchDeckListView.swift; sourceTree = "<group>"; };
 		A745D7266B06FFE28B219996 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
-		A837EB0A30B6E90B20D5C1CD /* AmgiWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AmgiWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		B219D0FE129E5978B1B69180 /* DebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugView.swift; sourceTree = "<group>"; };
+		A837EB0A30B6E90B20D5C1CD /* AmgiWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = AmgiWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		BE8DDAC853DEF5B6112EB833 /* AmgiFeatures */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AmgiFeatures; path = ../AmgiFeatures; sourceTree = SOURCE_ROOT; };
 		C57E0A30A0C5B7FE232BF0C3 /* amgi */ = {isa = PBXFileReference; lastKnownFileType = folder; name = amgi; path = ..; sourceTree = SOURCE_ROOT; };
 		CAE0DE68DC7E04F773A57E14 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
-		DE61E854280804F08BB1DD31 /* AmgiApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AmgiApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DE61E854280804F08BB1DD31 /* AmgiApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = AmgiApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DEB7C216105220809180B8CF /* WatchContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchContentView.swift; sourceTree = "<group>"; };
 		E52A1F699FA8746826E4EAB0 /* AmgiWatchApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AmgiWatchApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FEF6D1A33091968455963805 /* AmgiAppTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AmgiAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		1B98150CA7E87F8DFC46FAE3 /* Exceptions for "Widgets" folder in "AmgiWidget" target */ = {
+		1B98150CA7E87F8DFC46FAE3 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -150,13 +146,23 @@
 		004874923745BECF98EEBD18 /* Widgets */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				1B98150CA7E87F8DFC46FAE3 /* Exceptions for "Widgets" folder in "AmgiWidget" target */,
+				1B98150CA7E87F8DFC46FAE3 /* PBXFileSystemSynchronizedBuildFileExceptionSet */,
 			);
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			name = Widgets;
 			path = Widgets;
 			sourceTree = "<group>";
 		};
 		70BB06347ADF26FA0276AD23 /* AmgiAppTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			name = AmgiAppTests;
 			path = AmgiAppTests;
 			sourceTree = "<group>";
 		};
@@ -254,7 +260,6 @@
 			children = (
 				8194F942C511DFA83C0CB371 /* AmgiAppApp.swift */,
 				44792958B343213988DC8FFB /* ContentView.swift */,
-				B219D0FE129E5978B1B69180 /* DebugView.swift */,
 				294159A0F3FE92450BEAEA05 /* DeckImportModifier.swift */,
 				A745D7266B06FFE28B219996 /* MainTabView.swift */,
 				843DF8545ED1E3A956981DB1 /* RetroactiveIdentifiable.swift */,
@@ -306,7 +311,6 @@
 				57514F10406A5930D1E01B7F /* WatchLoginView.swift */,
 				9761A12271BD9A8498A7B14E /* WatchReviewView.swift */,
 				3D443C314BCDE2081B6CF7B2 /* WatchStatsView.swift */,
-				5F34C1C52CEF3B2E6F9C92E1 /* WatchThemeCompatibility.swift */,
 			);
 			path = Watch;
 			sourceTree = "<group>";
@@ -456,6 +460,8 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+				};
 			};
 			buildConfigurationList = BC4A80AD6076C8423E530840 /* Build configuration list for PBXProject "AmgiApp" */;
 			developmentRegion = en;
@@ -529,7 +535,6 @@
 				31DFB8BCCF69A31D87858FFB /* WatchLoginView.swift in Sources */,
 				3D268B4CF0BCA67EC007563F /* WatchReviewView.swift in Sources */,
 				360BEED33A882BB8C8A9141A /* WatchStatsView.swift in Sources */,
-				F20F8BB863FC78D7DCEF5D4B /* WatchThemeCompatibility.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -539,7 +544,6 @@
 			files = (
 				BB3E89CDD647E53D949E751D /* AmgiAppApp.swift in Sources */,
 				73BED515464AA8C80C765BFF /* ContentView.swift in Sources */,
-				570828091E1FF534441427EA /* DebugView.swift in Sources */,
 				2F43663149BBF09CD9A48432 /* DeckImportModifier.swift in Sources */,
 				6C75D6E4500FC310A8EAE524 /* MainTabView.swift in Sources */,
 				49104EDF36126D6FEB4063F4 /* RetroactiveIdentifiable.swift in Sources */,
@@ -674,7 +678,6 @@
 				CLANG_CXX_LIBRARY = "libc++";
 				CODE_SIGN_ENTITLEMENTS = AmgiApp.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = WMWSB972VT;
 				INFOPLIST_FILE = Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -817,7 +820,6 @@
 				CLANG_CXX_LIBRARY = "libc++";
 				CODE_SIGN_ENTITLEMENTS = AmgiApp.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = WMWSB972VT;
 				INFOPLIST_FILE = Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -835,7 +837,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = AmgiWidget.entitlements;
-				DEVELOPMENT_TEAM = WMWSB972VT;
 				INFOPLIST_FILE = Sources/Widgets/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -852,7 +853,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = AmgiWidget.entitlements;
-				DEVELOPMENT_TEAM = WMWSB972VT;
 				INFOPLIST_FILE = Sources/Widgets/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
