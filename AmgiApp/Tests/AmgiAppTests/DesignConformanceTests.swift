@@ -75,14 +75,13 @@ struct DesignConformanceTests {
         "Watch/WatchLoginView.swift": watchExemptReason,
         "Watch/WatchReviewView.swift": watchExemptReason,
         "Watch/WatchStatsView.swift": watchExemptReason,
-        "Watch/WatchThemeCompatibility.swift": watchExemptReason,
     ]
 
     /// watchOS target (PR #14): the palette/ThemeManager pipeline is iOS-scoped;
-    /// the watch app ships its own compact HIG styling via WatchThemeCompatibility.
+    /// the watch app ships its own compact HIG styling inline.
     /// Palette adoption on watchOS is a design decision, not a conformance sweep.
     private static let watchExemptReason =
-        "watchOS target — palette/ThemeManager is iOS-scoped; watch uses WatchThemeCompatibility."
+        "watchOS target — palette/ThemeManager is iOS-scoped; watch styles inline."
 
     private static let bannedPatterns: [(name: String, regex: String)] = [
         ("Color.accentColor", #"Color\.accentColor|\.accentColor\b"#),
