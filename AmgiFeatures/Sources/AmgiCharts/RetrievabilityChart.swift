@@ -176,7 +176,8 @@ private extension RetrievabilityChart {
         proxy: ChartProxy,
         geometry: GeometryProxy
     ) {
-        let plotFrame = geometry[proxy.plotAreaFrame]
+        guard let plotFrameAnchor = proxy.plotFrame else { return }
+        let plotFrame = geometry[plotFrameAnchor]
         let plotX = value.location.x - plotFrame.origin.x
         guard plotX >= 0,
               plotX <= proxy.plotSize.width,

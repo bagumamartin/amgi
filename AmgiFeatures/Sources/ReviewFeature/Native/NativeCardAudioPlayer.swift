@@ -10,7 +10,7 @@ final class NativeCardAudioPlayer {
     private(set) var isPlaying = false
 
     private var player: AVQueuePlayer?
-    private var endObserver: NSObjectProtocol?
+    private var endObserver: (any NSObjectProtocol)?
 
     func play(files: [String], mediaFolder: URL?) {
         stop()

@@ -1,7 +1,7 @@
 public import AnkiKit
 public import Dependencies
 import DependenciesMacros
-public import Foundation
+import Foundation
 
 @DependencyClient
 public struct SyncClient: Sendable {

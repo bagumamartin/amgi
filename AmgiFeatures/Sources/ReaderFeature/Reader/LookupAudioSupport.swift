@@ -39,8 +39,8 @@ actor LookupAudioPlayer {
     static let shared = LookupAudioPlayer()
 
     private var player: AVPlayer?
-    private var playToEndObserver: NSObjectProtocol?
-    private var failedToEndObserver: NSObjectProtocol?
+    private var playToEndObserver: (any NSObjectProtocol)?
+    private var failedToEndObserver: (any NSObjectProtocol)?
 
     func play(url: URL, mode: LookupAudioPlaybackMode) {
         stopPlayback(deactivateSession: false)

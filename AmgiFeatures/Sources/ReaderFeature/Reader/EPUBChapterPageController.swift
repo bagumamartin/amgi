@@ -53,7 +53,7 @@ final class EPUBChapterPageController: UIViewController {
     /// its page count. Consumed and cleared inside the bridge.
     private(set) var pendingRestoreFraction: Double?
 
-    weak var pageDelegate: EPUBChapterPageControllerDelegate?
+    weak var pageDelegate: (any EPUBChapterPageControllerDelegate)?
 
     private var webView: WKWebView!
     private var bridge: ScriptBridge!

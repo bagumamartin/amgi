@@ -2,7 +2,7 @@ import SwiftUI
 import AmgiTheme
 import AmgiUI
 import AmgiCharts
-public import AnkiKit
+import AnkiKit
 
 /// Pure render-from-data half of the stats dashboard. Owns no dependencies
 /// and performs no loading, so every state previews by varying one argument.

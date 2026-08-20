@@ -68,7 +68,6 @@ public struct StudyReadingRec: View {
     private var textOverlay: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(data.title)
-                .amgiFont(.serifTitle)
                 .font(.system(size: 14, weight: .regular, design: .serif))
                 .foregroundStyle(.white)
                 .lineLimit(2)

@@ -134,7 +134,7 @@ final class DeckDetailModel {
         }
     }
 
-    func handleImport(_ result: Result<URL, Error>) async -> ImportOutcome {
+    func handleImport(_ result: Result<URL, any Error>) async -> ImportOutcome {
         switch result {
         case .success(let url):
             let ext = url.pathExtension.lowercased()

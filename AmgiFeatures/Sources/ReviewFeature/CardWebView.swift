@@ -373,16 +373,14 @@ private extension CardWebView {
     // Compiled once instead of per call. These are fixed patterns, and
     // `NSRegularExpression(pattern:)` parses and compiles the pattern every
     // time — three of those ran on each card render.
-    // `NSRegularExpression` is documented as thread-safe for matching, so the
-    // `unsafe` here is only about Swift not knowing that.
-    nonisolated(unsafe) private static let soundTagRegex = try? NSRegularExpression(
+    private static let soundTagRegex = try? NSRegularExpression(
         pattern: #"\[sound:([^\]]+)\]"#, options: []
     )
-    nonisolated(unsafe) private static let ttsTagRegex = try? NSRegularExpression(
+    private static let ttsTagRegex = try? NSRegularExpression(
         pattern: #"\[anki:tts([^\]]*)\](.*?)\[/anki:tts\]"#,
         options: [.dotMatchesLineSeparators, .caseInsensitive]
     )
-    nonisolated(unsafe) private static let scriptTagRegex = try? NSRegularExpression(
+    private static let scriptTagRegex = try? NSRegularExpression(
         pattern: #"<script\b([^>]*)>"#,
         options: [.caseInsensitive]
     )

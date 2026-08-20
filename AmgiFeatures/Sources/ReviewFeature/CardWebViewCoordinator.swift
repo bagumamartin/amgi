@@ -190,11 +190,11 @@ final class CardWebViewCoordinator: NSObject, WKNavigationDelegate, WKScriptMess
         }
     }
 
-    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
         print("[CardWebView] Navigation failed: \(error)")
     }
 
-    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
         print("[CardWebView] Provisional navigation failed: \(error)")
     }
 

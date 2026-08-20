@@ -177,7 +177,7 @@ struct EmptyCardsContent: View {
                 } label: {
                     HStack(alignment: .top, spacing: AmgiSpacing.sm) {
                         VStack(alignment: .leading, spacing: AmgiSpacing.xxs) {
-                            Text("Note id: \(entry.id)")
+                            Text("Note id: \(entry.id.rawValue)")
                                 .amgiFont(.body, .monospacedDigits)
                                 .foregroundStyle(palette.textPrimary)
                             Text("\(entry.emptyCards) of \(entry.totalCards) cards empty")

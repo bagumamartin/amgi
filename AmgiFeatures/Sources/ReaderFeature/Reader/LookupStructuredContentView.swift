@@ -146,7 +146,7 @@ struct LookupStructuredContentView: UIViewRepresentable {
 
         // MARK: WKURLSchemeHandler — dictionary-bundled media via image://
 
-        func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
+        func webView(_ webView: WKWebView, start urlSchemeTask: any WKURLSchemeTask) {
             guard let requestURL = urlSchemeTask.request.url,
                   let components = URLComponents(url: requestURL, resolvingAgainstBaseURL: false),
                   let dict = components.queryItems?.first(where: { $0.name == "dictionary" })?.value,
@@ -176,7 +176,7 @@ struct LookupStructuredContentView: UIViewRepresentable {
             }
         }
 
-        func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {}
+        func webView(_ webView: WKWebView, stop urlSchemeTask: any WKURLSchemeTask) {}
     }
 }
 

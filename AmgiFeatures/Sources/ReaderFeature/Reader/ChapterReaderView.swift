@@ -543,7 +543,7 @@ private struct ChapterWebView: UIViewRepresentable {
         let onTapLookup: ((String) -> Void)?
         let onSelectionForNote: ((String) -> Void)?
         private weak var webView: WKWebView?
-        private var selectionObserver: NSObjectProtocol?
+        private var selectionObserver: (any NSObjectProtocol)?
 
         init(
             progress: Binding<Double>,

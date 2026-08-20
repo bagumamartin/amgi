@@ -34,7 +34,7 @@ final class ReaderDictionarySettingsModel {
         }
     }
 
-    func handleImport(_ result: Result<[URL], Error>) {
+    func handleImport(_ result: Result<[URL], any Error>) {
         switch result {
         case .success(let urls):
             Task { await importArchives(urls) }

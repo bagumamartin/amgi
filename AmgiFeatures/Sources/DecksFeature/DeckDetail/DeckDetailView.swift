@@ -303,7 +303,7 @@ private extension DeckDetailView {
         }
     }
 
-    func runImport(_ result: Result<URL, Error>) async {
+    func runImport(_ result: Result<URL, any Error>) async {
         switch await model.handleImport(result) {
         case .success(let summary):
             destination = .alert(.info(summary))

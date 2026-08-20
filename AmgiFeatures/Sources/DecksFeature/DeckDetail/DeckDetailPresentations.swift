@@ -34,7 +34,7 @@ struct AlertImporterModifier: ViewModifier {
     let alertTitle: String
     let alertActions: (DeckDetailAlert) -> AnyView
     let alertMessage: (DeckDetailAlert) -> AnyView
-    let onImportResult: (Result<URL, Error>) -> Void
+    let onImportResult: (Result<URL, any Error>) -> Void
 
     func body(content: Content) -> some View {
         content

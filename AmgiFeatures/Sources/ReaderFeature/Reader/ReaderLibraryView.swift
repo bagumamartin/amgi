@@ -140,7 +140,7 @@ public struct ReaderLibraryView: View {
         }
     }
 
-    private func handleImport(result: Result<[URL], Error>) {
+    private func handleImport(result: Result<[URL], any Error>) {
         switch result {
         case .success(let urls):
             Task { await model.importEPUBs(urls, searchText: searchText, sortMode: sortMode) }
