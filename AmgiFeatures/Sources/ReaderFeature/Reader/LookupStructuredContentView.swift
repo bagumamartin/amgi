@@ -2,7 +2,7 @@ import AmgiReader
 import AmgiReaderDictionary
 import Dependencies
 import SwiftUI
-@preconcurrency import WebKit
+import WebKit
 
 /// Renders Yomitan-format structured glossaries via a self-sizing
 /// WKWebView that hosts the bundled `popup.js` renderer. The web layer
@@ -57,10 +57,12 @@ struct LookupStructuredContentView: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
+        coordinator.cancelAllSchemeTasks()
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "openLink")
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "lookupText")
     }
 
+    @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler, WKURLSchemeHandler {
         fileprivate var html: String = ""
         fileprivate weak var webView: WKWebView?
@@ -70,6 +72,9 @@ struct LookupStructuredContentView: UIViewRepresentable {
         private var dictionaryStyle: String
         private let onLookupRequested: ((String) -> Void)?
         private let loadMediaData: @Sendable (String, String) async throws -> Data
+        /// In-flight `image://` scheme tasks, keyed by task identity, so they
+        /// can be cancelled when WebKit stops them or the page goes away.
+        private var schemeTasks: [ObjectIdentifier: Task<Void, Never>] = [:]
 
         init(
             dictionary: String,
@@ -106,6 +111,8 @@ struct LookupStructuredContentView: UIViewRepresentable {
             self.glossaries = glossaries
             self.dictionaryStyle = dictionaryStyle
             html = next
+            // Reloading abandons any asset request the old page started.
+            cancelAllSchemeTasks()
             webView?.loadHTMLString(next, baseURL: nil)
         }
 
@@ -154,9 +161,15 @@ struct LookupStructuredContentView: UIViewRepresentable {
                 urlSchemeTask.didFailWithError(URLError(.badURL))
                 return
             }
-            Task {
+            let key = ObjectIdentifier(urlSchemeTask)
+            schemeTasks[key] = Task { [weak self] in
+                defer { self?.schemeTasks[key] = nil }
                 do {
-                    let data = try await loadMediaData(dict, mediaPath)
+                    let data = try await self?.loadMediaData(dict, mediaPath) ?? Data()
+                    // WebKit raises an uncatchable NSInternalInconsistency-
+                    // Exception if a stopped task is resumed, so re-check
+                    // cancellation immediately before every callback.
+                    guard self?.schemeTasks[key] != nil, !Task.isCancelled else { return }
                     guard !data.isEmpty else {
                         urlSchemeTask.didFailWithError(URLError(.fileDoesNotExist))
                         return
@@ -171,12 +184,24 @@ struct LookupStructuredContentView: UIViewRepresentable {
                     urlSchemeTask.didReceive(data)
                     urlSchemeTask.didFinish()
                 } catch {
+                    guard self?.schemeTasks[key] != nil, !Task.isCancelled else { return }
                     urlSchemeTask.didFailWithError(error)
                 }
             }
         }
 
-        func webView(_ webView: WKWebView, stop urlSchemeTask: any WKURLSchemeTask) {}
+        func webView(_ webView: WKWebView, stop urlSchemeTask: any WKURLSchemeTask) {
+            let key = ObjectIdentifier(urlSchemeTask)
+            schemeTasks.removeValue(forKey: key)?.cancel()
+        }
+
+        /// Cancels every in-flight scheme task. Called when the popup reloads
+        /// its HTML or the view is dismantled — both leave WebKit free to
+        /// stop the tasks underneath us.
+        func cancelAllSchemeTasks() {
+            for (_, task) in schemeTasks { task.cancel() }
+            schemeTasks.removeAll()
+        }
     }
 }
 
