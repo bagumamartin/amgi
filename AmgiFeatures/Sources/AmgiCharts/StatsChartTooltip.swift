@@ -1,8 +1,8 @@
-public import SwiftUI
+import SwiftUI
 import AmgiTheme
 import AmgiUI
 
-public struct StatsChartTooltip: View {
+struct StatsChartTooltip: View {
     let title: String
     let lines: [String]
 

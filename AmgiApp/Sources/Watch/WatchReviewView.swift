@@ -2,6 +2,7 @@ import AVFoundation
 import AnkiBackend
 import AnkiKit
 import Dependencies
+import AmgiCardWeb
 import SwiftUI
 import AmgiReviewCore
 
@@ -10,8 +11,8 @@ struct WatchReviewView: View {
     let onDismiss: () -> Void
     @State private var session: ReviewSession
     @State private var audioPlayer = AVQueuePlayer()
-    /// Computed once per card side instead of in `body`. `.stripped` runs
-    /// four whole-document regex passes, and body was re-evaluating it on
+    /// Computed once per card side instead of in `body`. Stripping runs
+    /// several whole-document regex passes, and body was re-evaluating it on
     /// every state change — including isAudioPlaying flips — on the slowest
     /// CPU in the project.
     @State private var strippedText: String = ""
@@ -37,7 +38,7 @@ struct WatchReviewView: View {
                             .multilineTextAlignment(.center)
                     }
                     .task(id: currentHTML) {
-                        strippedText = currentHTML.stripped
+                        strippedText = CardText.plainText(currentHTML)
                     }
                     if session.showAnswer {
                         HStack(spacing: 0) {
@@ -94,31 +95,14 @@ struct WatchReviewView: View {
             session.answer(rating: rating)
         }
     }
-    /// Compiled once. This was rebuilt on every audio tap.
-    private static let soundTagRegex = try? NSRegularExpression(
-        pattern: #"(?i)\[sound:(.+?)\]"#
-    )
-
     private func playAudio(from html: String) {
         @Dependency(\.ankiBackend) var backend
-        guard let mediaDir = backend.currentMediaFolderPath,
-              let regex = Self.soundTagRegex
-        else { return }
-        let items = regex.matches(in: html, range: NSRange(html.startIndex..., in: html)).compactMap { match -> AVPlayerItem? in
-            guard let range = Range(match.range(at: 1), in: html) else { return nil }
-            return AVPlayerItem(url: URL(fileURLWithPath: mediaDir).appendingPathComponent(String(html[range])))
+        guard let mediaDir = backend.currentMediaFolderPath else { return }
+        let items = CardText.soundFilenames(in: html).map { filename in
+            AVPlayerItem(url: URL(fileURLWithPath: mediaDir).appendingPathComponent(filename))
         }
         audioPlayer.removeAllItems()
         items.forEach { if audioPlayer.canInsert($0, after: nil) { audioPlayer.insert($0, after: nil) } }
         audioPlayer.play()
-    }
-}
-extension String {
-    fileprivate var stripped: String {
-        self.replacingOccurrences(of: "(?s)<style.*?>.*?</style>", with: "", options: .regularExpression)
-            .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-            .replacingOccurrences(of: #"\[sound:[^\]]+\]"#, with: "", options: .regularExpression)
-            .replacingOccurrences(of: #"\n\s*\n"#, with: "\n", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

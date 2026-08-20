@@ -167,11 +167,6 @@ struct WatchDeckListView: View {
     }
     // Sign-out no longer clears credentials; login is handled by the login view
 }
-extension DeckTreeNode {
-    func toDeckInfo() -> DeckInfo {
-        DeckInfo(id: self.id, name: self.fullName, counts: self.counts)
-    }
-}
 private struct WatchDeckRow: View {
     let node: DeckTreeNode
     let depth: Int
@@ -182,7 +177,7 @@ private struct WatchDeckRow: View {
     var body: some View {
         HStack {
             // Text content is left-aligned; chevron is right-aligned for collapsible nodes
-            NavigationLink(value: node.toDeckInfo()) {
+            NavigationLink(value: node.asDeckInfo) {
                 VStack(alignment: .leading) {
                     Text(node.name.trimmingCharacters(in: .whitespacesAndNewlines))
                         .font(.body)

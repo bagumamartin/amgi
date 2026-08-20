@@ -1,10 +1,10 @@
 import Foundation
 import os
 import SwiftUI
-public import AnkiKit
+import AnkiKit
 
 /// Manages incremental loading of heatmap data with configurable date range
-public actor HeatmapLoadingManager: Sendable {
+actor HeatmapLoadingManager: Sendable {
     // MARK: - Configuration
 
     /// Default number of days to load initially
@@ -19,7 +19,7 @@ public actor HeatmapLoadingManager: Sendable {
     private var currentVisibleDays: Int
     private var isExpanding = false
 
-    public init(defaultVisibleDays: Int = HeatmapLoadingManager.defaultInitialDays) {
+    init(defaultVisibleDays: Int = HeatmapLoadingManager.defaultInitialDays) {
         self.currentVisibleDays = defaultVisibleDays
     }
 
@@ -78,7 +78,7 @@ private extension HeatmapLoadingManager {
 
 // MARK: - Data Structures
 
-public struct ReviewCount: Sendable {
+struct ReviewCount: Sendable {
     public let learn: Int
     public let relearn: Int
     public let young: Int

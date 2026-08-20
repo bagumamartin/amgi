@@ -10,6 +10,9 @@ public extension UserDefaults {
     /// but not `Sendable`-conforming on this SDK. Required so the widget extension
     /// and watch app (non-main contexts) can read the same store.
     nonisolated(unsafe) static let amgiAppGroup: UserDefaults = {
+        // Must match AmgiAppCore.AppGroup.identifier and both .entitlements
+        // files. AmgiTheme is dependency-free on purpose, so it cannot
+        // import the canonical constant.
         let groupId = "group.com.amgiapp"
         return UserDefaults(suiteName: groupId) ?? .standard
     }()

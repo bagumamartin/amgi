@@ -1,6 +1,6 @@
 import Foundation
 
-public enum CardWebViewReplayMode: String, Sendable {
+enum CardWebViewReplayMode: String, Sendable {
     case question
     case answerOnly
     case answerWithQuestion

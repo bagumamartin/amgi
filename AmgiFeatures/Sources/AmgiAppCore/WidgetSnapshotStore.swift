@@ -1,7 +1,10 @@
 import Foundation
 
 public enum WidgetSnapshotStore {
-    public static let groupId = "group.com.amgiapp"
+    /// The app group shared by the app, the widget extension, and
+    /// AmgiTheme's defaults. Canonical definition — AmgiTheme cannot see
+    /// AmgiAppCore, so it reads this through AppGroup below.
+    public static let groupId = AppGroup.identifier
 
     public static func write(_ snapshot: WidgetSnapshot) throws {
         guard let url = fileURL(deckId: snapshot.deckId) else {
