@@ -3,6 +3,61 @@ import CHoshiDicts
 import Dependencies
 import Foundation
 
+/// Owns the `DictionaryQuery` / `Deinflector` / `Lookup` triple.
+///
+/// `Lookup`'s constructor takes `DictionaryQuery&` and `Deinflector&` and
+/// stores them as reference members (see `hoshidicts/lookup.hpp`), so both
+/// must outlive it **at a stable address**. Swift gives no such guarantee
+/// for a stored property: `Lookup(&someOptional!, ...)` force-unwraps into a
+/// temporary, passes *that* temporary's address, and writes back — leaving
+/// the C++ object holding references to storage destroyed the moment the
+/// initializing function returns.
+///
+/// Explicit allocation is what makes the addresses real and stable;
+/// `&pointer.pointee` is guaranteed to yield exactly `pointer`.
+private final class LookupEngineBox {
+    private let queryPtr: UnsafeMutablePointer<DictionaryQuery>
+    private let deinflectorPtr: UnsafeMutablePointer<Deinflector>
+    private let lookupPtr: UnsafeMutablePointer<Lookup>
+
+    init(termPaths: [String], frequencyPaths: [String], pitchPaths: [String]) {
+        queryPtr = UnsafeMutablePointer<DictionaryQuery>.allocate(capacity: 1)
+        queryPtr.initialize(to: DictionaryQuery())
+        deinflectorPtr = UnsafeMutablePointer<Deinflector>.allocate(capacity: 1)
+        deinflectorPtr.initialize(to: Deinflector())
+
+        for path in termPaths { queryPtr.pointee.add_term_dict(std.string(path)) }
+        for path in frequencyPaths { queryPtr.pointee.add_freq_dict(std.string(path)) }
+        for path in pitchPaths { queryPtr.pointee.add_pitch_dict(std.string(path)) }
+
+        lookupPtr = UnsafeMutablePointer<Lookup>.allocate(capacity: 1)
+        lookupPtr.initialize(to: Lookup(&queryPtr.pointee, &deinflectorPtr.pointee))
+    }
+
+    deinit {
+        // Reverse construction order: `Lookup` holds references into the
+        // other two, so it has to be destroyed before they are.
+        lookupPtr.deinitialize(count: 1)
+        lookupPtr.deallocate()
+        deinflectorPtr.deinitialize(count: 1)
+        deinflectorPtr.deallocate()
+        queryPtr.deinitialize(count: 1)
+        queryPtr.deallocate()
+    }
+
+    func lookup(_ query: String, maxResults: Int, scanLength: Int) -> [LookupResult] {
+        Array(lookupPtr.pointee.lookup(std.string(query), Int32(maxResults), scanLength))
+    }
+
+    func styles() -> [DictionaryStyle] {
+        Array(queryPtr.pointee.get_styles())
+    }
+
+    func mediaFile(dictionary: String, mediaPath: String) -> [CChar] {
+        Array(queryPtr.pointee.get_media_file(std.string(dictionary), std.string(mediaPath)))
+    }
+}
+
 /// Live engine binding. Internal so the `import CHoshiDicts` doesn't bleed
 /// Cxx-mode requirements into consumers' swiftinterface — only the
 /// public `+Live.swift` wires this up via `liveValue`.
@@ -51,9 +106,10 @@ actor DictionaryLookupRuntime {
     private var termDictionaries: [ManagedDictionary] = []
     private var frequencyDictionaries: [ManagedDictionary] = []
     private var pitchDictionaries: [ManagedDictionary] = []
-    private var dictQuery: DictionaryQuery?
-    private var deinflector: Deinflector?
-    private var lookupEngine: Lookup?
+    private var engine: LookupEngineBox?
+    /// In-flight profile load, so concurrent callers coalesce onto one
+    /// rebuild instead of racing across `reloadState`'s suspension points.
+    private var loadTask: Task<Void, any Error>?
 
     init(configStore: DictionaryConfigStore) {
         self.configStore = configStore
@@ -99,7 +155,7 @@ actor DictionaryLookupRuntime {
 
     func mediaFile(dictionary: String, mediaPath: String) async throws -> Data {
         try await ensureLoaded()
-        let bytes = dictQuery?.get_media_file(std.string(dictionary), std.string(mediaPath)) ?? []
+        let bytes = engine?.mediaFile(dictionary: dictionary, mediaPath: mediaPath) ?? []
         return Data(bytes.map { UInt8(bitPattern: $0) })
     }
 
@@ -211,34 +267,28 @@ actor DictionaryLookupRuntime {
     // MARK: - Engine
 
     private func performLookup(_ query: String, maxResults: Int, scanLength: Int) -> [LookupResult] {
-        Array(lookupEngine?.lookup(std.string(query), Int32(maxResults), scanLength) ?? [])
+        engine?.lookup(query, maxResults: maxResults, scanLength: scanLength) ?? []
     }
 
     private func loadStylesSync() -> [String: String] {
-        Array(dictQuery?.get_styles() ?? [])
+        (engine?.styles() ?? [])
             .reduce(into: [:]) { acc, style in
                 acc[String(style.dict_name)] = String(style.styles)
             }
     }
 
     private func rebuildLookupQuery() {
-        // Tear down in reverse-construction order so the C++ refs in
-        // `Lookup` drop before the things they point at.
-        lookupEngine = nil
-        deinflector = Deinflector()
-        dictQuery = DictionaryQuery()
+        // Assigning a fresh box drops the previous one, whose deinit tears
+        // the triple down in reverse-construction order.
+        engine = LookupEngineBox(
+            termPaths: enabledPaths(termDictionaries),
+            frequencyPaths: enabledPaths(frequencyDictionaries),
+            pitchPaths: enabledPaths(pitchDictionaries)
+        )
+    }
 
-        for d in termDictionaries where d.info.isEnabled {
-            dictQuery?.add_term_dict(std.string(d.path.path(percentEncoded: false)))
-        }
-        for d in frequencyDictionaries where d.info.isEnabled {
-            dictQuery?.add_freq_dict(std.string(d.path.path(percentEncoded: false)))
-        }
-        for d in pitchDictionaries where d.info.isEnabled {
-            dictQuery?.add_pitch_dict(std.string(d.path.path(percentEncoded: false)))
-        }
-
-        lookupEngine = Lookup(&dictQuery!, &deinflector!)
+    private func enabledPaths(_ dictionaries: [ManagedDictionary]) -> [String] {
+        dictionaries.filter(\.info.isEnabled).map { $0.path.path(percentEncoded: false) }
     }
 
     @discardableResult
@@ -265,9 +315,22 @@ actor DictionaryLookupRuntime {
 
     private func ensureLoaded() async throws {
         let profileID = currentProfileID()
-        if activeProfileID != profileID {
-            try await reloadState(for: profileID)
+        if activeProfileID == profileID { return }
+
+        // `reloadState` suspends twice (loadConfig, saveConfig). Without
+        // coalescing, two callers that both observed a stale profile would
+        // interleave across those suspensions and rebuild the C++ triple
+        // concurrently — the exact non-atomic teardown this type exists to
+        // prevent. Wait on any in-flight load first, then re-check.
+        if let inFlight = loadTask {
+            try await inFlight.value
+            if activeProfileID == profileID { return }
         }
+
+        let task = Task { try await self.reloadState(for: profileID) }
+        loadTask = task
+        defer { loadTask = nil }
+        try await task.value
     }
 
     private func reloadState(for profileID: String) async throws {
