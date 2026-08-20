@@ -1,3 +1,5 @@
+import OSLog
+import AmgiAppCore
 import AmgiAppShared
 import AmgiReader
 import AmgiUI
@@ -78,7 +80,7 @@ final class StudyLandingModel {
 
             contentState = .loaded(summary: summary, decks: deckRows, readingRecs: readingRecs)
         } catch {
-            print("[StudyLandingModel] Error loading: \(error)")
+            Log.reader.error("Error loading: \(error)")
             contentState = .empty
         }
     }

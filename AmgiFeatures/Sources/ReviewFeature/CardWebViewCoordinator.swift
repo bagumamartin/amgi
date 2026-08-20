@@ -1,3 +1,5 @@
+import OSLog
+import AmgiAppCore
 import Foundation
 import WebKit
 import UIKit
@@ -185,17 +187,17 @@ final class CardWebViewCoordinator: NSObject, WKNavigationDelegate, WKScriptMess
         self.pendingUpdateScript = nil
         webView.evaluateJavaScript(pendingUpdateScript) { _, error in
             if let error {
-                print("[CardWebView] evaluateJavaScript error: \(error)")
+                Log.review.error("evaluateJavaScript error: \(error)")
             }
         }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
-        print("[CardWebView] Navigation failed: \(error)")
+        Log.review.error("Navigation failed: \(error)")
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
-        print("[CardWebView] Provisional navigation failed: \(error)")
+        Log.review.error("Provisional navigation failed: \(error)")
     }
 
 }

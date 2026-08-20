@@ -68,6 +68,17 @@ public struct ReviewView: View {
             ReviewAudioSession.apply(playInSilent: playAudioInSilentMode)
             session.start()
         }
+        .alert(
+            "Couldn't save that review",
+            isPresented: Binding(
+                get: { session.answerError != nil },
+                set: { if !$0 { session.answerError = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) { session.answerError = nil }
+        } message: {
+            Text(session.answerError ?? "")
+        }
         .onChange(of: playAudioInSilentMode) { _, newValue in
             ReviewAudioSession.apply(playInSilent: newValue)
         }

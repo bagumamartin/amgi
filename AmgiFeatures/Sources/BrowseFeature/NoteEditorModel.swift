@@ -1,3 +1,5 @@
+import OSLog
+import AmgiAppCore
 import AnkiBackend
 import AnkiKit
 import AnkiClients
@@ -40,7 +42,7 @@ final class NoteEditorModel {
             let notetype = try await backendOffload { try service.getNotetype(mid) }
             fieldNames = notetype.fieldNames
         } catch {
-            print("[NoteEditorModel] Error loading notetype: \(error)")
+            Log.browse.error("Error loading notetype: \(error)")
         }
 
         fieldValues = note.flds

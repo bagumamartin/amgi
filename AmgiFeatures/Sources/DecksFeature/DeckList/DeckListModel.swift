@@ -1,3 +1,4 @@
+import OSLog
 import AmgiUI
 import AmgiAppCore
 import AmgiAppShared
@@ -31,7 +32,7 @@ final class DeckListModel {
             let (hero, heatmap) = await buildHeroAndHeatmap(rows: rows)
             state = .loaded(rows: rows.map(\.viewData), hero: hero, heatmap: heatmap)
         } catch {
-            print("[DeckListModel] Error loading decks: \(error)")
+            Log.decks.error("Error loading decks: \(error)")
             state = .empty
         }
     }
@@ -41,7 +42,7 @@ final class DeckListModel {
             let changes = try await deckClient.delete(id)
             store.apply(changes)   // generation bump → the view's .task(id:) reloads
         } catch {
-            print("[DeckListModel] Delete failed: \(error)")
+            Log.decks.error("Delete failed: \(error)")
             await load()           // error path: no invalidation happened, reload manually
         }
     }
@@ -73,7 +74,10 @@ private extension DeckListModel {
     func buildHeroAndHeatmap(rows: [DeckListRow]) async -> (HeroData, HeatmapCardData) {
         let totalDue = rows.reduce(0) { $0 + $1.counts.total }
         let deckCount = rows.count
-        guard let graphs = try? await statsClient.fetchGraphs("", 365) else {
+        // Window the streak over the same range we fetch, or the default
+        // 28 silently caps a year's worth of data at 28 days.
+        let graphDays = 365
+        guard let graphs = try? await statsClient.fetchGraphs("", graphDays) else {
             return (
                 HeroData(
                     totalDue: totalDue,
@@ -88,7 +92,7 @@ private extension DeckListModel {
         let hero = HeroData(
             totalDue: totalDue,
             deckCount: deckCount,
-            streak: StreakCalculator.streak(reviews: reviewCounts),
+            streak: StreakCalculator.streak(reviews: reviewCounts, window: graphDays),
             last14Days: StreakCalculator.lastNDaysTotals(reviews: reviewCounts, days: 14)
         )
         return (hero, Self.buildHeatmap(reviews: reviewCounts))

@@ -1,3 +1,4 @@
+import OSLog
 import AmgiAppCore
 import AnkiClients
 import AnkiKit
@@ -105,7 +106,7 @@ public func writeWidgetSnapshot() async {
         // 8. Tell WidgetKit to reload all widget timelines
         WidgetCenter.shared.reloadAllTimelines()
     } catch {
-        print("[writeWidgetSnapshot] Failed: \(error)")
+        Log.widget.error("Failed: \(error)")
     }
 }
 
@@ -135,8 +136,5 @@ private func forecastDays(
 
 /// Anki search string matching one deck (and its subdecks) by name.
 private func deckSearch(_ name: String) -> String {
-    let escaped = name
-        .replacingOccurrences(of: "\\", with: "\\\\")
-        .replacingOccurrences(of: "\"", with: "\\\"")
-    return "deck:\"\(escaped)\""
+    DeckSearch.term(name)
 }

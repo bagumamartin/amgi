@@ -91,7 +91,7 @@ struct WatchStatsView: View {
     }
     private func loadStats() async {
         do {
-            let search = selectedDeck.map { "deck:\"\($0.name)\"" } ?? ""
+            let search = selectedDeck.map { DeckSearch.term($0.name) } ?? ""
             let graphs = try await statsClient.fetchGraphs(search, period.days)
             guard !Task.isCancelled else { return }
             state = .loaded(graphs)

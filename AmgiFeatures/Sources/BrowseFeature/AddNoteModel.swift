@@ -1,3 +1,5 @@
+import OSLog
+import AmgiAppCore
 import AmgiAppShared
 import AnkiBackend
 import AnkiKit
@@ -66,7 +68,7 @@ final class AddNoteModel {
                 await loadFields()
             }
         } catch {
-            print("[AddNote] Error loading notetypes: \(error)")
+            Log.browse.error("Error loading notetypes: \(error)")
         }
 
         if let initialDraft, !initialDraft.tags.isEmpty {
@@ -89,7 +91,7 @@ final class AddNoteModel {
                 initialDraft?.fieldValues[name] ?? ""
             }
         } catch {
-            print("[AddNote] Error loading fields: \(error)")
+            Log.browse.error("Error loading fields: \(error)")
         }
     }
 

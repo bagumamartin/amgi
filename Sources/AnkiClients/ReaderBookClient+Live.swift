@@ -64,10 +64,7 @@ private func validatedDeckQuery(_ deckName: String) throws -> String {
     guard !trimmed.isEmpty else {
         throw BackendError(kind: .invalidInput, message: "Reader deck name can't be empty")
     }
-    let escaped = trimmed
-        .replacingOccurrences(of: "\\", with: "\\\\")
-        .replacingOccurrences(of: "\"", with: "\\\"")
-    return "deck:\"\(escaped)\""
+    return DeckSearch.term(trimmed)
 }
 
 // MARK: - Book assembly

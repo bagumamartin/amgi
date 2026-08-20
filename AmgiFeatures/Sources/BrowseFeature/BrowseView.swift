@@ -96,6 +96,17 @@ public struct BrowseView: View {
         .sheet(isPresented: $destination.addImageOcclusion) {
             AddImageOcclusionNoteView { Task { await model.performSearch() } }
         }
+        .alert(
+            "Some changes didn't apply",
+            isPresented: Binding(
+                get: { model.errorMessage != nil },
+                set: { if !$0 { model.errorMessage = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) { model.errorMessage = nil }
+        } message: {
+            Text(model.errorMessage ?? "")
+        }
         .sheet(isPresented: $destination.batchTag) {
             BatchTagSheet(noteIDs: selectionState.selectedNoteIDs) {
                 Task {

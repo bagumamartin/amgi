@@ -1,3 +1,5 @@
+import OSLog
+import AmgiAppCore
 import Foundation
 import AmgiAppShared
 import AmgiUI
@@ -51,7 +53,7 @@ final class DeckDetailModel {
         do {
             counts = try await deckClient.countsForDeck(deck.id)
         } catch {
-            print("[DeckDetail] Error loading counts for '\(deck.name)': \(error)")
+            Log.decks.error("Error loading counts for deck \(self.deck.id.rawValue): \(error)")
             counts = .zero
         }
         hasLoaded = true
@@ -75,7 +77,7 @@ final class DeckDetailModel {
         let isEmpty = counts.total == 0 && childDecks.isEmpty
         statsTask = Task { [weak self, statsClient] in
             // search syntax matches the Anki desktop "deck:" filter.
-            let search = "deck:\"\(deckName)\""
+            let search = DeckSearch.term(deckName)
             let graphs = try? await statsClient.fetchGraphs(search, 30)
             guard !Task.isCancelled, let self else { return }
             if let graphs {

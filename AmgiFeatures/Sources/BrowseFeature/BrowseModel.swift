@@ -1,9 +1,11 @@
+import AmgiAppCore
 import AnkiClients
 import AnkiBackend
 import AnkiKit
 import AnkiServices
 import Dependencies
 import Foundation
+import OSLog
 
 /// Data state + load/search/mutation logic for the Browse screen. Mirrors
 /// `DeckListModel`: the View owns navigation, sheets, selection, and the
@@ -14,6 +16,8 @@ import Foundation
 @MainActor
 final class BrowseModel {
     var searchText = ""
+    /// Surfaced when a batch mutation partially or wholly fails.
+    var errorMessage: String?
     var allNotes: [NoteRecord] = []
     var notes: [NoteRecord] = [] {
         didSet { if !isPatchingInPlace { resort() } }
@@ -213,27 +217,47 @@ final class BrowseModel {
     // MARK: - Mutations
 
     func delete(_ id: NoteID) async {
-        try? await noteClient.delete(id)
-        await performSearch()
+        await runBatch("delete", over: [id]) { try await self.noteClient.delete($0) }
     }
 
     func suspendSelected(_ noteIDs: Set<NoteID>) async {
-        for id in await collectCardIDs(for: noteIDs) {
-            try? await cardClient.suspend(id)
-        }
-        await performSearch()
+        let cardIDs = await collectCardIDs(for: noteIDs)
+        await runBatch("suspend", over: cardIDs) { try await self.cardClient.suspend($0) }
     }
 
     func flagSelected(_ noteIDs: Set<NoteID>, value: UInt32) async {
-        for id in await collectCardIDs(for: noteIDs) {
-            try? await cardClient.flag(id, value)
-        }
-        await performSearch()
+        let cardIDs = await collectCardIDs(for: noteIDs)
+        await runBatch("flag", over: cardIDs) { try await self.cardClient.flag($0, value) }
     }
 
     func deleteSelected(_ noteIDs: Set<NoteID>) async {
-        for id in noteIDs {
-            try? await noteClient.delete(id)
+        await runBatch("delete", over: Array(noteIDs)) { try await self.noteClient.delete($0) }
+    }
+
+    /// Applies `work` to every id, counting failures rather than discarding
+    /// them. These were `try?` per item, so in a multi-select batch an
+    /// arbitrary subset could fail with zero feedback — the user believed
+    /// 100 notes were deleted when some were not.
+    private func runBatch<ID>(
+        _ verb: String,
+        over ids: [ID],
+        _ work: (ID) async throws -> Void
+    ) async {
+        var failures = 0
+        var firstError: String?
+        for id in ids {
+            do {
+                try await work(id)
+            } catch {
+                failures += 1
+                if firstError == nil { firstError = error.localizedDescription }
+                Log.browse.error("Batch \(verb) failed for one item: \(error)")
+            }
+        }
+        if failures > 0 {
+            errorMessage = failures == ids.count
+                ? "Couldn't \(verb) \(failures == 1 ? "that item" : "those \(failures) items"): \(firstError ?? "unknown error")"
+                : "\(failures) of \(ids.count) items couldn't be \(verb)d: \(firstError ?? "unknown error")"
         }
         await performSearch()
     }
@@ -243,7 +267,7 @@ final class BrowseModel {
     func buildQuery() -> String {
         var parts: [String] = []
         if let deck = activeDeck {
-            parts.append("deck:\"\(deck.name)\"")
+            parts.append(DeckSearch.term(deck.name))
         }
         if let tag = activeTag {
             parts.append("tag:\"\(tag)\"")

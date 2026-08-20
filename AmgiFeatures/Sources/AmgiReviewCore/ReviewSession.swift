@@ -1,3 +1,4 @@
+import OSLog
 public import SwiftUI
 import AmgiAppCore
 #if canImport(UIKit)
@@ -66,8 +67,11 @@ public final class ReviewSession {
     /// in flight off the main actor. The view disables the answer + reveal
     /// buttons while set so a transition can't be re-entered mid-flight.
     public private(set) var isAdvancing: Bool = false
+    /// Set when answering a card fails. The card stays at the head of the
+    /// queue so the user can retry rather than silently losing the review.
+    public var answerError: String?
 
-    private var reviewStartTime: Date = .now
+    private var reviewStartTime: ContinuousClock.Instant = .now
     private var cardQueue: [QueuedReviewCard] = []
     /// Full notetypes fetched for template names; keyed by notetype id and
     /// kept for the session so each notetype is fetched once.
@@ -91,7 +95,7 @@ public final class ReviewSession {
     }
 
     public var currentCardOrdinal: UInt32 {
-        UInt32(currentQueuedCard?.card.ord ?? 0)
+        UInt32(max(0, currentQueuedCard?.card.ord ?? 0))
     }
 
     public struct TemplateTarget: Identifiable, Equatable, Sendable {
@@ -117,7 +121,7 @@ public final class ReviewSession {
     /// index (0 = none, 1–7 = red/orange/green/blue/pink/cyan/purple).
     /// Mirrors the masking convention used by `cardClient.getCardFlags`.
     var currentFlag: UInt32 {
-        UInt32(currentQueuedCard?.card.flags ?? 0) & 0b111
+        UInt32(max(0, currentQueuedCard?.card.flags ?? 0)) & 0b111
     }
 
     // MARK: - Init
@@ -155,10 +159,10 @@ public final class ReviewSession {
                     learnCount: queue.learningCount,
                     reviewCount: queue.reviewCount
                 )
-                print("[ReviewSession] Started with \(cardQueue.count) cards, counts: new=\(queue.newCount) learn=\(queue.learningCount) review=\(queue.reviewCount)")
+                Log.review.info("Started with \(self.cardQueue.count) cards, counts: new=\(queue.newCount) learn=\(queue.learningCount) review=\(queue.reviewCount)")
                 await advanceToNextCard(notes: notes, notetypes: notetypes, notetypesClient: notetypesClient, cardRendering: cardRendering)
             } catch {
-                print("[ReviewSession] Start failed: \(error)")
+                Log.review.error("Start failed: \(error)")
                 isFinished = true
             }
         }
@@ -177,7 +181,14 @@ public final class ReviewSession {
         guard !isAdvancing, let queued = currentQueuedCard else { return }
         isAdvancing = true
 
-        let timeSpent = UInt32(Date.now.timeIntervalSince(reviewStartTime) * 1000)
+        // ContinuousClock, not Date: a backwards wall-clock adjustment
+        // (NTP correction, manual change) mid-review made this negative,
+        // and UInt32(negative) traps. Clamped as well, since a card left
+        // open for ~49.7 days would overflow.
+        let elapsed = reviewStartTime.duration(to: .now)
+        let elapsedMs = elapsed.components.seconds * 1000
+            + elapsed.components.attoseconds / 1_000_000_000_000_000
+        let timeSpent = UInt32(min(max(elapsedMs, 0), Int64(UInt32.max)))
         let cardId = queued.card.id
         let states = queued.states
         let scheduler = self.scheduler
@@ -197,6 +208,7 @@ public final class ReviewSession {
                     return try scheduler.getQueuedCards(200)
                 }.value
 
+                answerError = nil
                 sessionStats.reviewed += 1
                 if rating != .again { sessionStats.correct += 1 }
                 sessionStats.totalTimeMs += Int(timeSpent)
@@ -211,9 +223,13 @@ public final class ReviewSession {
                 )
                 await advanceToNextCard(notes: notes, notetypes: notetypes, notetypesClient: notetypesClient, cardRendering: cardRendering)
             } catch {
-                print("[ReviewSession] Answer failed: \(error)")
-                if !cardQueue.isEmpty { cardQueue.removeFirst() }
-                await advanceToNextCard(notes: notes, notetypes: notetypes, notetypesClient: notetypesClient, cardRendering: cardRendering)
+                // Do NOT drop the card. Silently removing it from the queue
+                // and advancing meant the review was never recorded, the
+                // card was skipped for the session, remainingCounts drifted
+                // permanently from the backend's, and the user saw an
+                // entirely normal advance.
+                Log.review.error("Answer failed: \(error)")
+                answerError = error.localizedDescription
             }
         }
     }
@@ -240,10 +256,16 @@ public final class ReviewSession {
 
                 canUndo = false
                 undoneCount += 1
-                // Roll back session stats
-                sessionStats.reviewed -= 1
-                if let last = lastRating, last != .again {
-                    sessionStats.correct -= 1
+                // Roll back session stats only if the operation we just
+                // undid was actually an answer. undoLast() undoes the last
+                // *collection* operation, and a note edit is reachable from
+                // this screen (refreshAfterEdit) — decrementing regardless
+                // drove the counters below their true value, and negative.
+                if let last = lastRating {
+                    sessionStats.reviewed = max(0, sessionStats.reviewed - 1)
+                    if last != .again {
+                        sessionStats.correct = max(0, sessionStats.correct - 1)
+                    }
                 }
                 lastRating = nil
 
@@ -255,7 +277,7 @@ public final class ReviewSession {
                 )
                 await advanceToNextCard(notes: notes, notetypes: notetypes, notetypesClient: notetypesClient, cardRendering: cardRendering)
             } catch {
-                print("[ReviewSession] Undo failed: \(error)")
+                Log.review.error("Undo failed: \(error)")
             }
         }
     }
@@ -285,7 +307,7 @@ public final class ReviewSession {
         do {
             currentNote = try notes.getNote(queued.card.nid)
         } catch {
-            print("[ReviewSession] refreshAfterEdit getNote failed: \(error)")
+            Log.review.error("refreshAfterEdit getNote failed: \(error)")
         }
 
         do {
@@ -311,7 +333,7 @@ public final class ReviewSession {
                 backHTML = renderedBackHTML
             }
         } catch {
-            print("[ReviewSession] refreshAfterEdit render failed: \(error)")
+            Log.review.error("refreshAfterEdit render failed: \(error)")
         }
         reresolveCurrentCard()
     }
@@ -401,7 +423,7 @@ private extension ReviewSession {
             let wrapped = "<div style=\"font-family: '\(state.fontName)'; font-size: \(state.fontSize)px\">\(diff)</div>"
             return renderedBackHTML.replacingOccurrences(of: state.placeholder, with: wrapped)
         } catch {
-            print("[ReviewSession] compareAnswer failed: \(error)")
+            Log.review.error("compareAnswer failed: \(error)")
             return renderedBackHTML.replacingOccurrences(of: state.placeholder, with: "")
         }
     }
@@ -486,7 +508,7 @@ private func prepareCard(
     do {
         note = try notes.getNote(queued.card.nid)
     } catch {
-        print("[ReviewSession] getNote failed: \(error)")
+        Log.review.error("getNote failed: \(error)")
         note = nil
     }
 
@@ -531,7 +553,7 @@ private func prepareCard(
                 renderedBack: rendered.backHTML,
                 css: rendered.cardCSS
             ) ?? "engine preference (global: \(prefs.global.rawValue), override: \(prefs.override?.rawValue ?? "none"))"
-            print("[ReviewSession] card \(queued.card.id.rawValue) → HTML: \(issue); front=\(String(rendered.frontHTML.prefix(200)))")
+            Log.review.debug("card \(queued.card.id.rawValue) → HTML: \(issue)")
         }
         return PreparedCard(
             note: note,
@@ -546,7 +568,7 @@ private func prepareCard(
             notetype: fetchedNotetype
         )
     } catch {
-        print("[ReviewSession] Render failed for card \(queued.card.id): \(error)")
+        Log.review.error("Render failed for card \(queued.card.id.rawValue): \(error)")
         return PreparedCard(
             note: note,
             renderedFrontHTML: "<p>Error rendering card</p>",
@@ -573,7 +595,7 @@ private func resolveTypedAnswerState(
 ) -> TypedAnswerState? {
     guard let placeholder = firstTypedAnswerPlaceholder(
         in: frontHTML,
-        cardOrdinal: UInt32(queued.card.ord)
+        cardOrdinal: UInt32(max(0, queued.card.ord))
     ) else {
         return nil
     }
@@ -615,7 +637,7 @@ private func resolveTypedAnswerState(
             fontSize: field.fontSize
         )
     } catch {
-        print("[ReviewSession] Typed answer resolution failed for card \(queued.card.id): \(error)")
+        Log.review.error("Typed answer resolution failed for card \(queued.card.id.rawValue): \(error)")
         return nil
     }
 }

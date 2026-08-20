@@ -60,7 +60,7 @@ public struct StatsDashboardView: View {
 private extension StatsDashboardView {
     /// Bridge the view's filter state into the model's stats load.
     func reloadStats() async {
-        let search = selectedDeck.map { "deck:\"\($0.name)\"" } ?? ""
+        let search = selectedDeck.map { DeckSearch.term($0.name) } ?? ""
         await model.loadStats(search: search, days: period.days)
     }
 }
