@@ -1,3 +1,4 @@
+import AmgiTheme
 import AmgiAppCore
 import OSLog
 import Foundation
@@ -205,7 +206,7 @@ final class EPUBChapterPageController: UIViewController {
     }
 
     fileprivate func applyHostBackgroundColor() {
-        let cgColor = UIColor.color(fromHex: styleTokens.background) ?? .systemBackground
+        let cgColor = UIColor(amgiHex: styleTokens.background) ?? .systemBackground
         webView.backgroundColor = cgColor
         webView.scrollView.backgroundColor = cgColor
         view.backgroundColor = cgColor
@@ -470,30 +471,3 @@ private extension ScriptBridge {
     }
 }
 
-// MARK: - Hex → UIColor
-
-extension UIColor {
-    /// Parse "#RRGGBB" or "#RRGGBBAA" (case-insensitive) into a UIColor.
-    /// Returns nil for malformed input — caller falls back to a system
-    /// colour to avoid a white flash.
-    static func color(fromHex hex: String) -> UIColor? {
-        var trimmed = hex.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.hasPrefix("#") { trimmed.removeFirst() }
-        guard let value = UInt64(trimmed, radix: 16) else { return nil }
-        switch trimmed.count {
-        case 6:
-            let r = CGFloat((value & 0xFF0000) >> 16) / 255
-            let g = CGFloat((value & 0x00FF00) >> 8) / 255
-            let b = CGFloat(value & 0x0000FF) / 255
-            return UIColor(red: r, green: g, blue: b, alpha: 1)
-        case 8:
-            let r = CGFloat((value & 0xFF000000) >> 24) / 255
-            let g = CGFloat((value & 0x00FF0000) >> 16) / 255
-            let b = CGFloat((value & 0x0000FF00) >> 8) / 255
-            let a = CGFloat(value & 0x000000FF) / 255
-            return UIColor(red: r, green: g, blue: b, alpha: a)
-        default:
-            return nil
-        }
-    }
-}

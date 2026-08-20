@@ -51,6 +51,15 @@ struct DesignConformanceTests {
         "BrowseFeature/OcclusionCanvasView.swift":
             "ImageOcclusion UIKit canvas: mask/handle fills are drawing state, not app chrome. " +
             "Chrome radii were fixed; canvas fills are the exempt part.",
+        "BrowseFeature/OcclusionCanvasUIView.swift":
+            "ImageOcclusion UIKit canvas: mask/handle fills are drawing state, not app chrome. " +
+            "Chrome radii were fixed; canvas fills are the exempt part.",
+        "BrowseFeature/OcclusionCanvasUIView+Drawing.swift":
+            "ImageOcclusion UIKit canvas: mask/handle fills are drawing state, not app chrome. " +
+            "Chrome radii were fixed; canvas fills are the exempt part.",
+        "BrowseFeature/OcclusionCanvasUIView+Geometry.swift":
+            "ImageOcclusion UIKit canvas: mask/handle fills are drawing state, not app chrome. " +
+            "Chrome radii were fixed; canvas fills are the exempt part.",
         "BrowseFeature/ZoomableOcclusionCanvasView.swift":
             "ImageOcclusion canvas scroll container: the neutral backing colour is set from a " +
             "UIKit init where the SwiftUI palette isn't reachable.",
