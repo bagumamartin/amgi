@@ -112,8 +112,11 @@ private extension OnboardingView {
     }
 }
 
+#if DEBUG
+
 // MARK: - Preview
 
 #Preview {
     OnboardingView()
 }
+#endif

@@ -70,8 +70,11 @@ private extension LoginSheet {
     }
 }
 
+#if DEBUG
+
 // MARK: - Preview
 
 #Preview {
     LoginSheet(isPresented: .constant(true), onSuccess: {})
 }
+#endif

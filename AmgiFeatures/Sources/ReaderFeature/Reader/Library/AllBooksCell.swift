@@ -34,6 +34,8 @@ struct AllBooksCell: View {
     }
 }
 
+#if DEBUG
+
 #Preview {
     AllBooksCell(
         item: BookCellItem(
@@ -47,3 +49,4 @@ struct AllBooksCell: View {
     .frame(width: 110)
     .padding()
 }
+#endif

@@ -52,6 +52,8 @@ struct ContinueReadingCard: View {
     }
 }
 
+#if DEBUG
+
 #Preview {
     ContinueReadingCard(
         item: ContinueReadingItem(
@@ -65,3 +67,4 @@ struct ContinueReadingCard: View {
     )
     .padding()
 }
+#endif

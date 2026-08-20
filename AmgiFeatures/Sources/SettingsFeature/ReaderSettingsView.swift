@@ -430,8 +430,11 @@ extension ReaderThemeMode {
     }
 }
 
+#if DEBUG
+
 // MARK: - Preview
 
 #Preview {
     NavigationStack { ReaderSettingsView() }
 }
+#endif

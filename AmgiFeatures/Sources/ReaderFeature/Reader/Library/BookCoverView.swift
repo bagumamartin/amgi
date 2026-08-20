@@ -24,6 +24,8 @@ struct BookCoverView: View {
     }
 }
 
+#if DEBUG
+
 #Preview("Placeholder fallback") {
     BookCoverView(
         coverArt: .none,
@@ -35,3 +37,4 @@ struct BookCoverView: View {
     .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.control))
     .padding()
 }
+#endif

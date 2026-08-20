@@ -35,7 +35,10 @@ private extension AnkiMobileAttributionView {
     }
 }
 
+#if DEBUG
+
 #Preview {
     AnkiMobileAttributionView()
         .padding()
 }
+#endif

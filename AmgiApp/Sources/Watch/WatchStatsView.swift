@@ -37,16 +37,7 @@ struct WatchStatsView: View {
                         periodPicker
                     }
                     Group {
-                        PeriodStatsCard(period: period, today: graphs.today, reviews: graphs.reviews)
-                        FutureDueChart(futureDue: graphs.futureDue, period: period)
-                        ReviewsChart(reviews: graphs.reviews, period: period)
-                        CardCountsChart(cardCounts: graphs.cardCounts)
-                        IntervalsChart(intervals: graphs.intervals)
-                        EaseChart(eases: graphs.eases)
-                        HourlyChart(hours: graphs.hours, period: period)
-                        ButtonsChart(buttons: graphs.buttons, period: period)
-                        AddedChart(added: graphs.added, period: period)
-                        RetentionChart(trueRetention: graphs.trueRetention)
+                        StatsChartStack(graphs: graphs, period: period, isCompact: true)
                     }
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)

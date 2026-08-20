@@ -26,11 +26,7 @@ public struct StatsDashboardView: View {
 
     public var body: some View {
         StatsDashboardContent(
-            state: .init(
-                isLoading: model.isLoading,
-                errorMessage: model.errorMessage,
-                graphs: model.graphs
-            ),
+            state: model.state,
             period: period,
             selectedDeck: selectedDeck,
             topLevelDecks: model.topLevelDecks,

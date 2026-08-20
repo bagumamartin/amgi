@@ -100,8 +100,11 @@ struct ReviewSettingsView: View {
     }
 }
 
+#if DEBUG
+
 #Preview {
     NavigationStack {
         ReviewSettingsView()
     }
 }
+#endif

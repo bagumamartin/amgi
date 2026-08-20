@@ -165,6 +165,8 @@ private extension LargeWidgetView {
     }
 }
 
+#if DEBUG
+
 // See the note on SmallWidgetView's preview for why this uses a hand-set frame
 // instead of any WidgetKit preview API.
 #Preview {
@@ -172,3 +174,4 @@ private extension LargeWidgetView {
         .frame(width: 364, height: 382)
         .background(.fill.tertiary, in: .rect(cornerRadius: 24))
 }
+#endif

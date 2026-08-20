@@ -260,8 +260,11 @@ private struct BackupAlerts: ViewModifier {
     }
 }
 
+#if DEBUG
+
 // MARK: - Preview
 
 #Preview {
     NavigationStack { BackupView(username: "you@example.com") }
 }
+#endif

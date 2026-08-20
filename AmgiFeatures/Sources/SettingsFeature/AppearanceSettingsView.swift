@@ -149,6 +149,8 @@ private extension PreviewCard {
     }
 }
 
+#if DEBUG
+
 #Preview("Vivid Light") {
     NavigationStack { AppearanceSettingsView(manager: ThemeManager(defaults: UserDefaults(suiteName: "preview-vivid-light")!)) }
         .environment(\.palette, ThemeRegistry.shared.palette(id: .vivid, scheme: .light))
@@ -160,3 +162,4 @@ private extension PreviewCard {
         .environment(\.palette, ThemeRegistry.shared.palette(id: .muted, scheme: .dark))
         .preferredColorScheme(.dark)
 }
+#endif

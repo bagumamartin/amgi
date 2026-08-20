@@ -53,6 +53,8 @@ struct SmallWidgetView: View {
     }
 }
 
+#if DEBUG
+
 // Deliberately a plain SwiftUI preview with a hand-set frame — no WidgetKit
 // preview API. Anything that marks this as a *widget* preview (`#Preview(as:)`
 // or `WidgetPreviewContext`, in either the macro or the PreviewProvider form)
@@ -71,3 +73,4 @@ struct SmallWidgetView: View {
         .frame(width: 170, height: 170)
         .background(.fill.tertiary, in: .rect(cornerRadius: 24))
 }
+#endif

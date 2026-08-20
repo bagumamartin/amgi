@@ -272,8 +272,11 @@ private struct ProfileMonogram: View {
     }
 }
 
+#if DEBUG
+
 // MARK: - Preview
 
 #Preview {
     NavigationStack { AccountsSettingsView(onSwitchProfile: { _ in }) }
 }
+#endif

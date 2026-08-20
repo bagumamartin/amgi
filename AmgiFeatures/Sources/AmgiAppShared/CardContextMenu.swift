@@ -259,6 +259,8 @@ public struct CardContextMenu: View {
     }
 }
 
+#if DEBUG
+
 #Preview {
     VStack(spacing: 20) {
         Text("Tap the menu button below")
@@ -278,3 +280,4 @@ public struct CardContextMenu: View {
     }
     .padding()
 }
+#endif

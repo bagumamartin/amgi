@@ -90,8 +90,11 @@ enum CodeFontFamily: String, CaseIterable, Identifiable {
     }
 }
 
+#if DEBUG
+
 #Preview {
     NavigationStack {
         CodeEditorSettingsView()
     }
 }
+#endif

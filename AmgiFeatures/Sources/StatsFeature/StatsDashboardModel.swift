@@ -10,9 +10,10 @@ import Foundation
 @Observable
 @MainActor
 final class StatsDashboardModel {
-    var graphs: GraphsSnapshot?
-    var isLoading = true
-    var errorMessage: String?
+    /// One state, not three parallel flags. `isLoading` / `errorMessage` /
+    /// `graphs` allowed eight combinations for three renderable states, and
+    /// the view had to disambiguate them at the call site.
+    var state: StatsDashboardContent.State = .loading
     var decks: [DeckInfo] = [] {
         didSet { topLevelDecks = decks.filter { !$0.name.contains("::") } }
     }
@@ -28,13 +29,14 @@ final class StatsDashboardModel {
     }
 
     func loadStats(search: String, days: Int) async {
-        isLoading = graphs == nil
+        // A refresh keeps the previous graphs on screen; only a first load
+        // shows the spinner. Preserves the old `isLoading = graphs == nil`.
+        if case .loaded = state {} else { state = .loading }
         do {
-            graphs = try await statsClient.fetchGraphs(search, days)
-            errorMessage = nil
+            state = .loaded(try await statsClient.fetchGraphs(search, days))
         } catch {
-            errorMessage = error.localizedDescription
+            // An error wins over stale graphs, as the old projection did.
+            state = .failed(error.localizedDescription)
         }
-        isLoading = false
     }
 }

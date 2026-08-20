@@ -20,7 +20,10 @@ struct ImportBookCTA: View {
     }
 }
 
+#if DEBUG
+
 #Preview {
     ImportBookCTA(action: {})
         .padding(.vertical)
 }
+#endif

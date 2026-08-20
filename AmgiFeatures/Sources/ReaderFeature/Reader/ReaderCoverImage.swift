@@ -183,6 +183,8 @@ private struct CoverPlaceholder: View {
     }
 }
 
+#if DEBUG
+
 #Preview {
     // The unresolved (placeholder) case — needs no media folder or backend.
     HStack(spacing: 16) {
@@ -192,3 +194,4 @@ private struct CoverPlaceholder: View {
     .frame(height: 180)
     .padding()
 }
+#endif

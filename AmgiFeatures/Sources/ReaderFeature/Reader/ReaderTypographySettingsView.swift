@@ -227,8 +227,11 @@ private extension ReaderTypographySettingsView {
     }
 }
 
+#if DEBUG
+
 // MARK: - Preview
 
 #Preview {
     NavigationStack { ReaderTypographySettingsView() }
 }
+#endif

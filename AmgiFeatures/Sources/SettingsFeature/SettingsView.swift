@@ -256,8 +256,11 @@ public struct SettingsView: View {
     }
 }
 
+#if DEBUG
+
 #Preview {
     NavigationStack {
         SettingsView(onSwitchProfile: { _ in })
     }
 }
+#endif

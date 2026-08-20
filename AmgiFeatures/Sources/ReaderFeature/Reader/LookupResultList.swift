@@ -37,6 +37,8 @@ struct LookupResultList: View {
     }
 }
 
+#if DEBUG
+
 // MARK: - Preview
 
 #Preview("Result list") {
@@ -69,3 +71,4 @@ struct LookupResultList: View {
         onLookupRequested: { _ in }
     )
 }
+#endif

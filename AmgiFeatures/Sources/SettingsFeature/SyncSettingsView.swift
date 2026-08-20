@@ -238,8 +238,11 @@ private extension ServerSetupView {
     }
 }
 
+#if DEBUG
+
 // MARK: - Preview
 
 #Preview {
     NavigationStack { SyncSettingsView() }
 }
+#endif

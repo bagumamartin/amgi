@@ -329,6 +329,8 @@ private extension TagsView {
     }
 }
 
+#if DEBUG
+
 #Preview {
     let _ = prepareDependencies {
         $0.tagClient.getAllTags = { ["anatomy", "anatomy::heart", "grammar", "n5", "vocab"] }
@@ -350,3 +352,4 @@ private extension TagsView {
     .environment(\.palette, .vividDark)
     .preferredColorScheme(.dark)
 }
+#endif

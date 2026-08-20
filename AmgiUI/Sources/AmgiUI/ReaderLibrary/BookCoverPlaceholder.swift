@@ -48,6 +48,8 @@ public struct BookCoverPlaceholder: View {
     }
 }
 
+#if DEBUG
+
 #Preview("All palettes") {
     HStack(spacing: 8) {
         BookCoverPlaceholder(title: "어린 왕자", surname: "Saint-Exupéry", seed: "slate-seed-1")
@@ -59,3 +61,4 @@ public struct BookCoverPlaceholder: View {
     }
     .padding()
 }
+#endif

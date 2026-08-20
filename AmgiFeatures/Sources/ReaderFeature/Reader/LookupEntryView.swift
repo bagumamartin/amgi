@@ -252,6 +252,8 @@ private func previewEntry(
     )
 }
 
+#if DEBUG
+
 #Preview("Entry — normal") {
     List {
         LookupEntryView(
@@ -301,3 +303,4 @@ private func previewEntry(
     )
     .padding()
 }
+#endif

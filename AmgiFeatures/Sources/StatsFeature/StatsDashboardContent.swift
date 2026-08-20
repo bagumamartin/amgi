@@ -13,19 +13,9 @@ struct StatsDashboardContent: View {
         case loaded(GraphsSnapshot)
         case failed(String)
 
-        /// Projects the model's three parallel properties into one state.
-        /// Order matters: an error wins over stale graphs, and "nothing yet"
-        /// reads as loading rather than as a blank screen.
-        init(isLoading: Bool, errorMessage: String?, graphs: GraphsSnapshot?) {
-            if let errorMessage { self = .failed(errorMessage) }
-            else if isLoading { self = .loading }
-            else if let graphs { self = .loaded(graphs) }
-            else { self = .loading }
-        }
-
-        var isLoadingCase: Bool { if case .loading = self { true } else { false } }
-        var failureMessage: String? { if case .failed(let m) = self { m } else { nil } }
-        var loadedGraphs: GraphsSnapshot? { if case .loaded(let g) = self { g } else { nil } }
+        // The projecting init and its three case-accessors are gone — the
+        // model stores this enum directly, so there is nothing to project
+        // from and nothing was reading the accessors.
     }
 
     let state: State
@@ -123,18 +113,7 @@ struct StatsDashboardContent: View {
 
     @ViewBuilder
     private func charts(_ graphs: GraphsSnapshot) -> some View {
-        PeriodStatsCard(period: period, today: graphs.today, reviews: graphs.reviews)
-        FutureDueChart(futureDue: graphs.futureDue, period: period)
-        HeatmapChartOptimized(reviews: graphs.reviews)
-        ReviewsChart(reviews: graphs.reviews, period: period)
-        CardCountsChart(cardCounts: graphs.cardCounts)
-        IntervalsChart(intervals: graphs.intervals)
-        EaseChart(eases: graphs.eases)
-        HourlyChart(hours: graphs.hours, period: period)
-        ButtonsChart(buttons: graphs.buttons, period: period)
-        AddedChart(added: graphs.added, period: period)
-        RetentionChart(trueRetention: graphs.trueRetention)
-        RetrievabilityChart(retrievability: graphs.retrievability)
+        StatsChartStack(graphs: graphs, period: period)
     }
 }
 

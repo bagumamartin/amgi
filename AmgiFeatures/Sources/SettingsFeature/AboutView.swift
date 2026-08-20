@@ -51,8 +51,11 @@ struct AboutView: View {
     }
 }
 
+#if DEBUG
+
 // MARK: - Preview
 
 #Preview {
     NavigationStack { AboutView() }
 }
+#endif
