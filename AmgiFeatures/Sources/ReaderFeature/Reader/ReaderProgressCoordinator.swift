@@ -1,3 +1,5 @@
+import AmgiAppCore
+import OSLog
 import AmgiReader
 import AnkiClients
 import Dependencies
@@ -54,7 +56,36 @@ struct ReaderProgressCoordinator: Sendable {
         )
         store.save(bookID: bookID, payload: payload)
         Task.detached(priority: .background) {
-            _ = try? await sync.pushBookProgress(bookID, payload)
+            do {
+                _ = try await sync.pushBookProgress(bookID, payload)
+                store.clearPendingPush(bookID: bookID)
+            } catch {
+                // Fire-and-forget with `try?` meant that backgrounding or
+                // force-quitting right after closing a chapter dropped the
+                // collection-side write with no retry and no log, so
+                // cross-device progress silently diverged. The local write
+                // above always lands; mark the push pending so the next
+                // launch can flush it.
+                store.markPendingPush(bookID: bookID)
+                Log.reader.error("Reading-progress push failed for \(bookID, privacy: .public): \(error)")
+            }
+        }
+    }
+
+    /// Re-pushes any progress whose collection-side write never landed.
+    /// Called at reader-library appear.
+    func flushPendingPushes() async {
+        for bookID in store.pendingPushBookIDs() {
+            guard let payload = store.load(bookID: bookID) else {
+                store.clearPendingPush(bookID: bookID)
+                continue
+            }
+            do {
+                _ = try await sync.pushBookProgress(bookID, payload)
+                store.clearPendingPush(bookID: bookID)
+            } catch {
+                Log.reader.error("Deferred progress push still failing for \(bookID, privacy: .public): \(error)")
+            }
         }
     }
 }

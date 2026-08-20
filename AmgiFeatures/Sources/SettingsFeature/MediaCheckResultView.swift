@@ -124,7 +124,7 @@ private extension MediaCheckResultView {
         Section {
             if !result.unused.isEmpty {
                 Button {
-                    model.trashUnused(filenames: result.unused)
+                    Task { await model.trashUnused(filenames: result.unused) }
                 } label: {
                     if model.isTrashingUnused {
                         HStack {
@@ -142,7 +142,7 @@ private extension MediaCheckResultView {
 
             if result.haveTrash {
                 Button {
-                    model.emptyTrash()
+                    Task { await model.emptyTrash() }
                 } label: {
                     if model.isDeletingTrash {
                         HStack {
@@ -159,7 +159,7 @@ private extension MediaCheckResultView {
                 .listRowBackground(palette.surfaceElevated)
 
                 Button {
-                    model.restoreTrash()
+                    Task { await model.restoreTrash() }
                 } label: {
                     if model.isRestoringTrash {
                         HStack {

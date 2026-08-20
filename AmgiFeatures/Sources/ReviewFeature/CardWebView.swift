@@ -516,7 +516,22 @@ private extension CardWebView {
             .replacingOccurrences(of: ">", with: "&gt;")
     }
 
+    /// Memoized because the rendered bytes depend only on
+    /// (systemName, isDarkMode) — at most a handful of distinct results for
+    /// the whole app — yet this ran a UIGraphicsImageRenderer pass plus a
+    /// PNG encode plus a base64 encode once per `[sound:]` and TTS tag, per
+    /// card, synchronously inside the SwiftUI update pass.
+    private static var iconHTMLCache: [String: String] = [:]
+
     static func audioButtonIconHTML(systemName: String, alt: String, isDarkMode: Bool) -> String {
+        let cacheKey = "\(systemName)|\(alt)|\(isDarkMode)"
+        if let cached = iconHTMLCache[cacheKey] { return cached }
+        let html = makeAudioButtonIconHTML(systemName: systemName, alt: alt, isDarkMode: isDarkMode)
+        iconHTMLCache[cacheKey] = html
+        return html
+    }
+
+    private static func makeAudioButtonIconHTML(systemName: String, alt: String, isDarkMode: Bool) -> String {
         let configuration = UIImage.SymbolConfiguration(pointSize: 24, weight: .regular, scale: .medium)
         let tint = isDarkMode ? UIColor.white : UIColor(red: 26 / 255, green: 26 / 255, blue: 26 / 255, alpha: 1)
         guard let baseImage = UIImage(systemName: systemName, withConfiguration: configuration) else {

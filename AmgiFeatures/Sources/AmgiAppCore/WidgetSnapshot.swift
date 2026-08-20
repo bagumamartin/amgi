@@ -51,11 +51,23 @@ public struct WidgetSnapshot: Codable, Sendable {
         /// Anki-days later, assuming no reviews happen in between — which is
         /// exactly the case the forecast exists for.
         public var days: [DayCounts]
+        /// Raw per-day future-due histogram this forecast was projected
+        /// from. Kept so a later write in the same Anki day can re-project
+        /// against fresh counts instead of re-running the engine's graphs
+        /// RPC once per deck. Optional so pre-existing snapshot files still
+        /// decode.
+        public var futureDue: [Int: Int]?
 
-        public init(rolloverHour: Int, dayZero: Date, days: [DayCounts]) {
+        public init(
+            rolloverHour: Int,
+            dayZero: Date,
+            days: [DayCounts],
+            futureDue: [Int: Int]? = nil
+        ) {
             self.rolloverHour = rolloverHour
             self.dayZero = dayZero
             self.days = days
+            self.futureDue = futureDue
         }
     }
 

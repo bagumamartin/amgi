@@ -30,6 +30,10 @@ public final class SyncCoordinator {
 
     @ObservationIgnored @Dependency(\.syncClient) var syncClient
     @ObservationIgnored private var activeTask: Task<Void, Never>?
+    /// Set by `cancel()`. Distinct from `activeTask` because cancellation is
+    /// advisory — the in-flight FFI call still runs to completion, so the
+    /// task handle has to stay put to keep the re-entry gate shut.
+    @ObservationIgnored private var isCancelling = false
     @ObservationIgnored private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
     @ObservationIgnored nonisolated(unsafe) private var lifecycleObservers: [any NSObjectProtocol] = []
 
@@ -66,6 +70,16 @@ public final class SyncCoordinator {
         }
     }
 
+    /// Consumes a pending cancellation: resets state to idle and returns
+    /// true if `cancel()` was called while this operation was in flight.
+    private func finishCancellationIfNeeded() -> Bool {
+        guard isCancelling else { return false }
+        isCancelling = false
+        appendLog("Sync cancelled", level: .warning)
+        state = .idle
+        return true
+    }
+
     // MARK: - Public surface (stubs filled in Phase B)
 
     public func startSync() async {
@@ -89,6 +103,7 @@ public final class SyncCoordinator {
                     self.lastSyncedAtUnix = Date().timeIntervalSince1970
                     self.needsFullSyncFlag = false
                     self.activeTask = nil
+                    self.isCancelling = false
                 }
                 // Sync can change counts without any review — refresh widgets
                 // or they keep showing the pre-sync collection.
@@ -102,6 +117,7 @@ public final class SyncCoordinator {
                     ))
                     self.needsFullSyncFlag = true
                     self.activeTask = nil
+                    self.isCancelling = false
                 }
             } catch let error as SyncError where error == .authFailed {
                 await MainActor.run {
@@ -109,14 +125,15 @@ public final class SyncCoordinator {
                     self.requiresLogin = true
                     self.state = .error("Authentication failed — please sign in again")
                     self.activeTask = nil
+                    self.isCancelling = false
                 }
             } catch {
                 await MainActor.run {
-                    // If activeTask is nil the sync was cancelled — don't overwrite state.
-                    guard self.activeTask != nil else { return }
+                    self.activeTask = nil
+                    // A cancelled sync shouldn't surface as a failure.
+                    guard !self.finishCancellationIfNeeded() else { return }
                     self.appendLog("Sync failed: \(error.localizedDescription)", level: .error)
                     self.state = .error(error.localizedDescription)
-                    self.activeTask = nil
                 }
             }
         }
@@ -144,16 +161,17 @@ public final class SyncCoordinator {
                     self.lastSyncedAtUnix = Date().timeIntervalSince1970
                     self.needsFullSyncFlag = false
                     self.activeTask = nil
+                    self.isCancelling = false
                 }
                 // A full download replaces the whole collection — widgets are
                 // guaranteed stale without a rewrite.
                 await writeWidgetSnapshot()
             } catch {
                 await MainActor.run {
-                    guard self.activeTask != nil else { return }
+                    self.activeTask = nil
+                    guard !self.finishCancellationIfNeeded() else { return }
                     self.appendLog("Full sync failed: \(error.localizedDescription)", level: .error)
                     self.state = .error(error.localizedDescription)
-                    self.activeTask = nil
                 }
             }
         }
@@ -187,15 +205,24 @@ public final class SyncCoordinator {
         }
     }
 
+    /// Requests cancellation. Advisory only.
+    ///
+    /// The engine call is synchronous Rust FFI with no cancellation hook, so
+    /// the RPC runs to completion regardless. What matters is that
+    /// `activeTask` is *not* cleared here: doing so re-opened the re-entry
+    /// gate in `startSync`, letting a second sync start while the first was
+    /// still mutating the collection. Both then serialized behind the
+    /// backend lock and a stale full-download could land after a newer
+    /// operation — collection-level data loss. The task clears itself when
+    /// the in-flight work actually finishes.
     public func cancel() {
+        guard activeTask != nil, !isCancelling else { return }
+        isCancelling = true
         activeTask?.cancel()
-        activeTask = nil
         if case .syncing = state {
-            appendLog("Sync cancelled", level: .warning)
-            state = .idle
+            appendLog("Cancelling — finishing the current step in the background", level: .warning)
         } else if case .syncingMedia = state {
-            appendLog("Media sync cancelled", level: .warning)
-            state = .idle
+            appendLog("Cancelling media sync — finishing the current step in the background", level: .warning)
         }
     }
 

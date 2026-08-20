@@ -4,14 +4,21 @@ import AmgiCardWeb
 import AnkiClients
 import Dependencies
 
+@MainActor
 final class CardAssetScheme: NSObject, WKURLSchemeHandler {
+    /// In-flight asset reads, keyed by task identity.
+    private var tasks: [ObjectIdentifier: Task<Void, Never>] = [:]
+
+    /// Resolved once rather than per request — `@Dependency` lookup was
+    /// running on every asset a card referenced.
+    @Dependency(\.mediaClient) private var mediaClient
+
     func webView(_ webView: WKWebView, start urlSchemeTask: any WKURLSchemeTask) {
         guard let url = urlSchemeTask.request.url else {
             urlSchemeTask.didFailWithError(URLError(.badURL))
             return
         }
 
-        @Dependency(\.mediaClient) var mediaClient
         let mediaRoot = mediaClient.folderURL()
         let bundleRoot = Bundle.main.resourceURL
 
@@ -29,21 +36,31 @@ final class CardAssetScheme: NSObject, WKURLSchemeHandler {
             return
         }
 
-        do {
-            let data = try Data(contentsOf: fileURL, options: .mappedIfSafe)
-            respond(
-                to: urlSchemeTask,
-                url: url,
-                statusCode: 200,
-                mimeType: CardAssetPath.mimeType(for: fileURL),
-                data: data
-            )
-        } catch {
-            respond(to: urlSchemeTask, url: url, statusCode: 404, mimeType: "text/plain", data: Data())
+        // WKURLSchemeHandler callbacks arrive on the main thread, so reading
+        // the file inline stalled the UI mid-render for every image, audio
+        // file and MathJax asset a card referenced — worst on cold-cache
+        // audio. The read moves off-thread; the task is tracked so a stopped
+        // task is never resumed (WebKit answers that with an uncatchable
+        // NSInternalInconsistencyException).
+        let key = ObjectIdentifier(urlSchemeTask)
+        let mimeType = CardAssetPath.mimeType(for: fileURL)
+        tasks[key] = Task { [weak self] in
+            let data = try? await Task.detached(priority: .userInitiated) {
+                try Data(contentsOf: fileURL, options: .mappedIfSafe)
+            }.value
+            guard let self, self.tasks[key] != nil, !Task.isCancelled else { return }
+            self.tasks[key] = nil
+            if let data {
+                self.respond(to: urlSchemeTask, url: url, statusCode: 200, mimeType: mimeType, data: data)
+            } else {
+                self.respond(to: urlSchemeTask, url: url, statusCode: 404, mimeType: "text/plain", data: Data())
+            }
         }
     }
 
-    func webView(_ webView: WKWebView, stop urlSchemeTask: any WKURLSchemeTask) {}
+    func webView(_ webView: WKWebView, stop urlSchemeTask: any WKURLSchemeTask) {
+        tasks.removeValue(forKey: ObjectIdentifier(urlSchemeTask))?.cancel()
+    }
 }
 
 private extension CardAssetScheme {

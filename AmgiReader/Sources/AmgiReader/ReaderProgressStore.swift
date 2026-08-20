@@ -62,6 +62,32 @@ public struct ReaderProgressStore: @unchecked Sendable {
         userDefaults.set(data, forKey: storageKey(for: bookID))
     }
 
+    // MARK: - Deferred collection-side pushes
+    //
+    // The local write always lands, but the mirror into the Anki collection
+    // config is a background task that can be lost to a backgrounding or a
+    // force-quit. Book ids whose push has not landed are recorded here so a
+    // later launch can retry, instead of letting cross-device progress
+    // silently diverge.
+
+    public func markPendingPush(bookID: String) {
+        var pending = Set(pendingPushBookIDs())
+        pending.insert(bookID)
+        userDefaults.set(Array(pending), forKey: pendingPushKey)
+    }
+
+    public func clearPendingPush(bookID: String) {
+        var pending = Set(pendingPushBookIDs())
+        guard pending.remove(bookID) != nil else { return }
+        userDefaults.set(Array(pending), forKey: pendingPushKey)
+    }
+
+    public func pendingPushBookIDs() -> [String] {
+        userDefaults.stringArray(forKey: pendingPushKey) ?? []
+    }
+
+    private var pendingPushKey: String { "\(keyNamespace).pendingPushes" }
+
     private func storageKey(for bookID: String) -> String {
         "\(keyNamespace).\(Self.sanitize(bookID))"
     }

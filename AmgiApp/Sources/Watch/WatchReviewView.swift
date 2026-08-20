@@ -10,6 +10,15 @@ struct WatchReviewView: View {
     let onDismiss: () -> Void
     @State private var session: ReviewSession
     @State private var audioPlayer = AVQueuePlayer()
+    /// Computed once per card side instead of in `body`. `.stripped` runs
+    /// four whole-document regex passes, and body was re-evaluating it on
+    /// every state change — including isAudioPlaying flips — on the slowest
+    /// CPU in the project.
+    @State private var strippedText: String = ""
+
+    private var currentHTML: String {
+        session.showAnswer ? session.backHTML : session.frontHTML
+    }
     @Environment(\.dismiss) private var dismiss
     init(deckId: DeckID, onDismiss: @escaping () -> Void) {
         self.deckId = deckId
@@ -23,9 +32,12 @@ struct WatchReviewView: View {
             } else {
                 VStack(spacing: 0) {
                     ScrollView {
-                        Text(session.showAnswer ? session.backHTML.stripped : session.frontHTML.stripped)
+                        Text(strippedText)
                             .font(.title3)
                             .multilineTextAlignment(.center)
+                    }
+                    .task(id: currentHTML) {
+                        strippedText = currentHTML.stripped
                     }
                     if session.showAnswer {
                         HStack(spacing: 0) {
@@ -82,10 +94,15 @@ struct WatchReviewView: View {
             session.answer(rating: rating)
         }
     }
+    /// Compiled once. This was rebuilt on every audio tap.
+    private static let soundTagRegex = try? NSRegularExpression(
+        pattern: #"(?i)\[sound:(.+?)\]"#
+    )
+
     private func playAudio(from html: String) {
         @Dependency(\.ankiBackend) var backend
         guard let mediaDir = backend.currentMediaFolderPath,
-            let regex = try? NSRegularExpression(pattern: #"(?i)\[sound:(.+?)\]"#)
+              let regex = Self.soundTagRegex
         else { return }
         let items = regex.matches(in: html, range: NSRange(html.startIndex..., in: html)).compactMap { match -> AVPlayerItem? in
             guard let range = Range(match.range(at: 1), in: html) else { return nil }

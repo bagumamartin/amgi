@@ -35,72 +35,63 @@ final class MediaCheckModel {
         isLoading = false
     }
 
-    func trashUnused(filenames: [String]) {
+    /// `async` and awaited from the view's Task, so leaving the screen
+    /// cancels it. These were untracked `Task.detached`s that kept running
+    /// and writing back to the model — repeated taps could start an
+    /// unbounded number of overlapping operations, and a stale one could
+    /// reset the busy flags. The MainActor.run hops were also redundant:
+    /// the model is already @MainActor.
+    func trashUnused(filenames: [String]) async {
         isTrashingUnused = true
-        let capturedClient = mediaClient
-        Task.detached {
-            do {
-                try await capturedClient.trashMediaFiles(filenames)
-                let latestResult = try await capturedClient.checkMedia()
-                await MainActor.run {
-                    self.currentResult = latestResult
-                    self.isTrashingUnused = false
-                    self.actionMessage = "Files moved to trash"
-                    self.showActionAlert = true
-                }
-            } catch {
-                await MainActor.run {
-                    self.isTrashingUnused = false
-                    self.actionMessage = error.localizedDescription
-                    self.showActionAlert = true
-                }
-            }
+        defer { isTrashingUnused = false }
+        let client = mediaClient
+        do {
+            try await client.trashMediaFiles(filenames)
+            currentResult = try await client.checkMedia()
+            actionMessage = "Files moved to trash"
+        } catch {
+            actionMessage = error.localizedDescription
         }
+        showActionAlert = true
     }
 
-    func emptyTrash() {
+    /// `async` and awaited from the view's Task, so leaving the screen
+    /// cancels it. These were untracked `Task.detached`s that kept running
+    /// and writing back to the model — repeated taps could start an
+    /// unbounded number of overlapping operations, and a stale one could
+    /// reset the busy flags. The MainActor.run hops were also redundant:
+    /// the model is already @MainActor.
+    func emptyTrash() async {
         isDeletingTrash = true
-        let capturedClient = mediaClient
-        Task.detached {
-            do {
-                try await capturedClient.emptyTrash()
-                let latestResult = try await capturedClient.checkMedia()
-                await MainActor.run {
-                    self.currentResult = latestResult
-                    self.isDeletingTrash = false
-                    self.actionMessage = "Trash emptied"
-                    self.showActionAlert = true
-                }
-            } catch {
-                await MainActor.run {
-                    self.isDeletingTrash = false
-                    self.actionMessage = error.localizedDescription
-                    self.showActionAlert = true
-                }
-            }
+        defer { isDeletingTrash = false }
+        let client = mediaClient
+        do {
+            try await client.emptyTrash()
+            currentResult = try await client.checkMedia()
+            actionMessage = "Trash emptied"
+        } catch {
+            actionMessage = error.localizedDescription
         }
+        showActionAlert = true
     }
 
-    func restoreTrash() {
+    /// `async` and awaited from the view's Task, so leaving the screen
+    /// cancels it. These were untracked `Task.detached`s that kept running
+    /// and writing back to the model — repeated taps could start an
+    /// unbounded number of overlapping operations, and a stale one could
+    /// reset the busy flags. The MainActor.run hops were also redundant:
+    /// the model is already @MainActor.
+    func restoreTrash() async {
         isRestoringTrash = true
-        let capturedClient = mediaClient
-        Task.detached {
-            do {
-                try await capturedClient.restoreTrash()
-                let latestResult = try await capturedClient.checkMedia()
-                await MainActor.run {
-                    self.currentResult = latestResult
-                    self.isRestoringTrash = false
-                    self.actionMessage = "Trash restored"
-                    self.showActionAlert = true
-                }
-            } catch {
-                await MainActor.run {
-                    self.isRestoringTrash = false
-                    self.actionMessage = error.localizedDescription
-                    self.showActionAlert = true
-                }
-            }
+        defer { isRestoringTrash = false }
+        let client = mediaClient
+        do {
+            try await client.restoreTrash()
+            currentResult = try await client.checkMedia()
+            actionMessage = "Trash restored"
+        } catch {
+            actionMessage = error.localizedDescription
         }
+        showActionAlert = true
     }
 }

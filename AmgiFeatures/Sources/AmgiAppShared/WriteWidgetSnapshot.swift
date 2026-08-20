@@ -70,7 +70,8 @@ public func writeWidgetSnapshot() async {
             forecast: WidgetSnapshot.Forecast(
                 rolloverHour: rolloverHour,
                 dayZero: dayZero,
-                days: forecastDays(base: aggregateBase, futureDue: graphs.futureDue.futureDue)
+                days: forecastDays(base: aggregateBase, futureDue: graphs.futureDue.futureDue),
+                futureDue: graphs.futureDue.futureDue
             )
         )
         try WidgetSnapshotStore.write(allDecksSnapshot)
@@ -78,16 +79,33 @@ public func writeWidgetSnapshot() async {
         // 6. Write per-deck snapshots. Each deck needs its own future-due
         // histogram for the forecast; a failed per-deck fetch degrades to a
         // forecast-less snapshot rather than failing the whole write.
-        // ponytail: one graphs RPC per deck on every foreground; batch or
-        // trim the fetch if this ever measurably lags on large collections.
+        //
+        // The engine's graphs RPC takes one search string, so there is no
+        // batch form without a new proto method — but a forecast is a
+        // projection over whole Anki days, so recomputing it mid-day is
+        // wasted work. Counts below come from the already-fetched deck list
+        // and still update on every foreground; only the forecast is reused
+        // when the stored one was written in the current Anki day. That
+        // turns N RPCs per foreground into N once a day.
         for deck in decks {
             let base = WidgetSnapshot.DayCounts(
                 newCount: deck.counts.newCount,
                 learnCount: deck.counts.learnCount,
                 reviewCount: deck.counts.reviewCount
             )
-            let deckFutureDue = (try? await statsClient.fetchGraphs(deckSearch(deck.name), 1))?
-                .futureDue.futureDue
+            let storedForecast = WidgetSnapshotStore.read(deckId: deck.id.rawValue)?.forecast
+            let forecastIsCurrent = storedForecast.map {
+                $0.rolloverHour == rolloverHour && $0.dayZero == dayZero
+            } ?? false
+            let deckFutureDue: [Int: Int]?
+            if forecastIsCurrent, let reusable = storedForecast?.futureDue {
+                // Same Anki day: re-project the stored histogram against the
+                // deck's current counts rather than re-fetching it.
+                deckFutureDue = reusable
+            } else {
+                deckFutureDue = (try? await statsClient.fetchGraphs(deckSearch(deck.name), 1))?
+                    .futureDue.futureDue
+            }
             let snapshot = WidgetSnapshot(
                 deckId: deck.id.rawValue,
                 deckName: deck.name,
@@ -102,7 +120,8 @@ public func writeWidgetSnapshot() async {
                     WidgetSnapshot.Forecast(
                         rolloverHour: rolloverHour,
                         dayZero: dayZero,
-                        days: forecastDays(base: base, futureDue: futureDue)
+                        days: forecastDays(base: base, futureDue: futureDue),
+                        futureDue: futureDue
                     )
                 }
             )

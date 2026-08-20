@@ -101,7 +101,8 @@ struct ChapterReaderView: View {
             avoidPageBreak: avoidPageBreak,
             hideFurigana: hideFurigana,
             customHintColorHex: customHintColorHex,
-            verticalLayout: verticalLayout
+            verticalLayout: verticalLayout,
+            language: book.language
         )
     }
 
@@ -187,7 +188,11 @@ struct ChapterReaderView: View {
             didRestoreInitialProgress = false
         }
         .task(id: renderInputs) {
-            renderedHTML = wrappedHTML(chapter.content)
+            let inputs = renderInputs
+            let content = chapter.content
+            renderedHTML = await Task.detached {
+                ChapterReaderView.wrappedHTML(content, inputs: inputs)
+            }.value
         }
         .task(id: chapter.id) {
             guard let saved = await progress.resolved(bookID: book.id),
@@ -209,7 +214,7 @@ struct ChapterReaderView: View {
     /// call site so the overlay never swallows reader taps.
     private var debugOverlay: some View {
         let font = ReaderFontOption.resolved(selectedFontRaw)
-        let latin = prefersLatinWordLayout(chapter.content)
+        let latin = Self.prefersLatinWordLayout(chapter.content, language: book.language)
         let layout = verticalLayout ? "vertical" : (latin ? "latin" : "cjk")
         let phrase = (lastTapPhrase ?? "—").prefix(40)
         return VStack(alignment: .leading, spacing: 2) {
@@ -239,8 +244,8 @@ private extension ChapterReaderView {
     /// content) is Latin-script-dominant. Drives `overflow-wrap` and
     /// `hyphens` rules — Latin text wraps on word boundaries and hyphenates,
     /// CJK wraps anywhere.
-    func prefersLatinWordLayout(_ content: String) -> Bool {
-        if let hint = book.language?.lowercased() {
+    nonisolated static func prefersLatinWordLayout(_ content: String, language: String?) -> Bool {
+        if let hint = language?.lowercased() {
             if hint.hasPrefix("en") || hint.hasPrefix("de") || hint.hasPrefix("fr") ||
                hint.hasPrefix("es") || hint.hasPrefix("it") || hint.hasPrefix("pt") ||
                hint.hasPrefix("ru") || hint == "eng" {
@@ -274,32 +279,36 @@ private extension ChapterReaderView {
     /// theme. Theme `system` defers to the OS via prefers-color-scheme;
     /// fixed modes hardcode foreground/background. Sepia matches Anki
     /// desktop's reader-tone (#f4ecd8 / #5b4636).
-    func wrappedHTML(_ content: String) -> String {
-        let mode = ReaderThemeMode(rawValue: themeModeRaw) ?? .system
-        let theme = themeCSS(for: mode)
-        let fontFamily = ReaderFontOption.resolved(selectedFontRaw).cssFontFamily
-        let letterSpacingEm = String(format: "%.3f", characterSpacing / 100)
-        let pageBreakRule = avoidPageBreak
+    /// Pure and `static` so the caller can run it off the main actor. The
+    /// body is a whole-chapter string interpolation plus two full-document
+    /// regex passes; it used to run on the main thread on chapter open and
+    /// on every typography-preference change.
+    nonisolated static func wrappedHTML(_ content: String, inputs: ChapterRenderInputs) -> String {
+        let mode = ReaderThemeMode(rawValue: inputs.themeModeRaw) ?? .system
+        let theme = themeCSS(for: mode, customTextColorHex: inputs.customTextColorHex, customBackgroundColorHex: inputs.customBackgroundColorHex)
+        let fontFamily = ReaderFontOption.resolved(inputs.selectedFontRaw).cssFontFamily
+        let letterSpacingEm = String(format: "%.3f", inputs.characterSpacing / 100)
+        let pageBreakRule = inputs.avoidPageBreak
             ? "p { break-inside: avoid; -webkit-column-break-inside: avoid; }"
             : ""
-        let hintColor = ReaderThemeColor.cssHex(customHintColorHex, default: "#777777")
-        let rubyRule = hideFurigana
+        let hintColor = ReaderThemeColor.cssHex(inputs.customHintColorHex, default: "#777777")
+        let rubyRule = inputs.hideFurigana
             ? "ruby rt { display: none; }"
             : "ruby rt { color: \(hintColor); font-size: 0.55em; }"
 
         // Latin-dominant text wants word-boundary wrapping + hyphenation;
         // CJK wants `overflow-wrap: anywhere`. Vertical mode ignores
         // alignment (`text-align: start` is the only sensible value).
-        let latinLayout = prefersLatinWordLayout(content)
+        let latinLayout = prefersLatinWordLayout(content, language: inputs.language)
         let wrappingRule = latinLayout
             ? "overflow-wrap: break-word; word-break: normal;"
             : "overflow-wrap: anywhere;"
         let hyphenRule = latinLayout ? "hyphens: auto; -webkit-hyphens: auto;" : ""
-        let alignment = verticalLayout
+        let alignment = inputs.verticalLayout
             ? "start"
-            : (justifyText && !latinLayout ? "justify" : (justifyText ? "justify" : "left"))
-        let writingMode = verticalLayout ? "vertical-rl" : "horizontal-tb"
-        let bodyWidthRule = verticalLayout
+            : (inputs.justifyText && !latinLayout ? "justify" : (inputs.justifyText ? "justify" : "left"))
+        let writingMode = inputs.verticalLayout ? "vertical-rl" : "horizontal-tb"
+        let bodyWidthRule = inputs.verticalLayout
             ? "width: max-content; min-width: 100%;"
             : "max-width: 100%;"
 
@@ -318,10 +327,10 @@ private extension ChapterReaderView {
         }
         body {
           font-family: \(fontFamily);
-          font-size: \(Int(fontSize))px;
-          line-height: \(String(format: "%.2f", lineHeight));
+          font-size: \(Int(inputs.fontSize))px;
+          line-height: \(String(format: "%.2f", inputs.lineHeight));
           letter-spacing: \(letterSpacingEm)em;
-          padding: \(Int(verticalPadding))px \(Int(horizontalPadding))px \(Int(verticalPadding) + 48)px \(Int(horizontalPadding))px;
+          padding: \(Int(inputs.verticalPadding))px \(Int(inputs.horizontalPadding))px \(Int(inputs.verticalPadding) + 48)px \(Int(inputs.horizontalPadding))px;
           text-align: \(alignment);
           writing-mode: \(writingMode);
           text-orientation: mixed;
@@ -349,7 +358,11 @@ private extension ChapterReaderView {
     /// dark-on-cream palette tuned for long sessions; `sepia` matches
     /// Anki desktop; `custom` stays system until the user wires up the
     /// custom-color preference UI in a follow-up chunk.
-    func themeCSS(for mode: ReaderThemeMode) -> String {
+    nonisolated static func themeCSS(
+        for mode: ReaderThemeMode,
+        customTextColorHex: String,
+        customBackgroundColorHex: String
+    ) -> String {
         switch mode {
         case .system:
             return "color: -apple-system-label; background: -apple-system-systemBackground;"
@@ -375,7 +388,7 @@ extension Notification.Name {
 /// can be keyed on it. Deliberately excludes `scrollProgress` and the chapter
 /// body itself — the chapter is identified by `chapterID`, and progress
 /// doesn't affect the rendered HTML.
-private struct ChapterRenderInputs: Equatable {
+private struct ChapterRenderInputs: Equatable, Sendable {
     let chapterID: Int64
     let fontSize: Double
     let lineHeight: Double
@@ -391,6 +404,7 @@ private struct ChapterRenderInputs: Equatable {
     let hideFurigana: Bool
     let customHintColorHex: String
     let verticalLayout: Bool
+    let language: String?
 }
 
 /// Wrapper so an empty-string query is still presentable via .sheet(item:);

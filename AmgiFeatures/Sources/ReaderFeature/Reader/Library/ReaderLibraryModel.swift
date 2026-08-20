@@ -47,6 +47,10 @@ final class ReaderLibraryModel {
     func reload(searchText: String, sortMode: BookshelfSortMode) async {
         if books.isEmpty { state = .loading }
 
+        // Retry any collection-side progress write that was lost to a
+        // backgrounding or force-quit after a chapter closed.
+        await progress.flushPendingPushes()
+
         async let epubBooks: [ReaderBook] = epubLibraryClient.listBooks()
 
         var ankiBooks: [ReaderBook] = []

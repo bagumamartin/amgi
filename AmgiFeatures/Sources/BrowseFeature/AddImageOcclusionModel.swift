@@ -61,6 +61,18 @@ final class AddImageOcclusionModel {
         }
     }
 
+    /// Longest edge the occlusion editor ever needs. Masks are stored
+    /// normalized (0...1), so downsampling the on-screen image does not
+    /// change what gets written to the note.
+    private static let maxDisplayEdge: CGFloat = 2048
+
+    private static func displayFit(for size: CGSize) -> CGSize {
+        let longest = max(size.width, size.height)
+        guard longest > maxDisplayEdge, longest > 0 else { return size }
+        let scale = maxDisplayEdge / longest
+        return CGSize(width: size.width * scale, height: size.height * scale)
+    }
+
     func loadImage(from item: PhotosPickerItem?) async {
         guard let item else { return }
         masks = []
@@ -68,32 +80,46 @@ final class AddImageOcclusionModel {
         // Load as UIImage
         if let data = try? await item.loadTransferable(type: Data.self),
            let img = UIImage(data: data) {
-            selectedImage = img
-
             // Write a temporary file for the upload path. The encode and the
             // write both go off the main actor: this model is @MainActor, and
             // re-encoding a full-resolution camera photo there froze the UI
             // for the length of the encode right after the picker dismissed.
             let tempDir = FileManager.default.temporaryDirectory
-            let filename = "io_pick_\(Int(Date().timeIntervalSince1970)).jpg"
+            let filename = "io_pick_\(UUID().uuidString).jpg"
             let url = tempDir.appendingPathComponent(filename)
-            let wrote = await Task.detached(priority: .userInitiated) {
-                guard let jpegData = img.jpegData(compressionQuality: 0.92) else { return false }
+            let result = await Task.detached(priority: .userInitiated) {
+                // The note gets the full-resolution encode; the editor gets a
+                // display-sized copy. Holding the 12 MP original as a decoded
+                // ~48 MB backing store for the whole editing session (plus the
+                // canvas's own scaled bitmap) was a jetsam risk on older
+                // devices.
+                let displayImage = await img.byPreparingThumbnail(
+                    ofSize: Self.displayFit(for: img.size)
+                ) ?? img
+                guard let jpegData = img.jpegData(compressionQuality: 0.92) else {
+                    return (displayImage, false)
+                }
                 do {
                     try jpegData.write(to: url)
-                    return true
+                    return (displayImage, true)
                 } catch {
-                    return false
+                    return (displayImage, false)
                 }
             }.value
-            if wrote { imageURL = url }
+            selectedImage = result.0
+            if result.1 { imageURL = url }
         }
     }
 
     /// Persist the image-occlusion note. Returns whether the write succeeded;
     /// on failure `errorMessage` carries the reason.
     func save() async -> Bool {
-        guard selectedDeckId.rawValue != 0 else { return false }
+        guard selectedDeckId.rawValue != 0 else {
+            // Returning bare made Save do nothing at all with no
+            // explanation, unlike the two guards below it.
+            errorMessage = "Choose a deck before saving."
+            return false
+        }
         guard let url = imageURL else {
             errorMessage = "Image is missing."
             return false
