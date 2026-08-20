@@ -1,4 +1,3 @@
-// AmgiApp/Sources/Sync/SyncToastController.swift
 import AmgiTheme
 public import SwiftUI
 

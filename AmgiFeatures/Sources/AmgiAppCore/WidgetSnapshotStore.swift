@@ -1,4 +1,3 @@
-// AmgiApp/Sources/Widgets/WidgetSnapshotStore.swift
 import Foundation
 
 public enum WidgetSnapshotStore {

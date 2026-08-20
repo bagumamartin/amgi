@@ -1,4 +1,3 @@
-// AmgiApp/Sources/Decks/DeckList/DeckListView.swift
 public import SwiftUI
 public import AmgiAppCore
 import AmgiAppShared

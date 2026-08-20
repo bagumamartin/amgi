@@ -1,4 +1,3 @@
-// AmgiApp/Sources/Shared/WidgetSnapshot.swift
 public import Foundation
 
 public struct WidgetSnapshot: Codable, Sendable {

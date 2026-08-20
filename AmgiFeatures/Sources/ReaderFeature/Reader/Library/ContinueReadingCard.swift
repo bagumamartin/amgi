@@ -1,4 +1,3 @@
-// AmgiApp/Sources/Reader/Library/ContinueReadingCard.swift
 import AmgiTheme
 import AmgiUI
 import SwiftUI

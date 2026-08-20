@@ -1,4 +1,3 @@
-// AmgiApp/Sources/Decks/DeckList/DeckListRowView.swift
 //
 // Domain row aggregation consumed by `DeckListView`. The actual row +
 // list views live in AmgiUI so previews don't link the Anki backend;

@@ -26,15 +26,6 @@ struct AnkiAppApp: App {
     }
 
     init() {
-        #if DEBUG
-//        if KeychainHelper.loadEndpoint() == nil {
-//            try? KeychainHelper.saveEndpoint("https://sync.ankiweb.net")
-//            @Shared(.syncMode) var syncMode
-//            $syncMode.withLock { $0 = .custom }
-//            $onboardingCompleted.withLock { $0 = true }
-//        }
-        #endif
-
         // Multi-profile bootstrap: migrate legacy single-collection
         // layout into the default profile, then open the selected
         // profile's collection.
