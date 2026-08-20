@@ -10,14 +10,10 @@ public enum StreakCalculator {
     /// Count of consecutive days backward from today (or yesterday, if
     /// today is empty) where at least one review was answered.
     public static func streak(reviews: [Int: ReviewCountsAndTimes.Reviews], window: Int = 28) -> Int {
-        let todayTotal = reviews[0].map(dayTotal) ?? 0
-        let startOffset = todayTotal > 0 ? 0 : -1
-        var streak = 0
-        for offset in stride(from: startOffset, through: -(window - 1), by: -1) {
-            guard let r = reviews[offset], dayTotal(r) > 0 else { break }
-            streak += 1
-        }
-        return streak
+        // Delegates to AnkiKit.DayStreak so the Stats heatmap — which lives
+        // in AmgiCharts and can't see this module — runs the same algorithm
+        // rather than its own.
+        DayStreak.count(totals: reviews.mapValues(dayTotal), window: window)
     }
 
     /// Per-day totals for the last `days` calendar days, oldest first.

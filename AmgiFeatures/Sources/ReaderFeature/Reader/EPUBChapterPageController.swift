@@ -290,12 +290,26 @@ final class EPUBChapterPageController: UIViewController {
     fileprivate func consumePendingRestore() {
         guard let fraction = pendingRestoreFraction else { return }
         pendingRestoreFraction = nil
-        let delay = DispatchTime.now() + 0.25
-        DispatchQueue.main.asyncAfter(deadline: delay) { [weak self] in
-            guard let webView = self?.webView else { return }
-            webView.evaluateJavaScript("window.__amgiScrollToFraction(\(fraction));") { _, error in
-                if let error { Log.reader.error("scrollToFraction script failed: \(error)") }
-            }
+        // Wait for the page's own layout pass rather than guessing at 250ms.
+        // Two nested requestAnimationFrames: the first fires before the
+        // pending layout is committed, the second after — at which point the
+        // column count `__amgiRelayout` computes is final and the scroll
+        // target is meaningful. The old fixed delay silently restored the
+        // wrong position whenever layout took longer than that.
+        let js = """
+        (function() {
+          requestAnimationFrame(function() {
+            requestAnimationFrame(function() {
+              if (typeof window.__amgiRelayout === 'function') { window.__amgiRelayout(); }
+              if (typeof window.__amgiScrollToFraction === 'function') {
+                window.__amgiScrollToFraction(\(fraction));
+              }
+            });
+          });
+        })();
+        """
+        webView.evaluateJavaScript(js) { _, error in
+            if let error { Log.reader.error("scrollToFraction script failed: \(error)") }
         }
     }
 

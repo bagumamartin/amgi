@@ -149,6 +149,8 @@ struct ChapterWebView: UIViewRepresentable {
         let onSelectionForNote: ((String) -> Void)?
         private weak var webView: WKWebView?
         private var selectionObserver: (any NSObjectProtocol)?
+        /// Live while waiting for the page to report a real content size.
+        private var contentSizeObservation: NSKeyValueObservation?
 
         init(
             progress: Binding<Double>,
@@ -178,6 +180,7 @@ struct ChapterWebView: UIViewRepresentable {
                 NotificationCenter.default.removeObserver(observer)
             }
             selectionObserver = nil
+            contentSizeObservation = nil
             webView = nil
         }
 
@@ -197,10 +200,35 @@ struct ChapterWebView: UIViewRepresentable {
             didApplyInitialProgress = true
             pendingInitialProgress = nil
             guard target > 0, let scrollView = webView?.scrollView else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                let maxOffset = max(0, scrollView.contentSize.height - scrollView.bounds.height)
-                scrollView.contentOffset.y = maxOffset * CGFloat(target)
+
+            // Observe contentSize rather than sleeping 50ms and hoping. On a
+            // slow device or a long chapter the old delay fired while
+            // contentSize was still the initial frame height, so the offset
+            // clamped to ~0 and the reader silently reopened at the top.
+            if scrollView.contentSize.height > scrollView.bounds.height {
+                Self.applyProgress(target, to: scrollView)
+                return
             }
+            // `change.newValue` is a CGSize, so nothing main-actor-isolated
+            // is captured by the Sendable observation closure; the scroll
+            // view is re-resolved inside the isolated block. contentSize is
+            // mutated on the main thread, so assumeIsolated holds.
+            contentSizeObservation = scrollView.observe(
+                \.contentSize, options: [.new]
+            ) { [weak self] _, change in
+                guard let newSize = change.newValue else { return }
+                MainActor.assumeIsolated {
+                    guard let self, let scrollView = self.webView?.scrollView,
+                          newSize.height > scrollView.bounds.height else { return }
+                    Self.applyProgress(target, to: scrollView)
+                    self.contentSizeObservation = nil
+                }
+            }
+        }
+
+        private static func applyProgress(_ target: Double, to scrollView: UIScrollView) {
+            let maxOffset = max(0, scrollView.contentSize.height - scrollView.bounds.height)
+            scrollView.contentOffset.y = maxOffset * CGFloat(target)
         }
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {

@@ -60,16 +60,11 @@ public struct HeatmapChartOptimized: View {
     // MARK: - Derived Computed Properties (sync, over snapshot)
 
     private var currentStreak: Int {
-        var streak = 0
-        var offset = 0
-        if visibleData[0] == nil || visibleData[0] == 0 {
-            offset = -1
-        }
-        while let count = visibleData[offset], count > 0 {
-            streak += 1
-            offset -= 1
-        }
-        return streak
+        // Shared with the Library hero card via AnkiKit.DayStreak. This used
+        // to be a third, subtly different implementation, so the two screens
+        // could disagree about the same user's streak. Windowed to the range
+        // actually loaded.
+        DayStreak.count(totals: visibleData, window: max(1, selectedDateRange))
     }
 
     private var reviewsThisWeek: Int {

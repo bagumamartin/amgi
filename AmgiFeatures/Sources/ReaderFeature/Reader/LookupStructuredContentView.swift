@@ -1,6 +1,8 @@
+import AmgiAppCore
 import AmgiReader
 import AmgiReaderDictionary
 import Dependencies
+import OSLog
 import SwiftUI
 import WebKit
 
@@ -36,6 +38,7 @@ struct LookupStructuredContentView: UIViewRepresentable {
         configuration.setURLSchemeHandler(context.coordinator, forURLScheme: "image")
         configuration.userContentController.add(context.coordinator, name: "openLink")
         configuration.userContentController.add(context.coordinator, name: "lookupText")
+        configuration.userContentController.add(context.coordinator, name: "contentHeight")
 
         let webView = SizingWebView(frame: .zero, configuration: configuration)
         webView.isOpaque = false
@@ -60,6 +63,7 @@ struct LookupStructuredContentView: UIViewRepresentable {
         coordinator.cancelAllSchemeTasks()
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "openLink")
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "lookupText")
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: "contentHeight")
     }
 
     @MainActor
@@ -119,17 +123,35 @@ struct LookupStructuredContentView: UIViewRepresentable {
         // MARK: WKNavigationDelegate
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            // One measurement now, then a ResizeObserver reports every
+            // subsequent change. This used to be three polls at 0, 50ms and
+            // 200ms hoping layout had settled — which silently produced a
+            // wrong popup height whenever it hadn't (slow device, late web
+            // font, large glossary).
             updateContentHeight(for: webView)
-            // Initial layout pass settles a beat after didFinish; re-poll
-            // a couple of times so the intrinsic-size invalidation
-            // catches the post-layout height. Mirrors DreamAfar.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak webView] in
-                guard let webView else { return }
-                self.updateContentHeight(for: webView)
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak webView] in
-                guard let webView else { return }
-                self.updateContentHeight(for: webView)
+            installHeightObserver(on: webView)
+        }
+
+        /// Installs a `ResizeObserver` on the rendered glossary that posts
+        /// its height over the `contentHeight` message handler. Idempotent:
+        /// re-running after a reload replaces the previous observer.
+        private func installHeightObserver(on webView: WKWebView) {
+            let js = """
+            (function() {
+              var el = document.getElementById('content');
+              if (!el || typeof ResizeObserver !== 'function') { return; }
+              if (window.__amgiHeightObserver) { window.__amgiHeightObserver.disconnect(); }
+              window.__amgiHeightObserver = new ResizeObserver(function() {
+                var h = Math.ceil(el.getBoundingClientRect().height);
+                window.webkit.messageHandlers.contentHeight.postMessage(h);
+              });
+              window.__amgiHeightObserver.observe(el);
+            })();
+            """
+            webView.evaluateJavaScript(js) { _, error in
+                if let error {
+                    Log.reader.error("height observer install failed: \(error)")
+                }
             }
         }
 
@@ -137,6 +159,10 @@ struct LookupStructuredContentView: UIViewRepresentable {
 
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
             switch message.name {
+            case "contentHeight":
+                guard let height = (message.body as? NSNumber).map({ CGFloat(truncating: $0) }),
+                      let sizing = webView as? SizingWebView else { return }
+                sizing.setContentHeight(height)
             case "lookupText":
                 guard let payload = message.body as? [String: Any],
                       let text = (payload["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
