@@ -1,5 +1,6 @@
 import AmgiReader
 import AnkiClients
+import AnkiKit
 import Testing
 
 @Suite("ReaderLookupNoteTemplate")

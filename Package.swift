@@ -181,6 +181,20 @@ let package = Package(
             dependencies: ["AnkiKit"],
             swiftSettings: sharedSwiftSettings
         ),
+        .testTarget(
+            name: "AnkiServicesTests",
+            dependencies: ["AnkiServices"],
+            swiftSettings: sharedSwiftSettings
+        ),
+        .testTarget(
+            name: "AnkiClientsTests",
+            dependencies: [
+                "AnkiClients",
+                "AnkiKit",
+                .product(name: "AmgiReader", package: "AmgiReader"),
+            ],
+            swiftSettings: sharedSwiftSettings
+        ),
     ],
     swiftLanguageModes: [.v6]
 )

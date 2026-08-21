@@ -46,6 +46,20 @@
     },
     {
       "target" : {
+        "containerPath" : "container:..",
+        "identifier" : "AnkiServicesTests",
+        "name" : "AnkiServicesTests"
+      }
+    },
+    {
+      "target" : {
+        "containerPath" : "container:..",
+        "identifier" : "AnkiClientsTests",
+        "name" : "AnkiClientsTests"
+      }
+    },
+    {
+      "target" : {
         "containerPath" : "container:../AmgiFeatures",
         "identifier" : "AmgiAppCoreTests",
         "name" : "AmgiAppCoreTests"
