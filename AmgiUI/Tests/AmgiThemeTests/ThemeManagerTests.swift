@@ -2,19 +2,24 @@ import XCTest
 import SwiftUI
 @testable import AmgiTheme
 
+@MainActor
 final class ThemeManagerTests: XCTestCase {
     private var suiteName: String!
     private var defaults: UserDefaults!
 
-    override func setUp() {
-        super.setUp()
+    // The `async throws` overrides, not the plain ones: `ThemeManager` is
+    // @MainActor, so the class is too, and only these variants inherit that
+    // isolation — the synchronous ones stay nonisolated and can't touch the
+    // stored properties.
+    override func setUp() async throws {
+        try await super.setUp()
         suiteName = "test-suite-\(UUID().uuidString)"
         defaults = UserDefaults(suiteName: suiteName)!
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         defaults.removePersistentDomain(forName: suiteName)
-        super.tearDown()
+        try await super.tearDown()
     }
 
     func testDefaultValuesOnEmptyStore() {

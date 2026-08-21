@@ -130,7 +130,12 @@ let package = Package(
         ),
         .testTarget(
             name: "StatsFeatureTests",
-            dependencies: ["StatsFeature"],
+            dependencies: [
+                "StatsFeature",
+                .product(name: "AnkiKit", package: "amgi"),
+                .product(name: "AnkiClients", package: "amgi"),
+                .product(name: "Dependencies", package: "swift-dependencies"),
+            ],
             swiftSettings: sharedSwiftSettings
         ),
         .target(

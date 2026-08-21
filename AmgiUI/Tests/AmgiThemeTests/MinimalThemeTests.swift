@@ -22,6 +22,7 @@ struct MinimalThemeTests {
         #expect(fallback == minimal)
     }
 
+    @MainActor
     @Test func managerDefaultsToMinimalWhenNothingStored() {
         let suite = UserDefaults(suiteName: "MinimalThemeTests-\(UUID().uuidString)")!
         let manager = ThemeManager(defaults: suite)
