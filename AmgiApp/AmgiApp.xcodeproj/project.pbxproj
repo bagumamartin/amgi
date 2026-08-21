@@ -135,7 +135,7 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		1B98150CA7E87F8DFC46FAE3 /* Exceptions for "Widgets" folder in "AmgiWidget" target */ = {
+		1B98150CA7E87F8DFC46FAE3 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -148,13 +148,23 @@
 		004874923745BECF98EEBD18 /* Widgets */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				1B98150CA7E87F8DFC46FAE3 /* Exceptions for "Widgets" folder in "AmgiWidget" target */,
+				1B98150CA7E87F8DFC46FAE3 /* PBXFileSystemSynchronizedBuildFileExceptionSet */,
 			);
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			name = Widgets;
 			path = Widgets;
 			sourceTree = "<group>";
 		};
 		70BB06347ADF26FA0276AD23 /* AmgiAppTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			name = AmgiAppTests;
 			path = AmgiAppTests;
 			sourceTree = "<group>";
 		};
@@ -453,6 +463,8 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+				};
 			};
 			buildConfigurationList = BC4A80AD6076C8423E530840 /* Build configuration list for PBXProject "AmgiApp" */;
 			developmentRegion = en;

@@ -108,8 +108,14 @@ schemes:
       config: Debug
     test:
       config: Debug
-      targets:
-        - AmgiAppTests
+      # Test plan, not `targets:` — xcodegen validates scheme test targets
+      # against *project* targets, so the 10 SPM test targets in AnkiBridge /
+      # AmgiFeatures / AmgiUI cannot be named here. A .xctestplan can reference
+      # them (`container:../AmgiFeatures` + the target name as identifier),
+      # which is what finally makes them run in CI instead of never at all.
+      testPlans:
+        - path: AmgiApp.xctestplan
+          defaultPlan: true
   AmgiWatchApp:
     build:
       targets:

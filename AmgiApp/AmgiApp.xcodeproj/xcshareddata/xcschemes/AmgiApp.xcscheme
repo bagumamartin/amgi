@@ -43,6 +43,12 @@
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
       shouldUseLaunchSchemeArgsEnv = "YES"
       onlyGenerateCoverageForSpecifiedTargets = "NO">
+      <TestPlans>
+         <TestPlanReference
+            default = "YES"
+            reference = "container:AmgiApp.xctestplan">
+         </TestPlanReference>
+      </TestPlans>
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
@@ -53,17 +59,6 @@
          </BuildableReference>
       </MacroExpansion>
       <Testables>
-         <TestableReference
-            skipped = "NO"
-            parallelizable = "NO">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "EE6CF1FAA191BC2F0404B752"
-               BuildableName = "AmgiAppTests.xctest"
-               BlueprintName = "AmgiAppTests"
-               ReferencedContainer = "container:AmgiApp.xcodeproj">
-            </BuildableReference>
-         </TestableReference>
       </Testables>
       <CommandLineArguments>
       </CommandLineArguments>
