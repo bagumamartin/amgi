@@ -130,6 +130,15 @@ struct SyncCoordinatorTests {
             await coordinator.startSync()
             try await Task.sleep(for: .milliseconds(20))
             coordinator.cancel()
+            // `cancel()` is advisory: the Rust FFI call has no cancellation
+            // hook, so the coordinator stays `.syncing` and keeps `activeTask`
+            // set — clearing it here re-opened the `startSync` re-entry gate
+            // and allowed two concurrent syncs. The terminal `.idle` arrives
+            // later, from `finishCancellationIfNeeded`.
+            #expect(coordinator.state == .syncing(message: "Connecting…"))
+            #expect(coordinator.logEntries.contains { $0.message.contains("Cancelling") })
+
+            try await Task.sleep(for: .milliseconds(100))
             #expect(coordinator.state == .idle)
             #expect(coordinator.logEntries.contains { $0.message.contains("cancelled") })
         }

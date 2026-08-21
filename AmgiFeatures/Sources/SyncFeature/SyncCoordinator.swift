@@ -76,7 +76,11 @@ public final class SyncCoordinator {
         guard isCancelling else { return false }
         isCancelling = false
         appendLog("Sync cancelled", level: .warning)
-        state = .idle
+        // Not over `.noServer`: `signOut()` cancels the in-flight sync and
+        // *then* sets `.noServer`, so this completion lands afterwards and
+        // would otherwise report a signed-out coordinator as merely idle —
+        // i.e. as still having a server configured.
+        if case .noServer = state {} else { state = .idle }
         return true
     }
 
