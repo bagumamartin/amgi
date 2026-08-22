@@ -7,11 +7,13 @@ import AmgiTheme
 /// "delete files" prompt).
 struct AccountsSettingsView: View {
     @State private var store = AccountStore.shared
+    @State private var iconStore = ProfileIconStore.shared
     @State private var showAddSheet = false
     @State private var newName = ""
     @State private var addError: String?
     @State private var pendingDelete: AmgiAccount?
     @State private var deleteError: String?
+    @State private var iconEditTarget: AmgiAccount?
 
     @Environment(\.palette) private var palette
 
@@ -26,6 +28,12 @@ struct AccountsSettingsView: View {
         .sheet(isPresented: $showAddSheet) {
             addProfileSheet
         }
+        .sheet(item: $iconEditTarget) { account in
+            ProfileIconEditorSheet(account: account) {
+                iconEditTarget = nil
+            }
+        }
+        .task { await iconStore.refresh() }
         .alert(
             "Delete \(pendingDelete?.displayName ?? "")?",
             isPresented: Binding(
@@ -133,7 +141,17 @@ private extension AccountsSettingsView {
                 store.scheduleSwitch(to: account)
             }
         } label: {
-            HStack {
+            HStack(spacing: 12) {
+                Group {
+                    if let emoji = iconStore.icon(for: account.id) {
+                        Text(emoji).font(.system(size: 26))
+                    } else {
+                        Image(systemName: "person.crop.circle.fill")
+                            .font(.system(size: 24))
+                            .foregroundStyle(palette.textSecondary)
+                    }
+                }
+                .frame(width: 32)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(account.displayName).foregroundStyle(palette.textPrimary)
                     Text("Created \(account.createdAt.formatted(date: .abbreviated, time: .omitted))")
@@ -149,6 +167,25 @@ private extension AccountsSettingsView {
             }
         }
         .swipeActions(edge: .trailing) {
+            Button {
+                iconEditTarget = account
+            } label: {
+                Label("Edit Icon", systemImage: "paintpalette")
+            }
+            .tint(.indigo)
+            Button(role: .destructive) {
+                pendingDelete = account
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+            .disabled(account.id == store.selectedID || store.accounts.count <= 1)
+        }
+        .contextMenu {
+            Button {
+                iconEditTarget = account
+            } label: {
+                Label("Edit Icon", systemImage: "paintpalette")
+            }
             Button(role: .destructive) {
                 pendingDelete = account
             } label: {
@@ -170,6 +207,9 @@ private extension AccountsSettingsView {
     func attemptDelete(_ account: AmgiAccount, deleteFiles: Bool) {
         do {
             try store.remove(account, deleteFiles: deleteFiles)
+            // Prune the icon entry so a future profile with the same slug
+            // doesn't inherit it.
+            Task { await iconStore.set(nil, for: account.id) }
         } catch {
             deleteError = error.localizedDescription
         }

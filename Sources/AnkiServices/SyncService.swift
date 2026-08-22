@@ -25,7 +25,13 @@ extension SyncService: DependencyKey {
                 var auth = SyncAuth(hkey: hostKey, endpoint: endpoint)
 
                 do {
-                    let result = try backend.invoke(.syncCollection(auth: auth, syncMedia: true))
+                    // Awaited on purpose: the async invoke overload detaches
+                    // the blocking FFI call off the caller's actor. These
+                    // closures are awaited from MainActor (SyncCoordinator,
+                    // SyncSheet), and with NonisolatedNonsendingByDefault the
+                    // closure body itself runs there — a synchronous invoke
+                    // would freeze the UI for the whole network sync.
+                    let result = try await backend.invoke(.syncCollection(auth: auth, syncMedia: true))
                     logger.info("SyncCollection: required=\(result.required), message='\(result.serverMessage)'")
 
                     if let newEndpoint = result.newEndpoint {
@@ -46,15 +52,20 @@ extension SyncService: DependencyKey {
 
                     case .fullDownload:
                         logger.info("Full download required (local collection empty)")
-                        try backend.invoke(.fullUploadOrDownload(
+                        try await backend.invoke(.fullUploadOrDownload(
                             auth: auth, upload: false, serverUsn: result.serverMediaUsn
                         ))
-                        try? backend.checkDatabase()
+                        // CheckDatabase scans the whole collection after a
+                        // fresh download — detach it like the sync above.
+                        let backendForCheck = backend
+                        try? await Task.detached(priority: .userInitiated) {
+                            try backendForCheck.checkDatabase()
+                        }.value
                         return SyncSummary()
 
                     case .fullUpload:
                         logger.info("Full upload required")
-                        try backend.invoke(.fullUploadOrDownload(
+                        try await backend.invoke(.fullUploadOrDownload(
                             auth: auth, upload: true, serverUsn: result.serverMediaUsn
                         ))
                         return SyncSummary()
@@ -72,7 +83,7 @@ extension SyncService: DependencyKey {
             fullSync: { endpoint, hostKey, direction in
                 let auth = SyncAuth(hkey: hostKey, endpoint: endpoint)
                 do {
-                    try backend.invoke(.fullUploadOrDownload(
+                    try await backend.invoke(.fullUploadOrDownload(
                         auth: auth, upload: direction == .upload, serverUsn: 0
                     ))
                 } catch let error as BackendError {
@@ -83,7 +94,7 @@ extension SyncService: DependencyKey {
             syncMedia: { endpoint, hostKey in
                 let auth = SyncAuth(hkey: hostKey, endpoint: endpoint)
                 do {
-                    try backend.invoke(.syncMedia(auth: auth))
+                    try await backend.invoke(.syncMedia(auth: auth))
                 } catch let error as BackendError {
                     if error.isSyncAuthError { throw SyncError.authFailed }
                     throw SyncError(message: error.message)
@@ -91,7 +102,7 @@ extension SyncService: DependencyKey {
             },
             login: { endpoint, username, password in
                 do {
-                    let hkey = try backend.invoke(.syncLogin(
+                    let hkey = try await backend.invoke(.syncLogin(
                         endpoint: endpoint, username: username, password: password
                     ))
                     logger.info("Login successful for \(username)")

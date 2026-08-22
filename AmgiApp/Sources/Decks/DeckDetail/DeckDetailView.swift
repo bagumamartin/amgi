@@ -23,6 +23,10 @@ struct DeckDetailView: View {
     @State private var destination: DeckDetailDestination?
     @State private var newSubdeckName = ""
     @State private var pendingSubdeck: DeckInfo?
+    @State private var renameSubdeckTarget: DeckSubdeckRowData?
+    @State private var iconSubdeckTarget: DeckSubdeckRowData?
+    @State private var deleteSubdeckTarget: DeckSubdeckRowData?
+    @State private var deleteError: String?
 
     init(deck: DeckInfo) {
         self.deck = deck
@@ -98,9 +102,14 @@ struct DeckDetailView: View {
                 model.childDecks,
                 order: sortOrderBinding.wrappedValue,
                 ranks: model.usageRanks
-            ).map(Self.subdeckRow(from:)),
+            ).map { node in
+                var row = Self.subdeckRow(from: node)
+                row.iconName = model.subdeckIcons[node.id.rawValue]
+                return row
+            },
             insights: insights,
-            isActionInFlight: model.actionInFlight
+            isActionInFlight: model.actionInFlight,
+            iconName: model.iconName
         ))
     }
 
@@ -135,7 +144,17 @@ struct DeckDetailView: View {
             .task(id: store.generation) {
                 await model.loadCounts()
                 await model.loadChildren()
+                // Suggestions are RPC-backed; runs after children render so
+                // subdeck tiles populate progressively.
+                await model.refineSubdeckIcons()
                 model.loadStats()
+            }
+            // Warm the card WebView while the user reads this screen — the
+            // WebKit process pool takes seconds to spawn, and paying that
+            // cost after the Study tap leaves the first card blank. No-op if
+            // the app-root idle prewarm already filled the pool.
+            .task {
+                CardWebViewPrewarmer.shared.prewarmIfNeeded()
             }
     }
 
@@ -151,6 +170,47 @@ struct DeckDetailView: View {
         .toolbar { toolbarContent }
         .navigationDestination(item: $pendingSubdeck) { sub in
             DeckDetailView(deck: sub)
+        }
+        .sheet(item: $renameSubdeckTarget) { row in
+            RenameDeckSheet(deckId: DeckID(row.id), currentName: row.fullName) {
+                renameSubdeckTarget = nil
+            }
+        }
+        .sheet(item: $iconSubdeckTarget) { row in
+            DeckIconEditorSheet(deckId: row.id, deckName: row.name) {
+                iconSubdeckTarget = nil
+            }
+        }
+        .alert(
+            "Delete \"\(deleteSubdeckTarget?.name ?? "")\"?",
+            isPresented: Binding(
+                get: { deleteSubdeckTarget != nil },
+                set: { if !$0 { deleteSubdeckTarget = nil } }
+            )
+        ) {
+            Button("Delete", role: .destructive) {
+                guard let target = deleteSubdeckTarget else { return }
+                deleteSubdeckTarget = nil
+                Task {
+                    if let error = await model.deleteSubdeck(DeckID(target.id)) {
+                        deleteError = error
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) { deleteSubdeckTarget = nil }
+        } message: {
+            Text("This will permanently delete the deck and all its cards.")
+        }
+        .alert(
+            "Something went wrong",
+            isPresented: Binding(
+                get: { deleteError != nil },
+                set: { if !$0 { deleteError = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(deleteError ?? "")
         }
     }
 
@@ -227,6 +287,12 @@ private extension DeckDetailView {
                 ),
                 isFiltered: row.isFiltered
             )
+        case .renameSubdeck(let row):
+            renameSubdeckTarget = row
+        case .changeSubdeckIcon(let row):
+            iconSubdeckTarget = row
+        case .deleteSubdeck(let row):
+            deleteSubdeckTarget = row
         }
     }
 

@@ -23,3 +23,7 @@ design/
 
 # Working files
 *.pdf
+
+# CoreML model weights — 224MB, exceeds GitHub limit and public forks
+# reject LFS uploads. Fetch per AmgiIcons/README.md.
+AmgiIcons/Sources/AmgiIcons/Resources/MultilingualE5Small.mlmodelc/

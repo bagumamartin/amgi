@@ -19,6 +19,9 @@ public struct DeckDetailScreen<HeatmapSlot: View>: View {
         case rebuild
         case emptyDeck
         case subdeckSelected(DeckSubdeckRowData)
+        case renameSubdeck(DeckSubdeckRowData)
+        case changeSubdeckIcon(DeckSubdeckRowData)
+        case deleteSubdeck(DeckSubdeckRowData)
     }
 
     public let state: DeckDetailViewState
@@ -51,6 +54,8 @@ public struct DeckDetailScreen<HeatmapSlot: View>: View {
                 heatmapSection
                 insightsSection
             }
+            .frame(maxWidth: DeckDetailColumn.maxWidth)
+            .frame(maxWidth: .infinity)
             .padding(.horizontal, 20)
             .padding(.top, 6)
             .padding(.bottom, 32)
@@ -71,6 +76,7 @@ public struct DeckDetailScreen<HeatmapSlot: View>: View {
                 subtitle: data.subtitle,
                 tone: data.tone,
                 deckName: data.deckName,
+                iconName: data.iconName,
                 isFiltered: data.isFiltered
             )
         }
@@ -115,9 +121,15 @@ public struct DeckDetailScreen<HeatmapSlot: View>: View {
     private var subdecksSection: some View {
         if case .loaded(let data) = state, !data.subdecks.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
-                DeckSectionHeader(title: "SUBDECKS", sortOrder: $sortOrder)
+                DeckSectionHeader(title: "Subdecks", sortOrder: $sortOrder)
                 DeckSubdecksCard(rows: data.subdecks) { row in
                     onAction(.subdeckSelected(row))
+                } onRename: { row in
+                    onAction(.renameSubdeck(row))
+                } onChangeIcon: { row in
+                    onAction(.changeSubdeckIcon(row))
+                } onDelete: { row in
+                    onAction(.deleteSubdeck(row))
                 }
             }
         }
@@ -150,6 +162,13 @@ public struct DeckDetailScreen<HeatmapSlot: View>: View {
             .padding(.leading, 4)
             .padding(.top, 6)
     }
+}
+
+/// Centered content column for the deck-detail screen, matching the
+/// Library/Study columns so the hero, tiles, and subdeck cards stay
+/// readable on regular-width layouts instead of stretching full-width.
+private enum DeckDetailColumn {
+    static let maxWidth: CGFloat = 800
 }
 
 // MARK: - Previews

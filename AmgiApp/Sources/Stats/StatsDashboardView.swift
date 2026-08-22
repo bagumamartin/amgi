@@ -33,7 +33,10 @@ struct StatsDashboardView: View {
 
                     PeriodStatsCard(period: period, today: graphs.today, reviews: graphs.reviews)
                     FutureDueChart(futureDue: graphs.futureDue, period: period)
-                    HeatmapChartOptimized(reviews: graphs.reviews)
+                    HeatmapChartOptimized(
+                        reviews: model.heatmapReviews ?? graphs.reviews,
+                        attentionDays: period.days
+                    )
                     ReviewsChart(reviews: graphs.reviews, period: period)
                     CardCountsChart(cardCounts: graphs.cardCounts)
                     IntervalsChart(intervals: graphs.intervals)
@@ -45,6 +48,8 @@ struct StatsDashboardView: View {
                     RetrievabilityChart(retrievability: graphs.retrievability)
                 }
             }
+            .frame(maxWidth: StatsColumn.maxWidth)
+            .frame(maxWidth: .infinity)
             .padding(AmgiSpacing.lg)
         }
         .scrollContentBackground(.hidden)
@@ -137,6 +142,13 @@ private extension StatsDashboardView {
 }
 
 // MARK: - Preview
+
+/// Centered content column for the Stats dashboard, matching the
+/// Library/Study columns so the charts stay readable on regular-width
+/// layouts instead of stretching full-width.
+private enum StatsColumn {
+    static let maxWidth: CGFloat = 800
+}
 
 #if DEBUG
 #Preview {

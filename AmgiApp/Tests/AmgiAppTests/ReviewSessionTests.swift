@@ -1,7 +1,7 @@
 import Testing
 import SwiftUI
-import UIKit
 import Dependencies
+import AnkiClients
 import AnkiKit
 import AnkiServices
 @testable import AmgiApp
@@ -105,6 +105,7 @@ import AnkiServices
     /// assertion waits for that work to settle.
     @Test func startWithEmptyQueueFinishesSession() async throws {
         try await withDependencies {
+            $0.statsClient = .previewValue
             $0.decksService.setCurrentDeck = { _ in }
             $0.schedulerService.getQueuedCards = { _ in
                 QueuedCardsResult(cards: [], newCount: 0, learningCount: 0, reviewCount: 0)
@@ -148,11 +149,11 @@ import AnkiServices
         let session = ReviewSession(deckId: DeckID(1))
         #expect(session.cardChromeColor == .clear)
         #expect(!session.cardChromeIsDark)
-        session.updateCardChrome(color: UIColor.red, isDark: false)
-        #expect(session.cardChromeColor == Color(uiColor: UIColor.red))
+        session.updateCardChrome(color: PlatformColor.red, isDark: false)
+        #expect(session.cardChromeColor == Color(platformColor: PlatformColor.red))
         #expect(!session.cardChromeIsDark)
-        session.updateCardChrome(color: UIColor.black, isDark: true)
-        #expect(session.cardChromeColor == Color(uiColor: UIColor.black))
+        session.updateCardChrome(color: PlatformColor.black, isDark: true)
+        #expect(session.cardChromeColor == Color(platformColor: PlatformColor.black))
         #expect(session.cardChromeIsDark)
     }
 
@@ -189,6 +190,7 @@ import AnkiServices
         )
 
         try await withDependencies {
+            $0.statsClient = .previewValue
             $0.notesService.getNote = { noteId in
                 callCounter.value += 1
                 #expect(noteId == NoteID(100))
@@ -224,6 +226,7 @@ import AnkiServices
         )
 
         try await withDependencies {
+            $0.statsClient = .previewValue
             $0.notesService.getNote = { _ in stubNote }
             $0.schedulerService.getQueuedCards = { _ in stubResult }
             $0.cardRenderingService.renderCard = { _ in
@@ -251,6 +254,7 @@ import AnkiServices
         let stubNote = NoteRecord(id: NoteID(100), guid: "g", mid: NotetypeID(200), mod: 0, flds: "", sfld: "", csum: 0)
 
         try await withDependencies {
+            $0.statsClient = .previewValue
             $0.notesService.getNote = { _ in stubNote }
             $0.schedulerService.getQueuedCards = { _ in stubResult }
             $0.cardRenderingService.renderCard = { _ in
@@ -282,8 +286,8 @@ import AnkiServices
             #expect(session.replayRequestID == 1)
 
             // JS reports a card-bg color
-            session.updateCardChrome(color: UIColor.systemBlue, isDark: false)
-            #expect(session.cardChromeColor == Color(uiColor: UIColor.systemBlue))
+            session.updateCardChrome(color: PlatformColor.systemBlue, isDark: false)
+            #expect(session.cardChromeColor == Color(platformColor: PlatformColor.systemBlue))
         }
     }
 
@@ -301,6 +305,7 @@ import AnkiServices
         )
 
         try await withDependencies {
+            $0.statsClient = .previewValue
             $0.notesService.getNote = { _ in
                 NoteRecord(id: NoteID(100), guid: "g", mid: NotetypeID(200), mod: 0, flds: state.noteFields, sfld: "", csum: 0)
             }
@@ -347,6 +352,7 @@ import AnkiServices
         let box = Box()
 
         try await withDependencies {
+            $0.statsClient = .previewValue
             $0.decksService.setCurrentDeck = { _ in }
             $0.schedulerService.getQueuedCards = { _ in
                 // start() sees both cards; after answerReviewCard fires, only card2 remains.
@@ -366,8 +372,7 @@ import AnkiServices
             #expect(s.currentNote == note1)
 
             s.answer(rating: .good)
-            // answer() holds the card until the rating toast's 450ms minimum
-            // display elapses, so the settle wait must outlast it.
+            // answer() advances once the backend answer + queue refetch settle.
             try await Task.sleep(for: .milliseconds(700))
 
             #expect(s.sessionStats.reviewed == 1)
@@ -378,11 +383,58 @@ import AnkiServices
         }
     }
 
+    /// The session publishes live queue counts after start and after each
+    /// answer. Stubbing the scheduler to return the engine's real transition
+    /// (new−1, learn+1 on a first new-card answer) verifies the reviewer bar's
+    /// data path stays live — not frozen on the session-start snapshot.
+    @Test func liveCountsPublishedOnStartAndAfterAnswer() async throws {
+        let card1 = QueuedReviewCard.preview(cardId: CardID(1), noteId: NoteID(100), ord: 0)
+        let card2 = QueuedReviewCard.preview(cardId: CardID(2), noteId: NoteID(101), ord: 0)
+        let note1 = NoteRecord(id: NoteID(100), guid: "g1", mid: NotetypeID(200), mod: 0, flds: "", sfld: "", csum: 0)
+        let note2 = NoteRecord(id: NoteID(101), guid: "g2", mid: NotetypeID(200), mod: 0, flds: "", sfld: "", csum: 0)
+
+        final class State: @unchecked Sendable { var answered = false }
+        let state = State()
+        let tracker = LiveReviewCounts()
+
+        try await withDependencies {
+            $0.statsClient = .previewValue
+            $0.decksService.setCurrentDeck = { _ in }
+            $0.schedulerService.getQueuedCards = { _ in
+                state.answered
+                    ? QueuedCardsResult(cards: [card2], newCount: 1, learningCount: 1, reviewCount: 0)
+                    : QueuedCardsResult(cards: [card1, card2], newCount: 2, learningCount: 0, reviewCount: 0)
+            }
+            $0.schedulerService.answerReviewCard = { _, _, _, _ in state.answered = true }
+            $0.notesService.getNote = { id in id == NoteID(100) ? note1 : note2 }
+            $0.cardRenderingService.renderCard = { _ in
+                RenderedCard(frontHTML: "f", backHTML: "b", cardCSS: "")
+            }
+            $0.liveReviewCounts = tracker
+        } operation: {
+            let s = ReviewSession(deckId: DeckID(1))
+            s.start()
+            try await Task.sleep(for: .milliseconds(50))
+            #expect(tracker.snapshot?.baseline == DeckCounts(newCount: 2, learnCount: 0, reviewCount: 0))
+            #expect(tracker.snapshot?.live == DeckCounts(newCount: 2, learnCount: 0, reviewCount: 0))
+
+            s.answer(rating: .good)
+            try await Task.sleep(for: .milliseconds(700))
+            #expect(tracker.snapshot?.baseline == DeckCounts(newCount: 2, learnCount: 0, reviewCount: 0),
+                    "baseline stays frozen at session start")
+            #expect(tracker.snapshot?.live == DeckCounts(newCount: 1, learnCount: 1, reviewCount: 0),
+                    "live counts transition new->learning after an answer")
+            #expect(s.remainingCounts == tracker.snapshot?.live,
+                    "reviewer bar reads the same live counts the ring consumes")
+        }
+    }
+
     /// isAdvancing flips true synchronously inside start() (before the internal
     /// Task runs) and clears once the off-main transition settles.
     @Test func isAdvancingSetSynchronouslyThenClears() async throws {
         let card = QueuedReviewCard.preview(cardId: CardID(1), noteId: NoteID(100), ord: 0)
         try await withDependencies {
+            $0.statsClient = .previewValue
             $0.decksService.setCurrentDeck = { _ in }
             $0.schedulerService.getQueuedCards = { _ in
                 QueuedCardsResult(cards: [card], newCount: 1, learningCount: 0, reviewCount: 0)
@@ -402,4 +454,171 @@ import AnkiServices
             #expect(!s.isFinished, "a non-empty queue should not finish")
         }
     }
+
+    // MARK: - Undo
+
+    /// `undo()` re-fetches the queue after `cardClient.undoLast()` and
+    /// advances to the card that was just answered — rolling the session stats
+    /// back with it. This is the behaviour that was regressing in the field:
+    /// the card must change, not just blink.
+    @Test func undoReturnsToPreviousCardAndRollsBackStats() async throws {
+        let card1 = QueuedReviewCard.preview(cardId: CardID(1), noteId: NoteID(100), ord: 0)
+        let card2 = QueuedReviewCard.preview(cardId: CardID(2), noteId: NoteID(101), ord: 0)
+        let note1 = NoteRecord(id: NoteID(100), guid: "g1", mid: NotetypeID(200), mod: 0, flds: "", sfld: "", csum: 0)
+        let note2 = NoteRecord(id: NoteID(101), guid: "g2", mid: NotetypeID(200), mod: 0, flds: "", sfld: "", csum: 0)
+
+        final class State: @unchecked Sendable {
+            var answered = false
+            var undone = false
+        }
+        let state = State()
+
+        try await withDependencies {
+            $0.statsClient = .previewValue
+            $0.decksService.setCurrentDeck = { _ in }
+            // undo() verifies the target card returned to its pre-answer state
+            // via cardClient.getCard, undoing repeatedly while it hasn't.
+            $0.cardClient.undoLast = { state.undone = true }
+            $0.cardClient.getCard = { _ in
+                state.undone ? card1.card : answeredVariant(of: card1.card)
+            }
+            $0.schedulerService.getQueuedCards = { _ in
+                if state.undone {
+                    return QueuedCardsResult(cards: [card1, card2], newCount: 2, learningCount: 0, reviewCount: 0)
+                }
+                if state.answered {
+                    return QueuedCardsResult(cards: [card2], newCount: 1, learningCount: 0, reviewCount: 0)
+                }
+                return QueuedCardsResult(cards: [card1, card2], newCount: 2, learningCount: 0, reviewCount: 0)
+            }
+            $0.schedulerService.answerReviewCard = { _, _, _, _ in state.answered = true }
+            $0.notesService.getNote = { id in id == NoteID(100) ? note1 : note2 }
+            $0.cardRenderingService.renderCard = { _ in
+                RenderedCard(frontHTML: "f", backHTML: "b", cardCSS: "")
+            }
+        } operation: {
+            let s = ReviewSession(deckId: DeckID(1))
+            s.start()
+            try await Task.sleep(for: .milliseconds(50))
+            #expect(s.currentNote == note1)
+
+            s.answer(rating: .good)
+            try await Task.sleep(for: .milliseconds(700))
+            #expect(s.currentNote == note2, "answer should advance to card2")
+            #expect(s.sessionStats.reviewed == 1)
+            #expect(s.sessionStats.correct == 1)
+            #expect(s.canUndo)
+
+            s.undo()
+            try await Task.sleep(for: .milliseconds(100))
+
+            #expect(s.currentNote == note1, "undo should return to card1")
+            #expect(s.sessionStats.reviewed == 0, "undo should roll back reviewed count")
+            #expect(s.sessionStats.correct == 0, "undo should roll back correct count")
+            #expect(!s.canUndo, "no earlier answers remain to undo")
+            #expect(!s.isAdvancing, "undo should clear isAdvancing")
+        }
+    }
+
+    /// Continuous undo pops one answer at a time until the session start is
+    /// reached again, restoring both the card and the per-answer stats.
+    @Test func continuousUndoWalksBackToSessionStart() async throws {
+        let card1 = QueuedReviewCard.preview(cardId: CardID(1), noteId: NoteID(100), ord: 0)
+        let card2 = QueuedReviewCard.preview(cardId: CardID(2), noteId: NoteID(101), ord: 0)
+        let card3 = QueuedReviewCard.preview(cardId: CardID(3), noteId: NoteID(102), ord: 0)
+        let note1 = NoteRecord(id: NoteID(100), guid: "g1", mid: NotetypeID(200), mod: 0, flds: "", sfld: "", csum: 0)
+        let note2 = NoteRecord(id: NoteID(101), guid: "g2", mid: NotetypeID(200), mod: 0, flds: "", sfld: "", csum: 0)
+        let note3 = NoteRecord(id: NoteID(102), guid: "g3", mid: NotetypeID(200), mod: 0, flds: "", sfld: "", csum: 0)
+
+        final class State: @unchecked Sendable {
+            var answers = 0
+            var undos = 0
+        }
+        let state = State()
+
+        let originals: [Int64: CardRecord] = [
+            1: card1.card, 2: card2.card, 3: card3.card
+        ]
+
+        try await withDependencies {
+            $0.statsClient = .previewValue
+            $0.decksService.setCurrentDeck = { _ in }
+            $0.cardClient.undoLast = { state.undos += 1 }
+            $0.cardClient.getCard = { id in
+                // A card is back to its pre-answer state once the number of
+                // backend undos exceeds the number of answers that followed it.
+                let restored = id == CardID(3)
+                    ? state.undos >= 2
+                    : (id == CardID(2) ? state.undos >= 1 : state.undos >= 2)
+                guard let original = originals[id.rawValue] else {
+                    return card1.card
+                }
+                return restored ? original : answeredVariant(of: original)
+            }
+            $0.schedulerService.getQueuedCards = { _ in
+                let all = [card1, card2, card3]
+                let remaining = all.dropFirst(max(0, state.answers - state.undos))
+                return QueuedCardsResult(
+                    cards: Array(remaining),
+                    newCount: remaining.count,
+                    learningCount: 0,
+                    reviewCount: 0
+                )
+            }
+            $0.schedulerService.answerReviewCard = { _, _, _, _ in state.answers += 1 }
+            $0.notesService.getNote = { id in
+                switch id {
+                case NoteID(100): return note1
+                case NoteID(101): return note2
+                default: return note3
+                }
+            }
+            $0.cardRenderingService.renderCard = { _ in
+                RenderedCard(frontHTML: "f", backHTML: "b", cardCSS: "")
+            }
+        } operation: {
+            let s = ReviewSession(deckId: DeckID(1))
+            s.start()
+            try await Task.sleep(for: .milliseconds(50))
+            #expect(s.currentNote == note1)
+
+            s.answer(rating: .good)
+            try await Task.sleep(for: .milliseconds(700))
+            #expect(s.currentNote == note2)
+
+            s.answer(rating: .again)
+            try await Task.sleep(for: .milliseconds(700))
+            #expect(s.currentNote == note3)
+            #expect(s.sessionStats.reviewed == 2)
+            #expect(s.sessionStats.correct == 1)
+            #expect(s.canUndo)
+
+            s.undo()
+            try await Task.sleep(for: .milliseconds(100))
+            #expect(s.currentNote == note2, "first undo returns to card2")
+            #expect(s.sessionStats.reviewed == 1)
+            #expect(s.sessionStats.correct == 1)
+            #expect(s.canUndo, "still has an earlier answer to undo")
+
+            s.undo()
+            try await Task.sleep(for: .milliseconds(100))
+            #expect(s.currentNote == note1, "second undo returns to card1")
+            #expect(s.sessionStats.reviewed == 0)
+            #expect(s.sessionStats.correct == 0)
+            #expect(!s.canUndo, "session start reached")
+        }
+    }
+}
+
+/// A `CardRecord` in a clearly post-answer scheduling state — the "answer not
+/// yet undone" variant returned by the `cardClient.getCard` stub in the undo
+/// tests, which flips back to the pre-answer card once an undo has occurred.
+private func answeredVariant(of card: CardRecord) -> CardRecord {
+    CardRecord(
+        id: card.id, nid: card.nid, did: card.did, ord: card.ord, mod: card.mod,
+        usn: card.usn, type: 1, queue: 3, due: 60,
+        ivl: card.ivl, factor: card.factor, reps: card.reps, lapses: card.lapses,
+        left: card.left, odue: card.odue, odid: card.odid,
+        flags: card.flags, data: card.data
+    )
 }

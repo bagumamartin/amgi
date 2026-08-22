@@ -24,7 +24,7 @@ struct ShortcutsSettingsView: View {
             } header: {
                 Text("Review Shortcuts")
             } footer: {
-                Text("Shortcuts apply while a review window is focused. Click a shortcut to record a new one; press Escape to cancel.")
+                Text("Shortcuts apply while reviewing. Select a shortcut to record a new one; press Escape to cancel.")
             }
         }
         .navigationTitle("Shortcuts")

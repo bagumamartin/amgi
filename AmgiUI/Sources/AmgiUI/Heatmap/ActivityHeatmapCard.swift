@@ -11,22 +11,23 @@ import AmgiTheme
 public struct ActivityHeatmapCard: View {
     public let data: HeatmapCardData
 
-    /// Session-only range selection. Default: 180 days (26 weeks).
-    @State private var selectedDays: Int = 180
+    /// Session-only range selection. Defaults to the last year; compact
+    /// layouts can pass a shorter window so the grid isn't always scrollable.
+    @State private var selectedDays: Int
     /// The cell (day offset) currently shown in the popover tooltip.
     @State private var tooltipOffset: Int? = nil
 
     @Environment(\.palette) private var palette
 
-    public init(data: HeatmapCardData) {
+    public init(data: HeatmapCardData, initialDays: Int = 365) {
         self.data = data
+        self._selectedDays = State(initialValue: initialDays)
     }
 
     // MARK: - Computed grid geometry
 
     private let weekdayLabelWidth: CGFloat = HeatmapGridMetrics.weekdayLabelWidth
 
-    @State private var gridWidth: CGFloat = 0
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     private var weeksToShow: Int { selectedDays / 7 + 1 }
@@ -89,10 +90,6 @@ public struct ActivityHeatmapCard: View {
         return (0...daysFromMonday).reduce(0) { $0 + (filteredCounts[-$1] ?? 0) }
     }
 
-    private var fittedCellSize: CGFloat {
-        HeatmapGridMetrics.cellSize(width: gridWidth, weekCount: weeks.count)
-    }
-
     private var reviewsToday: Int { filteredCounts[0] ?? 0 }
 
     // MARK: - Body
@@ -111,22 +108,21 @@ public struct ActivityHeatmapCard: View {
                         today: reviewsToday,
                         spread: horizontalSizeClass != .regular
                     )
-                    HeatmapScrollGrid(
-                        weeks: weeks,
-                        monthLabels: monthLabels,
-                        data: data,
-                        cellSize: fittedCellSize,
-                        cellSpacing: HeatmapGridMetrics.cellSpacing,
-                        weekdayLabelWidth: weekdayLabelWidth,
-                        containerWidth: gridWidth,
-                        dayOffset: dayOffset,
-                        tooltipOffset: $tooltipOffset
-                    )
-                    .frame(height: HeatmapGridMetrics.gridHeight(cellSize: fittedCellSize))
-                    .onGeometryChange(for: CGFloat.self) { proxy in
-                        proxy.size.width
-                    } action: { gridWidth = $0 }
-                    HeatmapLegend(cellSize: fittedCellSize)
+                    GeometryReader { geo in
+                        HeatmapScrollGrid(
+                            weeks: weeks,
+                            monthLabels: monthLabels,
+                            data: data,
+                            cellSize: HeatmapGridMetrics.cellSize,
+                            cellSpacing: HeatmapGridMetrics.cellSpacing,
+                            weekdayLabelWidth: weekdayLabelWidth,
+                            containerWidth: geo.size.width,
+                            dayOffset: dayOffset,
+                            tooltipOffset: $tooltipOffset
+                        )
+                    }
+                    .frame(height: HeatmapGridMetrics.gridHeight(cellSize: HeatmapGridMetrics.cellSize))
+                    HeatmapLegend(cellSize: HeatmapGridMetrics.cellSize)
                 }
             }
         }
@@ -136,18 +132,10 @@ public struct ActivityHeatmapCard: View {
 // MARK: - Grid metrics
 
 private enum HeatmapGridMetrics {
-    static let minCell: CGFloat = 11
-    static let maxCell: CGFloat = 28
+    static let cellSize: CGFloat = 11
     static let cellSpacing: CGFloat = 2
     static let weekdayLabelWidth: CGFloat = 18
     static let monthHeaderHeight: CGFloat = 14
-
-    static func cellSize(width: CGFloat, weekCount: Int) -> CGFloat {
-        guard weekCount > 0, width > weekdayLabelWidth else { return minCell }
-        let available = width - weekdayLabelWidth
-        let fitted = (available - CGFloat(weekCount - 1) * cellSpacing) / CGFloat(weekCount)
-        return min(maxCell, max(minCell, fitted))
-    }
 
     static func contentWidth(weekCount: Int, cellSize: CGFloat) -> CGFloat {
         weekdayLabelWidth

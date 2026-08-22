@@ -15,6 +15,7 @@ struct ContentView: View {
 
     @Dependency(\.syncCoordinator) private var coordinator
     @Dependency(\.collectionStore) private var store
+    @Dependency(\.liveReviewCounts) private var liveCounts
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openWindow) private var openWindow
 
@@ -89,6 +90,7 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .amgiReviewFinished)) { _ in
             store.invalidateAll()
             store.markLocalMutation(reason: "Review completed")
+            liveCounts.clear()
             refreshID = UUID()
         }
         #else
@@ -97,6 +99,7 @@ struct ContentView: View {
                 pendingReviewDeckId = nil
                 store.invalidateAll()
                 store.markLocalMutation(reason: "Review completed")
+                liveCounts.clear()
                 refreshID = UUID()
             }
         }

@@ -141,6 +141,12 @@ extension Request where Response == QueuedCardsResult {
                         good:    SchedulingStateToken(try queued.states.good.serializedData()),
                         easy:    SchedulingStateToken(try queued.states.easy.serializedData())
                     )
+                    let scheduled: [Rating: ScheduledInterval] = [
+                        .again: scheduledInterval(queued.states.again),
+                        .hard:  scheduledInterval(queued.states.hard),
+                        .good:  scheduledInterval(queued.states.good),
+                        .easy:  scheduledInterval(queued.states.easy),
+                    ]
                     let intervals: [Rating: String] = [
                         .again: formatInterval(scheduledSecs(queued.states.again)),
                         .hard:  formatInterval(scheduledSecs(queued.states.hard)),
@@ -150,7 +156,8 @@ extension Request where Response == QueuedCardsResult {
                     cards.append(QueuedReviewCard(
                         card: CardRecord(queued.card),
                         states: states,
-                        nextIntervals: intervals
+                        nextIntervals: intervals,
+                        nextScheduled: scheduled
                     ))
                 }
                 return QueuedCardsResult(

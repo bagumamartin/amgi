@@ -7,6 +7,19 @@ public struct SchedulingStateToken: Sendable {
     package init(_ bytes: Data) { self.bytes = bytes }
 }
 
+/// How far out a rating schedules the card, distinguishing whole-day review
+/// intervals from sub-day (learning/relearning) seconds so "graduated past
+/// today" can respect the Anki rollover hour instead of a fixed 24h window.
+public enum ScheduledInterval: Sendable, Equatable {
+    /// A sub-day scheduling (learning/relearning step, preview, or new) —
+    /// seconds until the card is due again.
+    case seconds(UInt32)
+    /// A whole-day review scheduling — due in this many Anki days. `>= 1`
+    /// means a future day (the day boundary is the rollover hour, not "now
+    /// + 24h").
+    case days(UInt32)
+}
+
 public struct ReviewSchedulingStates: Sendable {
     public let current: SchedulingStateToken
     public let again: SchedulingStateToken
@@ -33,11 +46,21 @@ public struct QueuedReviewCard: Sendable {
     public let card: CardRecord
     public let states: ReviewSchedulingStates
     public let nextIntervals: [Rating: String]
+    /// The next scheduled interval for each rating, from the same precomputed
+    /// states that drive `nextIntervals`. App code uses this to decide whether
+    /// a rating graduates the card past today's scope.
+    public let nextScheduled: [Rating: ScheduledInterval]
 
-    package init(card: CardRecord, states: ReviewSchedulingStates, nextIntervals: [Rating: String]) {
+    package init(
+        card: CardRecord,
+        states: ReviewSchedulingStates,
+        nextIntervals: [Rating: String],
+        nextScheduled: [Rating: ScheduledInterval] = [:]
+    ) {
         self.card = card
         self.states = states
         self.nextIntervals = nextIntervals
+        self.nextScheduled = nextScheduled
     }
 
     /// Convenience factory for tests and SwiftUI previews.

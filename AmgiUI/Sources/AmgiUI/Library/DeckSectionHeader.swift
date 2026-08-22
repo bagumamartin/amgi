@@ -17,9 +17,8 @@ public struct DeckSectionHeader: View {
     public var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text(title)
-                .font(.caption.weight(.semibold))
-                .tracking(0.4)
-                .foregroundStyle(palette.textTertiary)
+                .amgiFont(.sectionHeading)
+                .foregroundStyle(palette.textPrimary)
                 .textCase(nil)
 
             Spacer(minLength: 8)
@@ -32,7 +31,7 @@ public struct DeckSectionHeader: View {
                 }
             } label: {
                 Label(sortOrder.title, systemImage: "arrow.up.arrow.down")
-                    .font(.caption.weight(.medium))
+                    .amgiFont(.caption)
                     .foregroundStyle(palette.accent)
                     .labelStyle(.titleAndIcon)
             }

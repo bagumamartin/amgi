@@ -43,6 +43,9 @@ extension CardClient: DependencyKey {
                 }
             },
             fetchByNote: { _ in [] },
+            getCard: { cardId in
+                try await backend.invoke(.getCard(id: cardId))
+            },
             save: { _ in },
             answer: { cardId, rating, timeSpent in
                 try await backendOffload { try scheduler.answerCard(cardId, rating, timeSpent) }

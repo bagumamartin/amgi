@@ -4,6 +4,30 @@ public import AnkiKit
 import AnkiProto
 import SwiftProtobuf
 
+// MARK: - searchCardIds
+
+extension Request where Response == [CardID] {
+    /// Runs a card search and returns the matching card ids. Used for
+    /// scheduling-state counts (e.g. `is:review rated:1` → cards graduated
+    /// today). An empty query is rewritten to `deck:*` to match the existing
+    /// service-level behaviour.
+    public static func searchCardIds(query: String) -> Self {
+        Self(
+            serviceId: ServiceID.search,
+            methodId: SearchMethod.searchCards,
+            encode: {
+                var proto = Anki_Search_SearchRequest()
+                proto.search = query.isEmpty ? "deck:*" : query
+                return try proto.serializedData()
+            },
+            decode: { bytes in
+                let resp = try Anki_Search_SearchResponse(serializedBytes: bytes)
+                return resp.ids.map { CardID($0) }
+            }
+        )
+    }
+}
+
 // MARK: - getCard
 
 extension Request where Response == CardRecord {

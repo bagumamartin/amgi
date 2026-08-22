@@ -10,6 +10,17 @@ public extension UserDefaults {
     /// but not `Sendable`-conforming on this SDK. Required so the widget extension
     /// and watch app (non-main contexts) can read the same store.
     nonisolated(unsafe) static let amgiAppGroup: UserDefaults = {
-        return UserDefaults(suiteName: AppGroup.identifier) ?? .standard
+        let defaults = UserDefaults(suiteName: AppGroup.identifier) ?? .standard
+        // One-time migration: when the App Group gained its Team-ID prefix
+        // (required by macOS), the container moved to a new directory. Copy
+        // any values the previous suite still holds (e.g. the selected theme)
+        // so preferences survive the switch.
+        if let legacy = UserDefaults(suiteName: AppGroup.legacyIdentifier) {
+            let current = defaults.dictionaryRepresentation()
+            for (key, value) in legacy.dictionaryRepresentation() where current[key] == nil {
+                defaults.set(value, forKey: key)
+            }
+        }
+        return defaults
     }()
 }

@@ -12,6 +12,9 @@ public struct DeckRowViewData: Identifiable, Equatable, Hashable, Sendable {
     public let reviewCount: Int
     public let isFiltered: Bool
     public let subdeckCount: Int
+    /// Persisted or name-derived icon (Phosphor case name). Nil ⇒ the tile
+    /// falls back to the emoji/letter/monogram glyph.
+    public var iconName: String?
 
     public init(
         id: Int64,
@@ -21,7 +24,8 @@ public struct DeckRowViewData: Identifiable, Equatable, Hashable, Sendable {
         learnCount: Int,
         reviewCount: Int,
         isFiltered: Bool,
-        subdeckCount: Int
+        subdeckCount: Int,
+        iconName: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -31,6 +35,13 @@ public struct DeckRowViewData: Identifiable, Equatable, Hashable, Sendable {
         self.reviewCount = reviewCount
         self.isFiltered = isFiltered
         self.subdeckCount = subdeckCount
+        self.iconName = iconName
+    }
+
+    public func updatingIconName(_ newName: String?) -> DeckRowViewData {
+        var copy = self
+        copy.iconName = newName
+        return copy
     }
 
     public var totalCount: Int { newCount + learnCount + reviewCount }

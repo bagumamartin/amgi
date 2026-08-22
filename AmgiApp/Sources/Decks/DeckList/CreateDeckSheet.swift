@@ -1,5 +1,6 @@
 import SwiftUI
 import AnkiKit
+import AmgiIcons
 import AnkiClients
 import Dependencies
 
@@ -13,6 +14,8 @@ struct CreateDeckSheet: View {
     @Dependency(\.deckClient) var deckClient
     @Dependency(\.collectionStore) var store
     @State private var name = ""
+    @State private var selectedIconName: String?
+    @State private var iconManuallySet = false
     @State private var isSaving = false
     @Environment(\.dismiss) private var dismiss
 
@@ -22,6 +25,13 @@ struct CreateDeckSheet: View {
                 Section {
                     TextField("Name", text: $name, prompt: Text("Use :: for subdecks"))
                         .autocorrectionDisabled()
+                }
+                Section("Icon") {
+                    DeckIconSection(
+                        selectedIconName: $selectedIconName,
+                        iconManuallySet: $iconManuallySet,
+                        deckName: name
+                    )
                 }
             }
             #if os(macOS)
@@ -54,6 +64,11 @@ private extension CreateDeckSheet {
         isSaving = true
         do {
             let creation = try await deckClient.create(name.trimmingCharacters(in: .whitespaces))
+            // Only manual picks persist; non-picked decks keep auto-following
+            // their name at render time. col.conf write → rides collection sync.
+            if iconManuallySet, let iconName = selectedIconName {
+                await DeckIconOverrides.set(iconName, for: creation.id.rawValue)
+            }
             store.apply(creation.changes)
             onDone()
         } catch {

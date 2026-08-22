@@ -3,9 +3,14 @@
 import BackgroundTasks
 #endif
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 import AmgiReader
 import AmgiReaderDictionary
+import AmgiIcons
 import AmgiTheme
+import AmgiUI
 import AnkiBackend
 import AnkiKit
 import AnkiSync
@@ -27,6 +32,7 @@ struct AnkiAppApp: App {
     #if os(macOS)
     @Shared(.reviewShortcuts) private var reviewShortcuts: [String: ReviewShortcut] = [:]
     @FocusedValue(\.reviewActions) private var reviewActions
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     #endif
 
     private var destination: Destination {
@@ -35,6 +41,13 @@ struct AnkiAppApp: App {
 
     init() {
         migrateRootSectionPreference()
+        migrateDeckSortOrderPreference()
+
+        // Deck tiles render Phosphor glyphs through this bridge; the watch
+        // target never registers one and keeps letter tiles.
+        DeckIconRendering.provider = { iconName in
+            AmgiIcons.DeckIconGlyph.image(for: iconName)
+        }
 
         #if DEBUG
 //        if KeychainHelper.loadEndpoint() == nil {
@@ -139,14 +152,17 @@ struct AnkiAppApp: App {
                     Task { await writeWidgetSnapshot() }
                 }
             }
+            // Idle-time WebView prewarm: after launch settles, spawn WebKit's
+            // card-rendering processes so the first HTML review card never
+            // waits on a cold-start (logs: 1.8–3.7s). DeckDetailView re-checks
+            // on every appearance for users who get there faster.
+            .task {
+                try? await Task.sleep(for: .seconds(2))
+                CardWebViewPrewarmer.shared.prewarmIfNeeded()
+            }
             .onOpenURL { url in
-                guard url.scheme == "amgi",
-                      url.host == "review",
-                      let deckIdStr = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-                          .queryItems?.first(where: { $0.name == "deckId" })?.value,
-                      let deckId = Int64(deckIdStr)
-                else { return }
-                openWidgetReview(deckId: DeckID(deckId))
+                guard url.scheme == "amgi", url.host == "study" else { return }
+                $rootSection.withLock { $0 = MainSection.study.rawValue }
             }
             .themedRoot()
             .environment(\.appFont, AppFont(rawValue: appFontRaw) ?? .system)
@@ -251,6 +267,16 @@ private extension AnkiAppApp {
         $rootSection.withLock { $0 = legacyValue }
     }
 
+    func migrateDeckSortOrderPreference() {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: NavigationPreferences.deckSortOrder) == nil,
+              let legacyValue = defaults.string(forKey: NavigationPreferences.legacyDeckSortOrder)
+        else { return }
+
+        defaults.set(legacyValue, forKey: NavigationPreferences.deckSortOrder)
+        defaults.removeObject(forKey: NavigationPreferences.legacyDeckSortOrder)
+    }
+
     #if os(macOS)
     func reviewShortcut(_ action: ReviewShortcutAction) -> ReviewShortcut {
         reviewShortcuts[action.rawValue] ?? action.defaultShortcut
@@ -262,14 +288,6 @@ private extension AnkiAppApp {
         case main
     }
 
-    /// WidgetKit's default "All Decks" configuration is represented by the
-    /// synthetic ID 0. `ReviewSession` owns that explicit aggregate scope and
-    /// progresses through every active top-level deck. A configured widget
-    /// still opens its selected, real deck directly.
-    @MainActor
-    private func openWidgetReview(deckId: DeckID) {
-        pendingReviewDeckId = deckId
-    }
 }
 
 #if os(macOS)
@@ -381,6 +399,30 @@ private func startMacWidgetRefreshLoop() {
             try? await Task.sleep(for: .seconds(15 * 60))
             await writeWidgetSnapshot()
         }
+    }
+}
+
+/// macOS single-instance guard for URL (widget-click) launches.
+///
+/// Clicking a widget delivers `amgi://study` through LaunchServices. When the
+/// URL scheme is registered to a different copy of the app than the one
+/// currently running (e.g. the Xcode-launched build in DerivedData vs. a copy
+/// in /Applications), LaunchServices can start a second process. Detect that
+/// here and hand off to the running instance instead of showing a duplicate
+/// window. Normal launches (Run in Xcode, Dock, Finder) carry no URL and are
+/// untouched.
+@MainActor
+private final class AppDelegate: NSObject, NSApplicationDelegate {
+    func application(_ application: NSApplication, open urls: [URL]) {
+        guard let firstURL = urls.first, firstURL.scheme == "amgi" else { return }
+        let ownPID = ProcessInfo.processInfo.processIdentifier
+        let bundleID = Bundle.main.bundleIdentifier ?? "com.bagumamartin.AmgiApp"
+        guard let existing = NSRunningApplication
+            .runningApplications(withBundleIdentifier: bundleID)
+            .first(where: { $0.processIdentifier != ownPID })
+        else { return } // First instance — SwiftUI's onOpenURL handles the URL.
+        existing.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        NSApp.terminate(nil)
     }
 }
 #endif

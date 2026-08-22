@@ -8,7 +8,8 @@ extension StatsClient {
     public static let previewValue = StatsClient(
         fetchGraphs: { _, _ in
             GraphsSnapshot.sample
-        }
+        },
+        graduatedToday: { _ in 7 }
     )
 }
 #endif

@@ -1,5 +1,6 @@
 import SwiftUI
 import AnkiKit
+import AmgiIcons
 import AnkiClients
 import Dependencies
 
@@ -12,6 +13,8 @@ struct RenameDeckSheet: View {
     @Dependency(\.deckClient) var deckClient
     @Dependency(\.collectionStore) var store
     @State private var name: String
+    @State private var selectedIconName: String?
+    @State private var iconManuallySet = false
     @State private var isSaving = false
     @Environment(\.dismiss) private var dismiss
 
@@ -19,6 +22,11 @@ struct RenameDeckSheet: View {
         self.deckId = deckId
         self.onDone = onDone
         _name = State(initialValue: currentName)
+        // A previously stored override is a manual pick — it must survive
+        // this session untouched unless the user changes it.
+        let existing = DeckIconOverrides.iconName(for: deckId.rawValue)
+        _selectedIconName = State(initialValue: existing)
+        _iconManuallySet = State(initialValue: existing != nil)
     }
 
     var body: some View {
@@ -27,6 +35,13 @@ struct RenameDeckSheet: View {
                 Section {
                     TextField("Deck name", text: $name)
                         .autocorrectionDisabled()
+                }
+                Section("Icon") {
+                    DeckIconSection(
+                        selectedIconName: $selectedIconName,
+                        iconManuallySet: $iconManuallySet,
+                        deckName: name
+                    )
                 }
             }
             .navigationTitle("Rename Deck")
@@ -52,7 +67,19 @@ private extension RenameDeckSheet {
         isSaving = true
         do {
             let changes = try await deckClient.rename(deckId, name.trimmingCharacters(in: .whitespaces))
+            // Manual pick ⇒ persist it; back to Automatic ⇒ clear any stale
+            // override so the icon follows the (possibly new) name again.
+            // col.conf write → rides collection sync to every device.
+            await DeckIconOverrides.set(
+                iconManuallySet ? selectedIconName : nil,
+                for: deckId.rawValue
+            )
             store.apply(changes)
+            // Icon-only edits (rename that produced no tree change) still
+            // need a generation bump so tiles refresh immediately.
+            if !changes.affectsDeckTree {
+                store.invalidateAll(origin: .localUser)
+            }
             onDone()
         } catch {
             print("[RenameDeckSheet] Rename failed: \(error)")

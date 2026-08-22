@@ -35,7 +35,17 @@ settings:
     # Shared App Group container ID. Used by the app/widget entitlements via
     # $(APP_GROUP_IDENTIFIER) and mirrored by the runtime constant
     # `AppGroup.identifier` in AmgiTheme. Keep the two in sync.
+    #
+    # iOS requires IDs to start with `group.` (Apple's signing server rejects
+    # anything else). macOS's containermanagerd, however, only lets a sandboxed
+    # process access a group container whose ID is prefixed with the requestor's
+    # Team ID when the provisioning profile doesn't list the ID explicitly —
+    # which is exactly why the widget extension was denied (its profile only
+    # carries the `39557WW39R.*` wildcard) and fell back to the empty snapshot.
+    # So the base ID is the iOS form, and the macOS SDK override switches to
+    # the Team-ID-prefixed form (covered by that same wildcard).
     APP_GROUP_IDENTIFIER: group.com.bagumamartin.AmgiApp
+    "APP_GROUP_IDENTIFIER[sdk=macosx*]": 39557WW39R.group.com.bagumamartin.AmgiApp
   configs:
     Debug:
       # Eager linking: let downstream targets link against generated stubs
@@ -55,6 +65,8 @@ packages:
     path: ../AmgiUI
   AmgiReader:
     path: ../AmgiReader
+  AmgiIcons:
+    path: ../AmgiIcons
   swift-navigation:
     url: https://github.com/pointfreeco/swift-navigation
     from: 2.0.0
@@ -88,6 +100,9 @@ targets:
         excludes:
           - "Widgets"
           - "Watch"
+      - path: Resources/MCEmojiPicker.bundle
+        type: folder
+        buildPhase: resources
       - path: Resources/Assets.xcassets
       - path: Resources/mathjax
         type: folder
@@ -118,6 +133,8 @@ targets:
         product: AmgiTheme
       - package: AmgiUI
         product: AmgiUI
+      - package: AmgiIcons
+        product: AmgiIcons
       - package: swift-navigation
         product: SwiftNavigation
       - package: swift-navigation
@@ -129,11 +146,15 @@ targets:
       - target: AmgiWidget
         embed: true
         destinationFilters: [iOS, macOS]
+      # iOS-only emoji picker (vendored upstream sources, Swift 5 target).
+      - target: MCEmojiPicker
+        destinationFilters: [iOS]
     settings:
       base:
         INFOPLIST_FILE: Info.plist
         PRODUCT_BUNDLE_IDENTIFIER: com.bagumamartin.AmgiApp
         CODE_SIGN_ENTITLEMENTS: AmgiApp.entitlements
+        "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": AmgiApp-macOS.entitlements
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_IDENTITY: "Apple Development"
         "CODE_SIGN_IDENTITY[sdk=macosx*]": "Apple Development"
@@ -153,6 +174,24 @@ targets:
         CLANG_CXX_LANGUAGE_STANDARD: "c++20"
         CLANG_CXX_LIBRARY: "libc++"
         OTHER_SWIFT_FLAGS: "$(inherited) -cxx-interoperability-mode=default"
+
+  # Vendored izyumkin/MCEmojiPicker 1.2.5 (iOS-only upstream). Kept as its
+  # own Swift 5 static-library target because the sources predate strict
+  # concurrency and can't compile under the app's Swift 6 mode. The emoji
+  # definition JSONs ship via Resources/MCEmojiPicker.bundle — the vendor's
+  # CocoaPods-style Bundle.module shim locates them by that name.
+  MCEmojiPicker:
+    type: library.static
+    platform: iOS
+    sources:
+      - path: Vendor/MCEmojiPicker
+        excludes:
+          - "Resources"
+    settings:
+      base:
+        SWIFT_VERSION: "5.0"
+        SWIFT_STRICT_CONCURRENCY: minimal
+        OTHER_SWIFT_FLAGS: ""
 
   AmgiWidget:
     type: app-extension
@@ -237,7 +276,7 @@ targets:
 
   AmgiAppTests:
     type: bundle.unit-test
-    platform: iOS
+    supportedDestinations: [iOS, macOS]
     sources:
       - path: Tests/AmgiAppTests
     dependencies:

@@ -18,11 +18,25 @@ enum ResolvedRenderMode: Equatable {
     case html
 }
 
-/// Feedback toast shown after rating a card ("Good · next in 10m") while the
-/// next card is prepared (R11 answer flow).
-struct RatingToast: Equatable {
+/// One answered card's rollback state, stored LIFO by `ReviewSession` so
+/// `undo()` can walk back to the first card of the session.
+private struct AnswerRecord {
+    /// The card as it was *before* being answered — queue position, scheduling
+    /// states, and next-interval strings. `undo()` restores exactly this card
+    /// to the front of the display queue.
+    let queued: QueuedReviewCard
+    var cardID: CardID { queued.card.id }
     let rating: Rating
-    let interval: String
+    let timeSpent: Int
+    let graduated: Bool
+    let streakBefore: Int
+}
+
+/// Fired when the backend undo stack cannot rewind the target card back to
+/// its pre-answer state. The session leaves the answer record intact so the
+/// user can retry.
+private enum ReviewUndoError: Error {
+    case cardNotRestored(CardID)
 }
 
 @Observable @MainActor
@@ -37,6 +51,13 @@ final class ReviewSession {
     @ObservationIgnored @Dependency(\.notesService) var notes
     @ObservationIgnored @Dependency(\.notetypesService) var notetypes
     @ObservationIgnored @Dependency(\.notetypesClient) var notetypesClient
+    @ObservationIgnored @Dependency(\.statsClient) var statsClient
+    @ObservationIgnored @Dependency(\.cardClient) var cardClient
+    @ObservationIgnored @Dependency(\.liveReviewCounts) var liveCounts
+
+    /// Stable identity for this session's live-count publications, so the
+    /// Study ring can re-anchor its collection snapshot once per session.
+    private let liveSessionID = UUID()
 
     private(set) var frontHTML: String = ""
     private(set) var backHTML: String = ""
@@ -52,6 +73,10 @@ final class ReviewSession {
     /// session start and only allowed to grow when learning cards re-enter
     /// the queue — never shrinks, so the bar doesn't jump backward.
     private(set) var sessionProgressTotal: Int = 0
+    /// Cards that graduated today in this scope *before* this session began,
+    /// fetched once at session start. Combined with `graduatedCardIDs.count`
+    /// to keep the daily completed count live without refetching per answer.
+    private(set) var dailyBaseGraduatedToday: Int = 0
     private(set) var deckName: String = ""
     private(set) var isFinished: Bool = false
     private(set) var canUndo: Bool = false
@@ -65,7 +90,6 @@ final class ReviewSession {
     private(set) var resolvedMode: ResolvedRenderMode = .html
     private(set) var resolvedByAuto: Bool = false
     private(set) var templateName: String?
-    private(set) var pendingToast: RatingToast?
 
     /// True while a card transition (start / answer / undo) has backend work
     /// in flight off the main actor. The view disables the answer + reveal
@@ -78,7 +102,34 @@ final class ReviewSession {
     /// kept for the session so each notetype is fetched once.
     private var notetypeCache: [NotetypeID: Notetype] = [:]
     private var currentQueuedCard: QueuedReviewCard?
-    private var lastRating: Rating? = nil
+    private(set) var lastRating: Rating? = nil
+    /// Increments once per answered card so the view can fire a rating-tuned
+    /// haptic as the next card snaps in.
+    private(set) var answerPulse = 0
+    /// Increments once per successful undo so the view can flash a brief
+    /// "Undo" toast as the previous card snaps back in.
+    private(set) var undoToastPulse = 0
+    /// Card IDs that have graduated past today's scope this session — answered
+    /// with a rating whose next review is ≥ 1 day out ("tomorrow or beyond").
+    /// The daily progress bar counts only these, so re-answers (Again, mid-step
+    /// learning) don't inflate progress and the bar completes exactly when
+    /// today's cards are actually done.
+    private var graduatedCardIDs: Set<CardID> = []
+    /// Seconds from now until the next Anki day rollover, resolved once at
+    /// session start from the stats `rolloverHour`. Drives the day-boundary
+    /// graduation check (a "day" is not a fixed 24h).
+    private var secondsUntilNextDayStart: UInt32 = 0
+    /// Increments each time an answer graduates a card. The view observes this
+    /// to fire a graduation haptic — kept separate from `answerPulse` so only
+    /// graduating answers (not any answer) trigger it.
+    private(set) var graduationPulse = 0
+    /// LIFO history of answers this session. `undo()` pops the most recent
+    /// record so a reverted answer restores exactly the state it changed —
+    /// stats, graduation, and streak — enabling continuous undo back to the
+    /// first card of the session.
+    private var answerStack: [AnswerRecord] = []
+    /// Consecutive non-"Again" answers in this session.
+    private(set) var correctStreak = 0
     /// `DeckID(0)` is Amgi's virtual “All Decks” review scope. Anki's
     /// scheduler itself has one current deck, so this holds the remaining
     /// active top-level deck IDs that will be selected as each queue empties.
@@ -131,6 +182,18 @@ final class ReviewSession {
     /// Mirrors the masking convention used by `cardClient.getCardFlags`.
     var currentFlag: UInt32 {
         UInt32(currentQueuedCard?.card.flags ?? 0) & 0b111
+    }
+
+    /// Cards that have graduated past today's scope today in this scope
+    /// (before + during this session) — i.e. whose next review is tomorrow or
+    /// beyond. Re-answering a card (Again, mid-step learning) doesn't count.
+    var dailyCompletedToday: Int {
+        dailyBaseGraduatedToday + graduatedCardIDs.count
+    }
+
+    /// Live cards still due today for the current scope.
+    var dailyRemainingToday: Int {
+        max(remainingCounts.total, 0)
     }
 
     // MARK: - Init
@@ -205,12 +268,34 @@ final class ReviewSession {
                 remainingCounts = countsIncludingUnselectedDecks(queue)
                 sessionInitialCounts = remainingCounts
                 updateSessionProgressTotal()
+                publishLiveCounts()
                 print("[ReviewSession] Started with \(cardQueue.count) cards, counts: new=\(queue.newCount) learn=\(queue.learningCount) review=\(queue.reviewCount)")
+                await loadDailyProgress()
                 await advanceToNextCard(notes: notes, notetypes: notetypes, notetypesClient: notetypesClient, cardRendering: cardRendering)
             } catch {
                 print("[ReviewSession] Start failed: \(error)")
+                liveCounts.clear()
                 isFinished = true
             }
+        }
+    }
+
+    /// Fetches today's graduated count and the rollover hour for the current
+    /// scope. Best-effort: a failure never blocks the session.
+    private func loadDailyProgress() async {
+        let allDeckScope = deckId.rawValue == 0
+        let search = allDeckScope ? "" : DeckUsageRanking.deckSearch(fullName: deckName)
+
+        do {
+            let graphs = try await statsClient.fetchGraphs(search, 1)
+            let graduated = try await statsClient.graduatedToday(search: search)
+            dailyBaseGraduatedToday = graduated
+            secondsUntilNextDayStart = DailyProgressCalculator.secondsUntilNextDayStart(
+                rolloverHour: graphs.rolloverHour
+            )
+        } catch {
+            dailyBaseGraduatedToday = 0
+            secondsUntilNextDayStart = 0
         }
     }
 
@@ -237,16 +322,12 @@ final class ReviewSession {
         let cardRendering = self.cardRendering
         let decks = self.decks
 
-        pendingToast = RatingToast(rating: rating, interval: queued.nextIntervals[rating] ?? "")
+        let newStreak = rating != .again ? correctStreak + 1 : 0
 
         Task {
             defer {
                 isAdvancing = false
-                pendingToast = nil
             }
-            // The toast stays up at least this long; the next card appears
-            // after max(backend round-trip, toast display).
-            let minToastDisplay = Task { try? await Task.sleep(for: .milliseconds(450)) }
             do {
                 var queue = try await Task.detached {
                     try scheduler.answerReviewCard(cardId, rating, timeSpent, states)
@@ -269,58 +350,117 @@ final class ReviewSession {
                 sessionStats.reviewed += 1
                 if rating != .again { sessionStats.correct += 1 }
                 sessionStats.totalTimeMs += Int(timeSpent)
+                print("[ReviewSession] Answer: answered=\(cardId) rating=\(rating) queue=\(queue.cards.count)")
+                // Graduated = the chosen rating schedules the next review on
+                // a future Anki day (after the next rollover) — not simply
+                // "24h out". Same precomputed state the backend applies.
+                let graduated = queued.nextScheduled[rating]
+                    .map { DailyProgressCalculator.isGraduated(interval: $0, secondsUntilNextDayStart: secondsUntilNextDayStart) } ?? false
+                if graduated {
+                    graduatedCardIDs.insert(queued.card.id)
+                    graduationPulse += 1
+                }
+
+                answerStack.append(AnswerRecord(
+                    queued: queued,
+                    rating: rating,
+                    timeSpent: Int(timeSpent),
+                    graduated: graduated,
+                    streakBefore: correctStreak
+                ))
                 lastRating = rating
+                answerPulse += 1
+                correctStreak = newStreak
                 canUndo = true
 
                 cardQueue = queue.cards
                 remainingCounts = countsIncludingUnselectedDecks(queue)
                 updateSessionProgressTotal()
-                await minToastDisplay.value
+                publishLiveCounts()
                 await advanceToNextCard(notes: notes, notetypes: notetypes, notetypesClient: notetypesClient, cardRendering: cardRendering)
             } catch {
-                print("[ReviewSession] Answer failed: \(error)")
+                print("[ReviewSession] Answer failed: \(String(describing: error))")
                 if !cardQueue.isEmpty { cardQueue.removeFirst() }
-                await minToastDisplay.value
                 await advanceToNextCard(notes: notes, notetypes: notetypes, notetypesClient: notetypesClient, cardRendering: cardRendering)
             }
         }
     }
 
     func undo() {
-        guard canUndo, !isAdvancing else { return }
+        guard canUndo, !isAdvancing, let record = answerStack.last else {
+            print("[ReviewSession] Undo skipped: canUndo=\(canUndo) isAdvancing=\(isAdvancing) answerStack=\(answerStack.count)")
+            return
+        }
         isAdvancing = true
-        pendingToast = nil
 
-        let collection = self.collection
+        let cardClient = self.cardClient
         let scheduler = self.scheduler
         let notes = self.notes
         let notetypes = self.notetypes
         let notetypesClient = self.notetypesClient
         let cardRendering = self.cardRendering
+        let currentCardID = currentQueuedCard?.card.id
+        let target = record.queued
+        let originalCard = target.card
+        let undoneCardID = target.card.id
 
         Task {
             defer { isAdvancing = false }
             do {
+                print("[ReviewSession] Undo: currentCard=\(String(describing: currentCardID)) target=\(undoneCardID) stack=\(answerStack.count)")
+                // The open deck can leave a `SetCurrentDeck` undo entry on top
+                // of the last answer (the session records one when it
+                // auto-switches to the next deck in an all-decks scope), so a
+                // single undo call may pop the wrong entry — the card is then
+                // NOT reverted and the queue looks unchanged ("blink without
+                // navigation"). Undo until the target card is back in its
+                // pre-answer state or the undo stack empties.
+                var current = try await cardClient.getCard(undoneCardID)
+                var undoCount = 0
+                while !cardIsRestored(current, to: originalCard) {
+                    guard undoCount < 20 else {
+                        throw ReviewUndoError.cardNotRestored(undoneCardID)
+                    }
+                    try await cardClient.undoLast()
+                    undoCount += 1
+                    current = try await cardClient.getCard(undoneCardID)
+                }
+                // Re-fetch queue — the undone card is re-inserted at the front.
                 let queue = try await Task.detached {
-                    try collection.undoLast()
-                    // Re-fetch queue — Anki places the undone card at the front
-                    return try scheduler.getQueuedCards(200)
+                    try scheduler.getQueuedCards(200)
                 }.value
 
-                canUndo = false
-                // Roll back session stats
+                print("[ReviewSession] Undo: queue=\(queue.cards.count) first=\(String(describing: queue.cards.first?.card.id))")
+
+                // Drop the record only after the backend undo succeeds, then
+                // leave undo enabled while earlier answers remain.
+                answerStack.removeLast()
+                canUndo = !answerStack.isEmpty
+
+                // Roll back session stats for this specific answer.
                 sessionStats.reviewed -= 1
-                if let last = lastRating, last != .again {
+                if record.rating != .again {
                     sessionStats.correct -= 1
                 }
+                sessionStats.totalTimeMs = max(0, sessionStats.totalTimeMs - record.timeSpent)
+                if record.graduated {
+                    graduatedCardIDs.remove(undoneCardID)
+                }
                 lastRating = nil
+                correctStreak = record.streakBefore
 
-                cardQueue = queue.cards
+                // Put the undone card back at the front of the display queue.
+                // The backend already restores it, but the refetch can re-sort
+                // or omit it (e.g. across a deck switch), so make the restore
+                // deterministic from the pre-answer capture.
+                cardQueue = [target] + queue.cards.filter { $0.card.id != undoneCardID }
                 remainingCounts = countsIncludingUnselectedDecks(queue)
                 updateSessionProgressTotal()
+                publishLiveCounts()
                 await advanceToNextCard(notes: notes, notetypes: notetypes, notetypesClient: notetypesClient, cardRendering: cardRendering)
+                undoToastPulse += 1
             } catch {
-                print("[ReviewSession] Undo failed: \(error)")
+                print("[ReviewSession] Undo failed: \(String(describing: error))")
             }
         }
     }
@@ -405,6 +545,16 @@ final class ReviewSession {
 }
 
 private extension ReviewSession {
+    /// Publishes the session's live queue counts so the Study ring can
+    /// repaint its new/learning/review composition as cards are answered.
+    func publishLiveCounts() {
+        liveCounts.publish(
+            sessionID: liveSessionID,
+            baseline: sessionInitialCounts,
+            live: remainingCounts
+        )
+    }
+
     /// Current scheduler counts cover the selected deck; the virtual
     /// all-decks scope adds the untouched top-level decks that are still
     /// waiting to be selected.
@@ -462,6 +612,7 @@ private extension ReviewSession {
 
         currentQueuedCard = next
         currentNote = prepared.note
+        isFinished = false
         if let notetype = prepared.notetype {
             notetypeCache[notetype.id] = notetype
         }
@@ -508,6 +659,25 @@ private extension ReviewSession {
 // functions that take the Sendable service facades explicitly rather than
 // reaching through `self`. They produce a `Sendable PreparedCard` that
 // `advanceToNextCard` assigns to `@Observable` state on the main actor.
+
+/// True when `card` has been reverted to its scheduling state at queue time
+/// (`original`). Excludes volatile fields the answer/undo cycle updates for
+/// bookkeeping (`mod`, `usn`). `undo()` uses this to detect whether the last
+/// backend undo actually reverted this card — an auto deck-switch in an
+/// all-decks session can leave a `SetCurrentDeck` entry on top of an answer.
+private func cardIsRestored(_ card: CardRecord, to original: CardRecord) -> Bool {
+    card.did == original.did
+        && card.type == original.type
+        && card.queue == original.queue
+        && card.due == original.due
+        && card.ivl == original.ivl
+        && card.left == original.left
+        && card.odue == original.odue
+        && card.odid == original.odid
+        && card.factor == original.factor
+        && card.reps == original.reps
+        && card.lapses == original.lapses
+}
 
 /// Immutable, off-actor render result for one queued card.
 private struct PreparedCard: Sendable {
@@ -786,6 +956,7 @@ extension ReviewSession {
         session.remainingCounts = counts
         session.sessionInitialCounts = counts
         session.sessionProgressTotal = max(reviewed + counts.total, 1)
+        session.dailyBaseGraduatedToday = reviewed
         session.deckName = "한국어 · Vocab Typing"
         session.nextIntervals = [.again: "<1m", .hard: "8m", .good: "1d", .easy: "4d"]
         session.canUndo = reviewed > 0

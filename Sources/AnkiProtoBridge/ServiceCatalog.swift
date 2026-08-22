@@ -4,7 +4,7 @@ import Foundation
 /// AnkiProtoBridge — service code never sees raw `UInt32` constants.
 enum ServiceID {
     static let sync: UInt32 = 1
-    static let collectionOps: UInt32 = 2
+    static let collectionOps: UInt32 = 3
     static let collection: UInt32 = 3
     static let cards: UInt32 = 5
     static let decks: UInt32 = 7
@@ -22,11 +22,11 @@ enum ServiceID {
     static let tags: UInt32 = 43
 }
 
-/// BackendCollectionService (2) — undo/redo and integrity helpers.
+/// BackendCollectionService (3) — undo/redo and integrity helpers.
 enum CollectionOpsMethod {
-    static let checkDatabase: UInt32 = 0
-    static let getUndoStatus: UInt32 = 1
-    static let undo: UInt32 = 2
+    static let checkDatabase: UInt32 = 6
+    static let getUndoStatus: UInt32 = 7
+    static let undo: UInt32 = 8
 }
 
 /// BackendCardsService (5).

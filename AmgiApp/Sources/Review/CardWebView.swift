@@ -74,7 +74,13 @@ struct CardWebView {
 
     @MainActor
     func makeCoordinator() -> CardWebViewCoordinator {
-        CardWebViewCoordinator(
+        // Adopt the prewarmed pair when available: the returned coordinator
+        // already owns a loaded frame page and its webview, so the review's
+        // first HTML card skips the WebKit process cold-start entirely.
+        if let prewarmed = CardWebViewPrewarmer.shared.take() {
+            return prewarmed
+        }
+        return CardWebViewCoordinator(
             onAudioStateChange: onAudioStateChange,
             onCardBackgroundColorChange: onCardBackgroundColorChange,
             onLookupRequested: onLookupRequested,
@@ -82,8 +88,14 @@ struct CardWebView {
         )
     }
 
+    /// Builds the card webview. The iOS tap-interaction handlers and user
+    /// script are registered unconditionally: the prewarm pool creates this
+    /// configuration before any session's callbacks exist, and over-injection
+    /// is safe because JS messages land in the coordinator, whose (nil)
+    /// callbacks gate every behaviour — lookup posts are dropped when no
+    /// `onLookupRequested` is wired, reveal taps when none is wired.
     @MainActor
-    fileprivate func makeConfiguredWebView(coordinator: CardWebViewCoordinator) -> WKWebView {
+    static func makeCardWebView(coordinator: CardWebViewCoordinator) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.defaultWebpagePreferences.allowsContentJavaScript = true
         config.setURLSchemeHandler(CardAssetScheme(), forURLScheme: CardAssetPath.scheme)
@@ -93,22 +105,13 @@ struct CardWebView {
         config.userContentController.add(coordinator, name: "amgiStopTts")
         config.userContentController.add(coordinator, name: "amgiCardTheme")
         #if os(iOS)
-        if !isAnswerSide && (onLookupRequested != nil || onQuestionCanvasTap != nil) {
-            if onLookupRequested != nil {
-                config.userContentController.add(coordinator, name: "amgiLookupText")
-            }
-            if onQuestionCanvasTap != nil {
-                config.userContentController.add(coordinator, name: "amgiRevealAnswer")
-            }
-            config.userContentController.addUserScript(WKUserScript(
-                source: Self.tapInteractionBootstrapJS(
-                    lookupEnabled: onLookupRequested != nil,
-                    revealEnabled: onQuestionCanvasTap != nil
-                ),
-                injectionTime: .atDocumentEnd,
-                forMainFrameOnly: true
-            ))
-        }
+        config.userContentController.add(coordinator, name: "amgiLookupText")
+        config.userContentController.add(coordinator, name: "amgiRevealAnswer")
+        config.userContentController.addUserScript(WKUserScript(
+            source: tapInteractionBootstrapJS,
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        ))
         #endif
 
         // Enable media playback without user interaction
@@ -128,6 +131,32 @@ struct CardWebView {
         #endif
         webView.navigationDelegate = coordinator
         return webView
+    }
+
+    /// Prewarm entry point: pairs a fresh webview with `coordinator`, loads
+    /// the frame page for the current appearance, and records the page
+    /// signature exactly as `applyCardUpdate` would — so adoption continues
+    /// through the normal update path with no special cases.
+    @MainActor
+    static func attachPrewarmedFrame(to coordinator: CardWebViewCoordinator) {
+        let webView = makeCardWebView(coordinator: coordinator)
+        let isDarkMode = currentAppearanceIsDark()
+        coordinator.lastPageSignature = "\(isDarkMode)"
+        coordinator.isPageLoaded = false
+        coordinator.pendingUpdateScript = nil
+        webView.loadHTMLString(framePageHTML(isDarkMode: isDarkMode), baseURL: CardAssetPath.cardBaseURL)
+        coordinator.prewarmedWebView = webView
+    }
+
+    @MainActor
+    static func currentAppearanceIsDark() -> Bool {
+        #if os(iOS)
+        return UITraitCollection.current.userInterfaceStyle == .dark
+        #elseif canImport(AppKit)
+        return NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        #else
+        return false
+        #endif
     }
 
     @MainActor
@@ -173,6 +202,14 @@ struct CardWebView {
         let cssSignature = "\(effectiveCardCSS.hashValue)"
         let contentSignature = "\(autoplayEnabled)|\(isAnswerSide)|\(lookupPopupEnabled)|\(replayMode.rawValue)|\(cardOrdinal)|\(alignTop)|\(bodyPaddingBottom)|\(cardPaddingBottom)|\(cssSignature)|\(processedHTML.hashValue)|\(prefetchHTML?.hashValue ?? 0)"
         coordinator.openLinksExternally = openLinksExternally
+        // Refresh every update: an adopted prewarm coordinator arrives with
+        // nil callbacks and takes over this session's wiring here.
+        coordinator.refreshCallbacks(
+            onAudioStateChange: onAudioStateChange,
+            onCardBackgroundColorChange: onCardBackgroundColorChange,
+            onLookupRequested: onLookupRequested,
+            onQuestionCanvasTap: onQuestionCanvasTap
+        )
         coordinator.currentWebView = webView
         #if os(iOS)
         webView.overrideUserInterfaceStyle = isDarkMode ? .dark : .light
@@ -200,24 +237,13 @@ struct CardWebView {
             coordinator.lastContentSignature = contentSignature
             coordinator.isPageLoaded = false
             coordinator.pendingUpdateScript = nil
-            let htmlClass = Self.htmlClasses(isDarkMode: isDarkMode)
-            let playIconHTML = Self.audioButtonIconHTML(systemName: "play.circle", alt: "Play", isDarkMode: isDarkMode)
-            let pauseIconHTML = Self.audioButtonIconHTML(systemName: "pause.circle", alt: "Pause", isDarkMode: isDarkMode)
-            let baseTag = CardAssetPath.mediaBaseTag()
             // Stash the show-card call so we can run it once the page finishes loading.
             coordinator.pendingUpdateScript = showCardScript
 
-            let styledHTML = Self.buildFrameHTML(
-                htmlClass: htmlClass,
-                isDarkMode: isDarkMode,
-                playIconHTML: playIconHTML,
-                pauseIconHTML: pauseIconHTML,
-                baseTag: baseTag
+            webView.loadHTMLString(
+                Self.framePageHTML(isDarkMode: isDarkMode),
+                baseURL: CardAssetPath.cardBaseURL
             )
-
-            // Use cardBaseURL so that MathJax, fonts, and other resources load correctly.
-            // The CardAssetScheme handler processes amgi-asset:// URLs.
-            webView.loadHTMLString(styledHTML, baseURL: CardAssetPath.cardBaseURL)
         } else if coordinator.lastContentSignature != contentSignature {
             coordinator.lastContentSignature = contentSignature
             if coordinator.isPageLoaded {
@@ -267,16 +293,16 @@ struct CardWebView {
     }()
 
     #if os(iOS)
-    private static func tapInteractionBootstrapJS(
-        lookupEnabled: Bool,
-        revealEnabled: Bool
-    ) -> String {
-        let lookupGuard = lookupEnabled ? "true" : "false"
-        let revealGuard = revealEnabled ? "true" : "false"
+    /// Tap-to-lookup + tap-to-reveal bootstrap. Always injected with both
+    /// behaviours enabled: the coordinator-side callbacks are nil whenever a
+    /// feature is off, and every posted message dies on optional chaining —
+    /// so injection no longer needs to know the session's preferences (the
+    /// prewarm pool builds this configuration before any session exists).
+    private static let tapInteractionBootstrapJS: String = {
         return """
         (function() {
-          const lookupEnabled = \(lookupGuard);
-          const revealEnabled = \(revealGuard);
+          const lookupEnabled = true;
+          const revealEnabled = true;
           const longPressDelay = 500;
           const movementThreshold = 12;
           var touchState = null;
@@ -384,11 +410,29 @@ struct CardWebView {
           }, false);
         })();
         """
-    }
+    }()
     #endif
 }
 
 private extension CardWebView {
+    /// Assembles the static frame document from the bridge template with all
+    /// placeholder tokens resolved. Shared by the update-path reload and the
+    /// prewarm loader so both produce byte-identical pages.
+    @MainActor
+    static func framePageHTML(isDarkMode: Bool) -> String {
+        let htmlClass = htmlClasses(isDarkMode: isDarkMode)
+        let playIconHTML = audioButtonIconHTML(systemName: "play.circle", alt: "Play", isDarkMode: isDarkMode)
+        let pauseIconHTML = audioButtonIconHTML(systemName: "pause.circle", alt: "Pause", isDarkMode: isDarkMode)
+        let baseTag = CardAssetPath.mediaBaseTag()
+        return buildFrameHTML(
+            htmlClass: htmlClass,
+            isDarkMode: isDarkMode,
+            playIconHTML: playIconHTML,
+            pauseIconHTML: pauseIconHTML,
+            baseTag: baseTag
+        )
+    }
+
     /// Builds the static HTML frame page (no card content). Card HTML is injected
     /// later via evaluateJavaScript (_showQuestion/_showAnswer) so that arbitrary
     /// HTML never lives inside a <script> literal in the page source.
@@ -737,7 +781,10 @@ private extension CardWebView {
 #if os(iOS)
 extension CardWebView: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
-        makeConfiguredWebView(coordinator: context.coordinator)
+        // When this coordinator came from the prewarm pool, its webview is
+        // already configured and frame-loaded — hand it over instead of
+        // building a second one that would cold-start WebKit's processes.
+        context.coordinator.prewarmedWebView ?? Self.makeCardWebView(coordinator: context.coordinator)
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
@@ -751,7 +798,7 @@ extension CardWebView: UIViewRepresentable {
 #else
 extension CardWebView: NSViewRepresentable {
     func makeNSView(context: Context) -> WKWebView {
-        makeConfiguredWebView(coordinator: context.coordinator)
+        context.coordinator.prewarmedWebView ?? Self.makeCardWebView(coordinator: context.coordinator)
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {

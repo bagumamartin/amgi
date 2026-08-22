@@ -9,6 +9,7 @@ public struct DeckListRowView: View {
     let onTap: () -> Void
     let onRequestDelete: () -> Void
     let onRename: () -> Void
+    let onChangeIcon: () -> Void
 
     @Environment(\.palette) private var palette
 
@@ -16,18 +17,20 @@ public struct DeckListRowView: View {
         data: DeckRowViewData,
         onTap: @escaping () -> Void,
         onRequestDelete: @escaping () -> Void,
-        onRename: @escaping () -> Void
+        onRename: @escaping () -> Void,
+        onChangeIcon: @escaping () -> Void = {}
     ) {
         self.data = data
         self.onTap = onTap
         self.onRequestDelete = onRequestDelete
         self.onRename = onRename
+        self.onChangeIcon = onChangeIcon
     }
 
     public var body: some View {
         Button(action: onTap) {
             HStack(spacing: 12) {
-                DeckTile(name: data.name, isFiltered: data.isFiltered)
+                DeckTile(name: data.name, iconName: data.iconName, isFiltered: data.isFiltered)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(data.name)
                         .amgiFont(.body)
@@ -56,6 +59,27 @@ public struct DeckListRowView: View {
                 Label("Rename", systemImage: "pencil")
             }
             .tint(.orange)
+            Button { onChangeIcon() } label: {
+                Label("Edit Icon", systemImage: "paintpalette")
+            }
+            .tint(.indigo)
+        }
+        .contextMenu {
+            Button {
+                onRename()
+            } label: {
+                Label("Rename", systemImage: "pencil")
+            }
+            Button {
+                onChangeIcon()
+            } label: {
+                Label("Edit Icon", systemImage: "paintpalette")
+            }
+            Button(role: .destructive) {
+                onRequestDelete()
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
         }
     }
 
@@ -86,10 +110,22 @@ public struct DeckListRowView: View {
 
 private struct DeckTile: View {
     let name: String
+    let iconName: String?
     let isFiltered: Bool
     @Environment(\.palette) private var palette
 
     var body: some View {
+        if let iconName, !iconName.isEmpty {
+            ZStack(alignment: .bottomTrailing) {
+                DeckIconTile(iconName: iconName, deckName: name, size: 40, cornerRadius: AmgiRadius.control)
+                filterBadge
+            }
+        } else {
+            legacyTile
+        }
+    }
+
+    private var legacyTile: some View {
         let resolved = DeckTileGlyph.resolve(deckName: name, palette: palette)
         let fill: Color
         let glyphColor: Color
@@ -114,14 +150,19 @@ private struct DeckTile: View {
                         .font(.system(size: 22, weight: .semibold))
                         .foregroundStyle(glyphColor)
                 )
-            if isFiltered {
-                Image(systemName: "bolt.fill")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 14, height: 14)
-                    .background(palette.customStudyBadge, in: Circle())
-                    .offset(x: 4, y: 4)
-            }
+            filterBadge
+        }
+    }
+
+    @ViewBuilder
+    private var filterBadge: some View {
+        if isFiltered {
+            Image(systemName: "bolt.fill")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 14, height: 14)
+                .background(palette.customStudyBadge, in: Circle())
+                .offset(x: 4, y: 4)
         }
     }
 }

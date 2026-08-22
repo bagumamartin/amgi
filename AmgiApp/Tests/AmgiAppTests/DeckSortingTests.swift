@@ -35,16 +35,17 @@ import AnkiKit
         #expect(sorted.map(\.name) == ["Mid", "High", "Low"])
     }
 
-    @Test func mostUsedRanksBySyncedReviewVolume() {
+    @Test func mostUsedRanksByWeightedRecency() {
         let input = rows(["A", "B", "C"])
         let ranks: [Int64: DeckUsageRank] = [
-            1: DeckUsageRank(reviewTotal: 2, lastActiveOffset: 0),
-            2: DeckUsageRank(reviewTotal: 40, lastActiveOffset: -3),
-            3: DeckUsageRank(reviewTotal: 40, lastActiveOffset: 0),
+            1: DeckUsageRank(reviewTotal: 500, lastActiveOffset: 0, weightedScore: 5),
+            2: DeckUsageRank(reviewTotal: 60, lastActiveOffset: -1, weightedScore: 60),
+            3: DeckUsageRank(reviewTotal: 30, lastActiveOffset: -1, weightedScore: 60),
         ]
         let sorted = DeckSorting.libraryRows(input, order: .mostUsed, ranks: ranks)
-        // B and C tied on volume; C reviewed more recently. A least studied.
-        #expect(sorted.map(\.name) == ["C", "B", "A"])
+        // Weighted recency is primary: B and C beat A despite A's huge total.
+        // B and C tie on weighted score and recency, so total volume breaks the tie.
+        #expect(sorted.map(\.name) == ["B", "C", "A"])
     }
 }
 
@@ -63,5 +64,18 @@ import AnkiKit
         let rank = DeckUsageRanking.rank(from: graphs)
         #expect(rank.reviewTotal == 6)
         #expect(rank.lastActiveOffset == 0)
+    }
+
+    @Test func recencyWeightingFavorsRecentReviews() {
+        var recent = GraphsSnapshot()
+        recent.reviews.count = [0: .init(learn: 10, relearn: 0, young: 0, mature: 0, filtered: 0)]
+        var older = GraphsSnapshot()
+        older.reviews.count = [-30: .init(learn: 10, relearn: 0, young: 0, mature: 0, filtered: 0)]
+
+        let recentRank = DeckUsageRanking.rank(from: recent)
+        let olderRank = DeckUsageRanking.rank(from: older)
+
+        #expect(recentRank.reviewTotal == olderRank.reviewTotal)
+        #expect(recentRank.weightedScore > olderRank.weightedScore)
     }
 }

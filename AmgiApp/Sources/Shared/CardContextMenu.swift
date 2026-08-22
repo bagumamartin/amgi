@@ -10,6 +10,11 @@ struct CardContextMenu: View {
     var onSuccess: (() -> Void)?
     var onActionSuccess: ((_ shouldAdvance: Bool) -> Void)?
     var onRequestSetDueDate: ((_ cardId: CardID) -> Void)?
+    /// `false` hides this menu's own Undo item. The reviewer supplies its own
+    /// top-level Undo (`ReviewSession.undo()`), which owns the answer stack and
+    /// advances back to the undone card; a second, nested Undo here would call
+    /// the bare backend undo and desync the session (blink-without-navigation).
+    var includeUndo: Bool
 
     @Environment(\.palette) private var palette
 
@@ -21,13 +26,15 @@ struct CardContextMenu: View {
         noteId: NoteID? = nil,
         onSuccess: (() -> Void)? = nil,
         onActionSuccess: ((_ shouldAdvance: Bool) -> Void)? = nil,
-        onRequestSetDueDate: ((_ cardId: CardID) -> Void)? = nil
+        onRequestSetDueDate: ((_ cardId: CardID) -> Void)? = nil,
+        includeUndo: Bool = true
     ) {
         self.cardId = cardId
         self.noteId = noteId
         self.onSuccess = onSuccess
         self.onActionSuccess = onActionSuccess
         self.onRequestSetDueDate = onRequestSetDueDate
+        self.includeUndo = includeUndo
     }
 
     var body: some View {
@@ -98,12 +105,14 @@ struct CardContextMenu: View {
                 }
             }
 
-            Button {
-                Task { forward(await model.undo(cardId)) }
-            } label: {
-                Label("Undo", systemImage: "arrow.uturn.backward")
+            if includeUndo {
+                Button {
+                    Task { forward(await model.undo(cardId)) }
+                } label: {
+                    Label("Undo", systemImage: "arrow.uturn.backward")
+                }
+                .disabled(!model.canUndo || model.isUndoing)
             }
-            .disabled(!model.canUndo || model.isUndoing)
         } label: {
             Image(systemName: "ellipsis.circle")
                 .amgiFont(.bodyEmphasis)
@@ -123,7 +132,7 @@ struct CardContextMenu: View {
             Text("This deletes the note and all its cards. The action cannot be undone.")
         }
         .task(id: cardId) {
-            await model.load(cardId: cardId, noteId: noteId)
+            await model.load(cardId: cardId, noteId: noteId, refreshUndo: includeUndo)
         }
     }
 

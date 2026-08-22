@@ -10,17 +10,32 @@ import AmgiTheme
 public struct DeckHeroTile: View {
     public let tone: Color
     public let deckName: String
+    public let iconName: String?
     public let size: CGFloat
 
     @Environment(\.palette) private var palette
 
-    public init(tone: Color, deckName: String, size: CGFloat = 56) {
+    public init(tone: Color, deckName: String, iconName: String? = nil, size: CGFloat = 56) {
         self.tone = tone
         self.deckName = deckName
+        self.iconName = iconName
         self.size = size
     }
 
     public var body: some View {
+        if let iconName, !iconName.isEmpty {
+            DeckIconTile(
+                iconName: iconName,
+                deckName: deckName,
+                size: size,
+                cornerRadius: AmgiRadius.hero
+            )
+        } else {
+            legacyBody
+        }
+    }
+
+    private var legacyBody: some View {
         let resolved = DeckTileGlyph.resolve(deckName: deckName, palette: palette)
         return ZStack {
             tileBackground(for: resolved.mode)

@@ -26,6 +26,9 @@ final class DeckListModel {
 
     func load(sortOrder: DeckSortOrder) async {
         lastSortOrder = sortOrder
+        // Fresh conf pull so row tiles reflect any icon writes/syncs that
+        // happened since this generation was last loaded.
+        await DeckIconOverrides.refresh()
         do {
             let tree = try await store.tree()
             if tree.isEmpty {
@@ -41,6 +44,10 @@ final class DeckListModel {
             heatmapData = heatmap
             usageRanks = await ranks
             publishLoaded(sortOrder: sortOrder)
+            // Icons resolve asynchronously after first paint: manual picks
+            // are instant (dictionary lookup), semantic suggestions stream
+            // in per row and republish.
+            Task { await refineRowIcons() }
             // Keep the installed widget aligned with the Library projection
             // the user is currently seeing, including top-level deck totals.
             // Cross-platform: both the iOS and macOS widget extensions read
@@ -65,6 +72,29 @@ final class DeckListModel {
         publishLoaded(sortOrder: sortOrder)
     }
 
+    /// Fills in each row's tile icon asynchronously after first paint:
+    /// manual overrides are already in place from `publishLoaded`, semantic
+    /// suggestions stream in per row and republish.
+    func refineRowIcons() async {
+        guard case .loaded(let rows, let hero, let heatmap) = state else { return }
+        var updated = rows
+        var changed = false
+        for index in updated.indices {
+            let row = updated[index]
+            let resolved = await DeckIconOverrides.resolvedIcon(
+                deckId: row.id,
+                name: row.name,
+                fullName: row.fullName
+            )
+            guard resolved != row.iconName else { continue }
+            updated[index] = row.updatingIconName(resolved)
+            changed = true
+        }
+        if changed {
+            state = .loaded(rows: updated, hero: hero, heatmap: heatmap)
+        }
+    }
+
     func delete(_ id: DeckID) async {
         do {
             let changes = try await deckClient.delete(id)
@@ -86,7 +116,17 @@ final class DeckListModel {
     private func publishLoaded(sortOrder: DeckSortOrder) {
         let sorted = DeckSorting.libraryRows(deckRows, order: sortOrder, ranks: usageRanks)
         state = .loaded(
-            rows: sorted.map(\.viewData),
+            rows: sorted.map { row in
+                var viewData = row.viewData
+                // Manual overrides and cached suggestions paint instantly;
+                // uncached suggestions arrive via refineRowIcons().
+                viewData.iconName = DeckIconOverrides.initialIcon(
+                    deckId: row.id.rawValue,
+                    name: row.name,
+                    fullName: row.fullName
+                )
+                return viewData
+            },
             hero: heroData,
             heatmap: heatmapData
         )

@@ -35,12 +35,35 @@ final class CardWebViewCoordinator: NSObject, WKNavigationDelegate, WKScriptMess
     var openLinksExternally: Bool = true
     weak var currentWebView: WKWebView?
 
-    // MARK: Callbacks (injected by makeCoordinator)
+    // MARK: Callbacks (injected by makeCoordinator, refreshed per update)
 
-    private let onAudioStateChange: ((Bool) -> Void)?
-    private let onCardBackgroundColorChange: ((PlatformColor, Bool) -> Void)?
-    private let onLookupRequested: ((String?, String?, CGPoint) -> Void)?
-    private let onQuestionCanvasTap: (() -> Void)?
+    // Vars, not lets: a coordinator can come from the prewarm pool with nil
+    // callbacks and receive the real ones on the first applyCardUpdate.
+    private var onAudioStateChange: ((Bool) -> Void)?
+    private var onCardBackgroundColorChange: ((PlatformColor, Bool) -> Void)?
+    private var onLookupRequested: ((String?, String?, CGPoint) -> Void)?
+    private var onQuestionCanvasTap: (() -> Void)?
+
+    /// Set only when this coordinator came from the prewarm pool; the
+    /// representable's makeUIView adopts the paired webview instead of
+    /// building a fresh one. Nil for coordinators created inline. Strong on
+    /// purpose: nothing else retains the webview before adoption, and the
+    /// resulting handler→coordinator→webview cycle is broken exactly where
+    /// the existing teardown contract already breaks it (dismantle removes
+    /// the script handlers). The prewarmer nils this on eviction.
+    var prewarmedWebView: WKWebView?
+
+    func refreshCallbacks(
+        onAudioStateChange: ((Bool) -> Void)?,
+        onCardBackgroundColorChange: ((PlatformColor, Bool) -> Void)?,
+        onLookupRequested: ((String?, String?, CGPoint) -> Void)?,
+        onQuestionCanvasTap: (() -> Void)?
+    ) {
+        self.onAudioStateChange = onAudioStateChange
+        self.onCardBackgroundColorChange = onCardBackgroundColorChange
+        self.onLookupRequested = onLookupRequested
+        self.onQuestionCanvasTap = onQuestionCanvasTap
+    }
 
     // MARK: Private state
 

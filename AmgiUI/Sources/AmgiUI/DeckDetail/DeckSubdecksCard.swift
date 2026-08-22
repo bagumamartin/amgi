@@ -9,32 +9,67 @@ import AmgiTheme
 public struct DeckSubdecksCard: View {
     public let rows: [DeckSubdeckRowData]
     public let onSelect: (DeckSubdeckRowData) -> Void
+    public let onRename: (DeckSubdeckRowData) -> Void
+    public let onChangeIcon: (DeckSubdeckRowData) -> Void
+    public let onDelete: (DeckSubdeckRowData) -> Void
 
     @Environment(\.palette) private var palette
+    /// Matches the row's own metrics (12pt vertical padding + 30pt glyph).
+    /// The List is sized to fit every row exactly so it never scrolls
+    /// internally — the enclosing screen ScrollView stays the sole scroller,
+    /// and native swipeActions come free.
+    @ScaledMetric(relativeTo: .body) private var rowHeight: CGFloat = 54
 
     public init(
         rows: [DeckSubdeckRowData],
-        onSelect: @escaping (DeckSubdeckRowData) -> Void
+        onSelect: @escaping (DeckSubdeckRowData) -> Void,
+        onRename: @escaping (DeckSubdeckRowData) -> Void = { _ in },
+        onChangeIcon: @escaping (DeckSubdeckRowData) -> Void = { _ in },
+        onDelete: @escaping (DeckSubdeckRowData) -> Void = { _ in }
     ) {
         self.rows = rows
         self.onSelect = onSelect
+        self.onRename = onRename
+        self.onChangeIcon = onChangeIcon
+        self.onDelete = onDelete
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
+        List {
             ForEach(Array(rows.enumerated()), id: \.element.id) { idx, row in
                 DeckSubdeckRow(
                     data: row,
                     showsDivider: idx < rows.count - 1,
-                    onTap: { onSelect(row) }
+                    onTap: { onSelect(row) },
+                    onRename: { onRename(row) },
+                    onChangeIcon: { onChangeIcon(row) },
+                    onDelete: { onDelete(row) }
                 )
+                // Pin every row to the same scaled metric the container
+                // height multiplies — guarantees count × rowHeight exactly
+                // equals the List's content, so nothing clips or scrolls.
+                .frame(height: rowHeight)
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
             }
         }
-        .background(palette.surfaceElevated, in: RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous)
-                .strokeBorder(palette.border, lineWidth: 0.5)
-        )
+        .listStyle(.plain)
+        #if !os(watchOS)
+        .scrollContentBackground(.hidden)
+        #endif
+        // Rigid: every row is pinned to `rowHeight`, so the container height
+        // below always equals the content height — the List never scrolls;
+        // the enclosing screen ScrollView stays the sole scroller.
+        .scrollDisabled(true)
+        .frame(height: CGFloat(rows.count) * rowHeight)
+        .clipShape(cardShape)
+        .background(cardShape.fill(palette.surfaceElevated))
+        .overlay(cardShape.strokeBorder(palette.border, lineWidth: 0.5))
+    }
+
+    private var cardShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous)
     }
 }
 

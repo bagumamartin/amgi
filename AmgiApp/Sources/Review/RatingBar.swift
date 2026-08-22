@@ -13,11 +13,14 @@ struct RatingBar: View {
     @Environment(\.palette) private var palette
 
     var body: some View {
+        // Ratings reuse the category-state hues (Again/Hard/Good/Easy ↔
+        // relearn/learning/review/new) so the buttons, count dots, badges,
+        // rings, and progress fills all speak one palette in every theme.
         HStack(spacing: AmgiSpacing.md) {
-            ratingCard(.again, label: "Again", color: palette.danger, key: "1")
-            ratingCard(.hard, label: "Hard", color: palette.warning, key: "2")
-            ratingCard(.good, label: "Good", color: palette.positive, key: "3")
-            ratingCard(.easy, label: "Easy", color: palette.info, key: "4")
+            ratingCard(.again, label: "Again", color: palette.cardStateRelearn, key: "1")
+            ratingCard(.hard, label: "Hard", color: palette.cardStateLearning, key: "2")
+            ratingCard(.good, label: "Good", color: palette.cardStateReview, key: "3")
+            ratingCard(.easy, label: "Easy", color: palette.cardStateNew, key: "4")
         }
         // Four equal actions should remain a single, easy-to-compare group.
         // On wide iPad windows, letting each card claim a quarter of the
@@ -100,34 +103,6 @@ struct RatingBar: View {
     }
 }
 
-/// Centered post-answer toast — "Good · next in 10m" (R11 answer flow).
-struct RatingToastView: View {
-    let toast: RatingToast
-
-    @Environment(\.palette) private var palette
-
-    var body: some View {
-        Text("\(label) · next in \(toast.interval)")
-            .amgiFont(.bodyEmphasis)
-            .foregroundStyle(palette.textPrimary)
-            .padding(.horizontal, 20)
-            .padding(.vertical, 10)
-            .background(palette.surfaceElevated, in: Capsule())
-            .overlay {
-                Capsule().strokeBorder(palette.separator, lineWidth: 1)
-            }
-    }
-
-    private var label: String {
-        switch toast.rating {
-        case .again: "Again"
-        case .hard: "Hard"
-        case .good: "Good"
-        case .easy: "Easy"
-        }
-    }
-}
-
 #if DEBUG
 #Preview("Rating bar") {
     RatingBar(
@@ -136,9 +111,5 @@ struct RatingToastView: View {
         isDisabled: false,
         onRate: { _ in }
     )
-}
-
-#Preview("Toast") {
-    RatingToastView(toast: RatingToast(rating: .good, interval: "10m"))
 }
 #endif

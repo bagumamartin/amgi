@@ -3,6 +3,13 @@ import AmgiTheme
 import Foundation
 import SwiftUI
 
+/// Centered content column for the book-detail screen, matching the
+/// Library/Study columns so the header and chapter list stay readable on
+/// regular-width layouts instead of stretching full-width.
+private enum ReaderBookDetailColumn {
+    static let maxWidth: CGFloat = 800
+}
+
 struct ReaderBookDetailView: View {
     let book: ReaderBook
     let progress: ReaderProgressCoordinator
@@ -96,6 +103,8 @@ private struct ReaderBookDetailContent: View {
                     destination: destinationForChapter(at:)
                 )
             }
+            .frame(maxWidth: ReaderBookDetailColumn.maxWidth)
+            .frame(maxWidth: .infinity)
             .padding(.horizontal, 16)
             .padding(.top, 12)
             .padding(.bottom, 24)

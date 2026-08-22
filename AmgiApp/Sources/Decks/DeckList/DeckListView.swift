@@ -21,6 +21,7 @@ struct DeckListView: View {
     @State private var model: DeckListModel
     @State private var showCreateSheet = false
     @State private var renameTarget: DeckRowViewData?
+    @State private var iconTarget: DeckRowViewData?
     @State private var pendingDeck: DeckInfo?
 
     private var sortOrderBinding: Binding<DeckSortOrder> {
@@ -49,7 +50,8 @@ struct DeckListView: View {
             onStartReview: onStartReview,
             onTapDeck: { row in pendingDeck = row.asDeckInfo },
             onDeleteDeck: { rawID in await model.delete(DeckID(rawID)) },
-            onRenameDeck: { row in renameTarget = row }
+            onRenameDeck: { row in renameTarget = row },
+            onChangeIconDeck: { row in iconTarget = row }
         )
         .navigationTitle("Library")
         .navigationDestination(item: $pendingDeck) { deck in
@@ -64,6 +66,11 @@ struct DeckListView: View {
         .sheet(item: $renameTarget) { row in
             RenameDeckSheet(deckId: DeckID(row.id), currentName: row.fullName) {
                 renameTarget = nil
+            }
+        }
+        .sheet(item: $iconTarget) { row in
+            DeckIconEditorSheet(deckId: row.id, deckName: row.name) {
+                iconTarget = nil
             }
         }
         // Keyed on the store's generation: any Invalidation (deck mutation,

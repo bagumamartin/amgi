@@ -6,6 +6,7 @@ import DependenciesMacros
 public struct CardClient: Sendable {
     public var fetchDue: @Sendable (_ deckId: DeckID) async throws -> [CardRecord]
     public var fetchByNote: @Sendable (_ noteId: NoteID) async throws -> [CardRecord]
+    public var getCard: @Sendable (_ cardId: CardID) async throws -> CardRecord
     public var save: @Sendable (_ card: CardRecord) async throws -> Void
     public var answer: @Sendable (_ cardId: CardID, _ rating: Rating, _ timeSpent: Int32) async throws -> Void
     public var undo: @Sendable (_ cardId: CardID) async throws -> Void

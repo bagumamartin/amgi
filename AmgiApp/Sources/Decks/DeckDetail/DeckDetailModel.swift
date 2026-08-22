@@ -22,6 +22,10 @@ final class DeckDetailModel {
     var childDecks: [DeckTreeNode] = []
     var usageRanks: [Int64: DeckUsageRank] = [:]
     var statsSnapshot: DeckDetailStats.Snapshot?
+    /// Manual override, else semantic suggestion — feeds the hero tile.
+    private(set) var iconName: String?
+    /// Resolved icons for the subdeck rows, keyed by deck id.
+    private(set) var subdeckIcons: [Int64: String] = [:]
 
     var actionInFlight = false
     var rebuildFeedback: String?
@@ -54,13 +58,59 @@ final class DeckDetailModel {
             print("[DeckDetail] Error loading counts for '\(deck.name)': \(error)")
             counts = .zero
         }
+        await DeckIconOverrides.refresh()
+        // First paint from overrides + cache; resolveIconName only computes
+        // when this misses (first launch per deck / after a rename).
+        let leaf = deck.name.components(separatedBy: "::").last ?? deck.name
+        iconName = DeckIconOverrides.initialIcon(
+            deckId: deck.id.rawValue,
+            name: leaf,
+            fullName: deck.name
+        )
+        await resolveIconName()
         hasLoaded = true
     }
 
-    func loadChildren() async {
-        do {
+    /// Hero tile icon via the shared resolver.
+    private func resolveIconName() async {
+        // Leaf name matches what the hero tile passes as `deckName`, so
+        // tint hashing agrees with Library rows.
+        let leaf = deck.name.components(separatedBy: "::").last ?? deck.name
+        iconName = await DeckIconOverrides.resolvedIcon(
+            deckId: deck.id.rawValue,
+            name: leaf,
+            fullName: deck.name
+        )
+    }
+
+    /// Resolves icons for the subdeck list asynchronously (suggestions are
+    /// RPC-backed), then republishes via the viewState recompute.
+    func refineSubdeckIcons() async {
+        guard !childDecks.isEmpty else { return }
+        var resolved: [Int64: String] = subdeckIcons
+        for child in childDecks where resolved[child.id.rawValue] == nil {
+            resolved[child.id.rawValue] = await DeckIconOverrides.resolvedIcon(
+                deckId: child.id.rawValue,
+                name: child.name,
+                fullName: child.fullName
+            )
+        }
+        if resolved != subdeckIcons {
+            subdeckIcons = resolved
+        }
+    }
+
+    func loadChildren() async {        do {
             let tree = try await store.tree()
             childDecks = Self.findChildren(in: tree, parentId: deck.id)
+            // First paint: overrides + cached suggestions; refineSubdeckIcons
+            // fills whatever this misses.
+            subdeckIcons = Dictionary(
+                uniqueKeysWithValues: childDecks.compactMap { node in
+                    DeckIconOverrides.initialIcon(deckId: node.id.rawValue, name: node.name)
+                        .map { (node.id.rawValue, $0) }
+                }
+            )
             if !childDecks.isEmpty {
                 usageRanks = await DeckUsageRanking.ranks(
                     for: childDecks.map { (id: $0.id, fullName: $0.fullName) },
@@ -98,6 +148,19 @@ final class DeckDetailModel {
         }
     }
 
+    /// Deletes a subdeck of this deck. Returns nil on success; otherwise an
+    /// error message to surface. The generation bump from `apply` reloads
+    /// this screen's tree (and Library behind it).
+    func deleteSubdeck(_ deckId: DeckID) async -> String? {
+        do {
+            let changes = try await deckClient.delete(deckId)
+            store.apply(changes)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
     /// Returns nil on success; otherwise an error message to surface.
     func rebuild() async -> String? {
         actionInFlight = true
@@ -116,8 +179,7 @@ final class DeckDetailModel {
     }
 
     /// Returns nil on success; otherwise an error message to surface.
-    func empty() async -> String? {
-        actionInFlight = true
+    func empty() async -> String? {        actionInFlight = true
         defer { actionInFlight = false }
         do {
             try await deckClient.emptyFilteredDeck(deck.id)

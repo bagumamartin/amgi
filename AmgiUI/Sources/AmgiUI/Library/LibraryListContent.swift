@@ -21,10 +21,12 @@ public struct LibraryListContent: View {
     let onTapDeck: (DeckRowViewData) -> Void
     let onDeleteDeck: (Int64) async -> Void
     let onRenameDeck: (DeckRowViewData) -> Void
+    let onChangeIconDeck: (DeckRowViewData) -> Void
 
     // Nested `State` enum shadows SwiftUI's `@State`; qualify the wrapper.
     @SwiftUI.State private var deleteTarget: DeckRowViewData?
     @Environment(\.palette) private var palette
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     public init(
         state: State,
@@ -33,7 +35,8 @@ public struct LibraryListContent: View {
         onStartReview: @escaping () -> Void,
         onTapDeck: @escaping (DeckRowViewData) -> Void,
         onDeleteDeck: @escaping (Int64) async -> Void,
-        onRenameDeck: @escaping (DeckRowViewData) -> Void
+        onRenameDeck: @escaping (DeckRowViewData) -> Void,
+        onChangeIconDeck: ((DeckRowViewData) -> Void)? = nil
     ) {
         self.state = state
         self._sortOrder = sortOrder
@@ -42,6 +45,7 @@ public struct LibraryListContent: View {
         self.onTapDeck = onTapDeck
         self.onDeleteDeck = onDeleteDeck
         self.onRenameDeck = onRenameDeck
+        self.onChangeIconDeck = onChangeIconDeck ?? { _ in }
     }
 
     public var body: some View {
@@ -75,73 +79,249 @@ public struct LibraryListContent: View {
         }
     }
 
+
     @ViewBuilder
     private func loadedList(rows: [DeckRowViewData], hero: HeroData, heatmap: HeatmapCardData) -> some View {
+        #if os(iOS)
+        GeometryReader { proxy in
+            let inset = LibraryColumn.inset(for: proxy.size.width)
+            if inset > 0 {
+                deckList(rows: rows, hero: hero, heatmap: heatmap)
+                    // Inset the List *content* (not the List frame) so the
+                    // scroll indicator stays at the screen edge while the rows
+                    // stay centered on regular-width layouts. Compact widths skip
+                    // this so the insetGrouped style keeps its native margins.
+                    .contentMargins(.horizontal, inset, for: .scrollContent)
+            } else {
+                deckList(rows: rows, hero: hero, heatmap: heatmap)
+            }
+        }
+        #else
+        // `List` doesn't honor `contentMargins` on macOS, and swipe actions are
+        // touch-only — use a full-bleed ScrollView with a centered column so the
+        // scroll indicator stays at the window edge.
+        scrollList(rows: rows, hero: hero, heatmap: heatmap)
+        #endif
+    }
+
+    private var heatmapInitialDays: Int {
+        horizontalSizeClass == .regular ? 365 : 180
+    }
+
+    #if os(iOS)
+    private func deckList(rows: [DeckRowViewData], hero: HeroData, heatmap: HeatmapCardData) -> some View {
         List {
             Section {
                 LibraryHeroCard(data: hero, onStartReview: onStartReview)
                     // Matching top/bottom insets so the List doesn't clip
-                    // the card's corners and shadow. Horizontal width is
-                    // the centered column (`LibraryColumn.maxWidth`).
+                    // the card's corners and shadow.
                     .listRowInsets(EdgeInsets(top: 20, leading: 0, bottom: 20, trailing: 0))
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
             }
 
             Section {
-                ForEach(rows) { row in
+                ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                     DeckListRowView(
                         data: row,
                         onTap: { onTapDeck(row) },
                         onRequestDelete: { deleteTarget = row },
-                        onRename: { onRenameDeck(row) }
+                        onRename: { onRenameDeck(row) },
+                        onChangeIcon: { onChangeIconDeck(row) }
                     )
                     .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
-                    .listRowBackground(palette.surfaceElevated)
-                    .listRowSeparatorTint(palette.separator)
+                    .listRowBackground(
+                        deckCardBackground(
+                            isFirst: index == 0,
+                            isLast: index == rows.count - 1
+                        )
+                    )
+                    .listRowSeparator(.hidden)
                 }
             } header: {
                 DeckSectionHeader(title: "Decks", sortOrder: $sortOrder)
             }
 
             Section {
-                ActivityHeatmapCard(data: heatmap)
+                ActivityHeatmapCard(data: heatmap, initialDays: heatmapInitialDays)
                     .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
             }
         }
-        .libraryListStyle()
+        .listStyle(.insetGrouped)
         .environment(\.defaultMinListRowHeight, 0)
         .scrollClipDisabled()
         .scrollContentBackground(.hidden)
-        // Cap the List itself — not scroll margins derived from the List's
-        // width. Measuring after `contentMargins` collapsed to ~800 and
-        // dropped the cap whenever the iPad sidebar stole space.
-        .frame(maxWidth: LibraryColumn.maxWidth)
-        .frame(maxWidth: .infinity)
         .refreshable { await onRefresh() }
     }
-}
 
-/// Shared Library column width. Hero, decks, and activity all live in
-/// this List, so they stay aligned. Independent of sidebar / split width.
-private enum LibraryColumn {
-    static let maxWidth: CGFloat = 800
-}
-
-private extension View {
-    /// `insetGrouped` is iOS-only. On macOS (preview-only target),
-    /// fall back to the platform default.
     @ViewBuilder
-    func libraryListStyle() -> some View {
-        #if os(iOS)
-        self.listStyle(.insetGrouped)
-        #else
-        self
-        #endif
+    private func deckCardBackground(isFirst: Bool, isLast: Bool) -> some View {
+        let r = AmgiRadius.inset
+        ZStack {
+            UnevenRoundedRectangle(
+                cornerRadii: RectangleCornerRadii(
+                    topLeading: isFirst ? r : 0,
+                    bottomLeading: isLast ? r : 0,
+                    bottomTrailing: isLast ? r : 0,
+                    topTrailing: isFirst ? r : 0
+                ),
+                style: .continuous
+            )
+            .fill(palette.surfaceElevated)
+
+            DeckCardStrokeShape(isFirst: isFirst, isLast: isLast, cornerRadius: r)
+                .stroke(palette.border, lineWidth: 0.5)
+        }
+        .overlay(alignment: .bottom) {
+            if !isLast {
+                Rectangle()
+                    .fill(palette.border)
+                    .frame(height: 0.5)
+                    .padding(.leading, 68)
+            }
+        }
+    }
+    #endif
+
+    #if os(macOS)
+    private func scrollList(rows: [DeckRowViewData], hero: HeroData, heatmap: HeatmapCardData) -> some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 18) {
+                LibraryHeroCard(data: hero, onStartReview: onStartReview)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    DeckSectionHeader(title: "Decks", sortOrder: $sortOrder)
+                    deckRowsCard(rows: rows)
+                }
+
+                ActivityHeatmapCard(data: heatmap, initialDays: heatmapInitialDays)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 6)
+            .padding(.bottom, 32)
+            .frame(maxWidth: LibraryColumn.maxWidth)
+            .frame(maxWidth: .infinity)
+        }
+        .background(palette.background.ignoresSafeArea())
+        .refreshable { await onRefresh() }
+    }
+
+    private func deckRowsCard(rows: [DeckRowViewData]) -> some View {
+        VStack(spacing: 0) {
+            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                DeckListRowView(
+                    data: row,
+                    onTap: { onTapDeck(row) },
+                    onRequestDelete: { deleteTarget = row },
+                    onRename: { onRenameDeck(row) }
+                )
+                .padding(.horizontal, 12)
+                .overlay(alignment: .bottom) {
+                    if index < rows.count - 1 {
+                        Rectangle()
+                            .fill(palette.border)
+                            .frame(height: 0.5)
+                            .padding(.leading, 64)
+                    }
+                }
+            }
+        }
+        .background(
+            palette.surfaceElevated,
+            in: RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous)
+                .strokeBorder(palette.border, lineWidth: 0.5)
+        )
+    }
+    #endif
+}
+
+#if os(iOS)
+/// Outer-boundary stroke for the Library deck card, split per row so the
+/// rounded top/bottom corners land on the first/last row and the left/right
+/// edges stay continuous across the middle rows.
+private struct DeckCardStrokeShape: Shape {
+    let isFirst: Bool
+    let isLast: Bool
+    let cornerRadius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let rect = rect.insetBy(dx: 0.25, dy: 0.25)
+        let r = cornerRadius
+        let minX = rect.minX
+        let maxX = rect.maxX
+        let minY = rect.minY
+        let maxY = rect.maxY
+        var path = Path()
+
+        if isFirst {
+            path.move(to: CGPoint(x: minX, y: maxY))
+            path.addLine(to: CGPoint(x: minX, y: minY + r))
+            path.addArc(
+                center: CGPoint(x: minX + r, y: minY + r),
+                radius: r,
+                startAngle: .degrees(180),
+                endAngle: .degrees(270),
+                clockwise: false
+            )
+            path.addLine(to: CGPoint(x: maxX - r, y: minY))
+            path.addArc(
+                center: CGPoint(x: maxX - r, y: minY + r),
+                radius: r,
+                startAngle: .degrees(-90),
+                endAngle: .degrees(0),
+                clockwise: false
+            )
+            path.addLine(to: CGPoint(x: maxX, y: maxY))
+        } else if isLast {
+            path.move(to: CGPoint(x: maxX, y: minY))
+            path.addLine(to: CGPoint(x: maxX, y: maxY - r))
+            path.addArc(
+                center: CGPoint(x: maxX - r, y: maxY - r),
+                radius: r,
+                startAngle: .degrees(0),
+                endAngle: .degrees(90),
+                clockwise: false
+            )
+            path.addLine(to: CGPoint(x: minX + r, y: maxY))
+            path.addArc(
+                center: CGPoint(x: minX + r, y: maxY - r),
+                radius: r,
+                startAngle: .degrees(90),
+                endAngle: .degrees(180),
+                clockwise: false
+            )
+            path.addLine(to: CGPoint(x: minX, y: minY))
+        } else {
+            path.move(to: CGPoint(x: minX, y: minY))
+            path.addLine(to: CGPoint(x: minX, y: maxY))
+            path.move(to: CGPoint(x: maxX, y: minY))
+            path.addLine(to: CGPoint(x: maxX, y: maxY))
+        }
+
+        return path
     }
 }
+#endif
+
+/// Shared Library content column width. Hero, decks, and activity all
+/// align to this centered column so they stay readable on regular-width
+/// layouts without pinning the scroll indicator to the column edge.
+private enum LibraryColumn {
+    static let maxWidth: CGFloat = 800
+
+    /// Horizontal margin that centers the column when the detail pane is
+    /// wider than `maxWidth`. Compact widths return 0, leaving the
+    /// insetGrouped style's native margins untouched.
+    static func inset(for width: CGFloat) -> CGFloat {
+        max(0, (width - maxWidth) / 2)
+    }
+}
+
 
 // MARK: - Previews
 

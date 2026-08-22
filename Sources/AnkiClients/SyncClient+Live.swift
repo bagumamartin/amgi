@@ -91,11 +91,15 @@ extension SyncClient: DependencyKey {
                 let backupPath = backupURL.path
 
                 // Step 1: export local as .apkg backup (no destruction yet, so
-                // failure here is safely retryable).
+                // failure here is safely retryable). Offloaded: the service
+                // closures are synchronous FFI calls, and this closure is
+                // awaited from MainActor (NonisolatedNonsendingByDefault).
                 progress?("Backing up local collection...")
                 logger.info("Merge: exporting local backup to \(backupPath)")
                 do {
-                    try importExportService.exportApkgForMerge(backupPath)
+                    try await backendOffload {
+                        try importExportService.exportApkgForMerge(backupPath)
+                    }
                 } catch {
                     try? FileManager.default.removeItem(at: backupURL)
                     throw SyncError(message: "Merge failed during backup: \(error.localizedDescription)")
@@ -122,7 +126,9 @@ extension SyncClient: DependencyKey {
 
                 progress?("Merging in local data...")
                 try await wrap("merge import") {
-                    _ = try importExportService.importApkgForMerge(backupPath)
+                    _ = try await backendOffload {
+                        try importExportService.importApkgForMerge(backupPath)
+                    }
                 }
 
                 progress?("Uploading merged collection...")

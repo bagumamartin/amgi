@@ -12,6 +12,7 @@ import AmgiTheme
 /// menu is a fast picker, not a full manager.
 struct ProfilePickerMenu: View {
     @State private var store = AccountStore.shared
+    @State private var iconStore = ProfileIconStore.shared
     @Environment(\.palette) private var palette
 
     var body: some View {
@@ -26,6 +27,9 @@ struct ProfilePickerMenu: View {
                         }
                     } label: {
                         HStack {
+                            if let emoji = iconStore.icon(for: account.id) {
+                                Text(emoji)
+                            }
                             Text(account.displayName)
                             if account.id == store.selectedID {
                                 Image(systemName: "checkmark")
@@ -40,15 +44,23 @@ struct ProfilePickerMenu: View {
             }
         } label: {
             HStack(spacing: 4) {
-                Image(systemName: store.pendingSwitchID == nil
-                      ? "person.crop.circle"
-                      : "person.crop.circle.badge.exclamationmark")
-                    .foregroundStyle(store.pendingSwitchID == nil ? palette.accent : palette.warning)
+                if let emoji = iconStore.icon(for: store.current.id) {
+                    // Emoji icon replaces the placeholder glyph entirely;
+                    // pending-switch state stays visible via the name badge.
+                    Text(emoji)
+                        .font(.system(size: 18))
+                } else {
+                    Image(systemName: store.pendingSwitchID == nil
+                          ? "person.crop.circle"
+                          : "person.crop.circle.badge.exclamationmark")
+                        .foregroundStyle(store.pendingSwitchID == nil ? palette.accent : palette.warning)
+                }
                 Text(store.current.displayName)
                     .amgiFont(.bodyEmphasis)
                     .lineLimit(1)
             }
         }
         .accessibilityLabel("Profile: \(store.current.displayName)")
+        .task { await iconStore.refresh() }
     }
 }

@@ -8,6 +8,7 @@ public struct DeckHero: View {
     public let subtitle: String
     public let tone: Color
     public let deckName: String
+    public let iconName: String?
     public let isFiltered: Bool
 
     @Environment(\.palette) private var palette
@@ -17,18 +18,20 @@ public struct DeckHero: View {
         subtitle: String,
         tone: Color,
         deckName: String,
+        iconName: String? = nil,
         isFiltered: Bool
     ) {
         self.title = title
         self.subtitle = subtitle
         self.tone = tone
         self.deckName = deckName
+        self.iconName = iconName
         self.isFiltered = isFiltered
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            DeckHeroTile(tone: tone, deckName: deckName)
+            DeckHeroTile(tone: tone, deckName: deckName, iconName: iconName)
                 .padding(.bottom, 8)
             titleRow
             subtitleText

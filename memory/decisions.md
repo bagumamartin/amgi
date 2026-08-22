@@ -1,0 +1,122 @@
+# Decisions
+
+## Card WebView prewarm pool (2026-08)
+
+- **First HTML review card must never wait on a WKWebView cold-start** — logs
+  showed WebContent/GPU/Networking process spawns of 1.8–3.7s paid *after* the
+  Study tap. `CardWebViewPrewarmer` (app target, Review/) keeps one configured,
+  frame-loaded webview; triggers: app-root idle task (+2s) and
+  DeckDetailView `.task` on every appear.
+- **Adoption = whole-pair handoff**: `makeCoordinator` takes the pooled
+  coordinator, so frame-load state (page signature, isPageLoaded) carries over;
+  `makeUIView` uses `coordinator.prewarmedWebView ?? makeCardWebView`. The
+  pooled coordinator's nil callbacks are filled by the first `applyCardUpdate`
+  via `refreshCallbacks` (coordinator callback properties are vars now).
+- **iOS tap-interaction bootstrap + amgiLookupText/amgiRevealAnswer handlers are
+  registered unconditionally** (was: only when callbacks non-nil): the pool
+  builds config before any session exists; over-injection is safe because JS
+  messages land in the coordinator and die on nil optional chaining. Runtime
+  gating unchanged (lookupPopupEnabled card state + typed-answer guards).
+- Coordinator holds `prewarmedWebView` **strongly** (nothing else retains it
+  pre-adoption); handler→coordinator→webview cycle is broken by dismantle's
+  existing removeScriptMessageHandler calls, and by the prewarmer's memory-
+  warning eviction (`prewarmedWebView = nil` then `stored = nil`).
+- Stale-appearance frames self-heal through applyCardUpdate's page-signature
+  reload; single-use pool (take clears), fallback to inline creation keeps
+  warm-process benefit when the user beats the prewarm.
+
+## Colour system — one card-state palette (2026-08)
+
+- **Rating buttons, count dots, badges, rings, and progress fills all bind to
+  the theme's `cardStateNew/Learning/Review(/Relearn)` slots** — no hardcoded
+  system colours anywhere user-facing. Mapping: Again→relearn(red),
+  Hard→learning(orange), Good→review(green), Easy→new(blue). User runs the
+  **Vivid** theme (bright ≈ system colours); Minimal/Muted/Sepia stay muted by
+  design — brightening theme data across all themes was explicitly rejected.
+- **Progress fills = "lit composition"**: the fill/arc is a full-strength copy
+  of the dim new/learn/review backdrop revealed up to the progress fraction,
+  so hue flips land exactly on the backdrop's segment boundaries; single-state
+  days stay one hue throughout. Empty composition (day done / zero due)
+  falls back to the solid `positive` sweep + glow. Implemented in
+  DailyProgressBar, StudyDueRing, SmallDueRing, LargeWidgetView bar.
+- Widgets read the selected theme via `ThemeManager.shared.palette(for:)`
+  injected in AmgiWidget.swift — they follow the app's theme setting.
+- `swift build --target AmgiUI` **succeeds on macOS** (2026-08): the old
+  "AmgiUI fails on macOS (UIKit)" note is stale; AmgiUI is a valid local
+  verification path again. App-target files remain parse-check only.
+
+## Deck icons (2026-08, deck-icon-picker-spec.md + amendments)
+
+- **New sibling SPM `AmgiIcons/`** owns the whole feature: IconSuggester
+  engine, IconPickerView, bundled resources (CoreML model, tokenizer,
+  embeddings). App target links it; widget/watch do not.
+- **Model**: `tamikisg/multilingual-e5-small-coreml` (fp16, ~224 MB, inputs
+  `input_ids`/`attention_mask` 1×256 int32, output `embeddings` 1×384
+  L2-normalized). Bundled **precompiled** (`xcrun coremlcompiler compile` →
+  `.mlmodelc`, `.copy` resource): raw `.mlpackage` made Xcode auto-generate
+  a Swift model class whose plain `import CoreML` breaks under
+  InternalImportsByDefault (device build failure 2026-08), and cost ~8s
+  first-launch compile. AmgiIcons is therefore the ONE target without
+  InternalImportsByDefault/AccessLevelOnImport — keep it that way.
+- **Tokenizer**: swift-transformers `AutoTokenizer.from(modelFolder:)`
+  (product `Tokenizers`). Verified byte-identical token IDs vs Python HF.
+- **Embedding space parity**: runtime query vectors match
+  `sentence-transformers` output to ~1e-5 (attention-mask bug fixed during
+  dev — mask must cover only real tokens, computed BEFORE pad-filling).
+- **Persistence**: manual picks live in Anki's **collection config**
+  (`col.conf`) under `"amgi.deckIcons"` — one JSON blob `{deckId: caseName}`
+  (`DeckIconOverrides`, app target). Anki-sanctioned home for app-specific
+  data that rides normal collection sync, so icons stay consistent across
+  devices. Writes are fetch→patch→write against a freshly pulled blob
+  (never the cached mirror) because config syncs last-write-wins at the
+  blob level. The bridge helpers (`AnkiBackend.getConfigJSONValue/
+  setConfigJSONValue`) already existed — zero Rust/FFI work. Absence ⇒ icon
+  derives from deck name at render time (rename-reactive). Anki schema
+  untouched.
+- **Auto picks sync too** (`"amgi.deckIconsAuto"`, `{deckId: {icon, name}}`):
+  **first writer prevails** — the first device to resolve a deck records it
+  and every other device adopts that choice instead of deriving its own.
+  Entries carry the deck name; a rename re-resolves once. Precedence at
+  render: manual > synced auto pick > compute-and-record. The earlier
+  device-local UserDefaults suggestion cache was removed (legacy key is
+  deleted on refresh); deterministic-model consistency is now guaranteed by
+  shared state rather than determinism alone.
+- **Instant refresh**: every icon write bumps `CollectionStore` generation
+  (via `invalidateAll(.localUser)` or the mutation's own changes), so all
+  generation-keyed screens reload with fresh conf immediately; `.localUser`
+  also queues the automatic sync push.
+- **Icon names**: Phosphor camelCase case names (`"airTrafficControl"`);
+  `Ph.amgi(named:)` index converts kebab rawValues → camel. `repeat` needs
+  backticks at use sites.
+- **PhosphorSwift is vendored** at `AmgiIcons/Vendor/PhosphorSwift`
+  (upstream 2.1.0): its manifest omits `resources:` while using
+  `Bundle.module` → doesn't compile under SwiftPM. Only Package.swift
+  differs (see VENDOR_NOTE.md).
+- **AmgiUI stays icon-library-free**: `DeckIconRendering.provider` (MainActor
+  static) is registered by the app at startup; watch never registers →
+  letter tiles. Phosphor doesn't declare watchOS, so a direct AmgiUI dep
+  would break the watch build.
+- **Emoji decks keep legacy tiles** unless manually overridden
+  (`DeckTileGlyph.hasLeadingEmoji`).
+- **Threshold 0.80, not spec's 0.75**: measured e5-small sims compress into
+  ~0.82–0.88 across the catalog (garbage ≥0.84), so 0.75 can never fire.
+- **Picker UX**: curated `Ph.deckTopPicks` (~80) as landing grid + "Show
+  all 1,512" expander; search falls through to full-set semantic results
+  (debounce 150 ms via cancellable `.task(id:)`).
+- **Embeddings JSON**: floats rounded to 6 decimals (5.8 MB) — precision
+  loss is irrelevant at cosine granularity.
+
+## General
+
+- **NonisolatedNonsendingByDefault + blocking FFI = main-thread freezes** (fixed
+  2026-08): nonisolated `async` closures awaited from `@MainActor` run ON the
+  main actor, so any synchronous `backend.invoke(...)` inside them blocks the
+  UI for the whole call (sync froze until completion). Rule: service/client
+  closures that touch the backend must either `await` the async
+  `AnkiBackend.invoke` overload (detaches internally) or wrap sync calls in
+  `backendOffload` (AnkiClients) / `Task.detached` — never call the sync
+  overload from an async closure reachable from MainActor.
+- Sibling SPMs (AmgiUI, AmgiReader, AmgiIcons) are path-resolved from the
+  app's project.yml; root `Package.swift` (AnkiBridge) is separate.
+- `DeckRowViewData` / `DeckDetailViewData` carry optional `iconName`;
+  AmgiUI renders glyphs only through `DeckIconRendering.provider`.

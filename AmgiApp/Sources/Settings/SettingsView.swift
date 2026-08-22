@@ -2,7 +2,32 @@ import SwiftUI
 import AmgiTheme
 
 struct SettingsView: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
     var body: some View {
+        settingsForm
+            .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
+    }
+
+    @ViewBuilder
+    private var settingsForm: some View {
+        #if os(iOS)
+        if horizontalSizeClass == .regular {
+            GeometryReader { proxy in
+                let inset = SettingsColumn.inset(for: proxy.size.width)
+                form
+                    .contentMargins(.horizontal, inset, for: .scrollContent)
+            }
+        } else {
+            form
+        }
+        #else
+        form
+        #endif
+    }
+
+    private var form: some View {
         Form {
             Section("Appearance") {
                 NavigationLink("Theme & Appearance") {
@@ -76,8 +101,13 @@ struct SettingsView: View {
                 }
             }
         }
-        .navigationTitle("Settings")
-        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private enum SettingsColumn {
+    static let maxWidth: CGFloat = 800
+    static func inset(for width: CGFloat) -> CGFloat {
+        max(0, (width - maxWidth) / 2)
     }
 }
 

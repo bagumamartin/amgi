@@ -15,6 +15,7 @@ struct StudyLandingView: View {
     let onSelectDeck: (DeckID) -> Void
 
     @Dependency(\.collectionStore) private var store
+    @Dependency(\.liveReviewCounts) private var liveCounts
     @State private var model = StudyLandingModel()
 
     var body: some View {
@@ -36,12 +37,24 @@ struct StudyLandingView: View {
         // Keyed on the store's generation: any Invalidation re-runs the
         // load; `.task` cancels itself on disappear.
         .task(id: store.generation) { await model.load() }
+        // Keyed on the live review snapshot: repaint the ring's composition
+        // as cards are answered, without a deck-tree refetch per answer.
+        // A nil snapshot (review dismissed) resets the session anchor so the
+        // next session re-anchors on a fresh collection snapshot.
+        .task(id: liveCounts.snapshot) {
+            if let snapshot = liveCounts.snapshot {
+                model.applyLiveCounts(snapshot)
+            } else {
+                model.clearLiveCounts()
+            }
+        }
     }
 
     private func beginSession() {
-        // Pick the first deck with due cards (sorted desc by totalDue already).
-        guard case .loaded(_, let decks, _) = model.contentState,
-              let first = decks.first else { return }
-        onSelectDeck(DeckID(first.id))
+        // Launch the virtual all-decks review scope, matching the Library's
+        // "Start today's review". The button is only enabled when totalDue > 0.
+        guard case .loaded(let summary, _, _) = model.contentState,
+              summary.totalDue > 0 else { return }
+        onSelectDeck(DeckID(0))
     }
 }

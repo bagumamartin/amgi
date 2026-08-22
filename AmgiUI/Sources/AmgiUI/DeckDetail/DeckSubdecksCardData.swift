@@ -10,6 +10,9 @@ public struct DeckSubdeckRowData: Equatable, Hashable, Identifiable, Sendable {
     public let learnCount: Int
     public let reviewCount: Int
     public let isFiltered: Bool
+    /// Persisted or name-derived icon (Phosphor case name). Nil ⇒ the row
+    /// keeps the generic stack-glyph placeholder.
+    public var iconName: String?
 
     public init(
         id: Int64,
@@ -18,7 +21,8 @@ public struct DeckSubdeckRowData: Equatable, Hashable, Identifiable, Sendable {
         newCount: Int,
         learnCount: Int,
         reviewCount: Int,
-        isFiltered: Bool
+        isFiltered: Bool,
+        iconName: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -27,5 +31,6 @@ public struct DeckSubdeckRowData: Equatable, Hashable, Identifiable, Sendable {
         self.learnCount = learnCount
         self.reviewCount = reviewCount
         self.isFiltered = isFiltered
+        self.iconName = iconName
     }
 }

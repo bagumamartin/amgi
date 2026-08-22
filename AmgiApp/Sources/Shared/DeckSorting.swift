@@ -7,6 +7,10 @@ struct DeckUsageRank: Equatable, Sendable {
     var reviewTotal: Int = 0
     /// 0 = today; more negative = older; `Int.min` = no reviews in the window.
     var lastActiveOffset: Int = .min
+    /// Recency-weighted review volume. Recent days count more so a deck
+    /// reviewed heavily this week outranks a much larger deck whose volume
+    /// is concentrated weeks ago.
+    var weightedScore: Double = 0
 }
 
 /// Applies `DeckSortOrder` to Library rows and deck-detail subdeck rows.
@@ -92,11 +96,14 @@ enum DeckSorting {
         case .mostUsed:
             let left = ranks[id(lhs)] ?? DeckUsageRank()
             let right = ranks[id(rhs)] ?? DeckUsageRank()
-            if left.reviewTotal != right.reviewTotal {
-                return left.reviewTotal > right.reviewTotal
+            if left.weightedScore != right.weightedScore {
+                return left.weightedScore > right.weightedScore
             }
             if left.lastActiveOffset != right.lastActiveOffset {
                 return left.lastActiveOffset > right.lastActiveOffset
+            }
+            if left.reviewTotal != right.reviewTotal {
+                return left.reviewTotal > right.reviewTotal
             }
             return tieBreak(lhs, rhs, id: id, name: name)
         }

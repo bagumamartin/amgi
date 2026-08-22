@@ -87,10 +87,12 @@ final class CardContextMenuModel {
 
     // MARK: - Load
 
-    func load(cardId: CardID, noteId: NoteID?) async {
+    func load(cardId: CardID, noteId: NoteID?, refreshUndo: Bool = true) async {
         await loadMarkedState(noteId)
         currentFlag = (try? await cardClient.getCardFlags(cardId)) ?? 0
-        await refreshUndoAvailability()
+        if refreshUndo {
+            await refreshUndoAvailability()
+        }
     }
 
     // MARK: - Helpers

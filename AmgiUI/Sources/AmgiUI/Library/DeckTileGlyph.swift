@@ -17,7 +17,7 @@ enum DeckTileGlyph {
     }
 
     static func resolve(deckName: String, palette: Palette) -> Resolved {
-        let trimmed = deckName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = trimmed(deckName)
         if palette.deckGlyph == .monogram {
             // Strip a leading emoji (and following space) so "📚 Books" → "B".
             var name = trimmed
@@ -38,6 +38,10 @@ enum DeckTileGlyph {
         )
     }
 
+    private static func trimmed(_ name: String) -> String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private static func isEmojiPresentation(_ c: Character) -> Bool {
         guard let first = c.unicodeScalars.first, first.properties.isEmoji else { return false }
         return first.properties.isEmojiPresentation
@@ -50,7 +54,7 @@ enum DeckTileGlyph {
         return letters.isEmpty ? "?" : String(letters.prefix(2))
     }
 
-    private static func tint(for name: String, palette: Palette) -> Color {
+    static func tint(for name: String, palette: Palette) -> Color {
         let palette6: [Color] = [
             palette.cardStateNew,
             palette.cardStateLearning,

@@ -111,18 +111,20 @@ private struct ReviewContent: View {
     let onDismiss: () -> Void
 
     @Environment(\.palette) private var palette
+    @Environment(\.colorScheme) private var colorScheme
     @State private var showRenderModeSheet = false
+    @State private var showUndoToast = false
     @Environment(\.dismiss) private var dismiss
+    @Shared(.reviewShortcuts) private var reviewShortcuts: [String: ReviewShortcut] = [:]
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 if showRemainingDays {
-                    SessionProgressBar(
-                        initialCounts: session.sessionInitialCounts,
-                        position: cardPosition,
-                        total: sessionTotal,
-                        remaining: session.remainingCounts.total
+                    DailyProgressBar(
+                        completedToday: session.dailyCompletedToday,
+                        remainingToday: session.dailyRemainingToday,
+                        remainingCounts: session.remainingCounts
                     )
                 }
 
@@ -147,14 +149,40 @@ private struct ReviewContent: View {
             // colour scheme.
             .background(autoMatchCardBackground ? session.cardChromeColor : palette.background)
             .environment(\.palette, contentPalette)
-            .overlay {
-                // Scope the fade to the toast subtree only. Attaching
-                // `.animation(value:)` to the whole VStack also animated the
-                // card swap on advance (content lands in the same transaction
-                // as `pendingToast → nil`), producing a jumpy cross-fade.
-                toastOverlay
-                    .animation(.easeInOut(duration: 0.15), value: session.pendingToast)
+            // A graduation (not just any answer) triggers a long continuous
+            // haptic — the Duolingo-style "got it right" feel.
+            .onChange(of: session.graduationPulse) { _, _ in
+                #if os(iOS)
+                GraduationHaptics.play()
+                #endif
             }
+            .onChange(of: session.undoToastPulse) { _, _ in
+                showUndoToast = true
+            }
+            .task(id: session.undoToastPulse) {
+                guard session.undoToastPulse > 0 else { return }
+                try? await Task.sleep(for: .seconds(1.2))
+                showUndoToast = false
+            }
+            .overlay {
+                if showUndoToast {
+                    undoToast
+                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                }
+            }
+            #if os(iOS)
+            // Register the review shortcuts for hardware keyboards (iPad Magic
+            // Keyboard / iPhone Bluetooth keyboard). The on-screen actions live
+            // in the overflow Menu, whose buttons only materialize once the menu
+            // opens — so they never register their `.keyboardShortcut` equivalents.
+            // These zero-size buttons mirror the persisted bindings instead.
+            .overlay {
+                reviewKeyboardShortcuts
+                    .frame(width: 0, height: 0)
+                    .clipped()
+                    .accessibilityHidden(true)
+            }
+            #endif
             #if os(macOS)
             // The macOS menu bar targets whichever review window is focused.
             // Do not install this closure-backed focused value on iPadOS: the
@@ -236,7 +264,9 @@ private struct ReviewContent: View {
                 for: .navigationBar
             )
             .toolbarColorScheme(
-                autoMatchCardBackground && session.cardChromeIsDark ? .dark : .light,
+                autoMatchCardBackground && cardChromeIsResolved
+                    ? (session.cardChromeIsDark ? .dark : .light)
+                    : colorScheme,
                 for: .navigationBar
             )
             #endif
@@ -276,24 +306,22 @@ private struct ReviewContent: View {
         }
     }
 
-    @ViewBuilder
-    private var toastOverlay: some View {
-        if let toast = session.pendingToast {
-            RatingToastView(toast: toast)
-                .transition(.opacity.combined(with: .scale(scale: 0.9)))
-        }
-    }
-
     // MARK: - Progress
 
-    /// Frozen session denominator — see `ReviewSession.sessionProgressTotal`.
-    private var sessionTotal: Int {
-        max(session.sessionProgressTotal, 1)
-    }
-
-    /// 1-indexed position of the current card, clamped to the session total.
-    private var cardPosition: Int {
-        min(session.sessionStats.reviewed + 1, sessionTotal)
+    /// Brief centered confirmation shown for ~1.2s after an undo.
+    private var undoToast: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "arrow.uturn.backward")
+            Text("Undo")
+                .amgiFont(.bodyEmphasis)
+        }
+        .foregroundStyle(palette.textPrimary)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(palette.surfaceElevated, in: Capsule())
+        .overlay {
+            Capsule().strokeBorder(palette.textSecondary.opacity(0.4), lineWidth: 1)
+        }
     }
 
     private var deckTone: Color {
@@ -315,13 +343,20 @@ private struct ReviewContent: View {
         return parts.dropLast().joined(separator: " - ")
     }
 
+    /// The card renderer has reported a real chrome background. WebKit cards
+    /// report via JS; native cards don't, so this stays `false` for them and
+    /// the chrome falls back to the system appearance.
+    private var cardChromeIsResolved: Bool {
+        session.cardChromeColor != .clear
+    }
+
     /// Palette for the review content. When auto-matching the card's
     /// background, the chrome must resolve light/dark against the *card*
     /// (not the system appearance) — otherwise dark-mode text lands on a
     /// light card, or vice-versa, and becomes unreadable. This mirrors the
     /// toolbar's `toolbarColorScheme` behaviour for the body below it.
     private var contentPalette: Palette {
-        guard autoMatchCardBackground else { return palette }
+        guard autoMatchCardBackground, cardChromeIsResolved else { return palette }
         return ThemeManager.shared.palette(forExplicitScheme: session.cardChromeIsDark ? .dark : .light)
     }
 
@@ -382,7 +417,7 @@ private struct ReviewContent: View {
 
             if showContextMenuButton {
                 if let cardId = session.currentCardId {
-                    CardContextMenu(cardId: cardId, noteId: session.currentNote?.id)
+                    CardContextMenu(cardId: cardId, noteId: session.currentNote?.id, includeUndo: false)
                 }
                 Button {
                     editingTemplate = session.currentTemplateTarget
@@ -403,6 +438,44 @@ private struct ReviewContent: View {
         #if os(macOS)
         .help("Card options")
         #endif
+    }
+
+    // MARK: - Keyboard shortcuts (iOS)
+
+    /// Hidden buttons that register hardware-keyboard shortcuts on iOS/iPadOS.
+    /// The on-screen actions live inside the overflow `Menu`, whose buttons are
+    /// only materialized once the menu opens — so they never register their
+    /// `.keyboardShortcut` equivalents. These zero-size buttons mirror the
+    /// persisted bindings instead, giving Magic Keyboard / Bluetooth keyboard
+    /// users the same ⌘Z / ⌘E / ⌘L / ⌘R shortcuts as macOS.
+    @ViewBuilder
+    private var reviewKeyboardShortcuts: some View {
+        ZStack {
+            Button("Undo") { session.undo() }
+                .keyboardShortcut(shortcut(.undo).keyEquivalent, modifiers: shortcut(.undo).modifiers)
+                .disabled(!session.canUndo)
+
+            Button("Edit Note") { editingNote = session.currentNote }
+                .keyboardShortcut(shortcut(.editNote).keyEquivalent, modifiers: shortcut(.editNote).modifiers)
+                .disabled(session.currentNote == nil)
+
+            Button("Look Up") { lookupQuery = "" }
+                .keyboardShortcut(shortcut(.lookup).keyEquivalent, modifiers: shortcut(.lookup).modifiers)
+
+            Button("Replay Audio") {
+                if session.isAudioPlaying {
+                    session.bumpStopAudioRequest()
+                } else {
+                    session.bumpReplayRequest()
+                }
+            }
+            .keyboardShortcut(shortcut(.replayAudio).keyEquivalent, modifiers: shortcut(.replayAudio).modifiers)
+            .disabled(session.currentNote == nil)
+        }
+    }
+
+    private func shortcut(_ action: ReviewShortcutAction) -> ReviewShortcut {
+        reviewShortcuts[action.rawValue] ?? action.defaultShortcut
     }
 
     private var renderModeExplainer: String {
@@ -707,8 +780,11 @@ private struct TypedAnswerField: View {
 /// Identifiable wrapper so `.sheet(item:)` can distinguish "not
 /// presented" from "presented with empty query" — the toolbar button
 /// opens the lookup popup focused on the search bar with no query yet.
+/// The id is the query text: a fresh `UUID()` here would change identity
+/// on every body re-evaluation, making SwiftUI endlessly dismiss and
+/// re-present the sheet (the "stuck lookup loop" bug).
 private struct ReviewLookupQuery: Identifiable {
-    let id = UUID()
+    var id: String { text }
     let text: String
 }
 

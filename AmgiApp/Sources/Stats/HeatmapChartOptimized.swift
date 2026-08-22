@@ -9,6 +9,10 @@ import AnkiKit
 /// - Configurable via the date range menu.
 struct HeatmapChartOptimized: View {
     let reviews: ReviewCountsAndTimes
+    /// Number of most-recent days rendered with the normal intensity ramp;
+    /// older cells are muted to mark them as outside the selected period.
+    /// `nil` disables the distinction.
+    var attentionDays: Int? = nil
 
     @Environment(\.palette) private var palette
     @State private var loadingManager: HeatmapLoadingManager?
@@ -44,6 +48,16 @@ struct HeatmapChartOptimized: View {
         return min(12, max(7, computed))
     }
 
+    private var contentWidth: CGFloat {
+        weekdayLabelWidth
+            + CGFloat(weeks.count) * cellSize
+            + CGFloat(max(weeks.count - 1, 0)) * cellSpacing
+    }
+
+    private var gridHeight: CGFloat {
+        14 + 7 * cellSize + 6 * cellSpacing
+    }
+
     // MARK: - Derived Computed Properties (sync, over snapshot)
 
     private var currentStreak: Int {
@@ -74,10 +88,7 @@ struct HeatmapChartOptimized: View {
     // MARK: - Grid Data
 
     private var weeksToShow: Int {
-        guard let minOffset = visibleData.keys.min() else { return 26 }
-        let totalDays = Swift.abs(minOffset) + 7
-        let weeksNeeded = totalDays / 7 + 1
-        return max(weeksNeeded, 26)
+        selectedDateRange / 7 + 1
     }
 
     private var weeks: [[Date]] {
@@ -181,24 +192,35 @@ private extension HeatmapChartOptimized {
                     }
                 }
 
-                // Scroll view with edge detection for loading more
-                ScrollViewReader { scrollProxy in
-                    ScrollView(.horizontal, showsIndicators: !isCompact) {
-                        VStack(alignment: .leading, spacing: 0) {
-                            monthHeaderView()
-                            gridView()
-                        }
-                        .id("heatmapContent")
+                // Scroll only when the fixed-size grid is wider than the container;
+                // otherwise left-align so short ranges don't sit off to the right.
+                GeometryReader { geo in
+                    let grid = VStack(alignment: .leading, spacing: 0) {
+                        monthHeaderView()
+                        gridView()
                     }
-                    .defaultScrollAnchor(.trailing)
-                    .onScrollGeometryChange(
-                        for: CGFloat.self,
-                        of: { geometry in geometry.contentOffset.x },
-                        action: { _, newValue in
-                            handleScroll(offset: newValue)
+                    .id("heatmapContent")
+
+                    if contentWidth > geo.size.width + 0.5 {
+                        ScrollViewReader { scrollProxy in
+                            ScrollView(.horizontal, showsIndicators: !isCompact) {
+                                grid
+                            }
+                            .defaultScrollAnchor(.trailing)
+                            .onScrollGeometryChange(
+                                for: CGFloat.self,
+                                of: { geometry in geometry.contentOffset.x },
+                                action: { _, newValue in
+                                    handleScroll(offset: newValue)
+                                }
+                            )
                         }
-                    )
+                    } else {
+                        grid
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
+                .frame(height: gridHeight)
 
                 legendView()
             }
@@ -247,15 +269,30 @@ private extension HeatmapChartOptimized {
                             let offset = dayOffset(for: date)
                             let count = visibleData[offset] ?? 0
                             let isFuture = date > Date()
+                            let isAttention = attentionDays.map { offset >= -$0 } ?? true
 
                             RoundedRectangle(cornerRadius: 2)
-                                .fill(isFuture ? Color.clear : HeatmapColorRamp.color(count: count, maxCount: maxCount, palette: palette))
+                                .fill(cellColor(count: count, isFuture: isFuture, isAttention: isAttention))
                                 .frame(width: cellSize, height: cellSize)
                         }
                     }
                 }
             }
         }
+    }
+
+    func cellColor(count: Int, isFuture: Bool, isAttention: Bool) -> Color {
+        if isFuture { return .clear }
+        if isAttention {
+            return HeatmapColorRamp.color(count: count, maxCount: maxCount, palette: palette)
+        }
+        // Out-of-period: same intensity ramp, neutral gray instead of accent.
+        return HeatmapColorRamp.color(
+            count: count,
+            maxCount: maxCount,
+            base: palette.textPrimary,
+            empty: palette.separator
+        )
     }
 
     func legendView() -> some View {
@@ -348,7 +385,6 @@ private extension HeatmapChartOptimized {
 
     func handleScroll(offset: CGFloat) {
         let scrollThreshold: CGFloat = 100
-        let contentWidth = CGFloat(weeksToShow) * (cellSize + cellSpacing)
         let isNearEnd = contentWidth - offset < scrollThreshold
 
         if isNearEnd {

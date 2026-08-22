@@ -12,11 +12,20 @@ import WidgetKit
 /// Safe to call from any async context.
 ///
 /// Cross-platform (iOS + macOS): `AmgiWidget` builds for both destinations
-/// (see project.yml) and both apps share the same `group.com.bagumamartin.AmgiApp`
-/// App Group container. Apple lifted the old macOS restriction that required
-/// Team-ID-prefixed group identifiers in Feb 2025 — iOS-style `group.` IDs are
-/// now supported on macOS for all product types, provided the App Group
-/// capability is enabled for the macOS app target's signing in Xcode.
+/// (see project.yml) and both apps share the same App Group container. iOS
+/// uses `group.com.bagumamartin.AmgiApp`; macOS uses the Team-ID-prefixed
+/// `39557WW39R.group.com.bagumamartin.AmgiApp` (see `AppGroup.identifier` and
+/// the `[sdk=macosx*]` override of `APP_GROUP_IDENTIFIER` in project.yml).
+/// macOS requires the Team-ID prefix: containermanagerd rejects unprefixed
+/// `group.` IDs for sandboxed processes whose provisioning profile doesn't
+/// list them explicitly — the widget extension's profile only carries the
+/// `39557WW39R.*` wildcard, so with the unprefixed ID its container reads were
+/// denied and it fell back to the empty snapshot ("Open Amgi to refresh").
+/// macOS App Groups also require the App Sandbox capability (unlike iOS,
+/// where apps are always sandboxed), so the macOS app target uses
+/// `AmgiApp-macOS.entitlements` with `app-sandbox` enabled; without it
+/// `containerURL(forSecurityApplicationGroupIdentifier:)` returns nil and the
+/// widget never sees a snapshot.
 func writeWidgetSnapshot() async {
     #if os(iOS) || os(macOS)
     // Skip during XCTest runs — the lifecycle hooks that call this run inside
