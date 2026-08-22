@@ -58,6 +58,12 @@
   InternalImportsByDefault (device build failure 2026-08), and cost ~8s
   first-launch compile. AmgiIcons is therefore the ONE target without
   InternalImportsByDefault/AccessLevelOnImport — keep it that way.
+- **Model is NOT in git** (2026-08): weight.bin is 224 MB (> GitHub's 100 MB
+  file limit) and `bagumamartin/amgi` is a public fork, which GitHub blocks
+  from uploading ANY new LFS objects. The `.mlmodelc` folder is gitignored;
+  fresh clones must fetch + compile per `AmgiIcons/README.md`. LFS tracking
+  (`**/*.mlmodelc/**` in .gitattributes) is kept so a detached/non-fork repo
+  can flip the .gitignore line and use LFS immediately.
 - **Tokenizer**: swift-transformers `AutoTokenizer.from(modelFolder:)`
   (product `Tokenizers`). Verified byte-identical token IDs vs Python HF.
 - **Embedding space parity**: runtime query vectors match
