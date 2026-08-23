@@ -42,6 +42,32 @@ struct ReviewCardArea: View {
     }()
 
     var body: some View {
+        if session.currentCardId == nil {
+            // No card prepared yet — `start()` is still in its backend round
+            // trip. Rendering the normal chrome here meant an empty WKWebView
+            // under a "HTML · sandboxed" label and a dead Show Answer button,
+            // with nothing to say the app was working.
+            preparingCard
+        } else {
+            cardContent
+        }
+    }
+
+    private var preparingCard: some View {
+        VStack(spacing: AmgiSpacing.md) {
+            Spacer()
+            ProgressView()
+                .controlSize(.large)
+            Text("Preparing cards\u{2026}")
+                .amgiFont(.body)
+                .foregroundStyle(palette.textSecondary)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var cardContent: some View {
         VStack(spacing: 0) {
             RenderModeChipRow(
                 isNative: isNativeMode,
