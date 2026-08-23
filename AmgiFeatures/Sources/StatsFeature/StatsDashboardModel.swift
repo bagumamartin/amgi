@@ -14,6 +14,10 @@ final class StatsDashboardModel {
     /// `graphs` allowed eight combinations for three renderable states, and
     /// the view had to disambiguate them at the call site.
     var state: StatsDashboardContent.State = .loading
+    /// True while a *re*-load runs with graphs already on screen. The old
+    /// behaviour — keep the stale graphs, show nothing — was indistinguishable
+    /// from having ignored the tap.
+    private(set) var isRefreshing = false
     var decks: [DeckInfo] = [] {
         didSet { topLevelDecks = decks.filter { !$0.name.contains("::") } }
     }
@@ -31,10 +35,21 @@ final class StatsDashboardModel {
     func loadStats(search: String, days: Int) async {
         // A refresh keeps the previous graphs on screen; only a first load
         // shows the spinner. Preserves the old `isLoading = graphs == nil`.
-        if case .loaded = state {} else { state = .loading }
+        if case .loaded = state { isRefreshing = true } else { state = .loading }
+        defer { isRefreshing = false }
         do {
-            state = .loaded(try await statsClient.fetchGraphs(search, days))
+            let graphs = try await statsClient.fetchGraphs(search, days)
+            // The caller drives this from `.task(id:)`, which cancels the
+            // previous load when the period or deck changes. Without this
+            // check a slow "All Time" fetch could land after a fast "Month"
+            // one and leave the user looking at the wrong period's data under
+            // the right period's chip.
+            guard !Task.isCancelled else { return }
+            state = .loaded(graphs)
+        } catch is CancellationError {
+            return
         } catch {
+            guard !Task.isCancelled else { return }
             // An error wins over stale graphs, as the old projection did.
             state = .failed(error.localizedDescription)
         }

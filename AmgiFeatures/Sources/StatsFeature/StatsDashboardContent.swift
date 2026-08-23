@@ -26,10 +26,20 @@ struct StatsDashboardContent: View {
     let topLevelDecks: [DeckInfo]
     let onSelectDeck: (DeckInfo?) -> Void
     let onSelectPeriod: (StatsPeriod) -> Void
+    /// A period/deck change keeps the previous graphs on screen rather than
+    /// blanking to a spinner — but silently, the screen was indistinguishable
+    /// from one that had ignored the tap. This marks the wait.
+    let isRefreshing: Bool
 
     var body: some View {
         ScrollView {
             LazyVStack(spacing: AmgiSpacing.lg) {
+                // Outside the switch: the filters used to render only in
+                // `.loaded`, so during the first load — the slowest case, and
+                // the one where the user most wants a cheaper period — there
+                // was nothing on screen to change.
+                filters
+
                 switch state {
                 case .loading:
                     ProgressView("Loading statistics...").padding(.top, 40)
@@ -40,8 +50,12 @@ struct StatsDashboardContent: View {
                         description: Text(message)
                     )
                 case .loaded(let graphs):
-                    filters
                     charts(graphs)
+                        .opacity(isRefreshing ? 0.4 : 1)
+                        .overlay(alignment: .top) {
+                            if isRefreshing { ProgressView().padding(.top, 40) }
+                        }
+                        .animation(AmgiMotion.standard, value: isRefreshing)
                 }
             }
             .padding(AmgiSpacing.lg)
@@ -123,21 +137,32 @@ struct StatsDashboardContent: View {
 #Preview("Loaded") {
     StatsDashboardContent(
         state: .loaded(.sample), period: .month, selectedDeck: nil,
-        topLevelDecks: [], onSelectDeck: { _ in }, onSelectPeriod: { _ in }
+        topLevelDecks: [], onSelectDeck: { _ in }, onSelectPeriod: { _ in },
+        isRefreshing: false
+    )
+}
+
+#Preview("Refreshing") {
+    StatsDashboardContent(
+        state: .loaded(.sample), period: .year, selectedDeck: nil,
+        topLevelDecks: [], onSelectDeck: { _ in }, onSelectPeriod: { _ in },
+        isRefreshing: true
     )
 }
 
 #Preview("Loading") {
     StatsDashboardContent(
         state: .loading, period: .month, selectedDeck: nil,
-        topLevelDecks: [], onSelectDeck: { _ in }, onSelectPeriod: { _ in }
+        topLevelDecks: [], onSelectDeck: { _ in }, onSelectPeriod: { _ in },
+        isRefreshing: false
     )
 }
 
 #Preview("Failed") {
     StatsDashboardContent(
         state: .failed("The collection is locked."), period: .month,
-        selectedDeck: nil, topLevelDecks: [], onSelectDeck: { _ in }, onSelectPeriod: { _ in }
+        selectedDeck: nil, topLevelDecks: [], onSelectDeck: { _ in }, onSelectPeriod: { _ in },
+        isRefreshing: false
     )
 }
 #endif
