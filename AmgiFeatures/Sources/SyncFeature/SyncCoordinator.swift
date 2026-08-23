@@ -13,7 +13,11 @@ public final class SyncCoordinator {
     public enum SyncState: Sendable, Equatable {
         case idle
         case syncing(message: String)
-        case syncingMedia(total: Int, downloaded: Int)
+        // No `.syncingMedia`: it was declared, rendered by SyncToastController,
+        // and never assigned by anything — a progress state that could not
+        // occur, which read as "media progress is shown" to anyone auditing
+        // this. `syncClient.syncMedia()` reports no counts, so bring it back
+        // only when the engine can supply real ones.
         case success(SyncSummary)
         case error(String)
         case needsFullSync(SyncFullSyncRequirement)
@@ -225,8 +229,6 @@ public final class SyncCoordinator {
         activeTask?.cancel()
         if case .syncing = state {
             appendLog("Cancelling — finishing the current step in the background", level: .warning)
-        } else if case .syncingMedia = state {
-            appendLog("Cancelling media sync — finishing the current step in the background", level: .warning)
         }
     }
 
@@ -278,7 +280,7 @@ private extension SyncCoordinator {
     func beginBackgroundExecutionIfNeeded() {
         let isSyncing: Bool
         switch state {
-        case .syncing, .syncingMedia: isSyncing = true
+        case .syncing: isSyncing = true
         default: isSyncing = false
         }
         guard isSyncing, backgroundTaskID == .invalid else { return }
