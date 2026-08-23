@@ -49,6 +49,7 @@ let package = Package(
         .library(name: "DecksFeature", targets: ["DecksFeature"]),
         .library(name: "WidgetFeature", targets: ["WidgetFeature"]),
         .library(name: "SettingsFeature", targets: ["SettingsFeature"]),
+        .library(name: "WatchFeature", targets: ["WatchFeature"]),
     ],
     dependencies: [
         .package(path: ".."),
@@ -369,6 +370,29 @@ let package = Package(
                 .product(name: "CasePaths", package: "swift-case-paths"),
             ],
             swiftSettings: sharedSwiftSettings + [.interoperabilityMode(.Cxx)]
+        ),
+        // Everything the watchOS app renders: its content root, deck list,
+        // deck detail, review, stats and login screens. Only @main WatchApp
+        // stays in the AmgiWatchApp target, holding the backend/collection
+        // bootstrap — same split as WidgetFeature.
+        //
+        // watchOS-only in practice, so it must stay watchOS-clean: no
+        // AmgiAppShared (it imports UIKit/WidgetKit unguarded), no
+        // iOS-only API. Public surface is WatchContentView + WatchLoginView.
+        .target(
+            name: "WatchFeature",
+            dependencies: [
+                "AmgiCharts",
+                "AmgiReviewCore",
+                .product(name: "AnkiKit", package: "amgi"),
+                .product(name: "AnkiBackend", package: "amgi"),
+                .product(name: "AnkiClients", package: "amgi"),
+                .product(name: "AnkiSync", package: "amgi"),
+                .product(name: "AmgiCardWeb", package: "amgi"),
+                .product(name: "AmgiTheme", package: "AmgiUI"),
+                .product(name: "Dependencies", package: "swift-dependencies"),
+            ],
+            swiftSettings: sharedSwiftSettings
         ),
     ],
     swiftLanguageModes: [.v6]

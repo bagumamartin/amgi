@@ -36,6 +36,8 @@ AmgiFeatures package — app-layer shared code + migrated features
                              AmgiReviewCore, AmgiAppShared
              DecksFeature  → ReviewFeature, BrowseFeature, AmgiAppShared
              WidgetFeature → AmgiAppCore        (the iOS widget extension)
+             WatchFeature  → AmgiCharts, AmgiReviewCore
+                                                (the watchOS app; watchOS-clean)
              SettingsFeature → Reader, Review, Browse, Templates, Sync,
                              AmgiReviewCore, AmgiAppCore   (the aggregator)
   Everything else reaches sideways into AmgiUI/AmgiTheme/AnkiKit/AnkiClients.
@@ -75,11 +77,11 @@ AmgiFeatures package — app-layer shared code + migrated features
   AmgiWidget links WidgetFeature only, which brings AmgiAppCore + AmgiTheme
   and must never reach AnkiClients. That, by itself, is why the sink is two
   targets rather than one.
-  AmgiWatchApp links AmgiAppCore + AmgiCharts *and* the full engine
-  (AnkiClients, AnkiServices, AnkiBackend, AnkiSync, AmgiCardWeb), so the
-  no-AnkiClients rule does not apply to it. It cannot link AmgiAppShared for
-  a different reason: AmgiAppShared imports UIKit and WidgetKit unguarded, so
-  it does not build for watchOS.
+  AmgiWatchApp links WatchFeature *and* the full engine (AnkiClients,
+  AnkiServices, AnkiBackend, AnkiSync, AmgiCardWeb), so the no-AnkiClients
+  rule does not apply to it. Neither it nor WatchFeature can link
+  AmgiAppShared, for a different reason: AmgiAppShared imports UIKit and
+  WidgetKit unguarded, so it does not build for watchOS.
   (Corrected 2026-08-15. This block previously claimed neither extension
   reaches AnkiClients, which was never true of the watch — verify against
   AmgiApp/project.yml, not this note.)
@@ -145,6 +147,7 @@ dictionary UI, widgets.
 | `DecksFeature` (./AmgiFeatures) | Deck list, deck detail, deck config + FSRS simulator, profile picker. Public surface is `DeckListView` alone. `DeckListView.init` takes `onSwitchProfile` because `switchProfile(to:)` is composition-root work (closes/reopens the collection, cancels sync, flips the keychain anchor) and stays in `AmgiAppApp.swift`. No Cxx settings — it left the chain when `ReviewFeature` did, with no source change of its own. |
 | `SettingsFeature` (./AmgiFeatures) | The Settings root plus every screen it pushes to (appearance, accounts, sync, review behaviour, card rendering, reader display, code editor, template overrides, database maintenance, empty cards, media check, backups, about) and the shared `SettingsRow`/`SettingsControls` chrome. Public surface is `SettingsView` alone. It is the app's fan-in point, so it depends on nearly every other feature — inherent to a settings screen, not a layering smell. Two consequences: it's in the **Cxx chain** (imports `ReaderFeature`), and it's the only `*Feature` that imports `AnkiBackend` (`MaintenanceModel.resetEverything` needs `closeCollection()`; `AnkiClients` already links it, so this costs no new linkage). `SettingsView.init` takes `onSwitchProfile` for the same reason `DeckListView.init` does. Extracted 2026-08-18. |
 | `WidgetFeature` (./AmgiFeatures) | Everything the iOS widget extension does: the `AmgiWidget` `Widget`, its `AmgiWidgetIntent` AppIntents configuration + `DeckEntity` query, the `AppIntentTimelineProvider` that replays `WidgetSnapshot.projectedEntries`, and the three family views. Only `@main AmgiWidgetBundle` stays in the `AmgiWidget` target. Public surface is `AmgiWidget` alone. Deps: `AmgiAppCore`, `AmgiTheme` — **must never gain `AnkiClients`**; the widget is a separate process that reads the app group and has no business reaching the Rust engine. Extracted 2026-08-16. |
+| `WatchFeature` (./AmgiFeatures) | Every screen the watchOS app renders: `WatchContentView`, `WatchDeckListView`, `WatchDeckDetailView`, `WatchReviewView`, `WatchStatsView`, `WatchLoginView`, `DeckCountsView`. Only `@main WatchApp` stays in the `AmgiWatchApp` target, holding the backend/collection bootstrap — same split as `WidgetFeature`. Public surface is `WatchContentView` + `WatchLoginView`. Deps: `AmgiCharts`, `AmgiReviewCore`, `AnkiKit`/`AnkiClients`/`AnkiBackend`/`AnkiSync`/`AmgiCardWeb`, `AmgiTheme`. **Must stay watchOS-clean** — no `AmgiAppShared`, no iOS-only API. Extracted 2026-08-23. |
 
 ### Module naming convention
 Three prefixes/suffixes, each answering a different question:
@@ -153,11 +156,12 @@ Three prefixes/suffixes, each answering a different question:
   (`AmgiUI`, `AmgiTheme`, `AmgiCharts`, `AmgiAppCore`, `AmgiAppShared`).
 - **`*Feature`** — app-owned **screen-level** module: `BrowseFeature`,
   `SyncFeature`, `StatsFeature`, `TemplatesFeature`, `ReaderFeature`,
-  `ReviewFeature`, `DecksFeature`, `WidgetFeature`, `SettingsFeature`. (No
+  `ReviewFeature`, `DecksFeature`, `WidgetFeature`, `SettingsFeature`,
+  `WatchFeature`. (No
   `StudyFeature` — Study was absorbed into `ReaderFeature`.)
 
-  On the suffix: `WidgetFeature` stretches "screen-level" to cover app
-  extensions. A widget is not a screen inside the app, but the alternative —
+  On the suffix: `WidgetFeature` and `WatchFeature` stretch "screen-level"
+  to cover app extensions and the companion app. A widget is not a screen inside the app, but the alternative —
   `AmgiWidgetUI` — claims the reusability the `Amgi*` prefix promises and
   nothing has, and sits one character from the `AmgiWidget` *target* name.
   Extensions count as screen-level for the suffix; `Amgi*` still means
@@ -189,8 +193,9 @@ most misread pair. The suffix keeps the app layer visually distinct.
 
 ### App target
 - `AmgiApp/` — Xcode project, generated by xcodegen from `project.yml`.
-- Remaining folders: `AmgiApp/Sources/Watch`, a `Widgets/` stub holding only
-  `@main AmgiWidgetBundle.swift` + `Info.plist`, plus six root files
+- Remaining folders: a `Watch/` stub holding only `@main WatchApp.swift`, a
+  `Widgets/` stub holding only `@main AmgiWidgetBundle.swift` + `Info.plist`,
+  plus six root files
   (`AmgiAppApp`, `ContentView`, `MainTabView`, `DebugView`,
   `DeckImportModifier`, `RetroactiveIdentifiable`). Everything else migrated
   into `AmgiFeatures`/`AmgiUI`. The iOS app target proper is now those six
@@ -198,10 +203,18 @@ most misread pair. The suffix keeps the app layer visually distinct.
 - Widget target depends on `WidgetFeature` alone (which brings `AmgiAppCore` +
   `AmgiTheme`). The old `AnkiKit` dependency was vestigial and was dropped on
   2026-08-16 — no widget source ever imported it. Keep its deps narrow.
+- Watch target keeps its full dependency list even after the `WatchFeature`
+  lift, because `@main WatchApp.swift` still bootstraps the collection itself
+  (`AnkiBackend`, `AnkiSync`, `AmgiTheme`). Three of those deps —
+  `AmgiAppCore`, `Sharing`, `SwiftNavigation` — are imported by **no** watch
+  source and look vestigial; they were left alone as out of scope for the
+  extraction, not verified as needed.
 - Direct `AnkiBackend` imports left in the app target: `AmgiAppApp` (the
-  composition root, correct), `DebugView`, and `Watch/`. Exactly one `*Feature`
-  imports it — `SettingsFeature/MaintenanceModel`, for `closeCollection()` in
-  "Reset Everything" — and it should stay the only one. The old reason for the
+  composition root, correct), `DebugView`, and `Watch/WatchApp` (the watch's
+  composition root, same reason). Two `*Feature`s import it —
+  `SettingsFeature/MaintenanceModel`, for `closeCollection()` in "Reset
+  Everything", and `WatchFeature/WatchReviewView` — and it should stay at
+  those two. The old reason for the
   ban ("a feature target that links `AnkiRustLib` stops rendering previews")
   died with the dynamic-framework fix on 2026-08-17, and every feature that
   links `AnkiClients` already links `AnkiBackend` transitively anyway; what
@@ -212,8 +225,9 @@ most misread pair. The suffix keeps the app layer visually distinct.
 ### Extraction status (2026-08-15)
 The app target went from ~18.7k LOC to ~4.4k in one session, then to ~1.2k
 when Settings followed on 2026-08-18. That last figure is 505 lines of root
-files plus 735 in `Watch/` — and `Watch/` is excluded from the iOS target, so
-the iOS app itself is now ~500 lines. Order was forced by the coupling graph,
+files plus what was then 735 lines in `Watch/`; the `WatchFeature` lift on
+2026-08-23 took all but the 85-line `@main WatchApp.swift`. `Watch/` is
+excluded from the iOS target either way, so the iOS app itself is ~500 lines. Order was forced by the coupling graph,
 not preference.
 
 1. **`Sources/Shared` dissolved.** Neither file was shared — `DeckCountsView`
@@ -283,15 +297,15 @@ not preference.
    intent, and the provider back into the `AmgiWidget` target — i.e. undoing
    this extraction.
 
-   **Watch was considered and declined.** No preview payoff — every watch
-   screen transitively reaches `AnkiBackend`, so its previews would die on the
-   way out exactly as both `DeckListView` previews did. No build-coverage
-   payoff either: the sources use no watchOS-only API and would compile for
-   iOS, but the iOS scheme still wouldn't build the product because nothing on
-   iOS links it. Cost: a new product, watchOS-clean constraints, and eight
-   allowlist keys to re-path. The real watch defect — the iOS scheme doesn't
-   build `AmgiWatchApp`, so breakage is silent — is scheme wiring, not
-   modularization, and is still open.
+   **Watch was considered and declined here, then done anyway on 2026-08-23**
+   (see item 7). The reasoning below still holds and is why the lift bought
+   little: no preview payoff — every watch screen transitively reaches
+   `AnkiBackend`, so its previews would die on the way out exactly as both
+   `DeckListView` previews did. No build-coverage payoff either: the sources
+   use no watchOS-only API and would compile for iOS, but the iOS scheme still
+   wouldn't build the product because nothing on iOS links it. The real watch
+   defect — the iOS scheme doesn't build `AmgiWatchApp`, so breakage is silent
+   — is scheme wiring, not modularization, and is **still open**.
 
    AppIntents metadata extraction **does** work from a SwiftPM static-library
    target: the built `AmgiWidget.appex` carries a complete
@@ -308,6 +322,19 @@ not preference.
    root cause was the static Rust archive and is **fixed as of 2026-08-17** (see
    the preview bullet below); the widget previews specifically are still
    unmeasured.
+
+7. **`WatchFeature`** (2026-08-23) — seven of eight files out of the
+   `AmgiWatchApp` target; only `@main WatchApp.swift` remains, holding the
+   backend/collection bootstrap. Same split as `WidgetFeature`, and it did
+   **not** shrink the iOS app target: `Sources/Watch` was already in
+   `AmgiApp.sources.excludes`. Cost was two files needing `public` + a
+   `public import SwiftUI` (`WatchContentView`, `WatchLoginView`) and six
+   `DesignConformanceTests` keys re-pathed `Watch/` → `WatchFeature/`. The
+   payoffs predicted as absent in the 2026-08-16 note stayed absent — no
+   previews, no iOS build coverage. What it buys is that the watch's screens
+   compile as a package target with the package's stricter settings
+   (`MemberImportVisibility`, `AccessLevelOnImport`) instead of the app
+   target's looser ones.
 
 **If you extract another module, budget for these five.** Every lift this
 session hit at least two:

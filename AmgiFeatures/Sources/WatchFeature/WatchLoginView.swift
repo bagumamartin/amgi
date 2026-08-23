@@ -3,11 +3,11 @@ import AnkiKit
 import AnkiSync
 import Dependencies
 import os
-import SwiftUI
+public import SwiftUI
 
 private let logger = Logger(subsystem: "com.amgiapp.AmgiApp", category: "WatchLogin")
 
-struct WatchLoginView: View {
+public struct WatchLoginView: View {
     @State private var username = ""
     @State private var password = ""
     @State private var endpoint = ""
@@ -22,11 +22,15 @@ struct WatchLoginView: View {
     @State private var submission: SubmissionState = .idle
     var onLoginSuccess: () -> Void
 
+    public init(onLoginSuccess: @escaping () -> Void) {
+        self.onLoginSuccess = onLoginSuccess
+    }
+
     private var isSubmitting: Bool {
         if case .submitting = submission { return true }
         return false
     }
-    var body: some View {
+    public var body: some View {
         ScrollView {
             VStack {
                 loginFieldsView

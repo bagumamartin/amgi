@@ -248,10 +248,12 @@ targets:
     type: application
     platform: watchOS
     sources:
-      # Watch sources only. The review engine the watch shares with iOS is the
-      # AmgiReviewCore product below — it used to be three Sources/Review files
-      # listed here by path, which compiled them into two targets as two
-      # distinct types (fixed 2026-08-15). Do not re-add per-file paths here.
+      # @main WatchApp.swift only — every watch screen lives in the
+      # WatchFeature product below (same split as AmgiWidget/WidgetFeature).
+      # Sources shared with iOS go through a product too: the review engine is
+      # AmgiReviewCore, which used to be three Sources/Review files listed here
+      # by path, compiling them into two targets as two distinct types (fixed
+      # 2026-08-15). Do not re-add per-file paths here.
       - path: Sources/Watch
         type: group
     dependencies:
@@ -277,6 +279,8 @@ targets:
         product: AmgiCharts
       - package: AmgiFeatures
         product: AmgiReviewCore
+      - package: AmgiFeatures
+        product: WatchFeature
       - package: swift-navigation
         product: SwiftNavigation
       - package: swift-sharing

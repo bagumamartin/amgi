@@ -5,6 +5,7 @@ import Foundation
 import Sharing
 import SwiftUI
 import AmgiTheme
+import WatchFeature
 
 @main
 struct WatchApp: App {

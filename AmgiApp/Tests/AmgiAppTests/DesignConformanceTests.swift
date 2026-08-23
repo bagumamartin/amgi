@@ -81,12 +81,12 @@ struct DesignConformanceTests {
         "WidgetFeature/MediumWidgetView.swift": widgetExemptReason,
         "WidgetFeature/SmallWidgetView.swift": widgetExemptReason,
         "Watch/WatchApp.swift": watchExemptReason,
-        "Watch/WatchContentView.swift": watchExemptReason,
-        "Watch/WatchDeckDetailView.swift": watchExemptReason,
-        "Watch/WatchDeckListView.swift": watchExemptReason,
-        "Watch/WatchLoginView.swift": watchExemptReason,
-        "Watch/WatchReviewView.swift": watchExemptReason,
-        "Watch/WatchStatsView.swift": watchExemptReason,
+        "WatchFeature/WatchContentView.swift": watchExemptReason,
+        "WatchFeature/WatchDeckDetailView.swift": watchExemptReason,
+        "WatchFeature/WatchDeckListView.swift": watchExemptReason,
+        "WatchFeature/WatchLoginView.swift": watchExemptReason,
+        "WatchFeature/WatchReviewView.swift": watchExemptReason,
+        "WatchFeature/WatchStatsView.swift": watchExemptReason,
     ]
 
     /// watchOS target (PR #14): the palette/ThemeManager pipeline is iOS-scoped;

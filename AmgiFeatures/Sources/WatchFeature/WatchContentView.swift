@@ -1,8 +1,10 @@
 import AnkiKit
-import SwiftUI
+public import SwiftUI
 
-struct WatchContentView: View {
-    var body: some View {
+public struct WatchContentView: View {
+    public init() {}
+
+    public var body: some View {
         NavigationStack {
             WatchDeckListView()
                 .navigationDestination(for: DeckInfo.self) { deck in
