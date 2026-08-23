@@ -21,7 +21,21 @@ final class DeckListModel {
     @ObservationIgnored @Dependency(\.statsClient) private var statsClient
     @ObservationIgnored @Dependency(\.collectionStore) private var store
 
+    /// Two phase, deliberately. The deck rows and the hero's due counts come
+    /// straight from the deck tree; the streak, sparkline, and heatmap need a
+    /// 365-day revlog scan. Publishing both together meant the primary content
+    /// waited on the secondary — a blank screen at launch on a large
+    /// collection. Rows go out first, activity fills in.
     func load() async {
+        // Carry the previous activity data through a refresh rather than
+        // flashing placeholders over numbers that are still on screen.
+        let carried: (hero: HeroData, heatmap: HeatmapCardData?)?
+        if case .loaded(_, let hero, let heatmap) = state {
+            carried = (hero, heatmap)
+        } else {
+            carried = nil
+        }
+
         do {
             let tree = try await store.tree()
             if tree.isEmpty {
@@ -29,11 +43,27 @@ final class DeckListModel {
                 return
             }
             let rows = tree.map(DeckListRow.init(node:))
+            let viewRows = rows.map(\.viewData)
+
+            state = .loaded(
+                rows: viewRows,
+                hero: HeroData(
+                    totalDue: rows.reduce(0) { $0 + $1.counts.total },
+                    deckCount: rows.count,
+                    streak: carried?.hero.streak ?? 0,
+                    last14Days: carried?.hero.last14Days ?? Array(repeating: 0, count: 14)
+                ),
+                heatmap: carried?.heatmap
+            )
+
             let (hero, heatmap) = await buildHeroAndHeatmap(rows: rows)
-            state = .loaded(rows: rows.map(\.viewData), hero: hero, heatmap: heatmap)
+            guard !Task.isCancelled else { return }
+            state = .loaded(rows: viewRows, hero: hero, heatmap: heatmap)
         } catch {
             Log.decks.error("Error loading decks: \(error)")
-            state = .empty
+            // NOT .empty — that is the genuine no-decks state, and rendering a
+            // failure as it told users with a full collection they had none.
+            state = .failed(error.localizedDescription)
         }
     }
 

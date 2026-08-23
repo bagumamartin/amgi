@@ -10,11 +10,23 @@ import AmgiTheme
 public struct LibraryHeroCard: View {
     let data: HeroData
     let onStartReview: () -> Void
+    /// True while the review-history fetch that feeds `streak` and
+    /// `last14Days` is still in flight. `totalDue` and `deckCount` come from
+    /// the deck tree and are real immediately, so the card renders at once and
+    /// only the history-derived decorations are shown as placeholders — a
+    /// confident "0 day streak" that flips to 36 a second later is a worse
+    /// answer than an obvious placeholder.
+    let activityPending: Bool
 
     @Environment(\.palette) private var palette
 
-    public init(data: HeroData, onStartReview: @escaping () -> Void) {
+    public init(
+        data: HeroData,
+        activityPending: Bool = false,
+        onStartReview: @escaping () -> Void
+    ) {
         self.data = data
+        self.activityPending = activityPending
         self.onStartReview = onStartReview
     }
 
@@ -24,7 +36,10 @@ public struct LibraryHeroCard: View {
             bigNumber: "\(data.totalDue)",
             subtitle: subtitleText,
             background: heroGradient,
-            decoration: { StreakBadge(days: data.streak) },
+            decoration: {
+                StreakBadge(days: data.streak)
+                    .redacted(reason: activityPending ? .placeholder : [])
+            },
             footer: {
                 VStack(spacing: 12) {
                     Button(action: onStartReview) {
@@ -40,6 +55,7 @@ public struct LibraryHeroCard: View {
 
                     SparklineBars(values: data.last14Days)
                         .frame(height: 28)
+                        .redacted(reason: activityPending ? .placeholder : [])
                 }
             }
         )

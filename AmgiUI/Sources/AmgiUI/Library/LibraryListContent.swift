@@ -11,7 +11,14 @@ public struct LibraryListContent: View {
     public enum State: Equatable, Hashable, Sendable {
         case loading
         case empty
-        case loaded(rows: [DeckRowViewData], hero: HeroData, heatmap: HeatmapCardData)
+        /// A load that threw. Distinct from `.empty`: rendering a failure as
+        /// the new-user empty state told a user with a full collection that
+        /// they had no decks, and offered them a Create Deck button for it.
+        case failed(String)
+        /// `heatmap` is nil while the review-history fetch is still in flight.
+        /// The rows and the hero's due counts come from the deck tree and do
+        /// not wait on it — a year of revlog used to gate the whole screen.
+        case loaded(rows: [DeckRowViewData], hero: HeroData, heatmap: HeatmapCardData?)
     }
 
     let state: State
@@ -61,16 +68,29 @@ public struct LibraryListContent: View {
                 Button("Create Deck", action: onCreateDeck)
                     .buttonStyle(.borderedProminent)
             }
+        case .failed(let message):
+            ContentUnavailableView {
+                Label("Couldn't Load Decks", systemImage: "exclamationmark.triangle")
+            } description: {
+                Text(message)
+            } actions: {
+                Button("Try Again") { Task { await onRefresh() } }
+                    .buttonStyle(.borderedProminent)
+            }
         case .loaded(let rows, let hero, let heatmap):
             loadedList(rows: rows, hero: hero, heatmap: heatmap)
         }
     }
 
     @ViewBuilder
-    private func loadedList(rows: [DeckRowViewData], hero: HeroData, heatmap: HeatmapCardData) -> some View {
+    private func loadedList(rows: [DeckRowViewData], hero: HeroData, heatmap: HeatmapCardData?) -> some View {
         List {
             Section {
-                LibraryHeroCard(data: hero, onStartReview: onStartReview)
+                LibraryHeroCard(
+                    data: hero,
+                    activityPending: heatmap == nil,
+                    onStartReview: onStartReview
+                )
                     // Full-bleed horizontally, like the heatmap card. Bottom
                     // inset clears the card's shadow (radius 16–20, dy 4–6),
                     // which the row would otherwise clip.
@@ -95,7 +115,8 @@ public struct LibraryListContent: View {
             }
 
             Section {
-                ActivityHeatmapCard(data: heatmap)
+                ActivityHeatmapCard(data: heatmap ?? .empty)
+                    .redacted(reason: heatmap == nil ? .placeholder : [])
                     .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
