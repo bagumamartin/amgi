@@ -2,6 +2,7 @@ import Testing
 import SwiftUI
 import UIKit
 import Dependencies
+import Foundation
 import AnkiKit
 import AnkiServices
 @testable import AmgiApp
@@ -441,6 +442,48 @@ import AnkiServices
             #expect(s.startError != nil, "a failed start must surface the failure")
             #expect(!s.isFinished,
                     "isFinished drives the congratulations surface and its success haptic; a failure is not a finished deck")
+        }
+    }
+
+    // MARK: - Prefetch
+
+    /// The card *after* the current one is rendered while the user reads, so
+    /// the engine render is off the tap-to-next-card path.
+    @Test func rendersTheFollowingCardBeforeTheUserAnswers() async throws {
+        let card1 = QueuedReviewCard.preview(cardId: CardID(1), noteId: NoteID(100), ord: 0)
+        let card2 = QueuedReviewCard.preview(cardId: CardID(2), noteId: NoteID(101), ord: 0)
+
+        // renderCard is called from two concurrent detached tasks (the current
+        // card's prepare and the prefetch), so the recorder locks.
+        final class Rendered: @unchecked Sendable {
+            private let lock = NSLock()
+            private var ids: [CardID] = []
+            func record(_ id: CardID) { lock.lock(); ids.append(id); lock.unlock() }
+            var all: [CardID] { lock.lock(); defer { lock.unlock() }; return ids }
+        }
+        let rendered = Rendered()
+
+        try await withDependencies {
+            $0.decksService.setCurrentDeck = { _ in }
+            $0.schedulerService.getQueuedCards = { _ in
+                QueuedCardsResult(cards: [card1, card2], newCount: 2, learningCount: 0, reviewCount: 0)
+            }
+            $0.notesService.getNote = { id in
+                NoteRecord(id: id, guid: "g", mid: NotetypeID(200), mod: 0, flds: "", sfld: "", csum: 0)
+            }
+            $0.cardRenderingService.renderCard = { id in
+                rendered.record(id)
+                return RenderedCard(frontHTML: "f", backHTML: "b", cardCSS: "")
+            }
+        } operation: {
+            let s = ReviewSession(deckId: DeckID(1))
+            s.start()
+            try await pollUntil { rendered.all.contains(CardID(2)) }
+
+            #expect(rendered.all.contains(CardID(1)), "the current card is rendered")
+            #expect(rendered.all.contains(CardID(2)),
+                    "the following card should be prefetched during the user's reading time")
+            #expect(!s.isAdvancing, "prefetch must not hold the transition gate shut")
         }
     }
 }

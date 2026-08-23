@@ -163,3 +163,31 @@ func prepareCard(
         )
     }
 }
+
+// MARK: - Typed-answer diff (off-actor)
+
+/// Substitutes the `[[type:…]]` placeholder in a rendered back side with the
+/// engine's answer diff. Nonisolated so the `compareAnswer` FFI call can run
+/// off the main actor — it used to run inline in `revealAnswer()`, blocking
+/// the main thread at the moment of the tap.
+func typedAnswerBackHTML(
+    state: TypedAnswerState,
+    typedAnswer: String,
+    renderedBackHTML: String,
+    cardRendering: CardRenderingService
+) -> String {
+    guard renderedBackHTML.contains(state.placeholder) else {
+        return renderedBackHTML
+    }
+    if state.expected.isEmpty {
+        return renderedBackHTML.replacingOccurrences(of: state.placeholder, with: "")
+    }
+    do {
+        let diff = try cardRendering.compareAnswer(state.expected, typedAnswer, state.combining)
+        let wrapped = "<div style=\"font-family: '\(state.fontName)'; font-size: \(state.fontSize)px\">\(diff)</div>"
+        return renderedBackHTML.replacingOccurrences(of: state.placeholder, with: wrapped)
+    } catch {
+        Log.review.error("compareAnswer failed: \(error)")
+        return renderedBackHTML.replacingOccurrences(of: state.placeholder, with: "")
+    }
+}

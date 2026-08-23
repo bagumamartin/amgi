@@ -82,6 +82,14 @@ public final class ReviewSession {
     var notetypeCache: [NotetypeID: Notetype] = [:]
     var currentQueuedCard: QueuedReviewCard?
     private var lastRating: Rating? = nil
+    /// Single-slot speculative cache for the card *after* the current one,
+    /// rendered during the seconds the user spends reading. On a hit the
+    /// engine render drops out of the tap-to-next-card path entirely; on a
+    /// miss (learning card resurfaced and changed the head) we fall through
+    /// to the normal prepare.
+    // ponytail: one slot, not a dict — the queue only ever advances by one.
+    private var preparedNext: (id: CardID, card: PreparedCard)?
+    @ObservationIgnored private var prefetchTask: Task<Void, Never>?
 
     // Typed-answer state
     var renderedFrontHTML: String = ""
@@ -176,13 +184,33 @@ public final class ReviewSession {
         }
     }
 
+    /// Flips to the answer side immediately. For typed-answer cards the diff
+    /// is computed off the main actor and substituted when it lands — the
+    /// `compareAnswer` FFI call used to run inline here, blocking the main
+    /// thread at the exact moment of the tap.
     public func revealAnswer() {
-        if let state = typedAnswerState {
-            backHTML = makeTypedAnswerBackHTML(state: state, typedAnswer: typedAnswer)
-        } else {
-            backHTML = strippingTypedAnswerPlaceholders(from: renderedBackHTML)
-        }
+        backHTML = strippingTypedAnswerPlaceholders(from: renderedBackHTML)
         showAnswer = true
+
+        guard let state = typedAnswerState else { return }
+        let typed = typedAnswer
+        let rendered = renderedBackHTML
+        let cardRendering = self.cardRendering
+        let cardId = currentCardId
+        Task {
+            let html = await Task.detached {
+                typedAnswerBackHTML(
+                    state: state,
+                    typedAnswer: typed,
+                    renderedBackHTML: rendered,
+                    cardRendering: cardRendering
+                )
+            }.value
+            // The card can advance while the diff is in flight; don't paste a
+            // stale answer over the new card.
+            guard cardId == currentCardId, showAnswer else { return }
+            backHTML = html
+        }
     }
 
     public func answer(rating: Rating) {
@@ -309,47 +337,69 @@ public final class ReviewSession {
         stopAudioRequestID += 1
     }
 
+    /// Re-renders the current card after the note or template was edited.
+    /// The whole engine round-trip runs off the main actor — it used to call
+    /// `getNote` and `renderCard` inline, blocking the main thread while the
+    /// edit sheet was dismissing.
     public func refreshAfterEdit() async {
         guard let queued = currentQueuedCard else { return }
+        invalidatePrefetch()   // the edit may have changed a shared notetype
 
-        do {
-            currentNote = try notes.getNote(queued.card.nid)
-        } catch {
-            Log.review.error("refreshAfterEdit getNote failed: \(error)")
-        }
-
-        do {
-            let rendered = try cardRendering.renderCard(queued.card.id)
-            renderedFrontHTML = rendered.frontHTML
-            renderedBackHTML = rendered.backHTML
-            cardCSS = rendered.cardCSS
-
-            typedAnswerState = resolveTypedAnswerState(
+        let notes = self.notes
+        let notetypes = self.notetypes
+        let notetypesClient = self.notetypesClient
+        let cardRendering = self.cardRendering
+        let cache = notetypeCache
+        let prepared = await Task.detached {
+            await prepareCard(
                 for: queued,
-                frontHTML: rendered.frontHTML,
                 notes: notes,
                 notetypes: notetypes,
-                cardRendering: cardRendering
+                cardRendering: cardRendering,
+                notetypesClient: notetypesClient,
+                notetypeCache: cache
             )
-            frontHTML = strippingTypedAnswerPlaceholders(from: renderedFrontHTML)
+        }.value
 
-            if showAnswer, let state = typedAnswerState {
-                // Re-substitute back placeholder with the diff; the typed text
-                // survives the sheet round-trip in `typedAnswer`.
-                backHTML = makeTypedAnswerBackHTML(state: state, typedAnswer: typedAnswer)
-            } else {
-                backHTML = renderedBackHTML
-            }
-        } catch {
-            Log.review.error("refreshAfterEdit render failed: \(error)")
+        guard currentQueuedCard?.card.id == queued.card.id else { return }
+
+        currentNote = prepared.note
+        if let notetype = prepared.notetype {
+            notetypeCache[notetype.id] = notetype
         }
+        renderedFrontHTML = prepared.renderedFrontHTML
+        renderedBackHTML = prepared.renderedBackHTML
+        cardCSS = prepared.cardCSS
+        typedAnswerState = prepared.typedAnswerState
+        templateName = prepared.templateName
+        frontHTML = prepared.frontHTML
+        backHTML = strippingTypedAnswerPlaceholders(from: prepared.renderedBackHTML)
         reresolveCurrentCard()
+
+        if showAnswer, let state = prepared.typedAnswerState {
+            // Re-substitute the back placeholder with the diff; the typed text
+            // survives the sheet round-trip in `typedAnswer`.
+            let typed = typedAnswer
+            let rendered = prepared.renderedBackHTML
+            let html = await Task.detached {
+                typedAnswerBackHTML(
+                    state: state,
+                    typedAnswer: typed,
+                    renderedBackHTML: rendered,
+                    cardRendering: cardRendering
+                )
+            }.value
+            guard currentQueuedCard?.card.id == queued.card.id, showAnswer else { return }
+            backHTML = html
+        }
     }
 
     /// Re-runs render-mode resolution for the current card against the
     /// latest engine preference / overrides (RenderModeSheet writes).
     /// Cheap: reuses the already-rendered HTML.
     public func reresolveCurrentCard() {
+        // The prefetched card was prepared against the *old* preferences.
+        invalidatePrefetch()
         guard let queued = currentQueuedCard else { return }
         let prefs = currentRenderEnginePreferences(mid: currentNote?.mid, ord: Int(queued.card.ord))
         let resolution = resolveRenderMode(
@@ -381,20 +431,27 @@ private extension ReviewSession {
             isFinished = true
             currentQueuedCard = nil
             currentNote = nil
+            invalidatePrefetch()
             return
         }
 
-        let cache = notetypeCache
-        let prepared = await Task.detached {
-            await prepareCard(
-                for: next,
-                notes: notes,
-                notetypes: notetypes,
-                cardRendering: cardRendering,
-                notetypesClient: notetypesClient,
-                notetypeCache: cache
-            )
-        }.value
+        let prepared: PreparedCard
+        if let hit = preparedNext, hit.id == next.card.id {
+            prepared = hit.card
+        } else {
+            let cache = notetypeCache
+            prepared = await Task.detached {
+                await prepareCard(
+                    for: next,
+                    notes: notes,
+                    notetypes: notetypes,
+                    cardRendering: cardRendering,
+                    notetypesClient: notetypesClient,
+                    notetypeCache: cache
+                )
+            }.value
+        }
+        preparedNext = nil
 
         currentQueuedCard = next
         currentNote = prepared.note
@@ -415,25 +472,58 @@ private extension ReviewSession {
         showAnswer = false
         reviewStartTime = .now
         stopAudioRequestID += 1
+
+        // Spend the user's reading time rendering the card after this one.
+        prefetchFollowingCard(
+            notes: notes,
+            notetypes: notetypes,
+            notetypesClient: notetypesClient,
+            cardRendering: cardRendering
+        )
     }
 
-    // MARK: - Typed-answer HTML generation (main-actor side)
+    // MARK: - Prefetch
 
-    func makeTypedAnswerBackHTML(state: TypedAnswerState, typedAnswer: String) -> String {
-        guard renderedBackHTML.contains(state.placeholder) else {
-            return renderedBackHTML
+    /// Renders the card after the current one while the user reads, into a
+    /// single-slot cache. Speculative: the queue is re-fetched on every
+    /// answer, so a learning card can resurface and change the head — a miss
+    /// just costs the work we would have done anyway.
+    func prefetchFollowingCard(
+        notes: NotesService,
+        notetypes: NotetypesService,
+        notetypesClient: NotetypesClient,
+        cardRendering: CardRenderingService
+    ) {
+        prefetchTask?.cancel()
+        guard cardQueue.count > 1 else {
+            preparedNext = nil
+            return
         }
-        if state.expected.isEmpty {
-            return renderedBackHTML.replacingOccurrences(of: state.placeholder, with: "")
+        let next = cardQueue[1]
+        guard preparedNext?.id != next.card.id else { return }
+        preparedNext = nil
+
+        let cache = notetypeCache
+        prefetchTask = Task { [weak self] in
+            let prepared = await Task.detached {
+                await prepareCard(
+                    for: next,
+                    notes: notes,
+                    notetypes: notetypes,
+                    cardRendering: cardRendering,
+                    notetypesClient: notetypesClient,
+                    notetypeCache: cache
+                )
+            }.value
+            guard !Task.isCancelled else { return }
+            self?.preparedNext = (id: next.card.id, card: prepared)
         }
-        do {
-            let diff = try cardRendering.compareAnswer(state.expected, typedAnswer, state.combining)
-            let wrapped = "<div style=\"font-family: '\(state.fontName)'; font-size: \(state.fontSize)px\">\(diff)</div>"
-            return renderedBackHTML.replacingOccurrences(of: state.placeholder, with: wrapped)
-        } catch {
-            Log.review.error("compareAnswer failed: \(error)")
-            return renderedBackHTML.replacingOccurrences(of: state.placeholder, with: "")
-        }
+    }
+
+    func invalidatePrefetch() {
+        prefetchTask?.cancel()
+        prefetchTask = nil
+        preparedNext = nil
     }
 
 }
