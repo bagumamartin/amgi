@@ -1,11 +1,12 @@
-import XCTest
+import Testing
 import SwiftUI
 @testable import AmgiUI
 @testable import AmgiTheme
 
-final class AmgiHeroSummaryTests: XCTestCase {
-    @MainActor
-    func testBuildsWithAllSlots() {
+@MainActor
+@Suite("AmgiHeroSummary")
+struct AmgiHeroSummaryTests {
+    @Test func buildsWithAllSlots() {
         _ = AmgiHeroSummary(
             eyebrow: "Due today",
             bigNumber: "127",
@@ -16,8 +17,7 @@ final class AmgiHeroSummaryTests: XCTestCase {
         )
     }
 
-    @MainActor
-    func testBuildsWithNoEyebrowOrSubtitle() {
+    @Test func buildsWithNoEyebrowOrSubtitle() {
         _ = AmgiHeroSummary(
             eyebrow: nil,
             bigNumber: "0",

@@ -1,10 +1,12 @@
-import XCTest
+import Foundation
+import Testing
 import SwiftUI
 @testable import AmgiTheme
 
-final class PaletteDataTests: XCTestCase {
-    private func sampleJSON() -> Data {
-        // Minimal but valid PaletteData
+@Suite("PaletteData decoding")
+struct PaletteDataTests {
+    // Minimal but valid PaletteData
+    private let sampleJSON: Data =
         """
         {
           "id": "test",
@@ -67,32 +69,29 @@ final class PaletteDataTests: XCTestCase {
           }
         }
         """.data(using: .utf8)!
+
+    @Test func decode() throws {
+        let data = try JSONDecoder().decode(PaletteData.self, from: sampleJSON)
+        #expect(data.id == "test")
+        #expect(data.displayName == "Test")
+        #expect(data.light.accentHex == "#0071E3")
     }
 
-    func testDecode() throws {
-        let data = try JSONDecoder().decode(PaletteData.self, from: sampleJSON())
-        XCTAssertEqual(data.id, "test")
-        XCTAssertEqual(data.displayName, "Test")
-        XCTAssertEqual(data.light.accentHex, "#0071E3")
+    @Test func resolveLightProducesPalette() throws {
+        let palette = try JSONDecoder().decode(PaletteData.self, from: sampleJSON).resolve(scheme: .light)
+        #expect(palette.cardStateNew != palette.cardStateLearning)
+        #expect(palette.shadows.md.radius == 16)
     }
 
-    func testResolveLightProducesPalette() throws {
-        let data = try JSONDecoder().decode(PaletteData.self, from: sampleJSON())
-        let palette = data.resolve(scheme: .light)
-        XCTAssertNotEqual(palette.cardStateNew, palette.cardStateLearning)
-        XCTAssertEqual(palette.shadows.md.radius, 16)
+    @Test func resolveDarkUsesDarkScheme() throws {
+        let palette = try JSONDecoder().decode(PaletteData.self, from: sampleJSON).resolve(scheme: .dark)
+        #expect(palette.shadows.md.radius == 20)
     }
 
-    func testResolveDarkUsesDarkScheme() throws {
-        let data = try JSONDecoder().decode(PaletteData.self, from: sampleJSON())
-        let palette = data.resolve(scheme: .dark)
-        XCTAssertEqual(palette.shadows.md.radius, 20)
-    }
-
-    func testRejectsMissingSlot() {
-        let bad = """
-        { "id": "x", "displayName": "X", "light": {}, "dark": {} }
-        """.data(using: .utf8)!
-        XCTAssertThrowsError(try JSONDecoder().decode(PaletteData.self, from: bad))
+    @Test func rejectsMissingSlot() {
+        let bad = Data(#"{ "id": "x", "displayName": "X", "light": {}, "dark": {} }"#.utf8)
+        #expect(throws: (any Error).self) {
+            try JSONDecoder().decode(PaletteData.self, from: bad)
+        }
     }
 }

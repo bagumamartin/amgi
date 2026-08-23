@@ -1,30 +1,29 @@
-import XCTest
+import Testing
 @testable import AmgiTheme
 
-final class ThemeTests: XCTestCase {
-    func testThemeIDRawValues() {
-        XCTAssertEqual(ThemeID.vivid.rawValue, "vivid")
-        XCTAssertEqual(ThemeID.muted.rawValue, "muted")
-        XCTAssertEqual(ThemeID.sepia.rawValue, "sepia")
+@Suite("ThemeID and Appearance")
+struct ThemeTests {
+    @Test(arguments: [(ThemeID.vivid, "vivid"), (.muted, "muted"), (.sepia, "sepia")])
+    func themeIDRawValueRoundTrips(id: ThemeID, raw: String) {
+        #expect(id.rawValue == raw)
+        #expect(ThemeID(rawValue: raw) == id)
     }
 
-    func testThemeIDRawInit() {
-        XCTAssertEqual(ThemeID(rawValue: "vivid"), .vivid)
-        XCTAssertEqual(ThemeID(rawValue: "unknown").rawValue, "unknown")
+    @Test func themeIDPreservesUnknownRawValue() {
+        #expect(ThemeID(rawValue: "unknown").rawValue == "unknown")
     }
 
-    func testThemeIDEquatable() {
-        XCTAssertEqual(ThemeID.vivid, ThemeID(rawValue: "vivid"))
-        XCTAssertNotEqual(ThemeID.vivid, ThemeID.muted)
+    @Test func themeIDEquatable() {
+        #expect(ThemeID.vivid == ThemeID(rawValue: "vivid"))
+        #expect(ThemeID.vivid != ThemeID.muted)
     }
 
-    func testAppearanceRawValues() {
-        XCTAssertEqual(Appearance.system.rawValue, "system")
-        XCTAssertEqual(Appearance.light.rawValue, "light")
-        XCTAssertEqual(Appearance.dark.rawValue, "dark")
+    @Test(arguments: [(Appearance.system, "system"), (.light, "light"), (.dark, "dark")])
+    func appearanceRawValues(appearance: Appearance, raw: String) {
+        #expect(appearance.rawValue == raw)
     }
 
-    func testAppearanceAllCases() {
-        XCTAssertEqual(Appearance.allCases, [.system, .light, .dark])
+    @Test func appearanceAllCases() {
+        #expect(Appearance.allCases == [.system, .light, .dark])
     }
 }

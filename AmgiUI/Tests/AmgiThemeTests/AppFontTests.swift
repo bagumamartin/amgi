@@ -1,19 +1,19 @@
-import XCTest
+import Testing
 import SwiftUI
 @testable import AmgiTheme
 
-final class AppFontTests: XCTestCase {
-    func testRawValues() {
-        XCTAssertEqual(AppFont.system.rawValue, "system")
-        XCTAssertEqual(AppFont.serif.rawValue, "serif")
+@Suite("AppFont")
+struct AppFontTests {
+    @Test func rawValues() {
+        #expect(AppFont.system.rawValue == "system")
+        #expect(AppFont.serif.rawValue == "serif")
     }
 
-    func testAllCases() {
-        XCTAssertEqual(AppFont.allCases, [.system, .serif])
+    @Test func allCases() {
+        #expect(AppFont.allCases == [.system, .serif])
     }
 
-    func testEnvironmentDefault() {
-        let env = EnvironmentValues()
-        XCTAssertEqual(env.appFont, .system)
+    @Test func environmentDefault() {
+        #expect(EnvironmentValues().appFont == .system)
     }
 }

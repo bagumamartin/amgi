@@ -1,34 +1,35 @@
-import XCTest
+import Testing
 import SwiftUI
 @testable import AmgiTheme
 
-final class PaletteTests: XCTestCase {
-    func testVividLightHasAllSlotsPopulated() {
+@Suite("Built-in palettes")
+struct PaletteTests {
+    @Test func vividLightHasAllSlotsPopulated() {
         let p = Palette.vividLight
-        XCTAssertNotEqual(p.background, p.surface)
-        XCTAssertNotEqual(p.textPrimary, p.textSecondary)
-        XCTAssertNotEqual(p.accent, p.danger)
-        XCTAssertNotEqual(p.cardStateNew, p.cardStateLearning)
-        XCTAssertNotEqual(p.accent, p.accentSoft)
-        XCTAssertGreaterThan(p.shadows.md.radius, p.shadows.sm.radius)
+        #expect(p.background != p.surface)
+        #expect(p.textPrimary != p.textSecondary)
+        #expect(p.accent != p.danger)
+        #expect(p.cardStateNew != p.cardStateLearning)
+        #expect(p.accent != p.accentSoft)
+        #expect(p.shadows.md.radius > p.shadows.sm.radius)
     }
 
-    func testMutedDiffersFromVivid() {
-        XCTAssertNotEqual(Palette.vividLight.accent, Palette.mutedLight.accent)
-        XCTAssertNotEqual(Palette.vividDark.background, Palette.mutedDark.background)
+    @Test func mutedDiffersFromVivid() {
+        #expect(Palette.vividLight.accent != Palette.mutedLight.accent)
+        #expect(Palette.vividDark.background != Palette.mutedDark.background)
     }
 
-    func testSepiaLightExists() {
+    @Test func sepiaLightExists() {
         let p = Palette.sepiaLight
         // Warm paper background, brown text — confirm it's neither Vivid nor Muted.
-        XCTAssertNotEqual(p.background, Palette.vividLight.background)
-        XCTAssertNotEqual(p.background, Palette.mutedLight.background)
+        #expect(p.background != Palette.vividLight.background)
+        #expect(p.background != Palette.mutedLight.background)
     }
 
-    func testSepiaDarkFallsBackToVividDarkValues() {
+    @Test func sepiaDarkFallsBackToVividDarkValues() {
         // Sepia tones don't read on a black background; sepia dark
         // intentionally mirrors Vivid Dark's slot values.
-        XCTAssertEqual(Palette.sepiaDark.background, Palette.vividDark.background)
-        XCTAssertEqual(Palette.sepiaDark.accent, Palette.vividDark.accent)
+        #expect(Palette.sepiaDark.background == Palette.vividDark.background)
+        #expect(Palette.sepiaDark.accent == Palette.vividDark.accent)
     }
 }

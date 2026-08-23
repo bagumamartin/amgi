@@ -1,28 +1,29 @@
-import XCTest
+import Testing
 import SwiftUI
 @testable import AmgiUI
 @testable import AmgiTheme
 
-final class AmgiCardTests: XCTestCase {
-    func testBackgroundCasesEnumerate() {
+@Suite("AmgiCard")
+struct AmgiCardTests {
+    @Test func backgroundCasesEnumerate() {
         // .surface and .surfaceElevated should be distinct cases.
         let a: AmgiCardBackground = .surface
         let b: AmgiCardBackground = .surfaceElevated
         switch (a, b) {
         case (.surface, .surfaceElevated): break
-        default: XCTFail("Expected distinct cases")
+        default: Issue.record("Expected distinct cases")
         }
     }
 
     @MainActor
-    func testCardWithSurfaceBackgroundBuilds() {
+    @Test func cardWithSurfaceBackgroundBuilds() {
         _ = AmgiCard(background: .surface) {
             Text("hello")
         }
     }
 
     @MainActor
-    func testCardWithGradientBackgroundBuilds() {
+    @Test func cardWithGradientBackgroundBuilds() {
         _ = AmgiCard(background: .gradient(start: .blue, end: .purple)) {
             Text("hello")
         }
