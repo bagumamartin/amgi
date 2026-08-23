@@ -35,6 +35,17 @@ struct SyncSheetContent: View {
 
     /// Direction awaiting the user's "this cannot be undone" confirmation.
     @State private var pendingDestructiveChoice: SyncDirection?
+    /// When the current sync began, so the waiting state can show elapsed
+    /// time. The engine exposes no progress for `sync()` (only `merge()`
+    /// takes a progress callback), so an honest "still running, 14s in" is
+    /// the most this screen can truthfully say — better than a frozen label
+    /// the user cannot distinguish from a wedged app.
+    @State private var syncStartedAt: Date?
+
+    private var isSyncing: Bool {
+        if case .syncing = state { return true }
+        return false
+    }
 
     var body: some View {
         NavigationStack {
@@ -71,9 +82,9 @@ struct SyncSheetContent: View {
     private var stateView: some View {
         switch state {
         case .idle:
-            ProgressView("Preparing sync...")
+            idleView
         case .syncing(let message):
-            ProgressView(message)
+            syncingView(message)
         case .success(let summary):
             successView(summary)
         case .error(let message):
@@ -126,6 +137,42 @@ struct SyncSheetContent: View {
                 }
                 .padding(.horizontal)
             }
+        }
+    }
+
+    /// Not a spinner. `.idle` means nothing is happening, and
+    /// `ProgressView("Preparing sync...")` sat here spinning forever saying
+    /// otherwise.
+    @ViewBuilder
+    private var idleView: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .font(.system(size: 48))
+                .foregroundStyle(palette.textSecondary)
+            Text(lastSyncedLabel)
+                .amgiFont(.body)
+                .foregroundStyle(palette.textSecondary)
+            Button("Sync Now") { onStartSync() }
+                .buttonStyle(.borderedProminent)
+        }
+    }
+
+    @ViewBuilder
+    private func syncingView(_ message: String) -> some View {
+        VStack(spacing: 10) {
+            ProgressView(message)
+            if let syncStartedAt {
+                Text(syncStartedAt, style: .timer)
+                    .amgiFont(.caption, .monospaced)
+                    .foregroundStyle(palette.textSecondary)
+                    .accessibilityLabel("Sync running")
+            }
+            // The sync is not tied to this sheet's lifetime, and users who
+            // think it is sit and watch it.
+            Text("You can close this \u{2014} syncing continues.")
+                .amgiFont(.micro)
+                .foregroundStyle(palette.textTertiary)
+                .multilineTextAlignment(.center)
         }
     }
 
@@ -268,6 +315,10 @@ struct SyncSheetContent: View {
         } message: { choice in
             Text(destructiveDialogMessage(choice))
         }
+        .onChange(of: isSyncing) { _, syncing in
+            syncStartedAt = syncing ? .now : nil
+        }
+        .onAppear { if isSyncing, syncStartedAt == nil { syncStartedAt = .now } }
     }
 
     private func destructiveButtonLabel(_ choice: SyncDirection) -> String {
