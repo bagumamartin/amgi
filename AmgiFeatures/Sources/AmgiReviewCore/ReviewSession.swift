@@ -70,6 +70,10 @@ public final class ReviewSession {
     /// Set when answering a card fails. The card stays at the head of the
     /// queue so the user can retry rather than silently losing the review.
     public var answerError: String?
+    /// Set when `start()` fails. Distinct from `isFinished`, which means the
+    /// queue genuinely ran dry — conflating them presented a backend failure
+    /// as "Congratulations!", success haptic and all.
+    public private(set) var startError: String?
 
     var reviewStartTime: ContinuousClock.Instant = .now
     var cardQueue: [QueuedReviewCard] = []
@@ -135,6 +139,7 @@ public final class ReviewSession {
     public func start() {
         guard !isAdvancing else { return }
         isAdvancing = true
+        startError = nil
         // Resolve the Sendable service facades here, in the caller's
         // dependency scope, then hand them to the off-actor work.
         let decks = self.decks
@@ -162,8 +167,11 @@ public final class ReviewSession {
                 Log.review.info("Started with \(self.cardQueue.count) cards, counts: new=\(queue.newCount) learn=\(queue.learningCount) review=\(queue.reviewCount)")
                 await advanceToNextCard(notes: notes, notetypes: notetypes, notetypesClient: notetypesClient, cardRendering: cardRendering)
             } catch {
+                // NOT isFinished: that is the "queue ran dry" state and drives
+                // the congratulations surface plus a success haptic. A start
+                // failure gets its own state and a retry.
                 Log.review.error("Start failed: \(error)")
-                isFinished = true
+                startError = error.localizedDescription
             }
         }
     }

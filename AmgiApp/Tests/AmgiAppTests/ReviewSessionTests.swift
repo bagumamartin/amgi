@@ -419,4 +419,28 @@ import AnkiServices
             #expect(!s.isFinished, "a non-empty queue should not finish")
         }
     }
+
+    // MARK: - start() failure
+
+    /// A failed start used to set `isFinished`, landing the user on the
+    /// congratulations surface — green checkmark, "You've reviewed 0 cards",
+    /// success haptic — for a backend error. The two states are now distinct.
+    @Test func startFailureReportsAnErrorInsteadOfFinishing() async throws {
+        struct StartFailure: Error {}
+
+        try await withDependencies {
+            $0.decksService.setCurrentDeck = { _ in throw StartFailure() }
+            $0.schedulerService.getQueuedCards = { _ in
+                QueuedCardsResult(cards: [], newCount: 0, learningCount: 0, reviewCount: 0)
+            }
+        } operation: {
+            let s = ReviewSession(deckId: DeckID(1))
+            s.start()
+            try await pollUntil { !s.isAdvancing }
+
+            #expect(s.startError != nil, "a failed start must surface the failure")
+            #expect(!s.isFinished,
+                    "isFinished drives the congratulations surface and its success haptic; a failure is not a finished deck")
+        }
+    }
 }

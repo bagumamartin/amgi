@@ -40,11 +40,13 @@ struct ReviewContent: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                if showRemainingDays {
+                if showRemainingDays && session.startError == nil {
                     progressBar
                 }
 
-                if session.isFinished {
+                if let startError = session.startError {
+                    startFailureView(startError)
+                } else if session.isFinished {
                     finishedView
                 } else {
                     ReviewCardArea(
@@ -276,6 +278,20 @@ struct ReviewContent: View {
                 )
         }
         .accessibilityLabel("Card actions")
+    }
+
+    /// Distinct from `finishedView`. A failed `start()` used to land on the
+    /// congratulations surface — green checkmark, "You've reviewed 0 cards",
+    /// success haptic — which reported a backend failure as a completed deck.
+    private func startFailureView(_ message: String) -> some View {
+        ContentUnavailableView {
+            Label("Couldn't Start Reviewing", systemImage: "exclamationmark.triangle")
+        } description: {
+            Text(message)
+        } actions: {
+            Button("Try Again") { session.start() }
+                .buttonStyle(AmgiPrimaryButtonStyle())
+        }
     }
 
     private var finishedView: some View {
