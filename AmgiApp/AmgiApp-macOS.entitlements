@@ -12,5 +12,8 @@
 	<true/>
 	<key>com.apple.security.network.client</key>
 	<true/>
+	<!-- Localhost agent bridge (unix socket + 127.0.0.1 MCP endpoint). -->
+	<key>com.apple.security.network.server</key>
+	<true/>
 </dict>
 </plist>

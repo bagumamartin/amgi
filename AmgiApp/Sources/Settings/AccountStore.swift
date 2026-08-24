@@ -1,3 +1,4 @@
+import AnkiKit
 import Foundation
 import Observation
 
@@ -133,15 +134,12 @@ final class AccountStore {
 
     // MARK: - Filesystem helpers
 
-    /// Per-profile collection directory. Files inside follow Anki's
-    /// layout: `collection.anki2`, `media/`, `media.db`.
+    /// Per-profile collection directory. Delegates to `CollectionLayout`
+    /// (AnkiKit) so the app, watch app, and the amgi-mcp helper all
+    /// resolve the same paths — including the AMGI_COLLECTION_ROOT
+    /// override used by tests and future sandboxed builds.
     static func profileDirectory(for id: String) -> URL {
-        let appSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory, in: .userDomainMask
-        ).first!
-        return appSupport
-            .appendingPathComponent("AnkiCollection", isDirectory: true)
-            .appendingPathComponent(id, isDirectory: true)
+        CollectionLayout.profileDirectory(for: id)
     }
 
     /// One-time migration on first multi-profile launch: if there's a

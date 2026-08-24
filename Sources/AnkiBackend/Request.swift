@@ -1,4 +1,4 @@
-package import Foundation
+public import Foundation
 
 /// Typed RPC envelope. `AnkiProtoBridge` constructs these via factory
 /// methods; service code consumes them via `AnkiBackend.invoke(_:)`. The
@@ -11,10 +11,16 @@ package import Foundation
 ///   - Time-sensitive fields (`Date()` timestamps in answer payloads)
 ///     reflect when the RPC is sent, not when the `Request` was built.
 public struct Request<Response: Sendable>: Sendable {
-    package let serviceId: UInt32
-    package let methodId: UInt32
-    package let encode: @Sendable () throws -> Data
-    package let decode: @Sendable (Data) throws -> Response
+    /// Read access is required by the amgi-mcp IPC bridge: the helper
+    /// forwards (service, method, encoded-body) triples to whichever
+    /// process owns the engine (the app via unix socket, or its own
+    /// backend when the app is closed).
+    public let serviceId: UInt32
+    public let methodId: UInt32
+    let encode: @Sendable () throws -> Data
+    /// Public for the IPC bridge: the proxy decodes raw response bytes
+    /// into the typed response without knowing the protobuf shape.
+    public let decode: @Sendable (Data) throws -> Response
 
     package init(
         serviceId: UInt32,
@@ -42,10 +48,11 @@ public struct Request<Response: Sendable>: Sendable {
         )
     }
 
-    /// Materializes the request body. Test-only: production code goes
-    /// through `AnkiBackend.invoke(_:)`, which runs the encoder lazily.
-    /// Surfaces encoding errors instead of swallowing them.
-    package var body: Data {
+    /// Materializes the request body. Public for the IPC bridge (same
+    /// rationale as the identifiers); production callers go through
+    /// `AnkiBackend.invoke(_:)`, which runs the encoder lazily at
+    /// dispatch time so timestamped fields reflect send time.
+    public var body: Data {
         get throws { try encode() }
     }
 }

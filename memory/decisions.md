@@ -112,6 +112,59 @@
 - **Embeddings JSON**: floats rounded to 6 decimals (5.8 MB) — precision
   loss is irrelevant at cosine granularity.
 
+## Agent surface — amgi-mcp helper + App Intents (2026-08)
+
+- **MCP server lives in Swift** (`Sources/AmgiMCP/`, executable product
+  `amgi-mcp`, official swift-sdk): zero changes to anki-bridge-rs or
+  anki-upstream; reuses AnkiProtoBridge Request<R> factories. Depends on
+  AnkiServices tier, deliberately NOT AnkiClients (keeps the hoshidicts
+  C++ chain out of the binary).
+- **Same-file architecture**: the helper opens the app's actual
+  `collection.anki2` via `CollectionLayout` (AnkiKit) — no sync code, agent
+  edits propagate cross-device through the app's normal auto-sync.
+- **Simultaneity via IPC bridge** (supersedes the earlier quit-app
+  workaround): the SQLITE_BUSY-style "Anki already open" error only bites
+  on contended writes/opens, but rslib serializes collection ownership,
+  so the app HOSTS the engine and serves AnkiKit.MCPBridge framing over
+  `<root>/mcp.sock`; helper probes it per call (ProxyCaller) and falls
+  back to direct open when absent. App bumps CollectionStore after
+  forwarded mutations (hardcoded service/method table in
+  MCPBridgeServer — mirrors tier metadata). GOTCHA that hung the app:
+  `Task {}` from App.init inherits MainActor — the blocking accept loop
+  must run on `Thread.detachNewThread`.
+- **Canonical Mac root = group container** (`…/Group Containers/
+  group.com.bagumamartin.AmgiApp/AnkiCollection`): sole location both
+  sandboxed app and unsandboxed helper can write. NOTE:
+  containerURL resolves to the PLAIN-named dir on this machine even
+  though a Team-prefixed twin exists — never reconstruct group paths;
+  always go through CollectionLayout. Migration
+  (migrateIntoCanonicalRoot) moved container/home legacy data in on
+  first launch.
+- **Live-refresh rail**: after each mutation the helper posts a distributed
+  notification `com.amgi.collection.changed`; the app observes it and bumps
+  CollectionStore generation (origin `.helperMutation`, which also rides
+  automatic sync like localUser).
+- **Tiers** (mcp.json next to profiles, written by Settings → Agent):
+  readOnly / safeWrite (default) / full; destructive ops snapshot db+wal+shm
+  trio first (SQLite online-backup API contends with rslib's read state —
+  file-copy is the reliable route). Service/method index audit found ONE
+  catalog drift: NotesMethod.removeNotes was 3, actually **7** (verified by
+  behavioral probe of every mutating index).
+- **Helper embedded in app bundle**: project.yml target `AmgiMCPHelper`
+  (type: tool, macOS) compiles Sources/AmgiMCP; an AmgiApp post-build
+  script cp's it to Contents/Helpers/amgi-mcp (ditto denied by script
+  sandbox; declared input/output keeps ENABLE_USER_SCRIPT_SANDBOXING).
+  xcodegen dependency-level `copy:` produced unsealed/nested-bundle
+  breakage — don't use it for tools. MCPManager prefers bundled path,
+  then ~/bin (install script now optional). AnkiProtoBridge became a
+  package product for this target. Request.serviceId/.methodId/.body/
+  .decode made public as IPC plumbing.
+- **App Intents** (AmgiApp/Sources/Intents/): force-quit-proof on-device
+  actions; system cold-launches the app. Gotcha recorded: @Dependency
+  property wrappers inside AppIntent structs explode the type checker
+  ("failed to produce diagnostic") — use `<Client>.liveValue` stored lets
+  there instead. DeckEntity ids must be String (EntityIdentifierConvertible).
+
 ## General
 
 - **NonisolatedNonsendingByDefault + blocking FFI = main-thread freezes** (fixed

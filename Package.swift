@@ -73,15 +73,26 @@ let package = Package(
     products: [
         .library(name: "AnkiKit", targets: ["AnkiKit"]),
         .library(name: "AnkiBackend", targets: ["AnkiBackend"]),
+        // Productized for the embedded AmgiMCPHelper Xcode target — the
+        // helper is an out-of-process composition root, which is the
+        // sanctioned direct consumer of this tier.
+        .library(name: "AnkiProtoBridge", targets: ["AnkiProtoBridge"]),
         .library(name: "AnkiServices", targets: ["AnkiServices"]),
         .library(name: "AnkiClients", targets: ["AnkiClients"]),
         .library(name: "AnkiSync", targets: ["AnkiSync"]),
         .library(name: "AmgiCardWeb", targets: ["AmgiCardWeb"]),
+        // MCP server exposing the Anki engine to AI clients. macOS-only at
+        // runtime (clients spawn it over stdio); builds on any platform the
+        // AnkiRustLib binary target has a slice for.
+        .executable(name: "amgi-mcp", targets: ["AmgiMCP"]),
     ],
     dependencies: [
         .package(url: "https://github.com/pointfreeco/swift-dependencies", from: "1.0.0"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.0.0"),
         .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.28.0"),
+        // Official Model Context Protocol SDK. Stdio transport + tool
+        // registration for the amgi-mcp executable.
+        .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.11.0"),
         // Reader/Dictionary domain types live in a sibling package so the
         // book/chapter/lookup model isn't entangled with Anki primitives.
         // The Anki-bridged loader (ReaderBookClient) lives in AnkiClients
@@ -92,7 +103,7 @@ let package = Package(
         // MARK: - Rust Bridge
         .binaryTarget(
             name: "AnkiRustLib",
-            path: "AnkiRust.xcframework"
+            path: "AnkiRustLib.xcframework"
         ),
         .target(
             name: "AnkiProto",
@@ -179,6 +190,25 @@ let package = Package(
         .testTarget(
             name: "AnkiKitTests",
             dependencies: ["AnkiKit"],
+            swiftSettings: sharedSwiftSettings
+        ),
+        // MARK: - MCP Server (macOS helper spawned by AI clients)
+        //
+        // Depends on the bridge tier directly rather than AnkiClients: the
+        // executable is an out-of-process composition root, and skipping
+        // AnkiClients keeps the AmgiReader/hoshidicts C++ interop chain out
+        // of the binary. Services facades remain available to the app's
+        // intents; the MCP tools dispatch typed Request<R> factories.
+        .executableTarget(
+            name: "AmgiMCP",
+            dependencies: [
+                "AnkiKit",
+                "AnkiBackend",
+                "AnkiProtoBridge",
+                .product(name: "MCP", package: "swift-sdk"),
+                .product(name: "Logging", package: "swift-log"),
+                .product(name: "SwiftProtobuf", package: "swift-protobuf"),
+            ],
             swiftSettings: sharedSwiftSettings
         ),
     ],

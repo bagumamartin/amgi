@@ -55,6 +55,7 @@ struct SettingsWindowHost: View {
         case .mediaCheck: MediaCheckResultView()
         case .manageTemplates: DeckTemplateListView()
         case .codeEditor: CodeEditorSettingsView()
+        case .agentMCP: MCPServerSettingsView()
         case .about: AboutView()
         }
     }
@@ -77,6 +78,7 @@ private enum SettingsItem: String, CaseIterable, Identifiable {
     case mediaCheck
     case manageTemplates
     case codeEditor
+    case agentMCP
     case about
 
     var id: String { rawValue }
@@ -98,6 +100,7 @@ private enum SettingsItem: String, CaseIterable, Identifiable {
         case .mediaCheck: "Media Check"
         case .manageTemplates: "Manage Templates"
         case .codeEditor: "Code Editor"
+        case .agentMCP: "Agent (MCP)"
         case .about: "About"
         }
     }
@@ -119,6 +122,7 @@ private enum SettingsItem: String, CaseIterable, Identifiable {
         case .mediaCheck: "photo.on.rectangle"
         case .manageTemplates: "square.and.pencil"
         case .codeEditor: "chevron.left.forwardslash.chevron.right"
+        case .agentMCP: "cpu"
         case .about: "info.circle"
         }
     }
@@ -139,6 +143,7 @@ private struct SettingsGroup: Identifiable {
         SettingsGroup(title: "Tags", items: [.tags]),
         SettingsGroup(title: "Maintenance", items: [.database, .backups, .emptyCards, .mediaCheck]),
         SettingsGroup(title: "Card Templates", items: [.manageTemplates, .codeEditor]),
+        SettingsGroup(title: "Agent", items: [.agentMCP]),
         SettingsGroup(title: "About", items: [.about]),
     ]
 }

@@ -22,6 +22,14 @@ enum ServiceID {
     static let tags: UInt32 = 43
 }
 
+/// BackendConfigService (9). Indexes verified against AnkiBackend's
+/// private table (getConfigJSONValue family).
+enum ConfigMethod {
+    static let getConfigJson: UInt32 = 0
+    static let setConfigJsonNoUndo: UInt32 = 2
+    static let removeConfig: UInt32 = 3
+}
+
 /// BackendCollectionService (3) — undo/redo and integrity helpers.
 enum CollectionOpsMethod {
     static let checkDatabase: UInt32 = 6
@@ -95,7 +103,10 @@ enum ImportExportMethod {
 enum NotesMethod {
     static let newNote: UInt32 = 0
     static let addNote: UInt32 = 1
-    static let removeNotes: UInt32 = 3
+    /// Verified behaviorally against the engine (2026-08): index 3 is
+    /// defaultsForAdding; removeNotes sits at 7 after addNotes(2),
+    /// defaultsForAdding(3)…updateNotes(5), getNote(6).
+    static let removeNotes: UInt32 = 7
     static let updateNotes: UInt32 = 5
     static let getNote: UInt32 = 6
 }

@@ -73,6 +73,16 @@ packages:
   swift-sharing:
     url: https://github.com/pointfreeco/swift-sharing
     from: 2.0.0
+  # amgi-mcp helper (embedded into the Mac app bundle)
+  swift-sdk:
+    url: https://github.com/modelcontextprotocol/swift-sdk.git
+    from: 0.11.0
+  swift-log:
+    url: https://github.com/apple/swift-log.git
+    from: 1.0.0
+  swift-protobuf:
+    url: https://github.com/apple/swift-protobuf.git
+    from: 1.28.0
 schemes:
   AmgiApp:
     build:
@@ -149,10 +159,54 @@ targets:
       # iOS-only emoji picker (vendored upstream sources, Swift 5 target).
       - target: MCEmojiPicker
         destinationFilters: [iOS]
+      # MCP helper: built from the same sources as the AnkiBridge
+      # `amgi-mcp` executable product and embedded at
+      # Contents/Helpers/amgi-mcp (see postBuildScripts below) so end
+      # users get the agent server by simply installing the app.
+      - target: AmgiMCPHelper
+        embed: false
+        link: false
+        destinationFilters: [macOS]
+    postBuildScripts:
+      # Embed the MCP helper into Contents/Helpers. Declared input/output
+      # keeps this compatible with ENABLE_USER_SCRIPT_SANDBOXING; the
+      # helper lives in BUILT_PRODUCTS_DIR for normal builds and
+      # UNINSTALLED_PRODUCTS_DIR (or InstallationBuildProductsLocation)
+      # for Archive (SKIP_INSTALL=YES).
+      - name: Embed MCP Helper
+        basedOnDependencyAnalysis: false
+        inputFiles:
+          - $(BUILT_PRODUCTS_DIR)/amgi-mcp
+          - $(UNINSTALLED_PRODUCTS_DIR)/amgi-mcp
+          - $(UNINSTALLED_PRODUCTS_DIR)/../InstallationBuildProductsLocation/usr/local/bin/amgi-mcp
+          - $(INSTALL_DIR)/amgi-mcp
+        outputFiles:
+          - $(BUILT_PRODUCTS_DIR)/$(CONTENTS_FOLDER_PATH)/Helpers/amgi-mcp
+        script: |
+          set -e
+          INPUT=""
+          if [ -f "$BUILT_PRODUCTS_DIR/amgi-mcp" ]; then
+            INPUT="$BUILT_PRODUCTS_DIR/amgi-mcp"
+          elif [ -f "$UNINSTALLED_PRODUCTS_DIR/amgi-mcp" ]; then
+            INPUT="$UNINSTALLED_PRODUCTS_DIR/amgi-mcp"
+          elif [ -f "$UNINSTALLED_PRODUCTS_DIR/../InstallationBuildProductsLocation/usr/local/bin/amgi-mcp" ]; then
+            INPUT="$UNINSTALLED_PRODUCTS_DIR/../InstallationBuildProductsLocation/usr/local/bin/amgi-mcp"
+          elif [ -f "$INSTALL_DIR/amgi-mcp" ]; then
+            INPUT="$INSTALL_DIR/amgi-mcp"
+          else
+            echo "amgi-mcp absent for this destination — skipping embed"
+            exit 0
+          fi
+          mkdir -p "$(dirname "$SCRIPT_OUTPUT_FILE_0")"
+          # Plain cp (not ditto): the user-script sandbox denies
+          # ditto's temp-file + rename pattern inside the bundle.
+          cp -p "$INPUT" "$SCRIPT_OUTPUT_FILE_0"
     settings:
       base:
         INFOPLIST_FILE: Info.plist
         PRODUCT_BUNDLE_IDENTIFIER: com.bagumamartin.AmgiApp
+        SWIFT_ENABLE_EXPLICIT_MODULES: YES
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
         CODE_SIGN_ENTITLEMENTS: AmgiApp.entitlements
         "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": AmgiApp-macOS.entitlements
         CODE_SIGN_STYLE: Automatic
@@ -192,6 +246,45 @@ targets:
         SWIFT_VERSION: "5.0"
         SWIFT_STRICT_CONCURRENCY: minimal
         OTHER_SWIFT_FLAGS: ""
+
+  # MCP helper executable. Compiles Sources/AmgiMCP (shared with the
+  # AnkiBridge package's `amgi-mcp` product) as a first-class Xcode
+  # target so the app embeds it without external build steps.
+  AmgiMCPHelper:
+    type: tool
+    platform: macOS
+    sources:
+      - path: ../Sources/AmgiMCP
+        type: group
+    dependencies:
+      - package: AnkiBridge
+        product: AnkiKit
+      - package: AnkiBridge
+        product: AnkiBackend
+      - package: AnkiBridge
+        product: AnkiProtoBridge
+      - package: swift-sdk
+        product: MCP
+      - package: swift-log
+        product: Logging
+      - package: swift-protobuf
+        product: SwiftProtobuf
+    settings:
+      base:
+        PRODUCT_NAME: amgi-mcp
+        PRODUCT_BUNDLE_IDENTIFIER: com.bagumamartin.AmgiApp.helper
+        GENERATE_INFOPLIST_FILE: YES
+        SKIP_INSTALL: YES
+        SWIFT_VERSION: "6.0"
+        # Keep in lockstep with Package.swift's sharedSwiftSettings —
+        # NonisolatedNonsendingByDefault changes async function-type
+        # mangling across the package ↔ target link boundary.
+        OTHER_SWIFT_FLAGS: "$(inherited) -enable-upcoming-feature NonisolatedNonsendingByDefault"
+        SWIFT_ENABLE_EXPLICIT_MODULES: YES
+        COMPILATION_CACHE_ENABLE_CACHING: YES
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "Apple Development"
+        DEVELOPMENT_TEAM: 39557WW39R
 
   AmgiWidget:
     type: app-extension

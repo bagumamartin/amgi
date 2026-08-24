@@ -80,10 +80,11 @@ struct AnkiAppApp: App {
         scheduleAutomaticSyncTask()
         #endif
 
-        // Multi-profile bootstrap: migrate legacy single-collection
-        // layout into the default profile, then resolve the active
-        // profile (consuming a pending switch from the previous session
-        // if one was queued in Settings → Profiles).
+        // Multi-profile bootstrap: converge any pre-group-root data
+        // (sandbox container / home Application Support) into the
+        // canonical group container FIRST, then the legacy single-
+        // collection layout inside it.
+        CollectionLayout.migrateIntoCanonicalRoot()
         AccountStore.migrateLegacyCollectionIfNeeded()
         let activeProfile = MainActor.assumeIsolated {
             AccountStore.shared.consumePendingSwitch()
@@ -129,7 +130,21 @@ struct AnkiAppApp: App {
         // Started *after* `prepareDependencies` so the loop's task inherits
         // the opened backend (see `startMacWidgetRefreshLoop`).
         startMacWidgetRefreshLoop()
+        observeHelperMutations()
+        MCPBridgeServer.start()
         #endif
+    }
+
+    /// Consumes requests parked by App Intents while the scene was
+    /// inactive (intents run in-process, but their UI handoff only makes
+    /// sense once the scene is up). DeckID(0) means "no specific deck".
+    @MainActor
+    private func consumeIntentRouterHandoff() {
+        guard let deckID = IntentRouter.shared.consumePendingReviewDeck() else { return }
+        if deckID.rawValue != 0 {
+            pendingReviewDeckId = deckID
+        }
+        $rootSection.withLock { $0 = MainSection.study.rawValue }
     }
 
     var body: some Scene {
@@ -150,6 +165,7 @@ struct AnkiAppApp: App {
             .onChange(of: scenePhase) { _, newPhase in
                 if newPhase == .active {
                     Task { await writeWidgetSnapshot() }
+                    consumeIntentRouterHandoff()
                 }
             }
             // Idle-time WebView prewarm: after launch settles, spawn WebKit's
@@ -388,6 +404,28 @@ private func scheduleAutomaticSyncTask() {
 /// Refreshes the widget snapshot every 15 minutes for as long as the app
 /// process is alive, independent of window focus. Skipped under XCTest via
 /// the same guard `writeWidgetSnapshot()` uses internally.
+/// Observes the amgi-mcp helper's change notification. Every agent
+/// mutation lands in the SAME collection.anki2 this app has open; the
+/// notification just tells us to bump `CollectionStore`'s generation so
+/// all generation-keyed screens reload and show the agent's edits
+/// immediately. Sync propagation rides the normal automatic-sync cycle.
+#if os(macOS)
+private func observeHelperMutations() {
+    let observer = DistributedNotificationCenter.default().addObserver(
+        forName: Notification.Name("com.amgi.collection.changed"),
+        object: nil,
+        queue: nil
+    ) { _ in
+        Task { @MainActor in
+            @Dependency(\.collectionStore) var store
+            store.invalidateAll(origin: .helperMutation)
+        }
+    }
+    // Process-lifetime observer; no removal needed.
+    _ = observer
+}
+#endif
+
 private func startMacWidgetRefreshLoop() {
     // An inheriting `Task` (not `Task.detached`) so the loop carries the
     // dependency context set up by `prepareDependencies` — i.e. the opened
@@ -421,7 +459,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             .runningApplications(withBundleIdentifier: bundleID)
             .first(where: { $0.processIdentifier != ownPID })
         else { return } // First instance — SwiftUI's onOpenURL handles the URL.
-        existing.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        if #available(macOS 14.0, *) {
+            existing.activate(options: [.activateAllWindows])
+        } else {
+            existing.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        }
         NSApp.terminate(nil)
     }
 }

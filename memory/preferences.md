@@ -2,9 +2,10 @@
 
 - **Builds**: Xcode MCP only for app builds (`BuildProject`) — but the MCP
   server is not always attached to a session; when absent, verify isolated
-  SPM packages with `swift build` / `swift test` on macOS and `swiftc -parse`
-  app files for syntax. Never use macOS SPM builds as proof for the app
-  target (AnkiRustLib is iOS-only; AmgiReaderDictionary is Cxx).
+  SPM packages with `swift build` / `swift test` on macOS (root package now
+  fully runnable — mac xcframework slice) and `swiftc -parse` app files for
+  syntax. Never use macOS SPM builds as proof for the app target
+  (AmgiReaderDictionary is Cxx; app-target SwiftUI needs BuildProject).
 - **After `xcodegen generate`**: re-select the simulator run destination
   (osascript snippet in CLAUDE.md) or `BuildProject` fails with a spurious
   signing error.

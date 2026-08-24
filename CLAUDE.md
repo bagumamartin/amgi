@@ -62,7 +62,7 @@ dictionary UI, widgets.
 | `AnkiClients` | `@DependencyClient` structs + `liveValue` implementations. The UI's preferred entry point into the Anki engine; where no client wrapper exists, feature code may use an `AnkiServices` facade directly (sanctioned second tier — don't add thin pass-through clients just to avoid it). Direct `AnkiBackend` use is reserved for the composition root and low-level asset/config plumbing. |
 | `AnkiSync` | KeychainHelper for sync credentials. |
 | `AmgiCardWeb` | WebKit-based card renderer host. |
-| `AnkiRustLib` | `binaryTarget` pointing at `AnkiRust.xcframework`. iOS-only. |
+| `AnkiRustLib` | `binaryTarget` pointing at `AnkiRust.xcframework`. Slices: iOS, iOS-simulator, watchOS-sim (opt-in), macOS universal. |
 
 ### Sibling SPM packages (path-resolved)
 | Package / Module | Purpose |
@@ -144,7 +144,7 @@ not a real signing problem.
 - `RenderPreview` — render a SwiftUI `#Preview` without launching the simulator.
 - `RunAllTests` / `RunSomeTests` — run XCTest targets. Use the latter when you
   know the suite name (see `Tests/README.md`). Note: SPM tests are
-  compile-verified only because `AnkiRustLib` is iOS-only (see memory).
+  runnable on macOS since the xcframework gained a macOS slice (2026-08).
 - `DocumentationSearch` — search Apple docs + indexed WWDC transcripts before
   guessing API shapes.
 - `mcpbridge` — escape hatch for less common Xcode MCP calls.
@@ -164,10 +164,10 @@ not a real signing problem.
 cd AmgiApp && xcodegen generate
 ```
 
-macOS SPM builds are NOT a verification path: `AnkiProtoBridge` pulls in
-`AnkiBackend` (iOS-only `AnkiRustLib`) and `AmgiUI` uses UIKit types, so both
-fail on macOS. Only `swift build --target AnkiKit` works, and it proves little —
-use `BuildProject`.
+macOS SPM builds ARE a verification path for the root package now: the
+xcframework ships a macOS universal slice, so `swift build` / `swift test`
+cover AnkiBackend → AnkiProtoBridge → AnkiServices and the `amgi-mcp`
+executable. App-target code still verifies via `BuildProject` only.
 
 ## Key Patterns
 
@@ -225,4 +225,5 @@ let response: Anki_Decks_DeckTreeNode = try backend.invoke(
 - **SyncCollection returns FULL_DOWNLOAD for empty local DB**: Must auto-download, not just return "complete"
 - **SourceKit false positives**: The IDE shows errors that don't exist in actual builds. Trust `swift build` / `xcodebuild`
 - **Apple Compression framework has no zstd**: Rust handles zstd internally, no need for Swift-side compression
-- **XCFramework is iOS-only**: `swift build` on macOS can't build AnkiBackend. Use `BuildProject` (Xcode MCP) or `xcodebuild` for full builds.
+- **XCFramework has a macOS slice** (`macos-arm64_x86_64`, built by default): root-package `swift build`/`swift test` run natively; `amgi-mcp` links the engine directly. Full app builds still go through `BuildProject`.
+- **amgi-mcp simultaneity (IPC bridge)**: while Amgi.app runs, it serves a unix-socket bridge (`<group root>/mcp.sock`, AnkiKit.MCPBridge framing) and the helper forwards every RPC into the live engine; when the app quits, the helper falls back to opening `collection.anki2` directly. The canonical Mac data root is the APP GROUP container (`Group Containers/group.com.bagumamartin.AmgiApp/AnkiCollection`) — the only location both sandboxed app and unsandboxed helper can access; `CollectionLayout.migrateIntoCanonicalRoot()` converges legacy copies on first launch.

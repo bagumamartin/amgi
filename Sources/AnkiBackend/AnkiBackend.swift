@@ -220,6 +220,14 @@ public final class AnkiBackend: Sendable {
         }
     }
 
+    /// Raw RPC surface for the Amgi.app IPC bridge (MCPBridgeServer):
+    /// forwards an already-framed (service, method, body) call through
+    /// the same FFI path as `invoke(_:)`. Not part of the supported
+    /// typed-request API — use that for anything in-process.
+    public func performRawCall(service: UInt32, method: UInt32, input: Data) throws -> Data {
+        try callRaw(service: service, method: method, input: input)
+    }
+
     // MARK: - Typed Request invocation (public — preferred entry point)
 
     public func invoke<R>(_ request: Request<R>) throws(BackendError) -> R {

@@ -6,6 +6,10 @@ import Foundation
 enum CollectionChangeOrigin: Sendable, Equatable {
     case localUser
     case remoteSync
+    /// amgi-mcp helper wrote to the shared collection from outside the
+    /// app process. Refreshes UI and rides the automatic sync like a
+    /// local user change, since the edit is ours to propagate.
+    case helperMutation
     case refresh
 }
 
@@ -65,6 +69,8 @@ final class CollectionStore {
         generation += 1
         if origin == .localUser {
             syncCoordinator.requestAutomaticSync(reason: "Local collection change")
+        } else if origin == .helperMutation {
+            syncCoordinator.requestAutomaticSync(reason: "Agent (MCP) collection change")
         }
     }
 
