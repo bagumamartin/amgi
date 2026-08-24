@@ -42,4 +42,4 @@ jobs:
           # Remove this to publish to real PyPI; keep for TestPyPI dry-run:
           # repository-url: https://test.pypi.org/legacy/
           verbose: true
-          packages-dir: python/dist/
+          packages-dir: dist/
