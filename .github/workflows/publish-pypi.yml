@@ -1,0 +1,45 @@
+name: Publish amgi-mcp to PyPI
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'mcp-v*'
+      - 'amgi-mcp-v*'
+      - 'python-v*'
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # Trusted publishing (OIDC) — no token needed, just configure PyPI:
+    # https://pypi.org/manage/account/publishing/
+    # Publisher: GitHub, Owner: bagumamartin, Repo: amgi, Workflow: publish-pypi.yml
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build sdist and wheel
+        run: |
+          pip install build
+          python -m build --outdir dist/ python/
+
+      - name: Check dist
+        run: |
+          pip install twine
+          twine check dist/*
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # Remove this to publish to real PyPI; keep for TestPyPI dry-run:
+          # repository-url: https://test.pypi.org/legacy/
+          verbose: true
+          packages-dir: python/dist/
