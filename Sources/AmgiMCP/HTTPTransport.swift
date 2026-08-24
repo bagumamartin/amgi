@@ -76,8 +76,14 @@ enum LocalHTTPServer {
             Data("amgi-mcp: http listening on 127.0.0.1:\(candidate)/mcp\n".utf8)
         )
 
-        // Same handlers as stdio mode.
-        let transport = StatelessHTTPServerTransport()
+        // Same handlers as stdio mode — use a fully permissive pipeline.
+        // Desktop clients vary wildly: Electron sends Origin: file:// or
+        // tauri://localhost, many send Accept: */* or no Accept at all,
+        // and some omit Content-Type on GET. The default pipeline would
+        // 400/406 them, which the user sees as “connection closed”.
+        let transport = StatelessHTTPServerTransport(
+            validationPipeline: StandardValidationPipeline(validators: [])
+        )
         let server = Server(
             name: "amgi",
             version: AmgiMCPMain.version,

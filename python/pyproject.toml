@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "amgi-mcp"
-version = "1.0.1"
+version = "1.0.2"
 description = "Amgi MCP server — Python shim for uvx. Launches the bundled Amgi helper."
 readme = "README.md"
 requires-python = ">=3.9"

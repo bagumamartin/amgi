@@ -171,9 +171,10 @@ final class MCPManager {
             case .generic:
                 return [
                     "In the client's MCP settings, choose STDIO (standard input/output) as the connection type — not SSE or HTTP.",
-                    "Paste the Command path below into its \"Command\" or \"Command to launch\" field.",
-                    "Leave Arguments, Environment Variables and Working Directory empty. If your client forces Command to be \"uvx\", use Parameters: --from git+https://github.com/anomalyco/amgi#subdirectory=python amgi-mcp (once published: just amgi-mcp).",
-                    "If your client only offers a JSON option instead of fields, copy the JSON configuration below and save it there.",
+                    "Quick trial: set Command to uvx (use /opt/homebrew/bin/uvx if the client needs an absolute path) and Parameters to amgi-mcp — no install needed. For multi-client or daily use this can hit the uv cache lock (10 s timeout) — see below.",
+                    "Daily / multi-client (recommended): run once in Terminal: uv tool install amgi-mcp — then set Command to amgi-mcp (or the direct path below) with no Arguments. This is persistent, fastest, and avoids the lock.",
+                    "Bundled helper (also persistent): paste the Command path below with no Arguments — works without uv at all.",
+                    "If your client only offers a JSON option instead of fields, copy the matching JSON block below.",
                 ]
             }
         }
@@ -208,30 +209,39 @@ final class MCPManager {
             return [.init(label: "Terminal command", text: "claude mcp add amgi -- \(helperPath)")]
         case .codex:
             return [.init(label: "Terminal command", text: "codex mcp add amgi -- \(helperPath)")]
-            case .generic:
-            // uvx only works out-of-the-box after `amgi-mcp` is published to PyPI.
-            // Until then use --from with the local checkout or GitHub.
+        case .generic:
             let uvxJson = """
                 {
                   "mcpServers": {
                     "amgi": {
                       "command": "uvx",
-                      "args": ["--from", "git+https://github.com/anomalyco/amgi#subdirectory=python", "amgi-mcp"]
+                      "args": ["amgi-mcp"]
+                    }
+                  }
+                }
+                """
+            let toolJson = """
+                {
+                  "mcpServers": {
+                    "amgi": {
+                      "command": "amgi-mcp"
                     }
                   }
                 }
                 """
             return [
-                .init(label: "Command", text: helperPath),
-                .init(label: "Via uvx (until published) — Command: uvx", text: uvxJson),
-                .init(label: "JSON configuration", text: jsonBody),
+                .init(label: "Command (bundled helper)", text: helperPath),
+                .init(label: "Via uvx — trial, no install (Command: uvx, Parameters: amgi-mcp)", text: uvxJson),
+                .init(label: "Via uv tool install — daily / multi-client (run: uv tool install amgi-mcp, then Command: amgi-mcp)", text: toolJson),
+                .init(label: "JSON — bundled helper", text: jsonBody),
             ]
         }
     }
 
     /// Universal JSON body shared by several clients.
     func jsonConfiguration(helperPath: String) -> String {
+        // Generic now exposes 4 snippets; the bundled-helper JSON is the canonical one.
         connectionSnippets(for: .generic, helperPath: helperPath)
-            .first { $0.label == "JSON configuration" }!.text
+            .first { $0.label.contains("bundled helper") }!.text
     }
 }
