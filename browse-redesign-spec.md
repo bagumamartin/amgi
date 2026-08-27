@@ -299,3 +299,16 @@ subrows). Tag-all-duplicates preset action both sides.
   only gear); FindDupes realized as anki-bridge-rs pseudo-service (upstream
   has none); scheduler/search/cards method IDs corrected post-audit;
   DeckConfig drift fix added.
+
+- 2026-08 (implementation batch 2): TextEmbedder shipped as a public actor
+  INSIDE the AmgiIcons package rather than a separate target — moving the
+  CoreML resources would break the fetch script + gitignore contract from
+  the deck-icons decision; both consumers share ONE resident engine, which
+  was the actual goal. SemanticNoteIndex lives beside the profile folder
+  (<profile>/semantic-index.json), cap 2000 notes, near-dupe threshold
+  0.95. Filter rail ships as a sheet (phase-3 form); NavigationSplitView
+  sidebar hosting remains an option for later. Inspector on macOS uses the
+  .inspector pane; iPadOS wide layouts use the sheet pending width-tier
+  conditionals. Info tab is native scheduling facts; full revlog history
+  waits on engine-row columns. Find-dupes field picker lists fields of the
+  first hydrated row's notetype.

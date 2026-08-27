@@ -300,6 +300,19 @@
   suspendCards/buryUserCards/restoreBuriedAndSuspended/setDueDate/gradeNow/
   repositionCards/changeDeck added for Browse selection bar.
 
+- **Phases 3-6 shipped (2026-08)**: Filter rail as sheet w/ desktop AND/OR/
+  Negate context-menu semantics; SavedSearchStore on col.conf
+  "savedFilters" (desktop-compatible sync). BrowseDetailTabs inspector
+  (Edit/Preview/CardWebView-renderer Preview/Info); macOS .inspector host,
+  others sheet. TextEmbedder public actor inside AmgiIcons package — spec's
+  separate-target extraction amended away to preserve the mlmodelc fetch/
+  gitignore contract; one resident engine shared with IconSuggester.
+  SemanticNoteIndex: <profile>/semantic-index.json, per-device, corpus cap
+  2000, fnv1a staleness, cosine fallback ("Search meaning of…") when the
+  grammar path is empty + near-dupe clusters >=0.95 into FindDuplicatesView
+  alongside exact aux RPC groups. NoteEditorModel csum now FNV-1a
+  (hashValue never matched engine dupe expectations).
+
 ## General
 
 - **NonisolatedNonsendingByDefault + blocking FFI = main-thread freezes** (fixed
