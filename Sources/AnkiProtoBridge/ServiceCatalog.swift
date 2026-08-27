@@ -35,12 +35,17 @@ enum CollectionOpsMethod {
     static let checkDatabase: UInt32 = 6
     static let getUndoStatus: UInt32 = 7
     static let undo: UInt32 = 8
+    /// Verified positionally against `_backend_generated.py` (undo=8
+    /// works in production; redo is the next declared rpc → 9).
+    static let redo: UInt32 = 9
 }
 
 /// BackendCardsService (5).
 enum CardsMethod {
     static let getCard: UInt32 = 0
+    static let updateCards: UInt32 = 1
     static let removeCards: UInt32 = 2
+    static let setDeck: UInt32 = 3
     static let setFlag: UInt32 = 4
 }
 
@@ -66,6 +71,14 @@ enum SchedulerMethod {
     static let emptyFilteredDeck: UInt32 = 15
     static let rebuildFilteredDeck: UInt32 = 16
     static let scheduleCardsAsNew: UInt32 = 17
+    // Browse operations. BackendSchedulerService declares its own rpcs,
+    // shifting collection-level methods by +3 — values verified against
+    // the literal pairs in _backend_generated.py (2026-08).
+    static let buryOrSuspendCards: UInt32 = 14
+    static let restoreBuriedAndSuspended: UInt32 = 12
+    static let setDueDate: UInt32 = 19
+    static let gradeNow: UInt32 = 20
+    static let sortCards: UInt32 = 21
     static let computeFsrsParams: UInt32 = 30
     static let simulateFsrsReview: UInt32 = 33
     static let simulateFsrsWorkload: UInt32 = 34
@@ -75,7 +88,9 @@ enum DeckConfigMethod {
     static let getDeckConfig: UInt32 = 1
     static let getDeckConfigsForUpdate: UInt32 = 6
     static let updateDeckConfigs: UInt32 = 7
-    static let getRetentionWorkload: UInt32 = 11
+    /// Drift fix (2026-08): upstream literal is `(11,9)`; the previous
+    /// value of 11 actually dispatched getIgnoredBeforeCount.
+    static let getRetentionWorkload: UInt32 = 9
 }
 
 enum NotetypesMethod {
@@ -112,8 +127,17 @@ enum NotesMethod {
 }
 
 enum SearchMethod {
+    /// search.proto's backend block is empty, so ids are plain
+    /// declaration order (verified against `_backend_generated.py`).
+    static let buildSearchString: UInt32 = 0
     static let searchCards: UInt32 = 1
     static let searchNotes: UInt32 = 2
+    static let joinSearchNodes: UInt32 = 3
+    static let replaceSearchNode: UInt32 = 4
+    static let findAndReplace: UInt32 = 5
+    static let allBrowserColumns: UInt32 = 6
+    static let browserRowForId: UInt32 = 7
+    static let setActiveBrowserColumns: UInt32 = 8
 }
 
 /// BackendSyncService (1). syncMedia=0, syncLogin=3, syncStatus=4,

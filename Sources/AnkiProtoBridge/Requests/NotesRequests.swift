@@ -107,12 +107,20 @@ extension Request where Response == [NoteID] {
     /// An empty query is rewritten to `deck:*` to match the existing
     /// service-level behaviour.
     public static func searchNoteIds(query: String) -> Self {
+        .searchNoteIds(query: query, order: nil)
+    }
+
+    /// Same search with an engine-side builtin sort — sorting must never
+    /// happen client-side over paged results. `column` keys come from
+    /// `.allBrowserColumns()`.
+    public static func searchNoteIds(query: String, order: SearchOrder?) -> Self {
         Self(
             serviceId: ServiceID.search,
             methodId: SearchMethod.searchNotes,
             encode: {
                 var proto = Anki_Search_SearchRequest()
                 proto.search = query.isEmpty ? "deck:*" : query
+                if let order { proto.order = order.protoValue }
                 return try proto.serializedData()
             },
             decode: { bytes in

@@ -1,6 +1,6 @@
 import Foundation
 public import AnkiBackend
-import AnkiKit
+public import AnkiKit
 import AnkiProto
 import SwiftProtobuf
 
@@ -15,6 +15,36 @@ extension Request where Response == Void {
             serviceId: ServiceID.collectionOps,
             methodId: CollectionOpsMethod.undo,
             decode: { _ in () }
+        )
+    }
+
+    /// Redoes the last undone operation. Same empty-stack semantics as
+    /// undo (engine surfaces `undoEmpty`).
+    public static var redoLastAction: Self {
+        .empty(
+            serviceId: ServiceID.collectionOps,
+            methodId: CollectionOpsMethod.redo,
+            decode: { _ in () }
+        )
+    }
+}
+
+/// (moved to AnkiKit.BrowseTypes — proto mapping lives here)
+
+extension Request where Response == UndoStatusInfo {
+    public static var undoStatus: Self {
+        .empty(
+            serviceId: ServiceID.collectionOps,
+            methodId: CollectionOpsMethod.getUndoStatus,
+            decode: { bytes in
+                let proto = try Anki_Collection_UndoStatus(serializedBytes: bytes)
+                return UndoStatusInfo(
+                    canUndo: !proto.undo.isEmpty,
+                    undoText: proto.undo,
+                    canRedo: !proto.redo.isEmpty,
+                    redoText: proto.redo
+                )
+            }
         )
     }
 }
