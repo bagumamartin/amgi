@@ -139,8 +139,18 @@ struct CardPreviewPane: View {
             return
         }
         do {
-            let card = try await rendering.renderCard(cardId)
-            rendered = Rendered(frontHTML: card.frontHTML, backHTML: card.backHTML, css: card.cardCSS)
+            // Sync FFI under the hood — hop off MainActor per the blocking-
+            // FFI rule. `rendering` is Sendable, so its closure capture is
+            // legal outside the actor.
+            let renderer = rendering
+            let card = try await Task.detached(priority: .userInitiated) {
+                try renderer.renderCard(cardId)
+            }.value
+            rendered = Rendered(
+                frontHTML: card.frontHTML,
+                backHTML: card.backHTML,
+                css: card.cardCSS
+            )
             failed = false
         } catch {
             failed = true

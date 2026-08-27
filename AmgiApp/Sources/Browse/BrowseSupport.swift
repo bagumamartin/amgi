@@ -191,12 +191,6 @@ enum BrowseFilterSections {
     }
 }
 
-private extension Array where Element == (String, String, String) {
-    func map(_ transform: (String, String, String) -> FilterNode) -> [FilterNode] {
-        self.map(transform)
-    }
-}
-
 // MARK: - Semantic note index (spec D4 / §4.6)
 
 /// Per-device, OUT-OF-SYNC embedding corpus for semantic fallback search
