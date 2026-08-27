@@ -17,6 +17,22 @@ struct BrowseView: View {
     @State private var showDeleteConfirm = false
     @State private var pendingSwipeDelete: NoteRecord?
 
+    // Phase 3-6 surfaces
+    enum Sheet: Hashable {
+        case filterRail, findDuplicates, findReplace, changeDeck, setDueDate, reposition, detail
+    }
+    @State private var activeSheet: Sheet?
+    @State private var notetypeFieldNames: [String] = []
+    /// Resolved first card of the focused note (preview pane feed).
+    @State private var focusedFirstCardID: CardID?
+    @State private var showSaveSearchPrompt = false
+    @State private var saveSearchName = ""
+
+    @Dependency(\.notetypesService) private var notetypesService
+    @Dependency(\.cardClient) private var cardClient
+
+    private var savedSearchStore: SavedSearchStore { model.savedSearches }
+
     init(model: BrowseModel = BrowseModel()) {
         _model = State(initialValue: model)
     }
@@ -27,7 +43,22 @@ struct BrowseView: View {
     var body: some View {
         @Bindable var model = model
         decoratedContent
-            .searchable(text: $model.searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search notes...")
+            .searchable(
+                text: $model.searchText,
+                placement: .navigationBarDrawer(displayMode: .always),
+                prompt: "Search notes…"
+            )
+            .searchSuggestions {
+                ForEach(model.recentQueries.prefix(8), id: \.self) { query in
+                    Button {
+                        model.searchText = query
+                        model.scheduleSearch(immediate: true)
+                    } label: {
+                        Label(query, systemImage: "clock.arrow.circlepath")
+                    }
+                    .searchCompletion(query)
+                }
+            }
             .onChange(of: model.searchText) { _, _ in model.scheduleSearch() }
             .onChange(of: model.activeDeck) { _, _ in model.scheduleSearch(immediate: true) }
             .onChange(of: model.activeTag) { _, _ in model.scheduleSearch(immediate: true) }
@@ -52,6 +83,21 @@ struct BrowseView: View {
             await model.loadInitial()
         }
         await model.refreshUndoStatus()
+        await refreshNotetypeFields()
+    }
+
+    /// Field names of the most common notetype among current results —
+    /// feeds Find&Replace and the duplicates field picker.
+    private func refreshNotetypeFields() async {
+        guard let anyNote = model.ids.first(where: { model.note(at: $0) != nil })
+            .flatMap({ model.note(at: $0) }) else {
+            notetypeFieldNames = []
+            return
+        }
+        if let names = try? await notetypesService.getNotetype(anyNote.mid)?.fieldNames,
+           !names.isEmpty {
+            notetypeFieldNames = names
+        }
     }
 
     private var decoratedContent: some View {
@@ -59,6 +105,16 @@ struct BrowseView: View {
             .navigationTitle("Browse")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
+            #if os(macOS)
+            // Mail-style trailing detail pane; iPadOS wide layouts get the
+            // sheet variant until platform-conditional width lands.
+            .inspector(isPresented: Binding(
+                get: { model.focusedNoteID != nil },
+                set: { if !$0 { model.focusedNoteID = nil } }
+            )) {
+                detailTabs
+            }
+            #endif
     }
 
     private var dialogContent: some View {
@@ -118,6 +174,118 @@ struct BrowseView: View {
                 }
             }
         }
+        .sheet(item: $activeSheetContent) { sheet in
+            switch sheet {
+            case .filterRail:
+                BrowseFilterRailView(
+                    model: model,
+                    savedSearches: savedSearchStore.searches,
+                    onDeleteSaved: { savedSearchStore.delete(name: $0); savedSearchStore.refresh() },
+                    onSaveCurrent: { name in model.saveCurrentQuery(as: name) }
+                )
+                .presentationDetents([.medium, .large])
+            case .findDuplicates:
+                FindDuplicatesView(
+                    notetypeFields: notetypeFieldNames,
+                    runExactScan: { field, text in
+                        await model.exactDuplicateGroups(field: field, searchText: text)
+                    },
+                    runNearScan: {
+                        model.nearDuplicateGroupsInScope()
+                    },
+                    openGroup: openDuplicateGroup
+                )
+            case .findReplace:
+                FindReplaceSheet(
+                    fieldNames: notetypeFieldNames,
+                    selectionCount: selectionState.count,
+                    onApply: { search, replacement, regex, matchCase, fieldName in
+                        await model.findAndReplace(
+                            search: search, replacement: replacement, regex: regex,
+                            matchCase: matchCase, fieldName: fieldName,
+                            scopeNoteIds: Array(selectionState.selectedNoteIDs)
+                        )
+                    }
+                )
+            case .changeDeck:
+                ChangeDeckSheet(decks: model.allDecks) { deckId in
+                    let ids = selectionState.selectedNoteIDs
+                    selectionState.exitSelectMode()
+                    Task { await model.changeDeckSelected(ids, deckId: deckId) }
+                }
+            case .setDueDate:
+                SetDueDateSheet { expression in
+                    let ids = selectionState.selectedNoteIDs
+                    selectionState.exitSelectMode()
+                    Task { await model.setDueDateSelected(ids, expression: expression) }
+                }
+            case .reposition:
+                RepositionSheet { start, step, randomize, shift in
+                    let ids = selectionState.selectedNoteIDs
+                    selectionState.exitSelectMode()
+                    Task {
+                        await model.repositionSelectedNotes(
+                            ids, start: start, step: step, randomize: randomize, shift: shift
+                        )
+                    }
+                }
+            case .detail:
+                NavigationStack {
+                    detailTabs
+                }
+            }
+        }
+    }
+
+    /// Hashable sheet item bridging the enum into `.sheet(item:)`.
+    private var activeSheetContent: Sheet? { activeSheet }
+
+    // detail tabs host shared by iOS sheet + macOS inspector
+    private var detailTabs: some View {
+        BrowseDetailTabs(
+            note: focusedNote,
+            notetypeName: focusedNote.flatMap { model.notetypeNames[$0.mid] },
+            infoCard: model.card(at: focusedCardID ?? 0),
+            firstCardID: focusedFirstCardID,
+            onSaved: {
+                Task { await model.performSearch() }
+            }
+        )
+        #if os(iOS)
+        .navigationTitle("Details")
+        #endif
+    }
+
+    private var focusedNote: NoteRecord? {
+        guard let id = model.focusedNoteID else { return nil }
+        return model.note(at: id)
+    }
+
+    private var focusedCardID: Int64? {
+        model.focusedNoteID.flatMap { nid in
+            model.ids.first(where: { cardRaw in
+                model.card(at: cardRaw)?.nid.rawValue == nid
+            })
+        }
+    }
+
+    private var canOfferSemanticFallback: Bool {
+        SemanticNoteIndex.shared.isReady || SemanticNoteIndex.shared.progressDescription != nil
+    }
+
+    private func setDetailFocus(noteID: Int64) {
+        model.focusedNoteID = noteID
+        Task {
+            focusedFirstCardID =
+                (try? await cardClient.fetchByNote(NoteID(noteID)))?.first?.id
+        }
+    }
+
+    private func openDuplicateGroup(_ noteIds: [NoteID]) {
+        let fragment = "nid:(\(noteIds.map { String($0.rawValue) }.joined(separator: " ")))"
+        model.searchText = fragment
+        activeSheet = nil
+        model.scheduleSearch(immediate: true)
     }
 
     // MARK: - Toolbar
@@ -129,10 +297,13 @@ struct BrowseView: View {
                 modeSection
                 Divider()
                 sortSection
+                Divider()
+                toolsSection
+                Divider()
+                saveSearchSection
             } label: {
                 Image(systemName: "arrow.up.arrow.down")
             }
-            .disabled(model.ids.isEmpty && !model.isLoading)
         }
         ToolbarItem(placement: .topBarTrailing) {
             if selectionState.isSelectMode {
@@ -156,6 +327,16 @@ struct BrowseView: View {
             }
             .pickerStyle(.segmented)
             .fixedSize()
+        }
+        if !selectionState.isSelectMode && model.focusedNoteID != nil {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    activeSheet = .detail
+                } label: {
+                    Image(systemName: "sidebar.trailing")
+                }
+                .accessibilityLabel("Note details")
+            }
         }
         if selectionState.isSelectMode {
             selectionToolbar
@@ -216,6 +397,15 @@ struct BrowseView: View {
             .disabled(selectionState.isEmpty)
         }
         ToolbarItem(placement: .bottomBar) {
+            markButton
+        }
+        ToolbarItem(placement: .bottomBar) {
+            Spacer()
+        }
+        ToolbarItem(placement: .bottomBar) {
+            schedulingMenu
+        }
+        ToolbarItem(placement: .bottomBar) {
             Spacer()
         }
         ToolbarItem(placement: .bottomBar) {
@@ -232,6 +422,60 @@ struct BrowseView: View {
             }
             .disabled(selectionState.isEmpty)
         }
+    }
+
+    private var markButton: some View {
+        Button {
+            let ids = selectionState.selectedNoteIDs
+            Task { await model.toggleMarkSelected(ids) }
+        } label: {
+            Label("Mark", systemImage: "star")
+        }
+        .disabled(selectionState.isEmpty)
+    }
+
+    /// Change deck / due date / grade-now / reposition / bury — desktop's
+    /// Cards menu, consolidated for touch.
+    private var schedulingMenu: some View {
+        Menu {
+            Button {
+                activeSheet = .changeDeck
+            } label: { Label("Change Deck…", systemImage: "rectangle.stack") }
+
+            Menu("Grade Now…") {
+                ForEach([(Rating.again, "Again"), (.hard, "Hard"), (.good, "Good"), (.easy, "Easy")],
+                        id: \.1) { rating, label in
+                    Button(label) {
+                        applyGradeNow(rating)
+                    }
+                }
+            }
+
+            Button {
+                activeSheet = .setDueDate
+            } label: { Label("Set Due Date…", systemImage: "calendar") }
+
+            Button {
+                activeSheet = .reposition
+            } label: { Label("Reposition New Cards…", systemImage: "list.number") }
+
+            Divider()
+            Button {
+                let ids = selectionState.selectedNoteIDs
+                selectionState.exitSelectMode()
+                Task { await model.burySelected(ids) }
+            } label: { Label("Bury Until Tomorrow", systemImage: "archivebox") }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+        }
+        .disabled(selectionState.isEmpty)
+        .accessibilityLabel("Scheduling actions")
+    }
+
+    private func applyGradeNow(_ rating: Rating) {
+        let ids = selectionState.selectedNoteIDs
+        selectionState.exitSelectMode()
+        Task { await model.gradeNowSelectedNotes(ids, rating: rating) }
     }
 
     /// Flags rendered with their semantic hues (Anki's seven flag colors —
@@ -287,6 +531,55 @@ struct BrowseView: View {
             .disabled(model.undoStatus?.canRedo != true)
             .accessibilityLabel(model.undoStatus.map { "Redo \($0.redoText)" } ?? "Redo")
         }
+    }
+
+    // MARK: - Power tools & filter rail (phases 3-6)
+
+    @ViewBuilder
+    private var toolsSection: some View {
+        Button {
+            activeSheet = .filterRail
+        } label: {
+            Label("Filter Rail…", systemImage: "sidebar.leading")
+        }
+        Button {
+            Task { await loadFieldsForTools() }
+            activeSheet = .findDuplicates
+        } label: {
+            Label("Find Duplicates…", systemImage: "square.on.square.dashed")
+        }
+        Button {
+            Task { await loadFieldsForTools() }
+            activeSheet = .findReplace
+        } label: {
+            Label("Find & Replace…", systemImage: "arrow.2.squarepath")
+        }
+    }
+
+    @ViewBuilder
+    private var saveSearchSection: some View {
+        Section("Saved searches") {
+            ForEach(savedSearchStore.searches) { saved in
+                Button {
+                    model.searchText = saved.query
+                    model.scheduleSearch(immediate: true)
+                } label: {
+                    Label(saved.name, systemImage: "heart")
+                }
+            }
+            if !model.searchText.trimmingCharacters(in: .whitespaces).isEmpty {
+                Button {
+                    saveSearchName = ""
+                    showSaveSearchPrompt = true
+                } label: {
+                    Label("Save current search…", systemImage: "heart.circle")
+                }
+            }
+        }
+    }
+
+    private func loadFieldsForTools() async {
+        await refreshNotetypeFields()
     }
 
     // MARK: - Selection actions
@@ -356,6 +649,17 @@ struct BrowseContent: View {
                 systemImage: "magnifyingglass",
                 description: Text("Search by content, tags, or filter by deck.")
             )
+        } else if isEmpty && !model.isLoading && canOfferSemanticFallback {
+            ContentUnavailableView {
+                Label("No direct matches", systemImage: "magnifyingglass")
+            } description: {
+                Text("Nothing in your collection matches the grammar query.")
+            } actions: {
+                Button("Search meaning of “\(model.searchText)”") {
+                    Task { await model.runSemanticFallback() }
+                }
+                .buttonStyle(.borderedProminent)
+            }
         } else if isEmpty && !model.isLoading {
             ContentUnavailableView.search(text: model.searchText)
         } else {
@@ -367,6 +671,26 @@ struct BrowseContent: View {
 
     private var itemList: some View {
         List {
+            if let notice = model.semanticNotice {
+                Section {
+                    HStack {
+                        Image(systemName: "sparkles").foregroundStyle(palette.accent)
+                        Text(notice).amgiFont(.caption)
+                        Spacer()
+                        Button {
+                            model.clearSemanticNotice()
+                            model.searchText = ""
+                            model.scheduleSearch(immediate: true)
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.caption2)
+                                .foregroundStyle(palette.textSecondary)
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+            }
+
             ForEach(Array(model.ids.prefix(model.loadedCount).enumerated()),
                     id: \.element) { index, idRaw in
                 row(for: idRaw, index: index)
@@ -379,6 +703,8 @@ struct BrowseContent: View {
                     Spacer()
                 }
             }
+
+            semanticFallbackRow
         }
         .navigationDestination(for: NoteRecord.self) { note in
             NoteEditingDestinationView(note: note) {
@@ -420,6 +746,9 @@ struct BrowseContent: View {
                         NoteRowView(note: note, notetypeName: model.notetypeNames[note.mid])
                             .onAppear { onRowAppear(note.id.rawValue, index: index) }
                     }
+                    .simultaneousGesture(TapGesture().onEnded {
+                        setDetailFocus(noteID: note.id.rawValue)
+                    })
                     NoteContextMenuButton(noteId: note.id) {
                         Task { await model.performSearch() }
                     }

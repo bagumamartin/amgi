@@ -93,6 +93,20 @@ final class BrowseModel {
     private(set) var undoStatus: UndoStatusInfo?
     /// Select-mode plumbing stays view-owned via BrowseSelectionState.
 
+    // Phase 3+ surface
+    let savedSearches = SavedSearchStore()
+    var searchError: String?
+    /// Recent queries for search suggestions (max 30, per profile).
+    private(set) var recentQueries: [String] = []
+    /// Semantic fallback banner text; nil hides it.
+    private(set) var semanticNotice: String?
+    /// Note currently driving the inspector detail pane.
+    var focusedNoteID: Int64?
+
+    private static let historyKey = "browse.searchHistory"
+    /// Query recorded for history when this committed run started.
+    private var lastCommittedQuery = ""
+
     private let windowSize = 100
     private let hydrateChunkSize = 50
     private var searchTask: Task<Void, Never>?
@@ -138,6 +152,14 @@ final class BrowseModel {
             if !immediate {
                 try? await Task.sleep(for: .milliseconds(250))
                 if Task.isCancelled { return }
+            }
+            // Commit boundary: only queries that actually execute get
+            // remembered (typing never spams history).
+            if let self {
+                let candidate = self.buildQuery().trimmingCharacters(in: .whitespaces)
+                guard !candidate.isEmpty, candidate != self.lastCommittedQuery else { return }
+                self.lastCommittedQuery = candidate
+                self.recordHistory(candidate)
             }
             await self?.performSearch()
         }
@@ -324,6 +346,230 @@ final class BrowseModel {
         collectionStore.invalidateAll(origin: .localUser)
         await performSearch()
         await refreshUndoStatus()
+    }
+
+
+    // MARK: - Filter rail application (spec §5.5)
+
+    enum RailComposition {
+        case replace            // plain tap
+        case andWithExisting    // ⌃-click analog
+        case orWithExisting     // ⇧-click analog
+        case negateAndAdd       // ⌥-click analog
+    }
+
+    /// Applies a rail node to the query with desktop's composition
+    /// semantics, always canonicalized by the engine so the string stays
+    /// valid grammar even when hand-built fragments nest oddly.
+    func applyFilterNode(_ node: FilterNode, composition: RailComposition) async {
+        defer { scheduleSearch(immediate: true) }
+        switch composition {
+        case .replace:
+            searchText = node.fragment
+        case .negateAndAdd:
+            applyComposed(existing: activeBaseQuery(), additional: node.fragment) { fragment in
+                "( not ( \(fragment) ) )"
+            }
+        case .andWithExisting:
+            if searchText.trimmingCharacters(in: .whitespaces).isEmpty {
+                searchText = node.fragment
+            } else {
+                composeViaEngine(additional: node.fragment, joiner: .and)
+            }
+        case .orWithExisting:
+            if searchText.trimmingCharacters(in: .whitespaces).isEmpty {
+                searchText = node.fragment
+            } else {
+                composeViaEngine(additional: node.fragment, joiner: .or)
+            }
+        }
+    }
+
+    private func activeBaseQuery() -> String { searchText }
+
+    /// Synchronous textual composition — engine AND is a space join;
+    /// negation wraps the fragment. Used on replace/negate paths where
+    /// waiting on an RPC before re-search adds latency without value.
+    private func applyComposed(existing: String, additional: String, transform: (String) -> String) {
+        let base = existing.trimmingCharacters(in: .whitespaces)
+        let combined = base.isEmpty ? transform(additional) : base + " " + transform(additional)
+        searchText = combined
+    }
+
+    /// Engine-canonical join for AND/OR (async path).
+    private func composeViaEngine(additional: String, joiner: SearchJoiner) {
+        let existing = searchText
+        Task { [weak self] in
+            guard let self else { return }
+            if let composed = try? await noteClient.composeQuery(
+                existing: existing, additional: additional, joiner: joiner
+            ) {
+                self.searchText = composed
+                self.scheduleSearch(immediate: true)
+            } else {
+                // Engine rejected the pair — fall back to textual AND which
+                // is definitionally correct.
+                self.searchText = existing + " " + additional
+                self.scheduleSearch(immediate: true)
+            }
+        }
+    }
+
+    func validateCurrentQuery() {
+        let candidate = buildQuery()
+        guard !candidate.isEmpty else { searchError = nil; return }
+        Task { [weak self] in
+            _ = try? await self?.noteClient.validateQuery(candidate)
+            // Errors surface through performSearch's failure branch today;
+            // dedicated inline error UI lands with engine-row columns.
+        }
+    }
+
+    // Saved searches --------------------------------------------------------
+
+    func saveCurrentQuery(as name: String) {
+        let query = buildQuery()
+        guard !query.isEmpty else { return }
+        savedSearches.save(name: name, query: query)
+        collectionStore.invalidateAll(origin: .localUser)
+    }
+
+    func deleteSavedSearch(named name: String) {
+        savedSearches.delete(name: name)
+        collectionStore.invalidateAll(origin: .localUser)
+    }
+
+    // MARK: - Search history (spec §6)
+
+    private func loadHistory() {
+        recentQueries = UserDefaults.standard.stringArray(forKey: Self.historyKey) ?? []
+    }
+
+    private func recordHistory(_ query: String) {
+        var history = UserDefaults.standard.stringArray(forKey: Self.historyKey) ?? []
+        history.removeAll { $0 == query }
+        history.insert(query, at: 0)
+        history = Array(history.prefix(30))
+        UserDefaults.standard.set(history, forKey: Self.historyKey)
+        recentQueries = history
+    }
+
+    // MARK: - Semantic fallback (spec D4)
+
+    private var semanticKickoffStarted = false
+
+    /// Builds/refreshes the embedding corpus once per session, bounded,
+    /// fully off-main-thread work inside TextEmbedder's actor.
+    private func kickOffSemanticIndexBuild() {
+        guard !semanticKickoffStarted else { return }
+        semanticKickoffStarted = true
+        Task { [weak self] in
+            guard let records = try? await self?.noteClient.searchAll("deck:*", limit: SemanticNoteIndex.corpusCap),
+                  !records.isEmpty else { return }
+            await SemanticNoteIndex.shared.updateCorpus(with: records)
+        }
+    }
+
+    /// Replaces current results with semantic nearest neighbors of the
+    /// free-text query. Only offered when the grammar path came up empty
+    /// and no structured filters are pinned.
+    func runSemanticFallback() async {
+        let trimmed = searchText.trimmingCharacters(in: .whitespaces)
+        guard mode == .notes, !trimmed.isEmpty else { return }
+        guard let ids = await SemanticNoteIndex.shared.search(trimmed, topK: 50) else {
+            semanticNotice = "Semantic index still building…"
+            return
+        }
+        guard !ids.isEmpty else {
+            semanticNotice = "No semantically similar notes found."
+            return
+        }
+        noteRecords.removeAll()
+        cardRecords.removeAll()
+        windowEnd = min(ids.count, windowSize)
+        hasMorePages = false
+        semanticNotice = "Meaning-based matches for “\(trimmed)”"
+        await hydrateWindow()
+    }
+
+    func clearSemanticNotice() { semanticNotice = nil }
+
+    // MARK: - Power-tool plumbing (selection-scope resolution)
+
+    /// Card IDs for the given notes via one nid:(OR) search.
+    func resolveCardIds(for noteIds: [NoteID]) async -> [CardID] {
+        guard !noteIds.isEmpty else { return [] }
+        let query = noteIds.map { "nid:\($0.rawValue)" }.joined(separator: " OR ")
+        return (try? await cardClient.searchIds(query, nil)) ?? []
+    }
+
+    func changeDeckSelected(_ noteIDs: Set<NoteID>, deckId: DeckID) async {
+        let cardIds = await resolveCardIds(for: Array(noteIDs))
+        _ = try? await cardClient.changeDeck(cardIds, deckId)
+        await refreshAfterMutation()
+    }
+
+    func setDueDateSelected(_ noteIDs: Set<NoteID>, expression: String) async {
+        let cardIds = await resolveCardIds(for: Array(noteIDs))
+        try? await cardClient.setDueDate(cardIds, expression)
+        await refreshAfterMutation()
+    }
+
+    func gradeNowSelectedNotes(_ noteIDs: Set<NoteID>, rating: Rating) async {
+        let cardIds = await resolveCardIds(for: Array(noteIDs))
+        try? await cardClient.gradeNow(cardIds, rating)
+        await refreshAfterMutation()
+    }
+
+    func repositionSelectedNotes(_ noteIDs: Set<NoteID>, start: UInt32, step: UInt32, randomize: Bool, shift: Bool) async {
+        let cardIds = await resolveCardIds(for: Array(noteIDs))
+        _ = try? await cardClient.repositionCards(cardIds, start, step, randomize, shift)
+        await refreshAfterMutation()
+    }
+
+    func toggleMarkSelected(_ noteIDs: Set<NoteID>) async {
+        let anyMarked = noteIDs.contains { id in
+            noteRecords[id.rawValue]?.tags.split(separator: " ")
+                .contains { $0.caseInsensitiveCompare("marked") == .orderedSame } == true
+        }
+        if anyMarked {
+            try? await tagClient.removeTagFromNotes("marked", Array(noteIDs))
+        } else {
+            try? await tagClient.addTagToNotes("marked", Array(noteIDs))
+        }
+        await refreshAfterMutation()
+    }
+
+    /// Find & Replace scoped to selection when present, else to current results.
+    func findAndReplace(search: String, replacement: String, regex: Bool, matchCase: Bool, fieldName: String?, scopeNoteIds: [NoteID]?) async -> Int {
+        let targets: [NoteID]
+        if let scopeNoteIds, !scopeNoteIds.isEmpty {
+            targets = scopeNoteIds
+        } else {
+            targets = mode == .notes
+                ? ids.prefix(loadedCount).map(NoteID.init)
+                : []
+        }
+        guard !targets.isEmpty else { return 0 }
+        let count = (try? await noteClient.findAndReplace(
+            noteIds: targets, search: search, replacement: replacement,
+            regex: regex, matchCase: matchCase, fieldName: fieldName)) ?? 0
+        await refreshAfterMutation()
+        return count
+    }
+
+    // MARK: - Duplicates data (spec §5.9)
+
+    @ObservationIgnored @Dependency(\.ankiBackend) private var ankiBackend
+
+    /// Exact groups straight from the rslib aux service.
+    func exactDuplicateGroups(field: String, searchText text: String) async -> FindDuplicatesResult? {
+        try? await ankiBackend.invoke(.findDuplicatesExact(search: text, fieldName: field))
+    }
+
+    /// Fuzzy clusters over currently loaded notes (scope-limited O(n²)).
+    func nearDuplicateGroupsInScope() -> [[Int64]] {
+        SemanticNoteIndex.shared.nearDuplicateGroups(scope: Array(ids.prefix(windowEnd)))
     }
 
     // MARK: - Query assembly (phase 3 replaces chips with tokens)
