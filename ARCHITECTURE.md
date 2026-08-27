@@ -88,19 +88,25 @@ The Rust backend exposes services identified by numeric IDs. There are two dispa
 - `getQueuedCards` is method **3** on `BackendSchedulerService` (ID 13), but method **0** on `CollectionSchedulerService` (ID 12)
 - `renderExistingCard` is method **6** on `BackendCardRenderingService` (ID 27)
 
-Always use the **backend dispatch table** (odd service IDs) when determining method indices. The source of truth is the generated `backend.rs` in the Rust crate.
+Always use the **backend dispatch table** (odd service IDs) when determining method indices. The source of truth is the generated `backend.rs` in the Rust crate — its literal `(service, method)` pairs are also mirrored in `anki-upstream/out/pylib/anki/_backend_generated.py`, which is the fastest regression oracle after any upstream update.
+
+#### Amgi aux service (200)
+
+Amgi ships ONE non-engine pseudo-service: `AnkiAuxSvc` (ID **200**) lives entirely inside `anki-bridge-rs/src/lib.rs` and is intercepted by `anki_run_method` BEFORE engine dispatch. Upstream has no RPC for it; wire format is JSON (not protobuf). Methods: `0 = findDupesExact` (desktop `Collection.find_dupes` semantics, composed only from public engine RPCs). Adding methods here requires an XCFramework rebuild but no proto regeneration.
 
 ### Key Services
 
 | Service ID | Name | Key Methods |
 |---|---|---|
 | 1 | BackendSyncService | 3=SyncLogin, 5=SyncCollection, 6=FullUploadOrDownload |
-| 3 | BackendCollectionService | 0=OpenCollection, 1=CloseCollection |
+| 3 | BackendCollectionService | 0=OpenCollection, 1=CloseCollection, 8=Undo, 9=Redo |
+| 5 | BackendCardsService | 0=GetCard, 1=UpdateCards, 2=RemoveCards, 3=SetDeck, 4=SetFlag |
 | 7 | BackendDecksService | 8=GetDeckTree, 13=GetDeckNames |
-| 13 | BackendSchedulerService | 3=GetQueuedCards, 4=AnswerCard, 7=CountsForDeckToday |
-| 25 | BackendNotesService | 5=GetNote |
+| 13 | BackendSchedulerService | 3=GetQueuedCards, 4=AnswerCard, 10=CountsForDeckToday, 14=BuryOrSuspendCards, 12=RestoreBuriedAndSuspended, 19=SetDueDate, 20=GradeNow, 21=SortCards |
+| 25 | BackendNotesService | 6=GetNote, 7=RemoveNotes |
 | 27 | BackendCardRenderingService | 6=RenderExistingCard |
-| 29 | BackendSearchService | 0=SearchCards, 1=SearchNotes |
+| 29 | BackendSearchService | 0=BuildSearchString, 1=SearchCards, 2=SearchNotes, 3=JoinSearchNodes, 4=ReplaceSearchNode, 5=FindAndReplace, 6=AllBrowserColumns, 7=BrowserRowForId, 8=SetActiveBrowserColumns |
+| 200 | AnkiAuxSvc (ours) | 0=findDupesExact |
 
 ## Data Flows
 
@@ -133,12 +139,19 @@ The `QueuedCard` protobuf contains `SchedulingStates` with `current`, `again`, `
 ### Browse / Search
 
 ```
-1. SearchNotes(query) → list of note IDs
-2. GetNote(noteId) for each note (lazy-loaded in batches of 50)
-3. Display in scrollable list with on-demand loading
+1. searchIds(query, SearchOrder.builtin(column, reverse)) → ENGINE-SORTED ids
+   (notes mode: SearchNotes; cards mode: SearchCards — never sorted client-side)
+2. A sliding 100-row window hydrates records on demand (task-grouped
+   getNote/getCard fetches, 50-row chunks triggered near the window edge)
+3. Rows render natively (theme-bound state dots, flag chips, due pills);
+   extended columns would come from BrowserRowForId(29/7), which REQUIRES
+   SetActiveBrowserColumns(29/8) to run first
+4. Every mutation is a single batch RPC (suspend/bury take note_ids directly;
+   flags/deck/due resolve card ids once via one nid:(a OR b …) search) so
+   each action lands as one undo entry
 ```
 
-Deck filtering uses Anki search syntax: `deck:"English::Grammar"` automatically includes subdecks.
+Deck filtering uses Anki search syntax: `deck:"English::Grammar"` automatically includes subdecks. Saved searches persist in col.conf `savedFilters` — the same key desktop Anki uses, so they sync both directions. Semantic fallback ("search meaning of…") and fuzzy near-duplicates run over a per-device e5 embedding corpus (`<profile>/semantic-index.json`) built by `TextEmbedder` in the AmgiIcons package; it never syncs.
 
 ### Statistics
 

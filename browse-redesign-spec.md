@@ -312,3 +312,11 @@ subrows). Tag-all-duplicates preset action both sides.
   conditionals. Info tab is native scheduling facts; full revlog history
   waits on engine-row columns. Find-dupes field picker lists fields of the
   first hydrated row's notetype.
+
+- 2026-08 (integration pass): BuildProject green after xcodegen pickup +
+  fixes — StudyLandingState hoisted to file scope (generic struct's nested
+  type broke external lookups), AmgiIcons imported through a
+  Shared/NoteEmbedderBridge shim (explicit-module planner quirk documented
+  in memory + CLAUDE.md known issues), selection toolbar consolidated into a
+  single ToolbarItemGroup, save-search alert wired, previews MainActor-safe,
+  ARCHITECTURE.md service table corrected and Browse flow rewritten.
