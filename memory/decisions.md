@@ -312,6 +312,16 @@
   grammar path is empty + near-dupe clusters >=0.95 into FindDuplicatesView
   alongside exact aux RPC groups. NoteEditorModel csum now FNV-1a
   (hashValue never matched engine dupe expectations).
+- **Build-through gotchas (2026-08, xcodegen+Xcode 26.5)**: (a) new source
+  files need `xcodegen generate` BEFORE BuildProject sees them ("cannot find
+  X in scope" storm otherwise); (b) under -explicit-module-build a brand-new
+  file importing local SPM package AmgiIcons reported "No such module" while
+  long-standing importers compiled fine — workaround = bridge through an
+  existing importer file (NoteEmbedderBridge in Shared/); revisit if
+  toolchain changes; (c) ToolbarContentBuilder.buildBlock caps at 10 items —
+  consolidate via ToolbarItemGroup; (d) StudyLandingContent went generic for
+  headerAccessory, so its State enum moved to file scope (StudyLandingState)
+  with typealias back-compat.
 
 ## General
 
