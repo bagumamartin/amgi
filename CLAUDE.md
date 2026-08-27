@@ -208,8 +208,8 @@ let response: Anki_Decks_DeckTreeNode = try backend.invoke(
 | 2 | CollectionService | 0=CheckDatabase |
 | 7 | BackendDecksService | 8=GetDeckTree |
 | 13 | BackendSchedulerService | 3=GetQueuedCards, 4=AnswerCard, 7=CountsForDeckToday |
-| 25 | BackendNotesService | 5=GetNote |
-| 29 | BackendSearchService | 0=SearchCards, 1=SearchNotes |
+| 25 | BackendNotesService | 6=GetNote, 7=RemoveNotes |
+| 29 | BackendSearchService | 0=BuildSearchString, 1=SearchCards, 2=SearchNotes, 7=BrowserRowForId |
 
 ## Import Rules (Swift 6.2 + InternalImportsByDefault)
 
