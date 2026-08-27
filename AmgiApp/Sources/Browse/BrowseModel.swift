@@ -1,3 +1,4 @@
+public import AnkiProtoBridge
 import AnkiClients
 import AnkiKit
 import AnkiServices
@@ -464,7 +465,12 @@ final class BrowseModel {
         guard !semanticKickoffStarted else { return }
         semanticKickoffStarted = true
         Task { [weak self] in
-            guard let records = try? await self?.noteClient.searchAll("deck:*", limit: SemanticNoteIndex.corpusCap),
+            guard let self else { return }
+            // Extracted as a function value: some Xcode 26.5 whole-module
+            // plans mislabel this closure call otherwise.
+            let searchAll = self.noteClient.searchAll
+            let limit: Int? = SemanticNoteIndex.corpusCap
+            guard let records = try? await searchAll("deck:*", limit),
                   !records.isEmpty else { return }
             await SemanticNoteIndex.shared.updateCorpus(with: records)
         }
@@ -547,7 +553,7 @@ final class BrowseModel {
             targets = scopeNoteIds
         } else {
             targets = mode == .notes
-                ? ids.prefix(loadedCount).map(NoteID.init)
+                ? ids.prefix(loadedCount).map { NoteID($0) }
                 : []
         }
         guard !targets.isEmpty else { return 0 }
@@ -589,3 +595,15 @@ final class BrowseModel {
         return parts.joined(separator: " ")
     }
 }
+
+#if DEBUG
+extension BrowseModel {
+    /// SwiftUI #Preview seeding — bypasses private(set) pipeline state.
+    func seedPreview(ids noteIds: [Int64], records: [Int64: NoteRecord]) {
+        ids = noteIds
+        noteRecords = records
+        windowEnd = noteIds.count
+    }
+}
+#endif
+

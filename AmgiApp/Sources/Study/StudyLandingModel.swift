@@ -12,7 +12,7 @@ import Foundation
 @Observable
 @MainActor
 final class StudyLandingModel {
-    var contentState: StudyLandingContent.State = .loading
+    var contentState: StudyLandingState = .loading
     var selectedBook: ReaderBook?
 
     let progressCoordinator = ReaderProgressCoordinator()

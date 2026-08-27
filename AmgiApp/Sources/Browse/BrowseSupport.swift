@@ -1,7 +1,14 @@
 // AmgiApp/Sources/Browse/BrowseSupport.swift
+//
+// NOTE: deliberately no `import AmgiIcons` here. Under this project's
+// explicit-module build certain NEW-file/plan combos report the local SPM
+// package as unresolvable from brand-new source files while long-standing
+// importers compile fine (Xcode 26.5 driver quirk hit 2026-08). The embed
+// calls therefore go through `NoteEmbedderBridge` in Shared/, whose file
+// resolves the package reliably.
 import AnkiBackend
 import AnkiClients
-import AnkiIcons
+import AnkiKit
 import Dependencies
 import Foundation
 
@@ -93,7 +100,7 @@ struct FilterNode: Identifiable, Equatable {
     let fragment: String
     let role: Role?
 
-    enum Role { case state(BrowseModelStateColor), flag(UInt32) }
+    enum Role: Equatable { case state(BrowseModelStateColor), flag(UInt32) }
 
     var id: String { title + "#" + fragment }
 
@@ -127,15 +134,15 @@ enum BrowseFilterSections {
     static func cardStates() -> [FilterNode] {
         [
             FilterNode(title: "New", systemImage: "circle", fragment: "is:new",
-                       tintedRole: .state(.newState)),
+                       role: .state(.newState)),
             FilterNode(title: "Learning", systemImage: "circle.fill", fragment: "is:learn",
-                       tintedRole: .state(.learning)),
+                       role: .state(.learning)),
             FilterNode(title: "Review", systemImage: "circle.circle", fragment: "is:review",
-                       tintedRole: .state(.review)),
+                       role: .state(.review)),
             FilterNode(title: "Suspended", systemImage: "pause.circle", fragment: "is:suspended",
-                       tintedRole: .state(.suspended)),
+                       role: .state(.suspended)),
             FilterNode(title: "Buried", systemImage: "archivebox", fragment: "is:buried",
-                       tintedRole: .state(.buried)),
+                       role: .state(.buried)),
         ]
     }
 
@@ -246,7 +253,7 @@ final class SemanticNoteIndex {
         guard let data = try? Data(contentsOf: url),
               let shape = try? JSONDecoder().decode(DiskShape.self, from: data),
               shape.version == Self.version else { return }
-        entries = shape.entries.filter { $0.value.vector.count == TextEmbedder.dimensionValue }
+        entries = shape.entries.filter { $0.value.vector.count == 384 }
     }
 
     private func persist() {
@@ -276,7 +283,7 @@ final class SemanticNoteIndex {
         }
 
         for (id, text, hash) in changed.prefix(Self.corpusCap) {
-            guard let vector = try? await TextEmbedder.shared.embed(text, prefix: .passage) else { break }
+            guard let vector = await NoteEmbedderBridge.embedPassage(text) else { break }
             entries[id] = Entry(textHash: hash, vector: vector)
         }
         // Drop ids that vanished from the corpus.
@@ -301,13 +308,13 @@ final class SemanticNoteIndex {
     func search(_ query: String, topK: Int = 50) async -> [Int64]? {
         guard isReady, !query.isEmpty else { return nil }
         loadIfNeeded()
-        guard let queryVector = try? await TextEmbedder.shared.embed(query, prefix: .query) else {
+        guard let queryVector = await NoteEmbedderBridge.embedQuery(query) else {
             return nil
         }
         var scored: [(Int64, Float)] = []
         scored.reserveCapacity(entries.count)
         for (id, entry) in entries {
-            scored.append((id, TextEmbedder.cosine(queryVector, entry.vector)))
+            scored.append((id, NoteEmbedderBridge.cosine(queryVector, entry.vector)))
         }
         scored.sort { $0.1 > $1.1 }
         return Array(scored.prefix(topK).map(\.0))
@@ -327,7 +334,7 @@ final class SemanticNoteIndex {
             innerLoop: for j in (i + 1)..<scoped.count {
                 guard !assigned.contains(scoped[j]),
                       let vj = entries[scoped[j]]?.vector else { continue }
-                if TextEmbedder.cosine(vi, vj) >= Self.nearDupeThreshold {
+                if NoteEmbedderBridge.cosine(vi, vj) >= Self.nearDupeThreshold {
                     group.append(scoped[j])
                     assigned.insert(scoped[j])
                     if group.count >= 12 { break innerLoop }

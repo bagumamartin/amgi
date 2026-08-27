@@ -4,16 +4,22 @@ import AmgiTheme
 /// Pure rendering surface for the Study landing screen. Owns no I/O.
 /// The container in the app target loads data and maps it to the
 /// single `State` value passed here.
+/// Screen state for ``StudyLandingContent``. Lives at file scope because
+/// the content struct gained a generic header-accessory parameter —
+/// nested-type lookups through a generic type would demand inference.
+public enum StudyLandingState: Equatable, Sendable {
+    case loading
+    case empty
+    case loaded(
+        summary: StudySummaryData,
+        decks: [StudyDeckRowData],
+        readingRecs: [StudyReadingRecData]
+    )
+}
+
 public struct StudyLandingContent<HeaderAccessory: View>: View {
-    public enum State: Equatable, Sendable {
-        case loading
-        case empty
-        case loaded(
-            summary: StudySummaryData,
-            decks: [StudyDeckRowData],
-            readingRecs: [StudyReadingRecData]
-        )
-    }
+    /// Back-compat spelling of ``StudyLandingState``.
+    public typealias State = StudyLandingState
 
     let state: State
     let onBeginSession: () -> Void

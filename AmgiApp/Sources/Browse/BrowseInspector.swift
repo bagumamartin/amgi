@@ -88,7 +88,7 @@ struct CardPreviewPane: View {
     @State private var showAnswer = false
     @State private var failed = false
 
-    @Dependency(\.cardRendering) private var rendering
+    @Dependency(\.cardRenderingService) private var rendering
 
     var body: some View {
         Group {

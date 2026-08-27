@@ -18,8 +18,10 @@ struct BrowseView: View {
     @State private var pendingSwipeDelete: NoteRecord?
 
     // Phase 3-6 surfaces
-    enum Sheet: Hashable {
+    enum Sheet: Int, Hashable {
         case filterRail, findDuplicates, findReplace, changeDeck, setDueDate, reposition, detail
+
+        var id: Int { rawValue }
     }
     @State private var activeSheet: Sheet?
     @State private var notetypeFieldNames: [String] = []
@@ -94,7 +96,7 @@ struct BrowseView: View {
             notetypeFieldNames = []
             return
         }
-        if let names = try? await notetypesService.getNotetype(anyNote.mid)?.fieldNames,
+        if let names = try? await notetypesService.getNotetype(anyNote.mid).fieldNames,
            !names.isEmpty {
             notetypeFieldNames = names
         }
@@ -150,13 +152,24 @@ struct BrowseView: View {
             } message: {
                 Text("One undo entry is created; you can restore from the toolbar.")
             }
+            .alert("Save current search", isPresented: $showSaveSearchPrompt) {
+                TextField("Name", text: $saveSearchName)
+                Button("Save") {
+                    model.saveCurrentQuery(as: saveSearchName)
+                    saveSearchName = ""
+                }
+                Button("Cancel", role: .cancel) { saveSearchName = "" }
+            } message: {
+                Text("Saved searches sync to every device via your collection config — desktop Anki sees them too.")
+            }
     }
 
     private var sheetContent: some View {
         BrowseContent(
             model: model,
             selectionState: $selectionState,
-            onSwipeDelete: { pendingSwipeDelete = $0 }
+            onSwipeDelete: { pendingSwipeDelete = $0 },
+            onRowFocused: { setDetailFocus(noteID: $0) }
         )
         .sheet(isPresented: $showAddNote) {
             AddNoteView {
@@ -174,7 +187,10 @@ struct BrowseView: View {
                 }
             }
         }
-        .sheet(item: $activeSheetContent) { sheet in
+        .sheet(item: Binding<Sheet?>(
+            get: { activeSheet },
+            set: { activeSheet = $0 }
+        )) { sheet in
             switch sheet {
             case .filterRail:
                 BrowseFilterRailView(
@@ -193,7 +209,7 @@ struct BrowseView: View {
                     runNearScan: {
                         model.nearDuplicateGroupsInScope()
                     },
-                    openGroup: openDuplicateGroup
+                    openGroup: { ids in openDuplicateGroup(ids.map { NoteID($0) }) }
                 )
             case .findReplace:
                 FindReplaceSheet(
@@ -237,9 +253,6 @@ struct BrowseView: View {
         }
     }
 
-    /// Hashable sheet item bridging the enum into `.sheet(item:)`.
-    private var activeSheetContent: Sheet? { activeSheet }
-
     // detail tabs host shared by iOS sheet + macOS inspector
     private var detailTabs: some View {
         BrowseDetailTabs(
@@ -273,11 +286,11 @@ struct BrowseView: View {
         SemanticNoteIndex.shared.isReady || SemanticNoteIndex.shared.progressDescription != nil
     }
 
-    private func setDetailFocus(noteID: Int64) {
-        model.focusedNoteID = noteID
+    private func setDetailFocus(noteID: NoteID) {
+        model.focusedNoteID = noteID.rawValue
         Task {
             focusedFirstCardID =
-                (try? await cardClient.fetchByNote(NoteID(noteID)))?.first?.id
+                (try? await cardClient.fetchByNote(noteID))?.first?.id
         }
     }
 
@@ -369,58 +382,113 @@ struct BrowseView: View {
         }
     }
 
-    @ToolbarContentBuilder
     private var selectionToolbar: some ToolbarContent {
-        ToolbarItem(placement: .bottomBar) {
+        ToolbarItemGroup(placement: .bottomBar) {
             Button {
                 suspendSelected()
             } label: {
                 Label("Suspend", systemImage: "pause.circle")
             }
             .disabled(selectionState.isEmpty)
-        }
-        ToolbarItem(placement: .bottomBar) {
-            Spacer()
-        }
-        ToolbarItem(placement: .bottomBar) {
+
             flagMenu
-        }
-        ToolbarItem(placement: .bottomBar) {
-            Spacer()
-        }
-        ToolbarItem(placement: .bottomBar) {
+
+            markButton
+
             Button {
                 showTagSheet = true
             } label: {
                 Label("Tags", systemImage: "tag")
             }
             .disabled(selectionState.isEmpty)
-        }
-        ToolbarItem(placement: .bottomBar) {
-            markButton
-        }
-        ToolbarItem(placement: .bottomBar) {
-            Spacer()
-        }
-        ToolbarItem(placement: .bottomBar) {
+
             schedulingMenu
-        }
-        ToolbarItem(placement: .bottomBar) {
-            Spacer()
-        }
-        ToolbarItem(placement: .bottomBar) {
+
             undoRedoMenu
-        }
-        ToolbarItem(placement: .bottomBar) {
-            Spacer()
-        }
-        ToolbarItem(placement: .bottomBar) {
+
             Button(role: .destructive) {
                 showDeleteConfirm = true
             } label: {
                 Label("Delete", systemImage: "trash")
             }
             .disabled(selectionState.isEmpty)
+        }
+    }
+
+    // MARK: - Tool & flag menus (view-layer composition)
+
+    @ViewBuilder
+    private var toolsSection: some View {
+        Button {
+            activeSheet = .filterRail
+        } label: {
+            Label("Filter Rail…", systemImage: "sidebar.leading")
+        }
+        Button {
+            Task { await refreshNotetypeFields() }
+            activeSheet = .findDuplicates
+        } label: {
+            Label("Find Duplicates…", systemImage: "square.on.square.dashed")
+        }
+        Button {
+            Task { await refreshNotetypeFields() }
+            activeSheet = .findReplace
+        } label: {
+            Label("Find & Replace…", systemImage: "arrow.2.squarepath")
+        }
+    }
+
+    @ViewBuilder
+    private var saveSearchSection: some View {
+        Section("Saved searches") {
+            ForEach(model.savedSearches.searches) { saved in
+                Button {
+                    model.searchText = saved.query
+                    model.scheduleSearch(immediate: true)
+                } label: {
+                    Label(saved.name, systemImage: "heart")
+                }
+            }
+            if !model.searchText.trimmingCharacters(in: .whitespaces).isEmpty {
+                Button("Save current search…") {
+                    saveSearchName = ""
+                    showSaveSearchPrompt = true
+                }
+            }
+        }
+    }
+
+    /// Flags rendered with their semantic hues (Anki's seven brand colors —
+    /// constants on purpose; card states stay palette-driven).
+    private var flagMenu: some View {
+        Menu {
+            flagButton(value: 1, label: "Red", color: Color(hexBrowseFlag: 0xFF3B30))
+            flagButton(value: 2, label: "Orange", color: Color(hexBrowseFlag: 0xFF9500))
+            flagButton(value: 3, label: "Green", color: Color(hexBrowseFlag: 0x34C759))
+            flagButton(value: 4, label: "Blue", color: Color(hexBrowseFlag: 0x007AFF))
+            flagButton(value: 5, label: "Pink", color: Color(hexBrowseFlag: 0xFF2D55))
+            flagButton(value: 6, label: "Turquoise", color: Color(hexBrowseFlag: 0x32ADE6))
+            flagButton(value: 7, label: "Purple", color: Color(hexBrowseFlag: 0xAF52DE))
+            Divider()
+            Button {
+                applyFlag(0)
+            } label: {
+                Label("Clear flag", systemImage: "flag.slash")
+            }
+        } label: {
+            Label("Flag", systemImage: "flag")
+        }
+        .disabled(selectionState.isEmpty)
+    }
+
+    private func flagButton(value: UInt32, label: String, color: Color) -> some View {
+        Button {
+            applyFlag(value)
+        } label: {
+            HStack {
+                Image(systemName: "flag.fill").foregroundStyle(color)
+                Text(label)
+            }
         }
     }
 
@@ -445,9 +513,7 @@ struct BrowseView: View {
             Menu("Grade Now…") {
                 ForEach([(Rating.again, "Again"), (.hard, "Hard"), (.good, "Good"), (.easy, "Easy")],
                         id: \.1) { rating, label in
-                    Button(label) {
-                        applyGradeNow(rating)
-                    }
+                    Button(label) { applyGradeNow(rating) }
                 }
             }
 
@@ -478,40 +544,6 @@ struct BrowseView: View {
         Task { await model.gradeNowSelectedNotes(ids, rating: rating) }
     }
 
-    /// Flags rendered with their semantic hues (Anki's seven flag colors —
-    /// brand constants, not theme slots; card states stay palette-driven).
-    private var flagMenu: some View {
-        Menu {
-            flagButton(value: 1, label: "Red", color: Color(hex: 0xFF3B30))
-            flagButton(value: 2, label: "Orange", color: Color(hex: 0xFF9500))
-            flagButton(value: 3, label: "Green", color: Color(hex: 0x34C759))
-            flagButton(value: 4, label: "Blue", color: Color(hex: 0x007AFF))
-            flagButton(value: 5, label: "Pink", color: Color(hex: 0xFF2D55))
-            flagButton(value: 6, label: "Turquoise", color: Color(hex: 0x32ADE6))
-            flagButton(value: 7, label: "Purple", color: Color(hex: 0xAF52DE))
-            Divider()
-            Button {
-                applyFlag(0)
-            } label: {
-                Label("Clear flag", systemImage: "flag.slash")
-            }
-        } label: {
-            Label("Flag", systemImage: "flag")
-        }
-        .disabled(selectionState.isEmpty)
-    }
-
-    private func flagButton(value: UInt32, label: String, color: Color) -> some View {
-        Button {
-            applyFlag(value)
-        } label: {
-            HStack {
-                Image(systemName: "flag.fill").foregroundStyle(color)
-                Text(label)
-            }
-        }
-    }
-
     /// Undo/redo ride the ENGINE stack, so they reverse batch deletes too.
     private var undoRedoMenu: some View {
         HStack(spacing: 16) {
@@ -531,55 +563,6 @@ struct BrowseView: View {
             .disabled(model.undoStatus?.canRedo != true)
             .accessibilityLabel(model.undoStatus.map { "Redo \($0.redoText)" } ?? "Redo")
         }
-    }
-
-    // MARK: - Power tools & filter rail (phases 3-6)
-
-    @ViewBuilder
-    private var toolsSection: some View {
-        Button {
-            activeSheet = .filterRail
-        } label: {
-            Label("Filter Rail…", systemImage: "sidebar.leading")
-        }
-        Button {
-            Task { await loadFieldsForTools() }
-            activeSheet = .findDuplicates
-        } label: {
-            Label("Find Duplicates…", systemImage: "square.on.square.dashed")
-        }
-        Button {
-            Task { await loadFieldsForTools() }
-            activeSheet = .findReplace
-        } label: {
-            Label("Find & Replace…", systemImage: "arrow.2.squarepath")
-        }
-    }
-
-    @ViewBuilder
-    private var saveSearchSection: some View {
-        Section("Saved searches") {
-            ForEach(savedSearchStore.searches) { saved in
-                Button {
-                    model.searchText = saved.query
-                    model.scheduleSearch(immediate: true)
-                } label: {
-                    Label(saved.name, systemImage: "heart")
-                }
-            }
-            if !model.searchText.trimmingCharacters(in: .whitespaces).isEmpty {
-                Button {
-                    saveSearchName = ""
-                    showSaveSearchPrompt = true
-                } label: {
-                    Label("Save current search…", systemImage: "heart.circle")
-                }
-            }
-        }
-    }
-
-    private func loadFieldsForTools() async {
-        await refreshNotetypeFields()
     }
 
     // MARK: - Selection actions
@@ -624,6 +607,8 @@ struct BrowseContent: View {
     @Bindable var model: BrowseModel
     @Binding var selectionState: BrowseSelectionState
     let onSwipeDelete: (NoteRecord) -> Void
+    /// View-layer hook: record the tapped row for the detail pane.
+    let onRowFocused: (NoteID) -> Void
 
     var body: some View {
         statefulContent
@@ -668,6 +653,31 @@ struct BrowseContent: View {
     }
 
     // MARK: - Item List
+
+    // Semantic fallback affordance (content side).
+    private var canOfferSemanticFallback: Bool {
+        SemanticNoteIndex.shared.isReady || SemanticNoteIndex.shared.progressDescription != nil
+    }
+
+    private var semanticFallbackRow: some View {
+        Group {
+            if model.ids.isEmpty, !model.isLoading, modeAllowsSemantic {
+                Button {
+                    Task { await model.runSemanticFallback() }
+                } label: {
+                    Label("Search meaning of “\(model.searchText)”", systemImage: "sparkles")
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(palette.accent)
+            }
+        }
+    }
+
+    private var modeAllowsSemantic: Bool {
+        model.mode == .notes &&
+        !model.searchText.trimmingCharacters(in: .whitespaces).isEmpty &&
+        canOfferSemanticFallback
+    }
 
     private var itemList: some View {
         List {
@@ -732,12 +742,12 @@ struct BrowseContent: View {
     private func noteRow(_ note: NoteRecord, index: Int) -> some View {
         HStack {
             if selectionState.isSelectMode {
-                Image(systemName: selectionState.contains(note.id.rawValue) ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(selectionState.contains(note.id.rawValue) ? palette.accent : palette.textSecondary)
+                Image(systemName: selectionState.contains(note.id) ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(selectionState.contains(note.id) ? palette.accent : palette.textSecondary)
                 NoteRowView(note: note, notetypeName: model.notetypeNames[note.mid])
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        selectionState.toggle(note.id.rawValue)
+                        selectionState.toggle(note.id)
                     }
                     .onAppear { onRowAppear(note.id.rawValue, index: index) }
             } else {
@@ -747,7 +757,7 @@ struct BrowseContent: View {
                             .onAppear { onRowAppear(note.id.rawValue, index: index) }
                     }
                     .simultaneousGesture(TapGesture().onEnded {
-                        setDetailFocus(noteID: note.id.rawValue)
+                        onRowFocused(note.id)
                     })
                     NoteContextMenuButton(noteId: note.id) {
                         Task { await model.performSearch() }
@@ -755,7 +765,7 @@ struct BrowseContent: View {
                 }
                 .contentShape(Rectangle())
                 .onLongPressGesture(minimumDuration: 0.5) {
-                    selectionState.enterSelectMode(preselect: note.id.rawValue)
+                    selectionState.enterSelectMode(preselect: note.id)
                 }
             }
         }
@@ -928,20 +938,6 @@ struct NoteContextMenuButton: View {
 
 // MARK: - Rows
 
-extension BrowseSelectionState {
-    func contains(_ rawValue: Int64) -> Bool {
-        selectedNoteIDs.contains(NoteID(rawValue))
-    }
-
-    func toggle(_ rawValue: Int64) {
-        toggle(NoteID(rawValue))
-    }
-
-    func enterSelectMode(preselect rawValue: Int64) {
-        enterSelectMode(preselect: NoteID(rawValue))
-    }
-}
-
 /// Notes-mode row: title + subtitle + trailing state/flag chips.
 /// State dot colors bind to theme card-state slots (decisions.md rule).
 struct NoteRowView: View {
@@ -974,7 +970,7 @@ struct NoteRowView: View {
 
     @ViewBuilder
     private var subtitleView: some View {
-        let parts = [notetypeName].compactMap { $0.isEmpty ? nil : $0 } +
+        let parts = [notetypeName].compactMap { $0?.isEmpty == false ? $0 : nil } +
             note.tags.split(separator: " ").filter { $0 != "marked" }.map(String.init)
         if !parts.isEmpty {
             Text(parts.joined(separator: " · "))
@@ -1055,14 +1051,15 @@ struct CardRowView: View {
 
     @ViewBuilder
     private func duePill(queue: Int16, type: Int16, due: Int32) -> some View {
-        guard let text = dueText(queue: queue, type: type, due: due) else { return }
-        Text(text)
-            .amgiFont(.caption2)
+        if let text = dueText(queue: queue, type: type, due: due) {
+            Text(text)
+                .amgiFont(.caption)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
             .background(dotColor(queue: queue, type: type).opacity(0.14))
-            .foregroundStyle(dotColor(queue: queue, type: type))
-            .clipShape(Capsule())
+                .foregroundStyle(dotColor(queue: queue, type: type))
+                .clipShape(Capsule())
+        }
     }
 
     private func dueText(queue: Int16, type: Int16, due: Int32) -> String? {
@@ -1080,7 +1077,7 @@ struct CardRowView: View {
 // MARK: - Hex helper
 
 private extension Color {
-    init(hex: UInt32) {
+    init(hexBrowseFlag hex: UInt32) {
         self.init(.sRGB,
                   red: Double((hex >> 16) & 0xFF) / 255,
                   green: Double((hex >> 8) & 0xFF) / 255,
@@ -1092,31 +1089,42 @@ private extension Color {
 // MARK: - Preview
 
 #if DEBUG
-#Preview {
-    // Seed the model directly: BrowseContent has no `.task`, so the sample
-    // notes aren't overwritten by a load, and no live backend is touched.
+@MainActor
+private func previewBrowseModel() -> BrowseModel {
     let model = BrowseModel()
-    let records: [(Int64, String)] = [
-        (1, "안녕하세요 — hello"),
-        (2, "Bonjour le monde"),
-        (3, "The quick brown fox jumps over the lazy dog"),
+    let seeded: [(Int64, String, String)] = [
+        (1, "vocab", "안녕하세요 — hello"),
+        (2, "marked grammar", "Bonjour le monde"),
+        (3, "", "The quick brown fox jumps over the lazy dog"),
     ]
-    model.ids = records.map(\.0)
-    for (id, text) in records {
-        let mod: Int64 = switch id { case 1: 1_700_000_300; case 2: 1_700_000_200; default: 1_700_000_100 }
-        let tags = id == 1 ? "vocab" : (id == 2 ? "marked grammar" : "")
-        model.noteRecords[id] = NoteRecord(id: NoteID(id), guid: "g\(id)", mid: NotetypeID(1), mod: mod, tags: tags, flds: "", sfld: text, csum: 0)
+    let mods: [Int64: Int64] = [1: 1_700_000_300, 2: 1_700_000_200, 3: 1_700_000_100]
+    var records: [Int64: NoteRecord] = [:]
+    var ids: [Int64] = []
+    for seed in seeded {
+        let (id, tags, text) = seed
+        records[id] = NoteRecord(
+            id: NoteID(id), guid: "g\(id)", mid: NotetypeID(1), mod: mods[id] ?? 0,
+            tags: tags, flds: "", sfld: text, csum: 0
+        )
+        ids.append(id)
     }
-    model.hasMorePages = false
+    model.seedPreview(ids: ids, records: records)
     model.allTags = ["vocab", "grammar", "marked"]
-    return NavigationStack {
+    return model
+}
+
+#Preview("Browse list") {
+    NavigationStack {
         BrowseContent(
-            model: model,
+            model: previewBrowseModel(),
             selectionState: .constant(BrowseSelectionState()),
-            onSwipeDelete: { _ in }
+            onSwipeDelete: { _ in },
+            onRowFocused: { _ in }
         )
         .navigationTitle("Browse")
         .navigationBarTitleDisplayMode(.inline)
     }
 }
 #endif
+
+extension BrowseView.Sheet: Identifiable {}

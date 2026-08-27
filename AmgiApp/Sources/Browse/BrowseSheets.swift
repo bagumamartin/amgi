@@ -151,7 +151,7 @@ struct FindReplaceSheet: View {
     @Environment(\.palette) private var palette
     let fieldNames: [String]
     let selectionCount: Int
-    let onApply: (_ search: String, _ replacement: String, _ regex: Bool, _ matchCase: Bool, _ fieldName: String?) async -> Void
+    let onApply: (_ search: String, _ replacement: String, _ regex: Bool, _ matchCase: Bool, _ fieldName: String?) async -> Int
 
     @State private var searchText = ""
     @State private var replacement = ""
@@ -281,7 +281,7 @@ struct FindDuplicatesView: View {
             } else {
                 ForEach(Array(exactGroups.enumerated()), id: \.offset) { _, group in
                     Button {
-                        openGroup(group.noteIds.map(NoteID.init))
+                        openGroup(group.noteIds)
                     } label: {
                         HStack {
                             Text(group.value.isEmpty ? "(empty)" : group.value)
@@ -313,7 +313,7 @@ struct FindDuplicatesView: View {
             } else {
                 ForEach(Array(nearGroups.enumerated()), id: \.offset) { _, ids in
                     Button {
-                        openGroup(ids.map(NoteID.init))
+                        openGroup(ids)
                     } label: {
                         HStack {
                             Image(systemName: "sparkles")
