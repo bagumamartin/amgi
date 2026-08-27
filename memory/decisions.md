@@ -265,6 +265,41 @@
   busy view until open succeeds, so nothing downstream touches a closed
   collection.
 
+## Browse redesign (2026-08, browse-redesign-spec.md, branch local/browse-redesign)
+
+- **Decisions**: Browse = 5th tab/section everywhere (fills old Settings slot);
+  Settings lives in the profile menu → account menu with Settings/Manage
+  Profiles rows — on ALL root screens; hybrid row rendering (native themeable
+  content columns + engine BrowserRowForId for numeric/FSRS); sorting ALWAYS
+  engine-side via SearchOrder.builtin (page-window sort bug class banned);
+  semantic search = fallback-suggestion UX phase one (shared AmgiEmbeddings
+  target extracted from AmgiIcons, index per-device outside sync);
+  duplicates = rslib aux RPC + cosine near-dupes in one dialog.
+- **Method-ID oracle**: `_backend_generated.py` holds literal `(svc, method)`
+  pairs; ids = declaration order, BackendSchedulerService declares its own
+  rpcs so scheduler collection-level methods shift +3. Audited values:
+  BuryOrSuspendCards=14, RestoreBuriedAndSuspended=12, SetDueDate=19,
+  GradeNow=20, SortCards=21; search BuildSearchString=0 …BrowserRowForId=7,
+  SetActiveBrowserColumns=8; cards UpdateCards=1/SetDeck=3; collectionOps
+  redo=9. FIXED drift: DeckConfigMethod.getRetentionWorkload was 11, really
+  **9** (latent production bug). CLAUDE.md index rows corrected too.
+- **Aux service pattern**: anki-bridge-rs `AnkiAuxSvc` id 200 intercepted in
+  anki_run_method before engine dispatch; JSON wire format both sides;
+  findDupesExact composes only PUBLIC engine rpcs (with_col is crate-private)
+  mirroring desktop find_dupes incl strip_html grouping. Adding methods needs
+  xcframework rebuild but zero proto regen.
+- **Engine behaviors asserted by probes** (BrowseEngineProbesTests, live
+  scratch collection): BrowserRowForId FAILS "Active browser columns not
+  set" until SetActiveBrowserColumns runs (UI must activate keys before first
+  render); AND-joined search text is space-separated (no literal AND);
+  column keys are strum serializations noteCrt/noteFld/noteTags/note/
+  cardDue/cardEase/cardIvl/cardReps/cardLapses; user-bury queues < -1,
+  suspend -1; UndoStatus carries label strings for dynamic toolbar titles.
+- CardClient un-stubbed: fetchByNote = nid: search + per-card getCard
+  (no batch getCards upstream), save via UpdateCards(5/1), batch surface
+  suspendCards/buryUserCards/restoreBuriedAndSuspended/setDueDate/gradeNow/
+  repositionCards/changeDeck added for Browse selection bar.
+
 ## General
 
 - **NonisolatedNonsendingByDefault + blocking FFI = main-thread freezes** (fixed
