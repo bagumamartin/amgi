@@ -323,6 +323,19 @@
   headerAccessory, so its State enum moved to file scope (StudyLandingState)
   with typealias back-compat.
 
+## RenderPreview spawns a REAL app instance (2026-08)
+
+- Calling MCP `RenderPreview` on this project boots the actual app binary
+  from DerivedData via PreviewShellMac — including `AmgiAppApp.init`'s
+  `prepareDependencies` + `openCollection` on the REAL group-container
+  collection. A timed-out/abandoned preview therefore leaves an invisible
+  Amgi clone holding the engine lock + `mcp.sock`, and the user's next real
+  launch shows the "Amgi is busy" screen. Symptom signature: lsof shows a
+  `DerivedData/.../Debug/AmgiApp.app` process with `-NSDocumentRevisions
+  DebugMode YES`. Fix: `kill <pid>`, user retries. Rule: prefer not to
+  RenderPreview root/app-init views; if one times out, check and kill the
+  preview agent before anything else.
+
 ## General
 
 - **NonisolatedNonsendingByDefault + blocking FFI = main-thread freezes** (fixed
