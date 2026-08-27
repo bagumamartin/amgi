@@ -320,3 +320,21 @@ subrows). Tag-all-duplicates preset action both sides.
   in memory + CLAUDE.md known issues), selection toolbar consolidated into a
   single ToolbarItemGroup, save-search alert wired, previews MainActor-safe,
   ARCHITECTURE.md service table corrected and Browse flow rewritten.
+
+- 2026-08 (entry-point v2 + contextual chrome + package export):
+  Browse identity = magnifyingglass everywhere (section icon included);
+  NO dedicated browse buttons on any screen. Library stays the four-glyph
+  exception (Sync · Import · Export · New Deck) and gains the native
+  iOS 26 minimized search pill (.searchToolbarBehavior(.minimized)) whose
+  typing hands off live into the Browse section; Read keeps its books-
+  scoped search, same modifier; Study (hidden nav bar) uses a header
+  magnifyingglass button iPhone-side and a genuine toolbar field on Mac,
+  both scoped `due:today`; Stats search deferred. DeckDetail's per-deck
+  menu row dropped — context carries scope. Trailing chrome standardized
+  as Undo · Sync · ⋯ via Shared/CollectionChrome.swift (EngineUndoMonitor
+  over the ENGINE stack; Sync posts .amgiPresentSync); Read/Stats get
+  sync-only. Package export shipped as Shared/ExportPackagesSheet.swift —
+  whole-collection .colpkg via exportCollectionPackage and single-deck
+  .apkg via exportDeckPackage, media toggle, ShareLink out; Library's new
+  Export glyph opens it. Semantic fallback suppressed whenever the query
+  carries structural tokens.

@@ -23,10 +23,24 @@ struct StudyLandingView: View {
     /// hidden there; macOS gets the standard toolbar placement.
     #if os(iOS)
     @State private var accountDestination: AccountMenuDestination?
+    /// Native search field isn't hostable here (nav bar hidden by design),
+    /// so the funnel is a compact magnifyingglass that hands off scoped to
+    /// today's queue (browse-redesign-spec §5.1 v2).
     private var headerAccessory: some View {
-        ProfilePickerMenu(open: $accountDestination)
-            .accountMenuDestinations($accountDestination)
+        HStack(spacing: 14) {
+            Button {
+                BrowseLauncher.shared.launch(query: "due:today")
+            } label: {
+                Image(systemName: "magnifyingglass")
+            }
+            .accessibilityLabel("Search today's cards")
+            ProfilePickerMenu(open: $accountDestination)
+        }
+        .accountMenuDestinations($accountDestination)
     }
+    #else
+    @State private var macSearchQuery = ""
+    @State private var macHandoff = RootSearchHandoff()
     #endif
 
     var body: some View {
@@ -39,6 +53,26 @@ struct StudyLandingView: View {
         #else
         studyContent(headerAccessory: EmptyView())
             .accountMenu()
+            // Mac Study has a real toolbar — native field, same scope.
+            .searchable(
+                text: $macSearchQuery,
+                placement: .toolbar,
+                prompt: "Search today's cards"
+            )
+            .onChange(of: macSearchQuery) { _, newValue in
+                let trimmed = newValue.trimmingCharacters(in: .whitespaces)
+                guard !trimmed.isEmpty else { return }
+                macHandoff.schedule("due:today \(trimmed)") {
+                    BrowseLauncher.shared.launch(query: $0)
+                }
+            }
+            .onSubmit(of: .search) {
+                let trimmed = macSearchQuery.trimmingCharacters(in: .whitespaces)
+                guard !trimmed.isEmpty else { return }
+                macHandoff.submit("due:today \(trimmed)") {
+                    BrowseLauncher.shared.launch(query: $0)
+                }
+            }
         #endif
     }
 

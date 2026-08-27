@@ -58,6 +58,17 @@ struct DeckListView: View {
             DeckDetailView(deck: deck)
         }
         .toolbar { toolbarContent }
+        .searchable(
+            text: $rootSearchQuery,
+            placement: .navigationBarDrawer(displayMode: .automatic),
+            prompt: "Search notes…"
+        )
+        .searchMinimizedIfAvailable()
+        .onChange(of: rootSearchQuery) { _, _ in performRootHandoff(immediate: false) }
+        .onSubmit(of: .search) { performRootHandoff(immediate: true) }
+        .sheet(isPresented: $showExportSheet) {
+            ExportPackagesSheet()
+        }
         .sheet(isPresented: $showCreateSheet) {
             CreateDeckSheet {
                 showCreateSheet = false
@@ -86,20 +97,38 @@ struct DeckListView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        // Library is the documented four-glyph exception (Sync · Import live
+        // in MainTabView.libraryToolbar): search funnels via the native
+        // minimized field below — no dedicated browse button anywhere.
         ToolbarItem(placement: .topBarTrailing) {
-            // Browse drill-in — seedless entry; profile menu moved to the
-            // shared .accountMenu() installed by MainTabView.
             Button {
-                BrowseLauncher.shared.launch()
+                showExportSheet = true
             } label: {
-                Image(systemName: "square.stack.3d.up")
+                Image(systemName: "square.and.arrow.up")
             }
-            .help("Browse cards and notes")
+            .help("Export deck or collection package")
         }
         ToolbarItem(placement: .topBarTrailing) {
             Button("New Deck", systemImage: "plus") {
                 showCreateSheet = true
             }
+        }
+    }
+
+    /// Live funnel into the Browse section (browse-redesign-spec §5.1 v2):
+    /// typing here hands the query off; Browse owns all results.
+    @State private var rootSearchQuery = ""
+    @State private var rootHandoff = RootSearchHandoff()
+    @State private var showExportSheet = false
+
+    private func performRootHandoff(immediate: Bool) {
+        let launch = { (query: String) in
+            BrowseLauncher.shared.launch(query: query)
+        }
+        if immediate {
+            rootHandoff.submit(rootSearchQuery, launch: launch)
+        } else {
+            rootHandoff.schedule(rootSearchQuery, launch: launch)
         }
     }
 }

@@ -30,7 +30,7 @@ enum MainSection: String, CaseIterable, Identifiable {
         case .read: "book"
         case .study: "graduationcap"
         case .stats: "chart.bar"
-        case .browse: "square.stack.3d.up"
+        case .browse: "magnifyingglass"
         }
     }
 }

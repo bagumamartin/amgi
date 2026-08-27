@@ -310,13 +310,20 @@ struct BrowseView: View {
                 modeSection
                 Divider()
                 sortSection
-                Divider()
-                toolsSection
-                Divider()
-                saveSearchSection
             } label: {
                 Image(systemName: "arrow.up.arrow.down")
             }
+        }
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            EngineUndoButton()
+            SyncToolbarButton()
+            Menu {
+                toolsSection
+                saveSearchSection
+            } label: {
+                Image(systemName: "ellipsis")
+            }
+            .accessibilityLabel("Browse tools")
         }
         ToolbarItem(placement: .topBarTrailing) {
             if selectionState.isSelectMode {
@@ -675,7 +682,7 @@ struct BrowseContent: View {
 
     private var modeAllowsSemantic: Bool {
         model.mode == .notes &&
-        !model.searchText.trimmingCharacters(in: .whitespaces).isEmpty &&
+        model.searchTextIsPlainFreeText &&
         canOfferSemanticFallback
     }
 

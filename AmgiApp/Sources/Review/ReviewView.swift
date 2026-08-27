@@ -252,7 +252,9 @@ private struct ReviewContent: View {
                     }
                 }
                 #endif
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    EngineUndoButton()
+                    SyncToolbarButton()
                     cardActionsMenu
                 }
             }

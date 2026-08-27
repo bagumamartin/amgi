@@ -269,7 +269,7 @@
 
 - **Decisions**: Browse = 5th tab/section everywhere (fills old Settings slot);
   Settings lives in the profile menu → account menu with Settings/Manage
-  Profiles rows — on ALL root screens; hybrid row rendering (native themeable
+  Profiles rows — on ALL root screens (settings row later moved per entry-v2); hybrid row rendering (native themeable
   content columns + engine BrowserRowForId for numeric/FSRS); sorting ALWAYS
   engine-side via SearchOrder.builtin (page-window sort bug class banned);
   semantic search = fallback-suggestion UX phase one (shared AmgiEmbeddings
@@ -295,6 +295,26 @@
   column keys are strum serializations noteCrt/noteFld/noteTags/note/
   cardDue/cardEase/cardIvl/cardReps/cardLapses; user-bury queues < -1,
   suspend -1; UndoStatus carries label strings for dynamic toolbar titles.
+
+- **Entry-point v2 + chrome + export (2026-08, supersedes the drill-in
+  wording above)**: NO browse buttons anywhere — search IS browse. Section
+  icon = magnifyingglass. Library = four-glyph exception (Sync · Import ·
+  Export · New Deck) plus native iOS 26 minimized search
+  (.searchToolbarBehavior(.minimized), attach AFTER .searchable; iPhone-only
+  pill idiom, iPad/Mac render standard fields automatically) funneling live
+  into Browse via RootSearchHandoff debounce (Shared/CollectionChrome.swift).
+  Read: books-scoped search, same modifier, no Browse handoff. Study:
+  hidden-bar iPhone uses header magnifyingglass → `due:today` scoped launch;
+  Mac hosts a real toolbar field with identical scope. DeckDetail menu row
+  dropped ("rely on context"). Trailing chrome standardized Undo · Sync · ⋯
+  (EngineUndoMonitor = engine stack mirror refreshed on store generation;
+  Sync posts .amgiPresentSync) — Library exempted by user fiat.
+  ExportPackagesSheet: .colpkg via exportCollectionPackage / .apkg via
+  exportDeckPackage(deckId,path,sched,cfg,media,legacy=false), tmp file +
+  ShareLink; opened from Library's Export glyph. Semantic fallback gated on
+  searchTextIsPlainFreeText (no structural prefixes) so scoped queries stay
+  clean.
+
 - CardClient un-stubbed: fetchByNote = nid: search + per-card getCard
   (no batch getCards upstream), save via UpdateCards(5/1), batch surface
   suspendCards/buryUserCards/restoreBuriedAndSuspended/setDueDate/gradeNow/

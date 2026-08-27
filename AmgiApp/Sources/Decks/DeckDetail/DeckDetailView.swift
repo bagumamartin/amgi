@@ -218,18 +218,17 @@ struct DeckDetailView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) {
+        // Contextual trailing chrome: Undo · Sync · ⋯ (plain glyphs, iOS 26
+        // groups them into the glass capsule). Replaces the custom
+        // material-circle menu per the chrome design language.
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            EngineUndoButton()
+            SyncToolbarButton()
             Menu {
                 Button {
                     destination = .sheet(.addNote)
                 } label: {
                     Label("Add Note", systemImage: "square.and.pencil")
-                }
-                // Browse drill-in scoped to this deck (D1).
-                Button {
-                    BrowseLauncher.shared.launch(query: "deck:\"\(deck.name)\"")
-                } label: {
-                    Label("Browse Cards", systemImage: "square.stack.3d.up")
                 }
                 if !deck.isFiltered {
                     Button {
@@ -259,9 +258,6 @@ struct DeckDetailView: View {
                 .disabled(model.exportInProgress)
             } label: {
                 Image(systemName: "ellipsis")
-                    .font(.system(size: 16, weight: .semibold))
-                    .frame(width: 30, height: 30)
-                    .background(.regularMaterial, in: Circle())
             }
             .accessibilityLabel("More")
         }

@@ -7,12 +7,22 @@ import Dependencies
 struct StatsDashboardView: View {
     @Environment(\.palette) private var palette
 
+    /// Sync is wanted on every concerned screen; stats has no collection
+    /// mutations of its own, so its trailing chrome is sync-only.
+    @ToolbarContentBuilder
+    private var chrome: some ToolbarContent {
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            SyncToolbarButton()
+        }
+    }
+
     @State private var model = StatsDashboardModel()
     @State private var period: StatsPeriod = .month
     @State private var selectedDeck: DeckInfo?
 
     var body: some View {
         ScrollView {
+
             LazyVStack(spacing: AmgiSpacing.lg) {
                 if model.isLoading {
                     ProgressView("Loading statistics...")
@@ -55,6 +65,7 @@ struct StatsDashboardView: View {
         .scrollContentBackground(.hidden)
         .background(palette.surface)
         .navigationTitle("Statistics")
+        .toolbar { chrome }
         .task {
             await model.loadDecks()
             await reloadStats()

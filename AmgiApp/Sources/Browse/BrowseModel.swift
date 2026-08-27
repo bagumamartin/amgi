@@ -578,6 +578,19 @@ final class BrowseModel {
         SemanticNoteIndex.shared.nearDuplicateGroups(scope: Array(ids.prefix(windowEnd)))
     }
 
+    /// True when the user's text is pure free-text (no pinned grammar
+    /// fragments) — gates the semantic fallback suggestion so scoped or
+    /// structural searches never get "search meaning of…" noise.
+    var searchTextIsPlainFreeText: Bool {
+        let prefixes = ["deck:", "tag:", "is:", "due:", "added:", "edited:",
+                        "rated:", "prop:", "nid:", "note:", "flag:", "introduced:"]
+        for word in searchText.split(separator: " ") {
+            let lowered = word.lowercased()
+            if prefixes.contains(where: { lowered.hasPrefix($0) }) { return false }
+        }
+        return true
+    }
+
     // MARK: - Query assembly (phase 3 replaces chips with tokens)
 
     func buildQuery() -> String {
