@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 
 // Domain mirrors for the browser-table engine surface (`search.proto`
 // BrowserRow/BrowserColumns + duplicate detection). Protobuf shapes stay
@@ -106,6 +106,30 @@ public struct UndoStatusInfo: Sendable, Equatable {
         self.undoText = undoText
         self.canRedo = canRedo
         self.redoText = redoText
+    }
+}
+
+/// Result of the aux exact-duplicate scan (`anki-bridge-rs` service 200).
+/// Wire format is JSON — keep types Codable.
+public struct FindDuplicatesResult: Sendable, Equatable, Codable {
+    public struct Group: Sendable, Equatable, Codable {
+        /// The duplicated field text (HTML stripped).
+        public let value: String
+        public let noteIds: [Int64]
+
+        public init(value: String, noteIds: [Int64]) {
+            self.value = value
+            self.noteIds = noteIds
+        }
+    }
+
+    public let groups: [Group]
+    /// Notes examined during the scan.
+    public let notesScanned: Int
+
+    public init(groups: [Group], notesScanned: Int) {
+        self.groups = groups
+        self.notesScanned = notesScanned
     }
 }
 

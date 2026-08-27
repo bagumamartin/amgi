@@ -20,6 +20,14 @@ enum ServiceID {
     static let media: UInt32 = 39
     static let stats: UInt32 = 41
     static let tags: UInt32 = 43
+    /// Amgi-only aux service in anki-bridge-rs (not an engine service).
+    /// Intercepted by `anki_run_method` before engine dispatch.
+    static let aux: UInt32 = 200
+}
+
+/// Aux methods (JSON wire format, not protobuf).
+enum AuxMethod {
+    static let findDupesExact: UInt32 = 0
 }
 
 /// BackendConfigService (9). Indexes verified against AnkiBackend's
@@ -126,8 +134,7 @@ enum NotesMethod {
     static let getNote: UInt32 = 6
 }
 
-enum SearchMethod {
-    /// search.proto's backend block is empty, so ids are plain
+enum SearchMethod {    /// search.proto's backend block is empty, so ids are plain
     /// declaration order (verified against `_backend_generated.py`).
     static let buildSearchString: UInt32 = 0
     static let searchCards: UInt32 = 1
