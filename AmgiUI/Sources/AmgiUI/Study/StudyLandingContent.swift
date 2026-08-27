@@ -4,7 +4,7 @@ import AmgiTheme
 /// Pure rendering surface for the Study landing screen. Owns no I/O.
 /// The container in the app target loads data and maps it to the
 /// single `State` value passed here.
-public struct StudyLandingContent: View {
+public struct StudyLandingContent<HeaderAccessory: View>: View {
     public enum State: Equatable, Sendable {
         case loading
         case empty
@@ -21,21 +21,42 @@ public struct StudyLandingContent: View {
     let onSelectBook: (String) -> Void
     let onRefresh: () async -> Void
 
+    /// Trailing slot beside the inline title — the app target injects the
+    /// account menu here on iOS where the navigation bar is hidden.
+    let headerAccessory: HeaderAccessory
+
     @Environment(\.palette) private var palette
     @SwiftUI.State private var expandedIDs: Set<Int64> = []
 
     public init(
         state: State,
+        headerAccessory: HeaderAccessory,
         onBeginSession: @escaping () -> Void,
         onSelectDeck: @escaping (Int64) -> Void,
         onSelectBook: @escaping (String) -> Void,
         onRefresh: @escaping () async -> Void
     ) {
         self.state = state
+        self.headerAccessory = headerAccessory
         self.onBeginSession = onBeginSession
         self.onSelectDeck = onSelectDeck
         self.onSelectBook = onSelectBook
         self.onRefresh = onRefresh
+    }
+
+    /// Back-compat initializer for callers without a header accessory.
+    public init(
+        state: State,
+        onBeginSession: @escaping () -> Void,
+        onSelectDeck: @escaping (Int64) -> Void,
+        onSelectBook: @escaping (String) -> Void,
+        onRefresh: @escaping () async -> Void
+    ) where HeaderAccessory == EmptyView {
+        self.init(
+            state: state, headerAccessory: EmptyView(),
+            onBeginSession: onBeginSession, onSelectDeck: onSelectDeck,
+            onSelectBook: onSelectBook, onRefresh: onRefresh
+        )
     }
 
     public var body: some View {
@@ -95,13 +116,17 @@ public struct StudyLandingContent: View {
     // MARK: - Inline header
 
     private func inlineHeader(summary: StudySummaryData) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(summary.todayLabel)
-                .amgiFont(.displayHero)
-                .foregroundStyle(palette.textPrimary)
-            Text(summary.subtitleLabel)
-                .amgiFont(.caption)
-                .foregroundStyle(palette.textSecondary)
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(summary.todayLabel)
+                    .amgiFont(.displayHero)
+                    .foregroundStyle(palette.textPrimary)
+                Text(summary.subtitleLabel)
+                    .amgiFont(.caption)
+                    .foregroundStyle(palette.textSecondary)
+            }
+            Spacer(minLength: 12)
+            headerAccessory
         }
         .padding(.top, 20)
         .padding(.bottom, 24)

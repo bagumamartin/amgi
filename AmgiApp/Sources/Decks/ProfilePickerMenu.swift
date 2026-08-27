@@ -1,19 +1,29 @@
 import SwiftUI
 import AmgiTheme
 
-/// Compact toolbar menu that exposes profile switching from the Decks
-/// tab without forcing the user into Settings. Active profile shows a
-/// checkmark; tapping any other profile schedules a switch (consumed
-/// at next cold start — see `AccountStore`). Pending switch surfaces
-/// as an orange `arrow.triangle.2.circlepath` next to the label so
-/// the user remembers to relaunch.
+/// Compact toolbar menu that exposes profile switching from any root tab
+/// without forcing the user into Settings. Active profile shows a
+/// checkmark; tapping any other profile schedules a switch (consumed at
+/// next cold start — see `AccountStore`). Pending switch surfaces as an
+/// orange `arrow.triangle.2.circlepath` next to the label so the user
+/// remembers to relaunch.
 ///
-/// Add/delete still happens in Settings → Account → Profiles; this
-/// menu is a fast picker, not a full manager.
+/// The menu doubles as the app's SETTINGS ENTRY POINT on every root
+/// screen (browse-redesign-spec D2): the optional `open` binding routes
+/// "Settings…" / "Manage Profiles…" onto the enclosing NavigationStack
+/// via `.accountMenu()`.
 struct ProfilePickerMenu: View {
+    /// Set by the menu's bottom rows; nil = plain fast-picker (legacy use).
+    @Binding var open: AccountMenuDestination?
+
     @State private var store = AccountStore.shared
     @State private var iconStore = ProfileIconStore.shared
     @Environment(\.palette) private var palette
+
+    /// Legacy call sites that only need switching (no settings rows).
+    init(open: Binding<AccountMenuDestination?>? = nil) {
+        self._open = open ?? .constant(nil)
+    }
 
     var body: some View {
         Menu {
@@ -42,6 +52,14 @@ struct ProfilePickerMenu: View {
             } header: {
                 Text("Switch profile")
             }
+            Section {
+                Button("Settings…", systemImage: "gearshape") {
+                    open = .settings
+                }
+                Button("Manage Profiles…", systemImage: "person.crop.rectangle.stack") {
+                    open = .manageProfiles
+                }
+            }
         } label: {
             HStack(spacing: 4) {
                 if let emoji = iconStore.icon(for: store.current.id) {
@@ -60,7 +78,7 @@ struct ProfilePickerMenu: View {
                     .lineLimit(1)
             }
         }
-        .accessibilityLabel("Profile: \(store.current.displayName)")
+        .accessibilityLabel("Profile and settings: \(store.current.displayName)")
         .task { await iconStore.refresh() }
     }
 }

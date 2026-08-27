@@ -86,14 +86,15 @@ struct DeckListView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            ProfilePickerMenu()
-        }
         ToolbarItem(placement: .topBarTrailing) {
-            // Browse entry — TODO: wire navigation when Browse is reachable from Library.
-            Button("Browse", systemImage: "square.stack.3d.up") {
-                // No-op for now; existing surface kept to match the design's two pill buttons.
+            // Browse drill-in — seedless entry; profile menu moved to the
+            // shared .accountMenu() installed by MainTabView.
+            Button {
+                BrowseLauncher.shared.launch()
+            } label: {
+                Image(systemName: "square.stack.3d.up")
             }
+            .help("Browse cards and notes")
         }
         ToolbarItem(placement: .topBarTrailing) {
             Button("New Deck", systemImage: "plus") {

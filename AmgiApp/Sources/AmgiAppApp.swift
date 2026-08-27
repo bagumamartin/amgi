@@ -264,6 +264,8 @@ struct AnkiAppApp: App {
                     .keyboardShortcut("3", modifiers: .command)
                 Button("Stats") { $rootSection.withLock { $0 = MainSection.stats.rawValue } }
                     .keyboardShortcut("4", modifiers: .command)
+                Button("Browse") { $rootSection.withLock { $0 = MainSection.browse.rawValue } }
+                    .keyboardShortcut("5", modifiers: .command)
             }
             CommandGroup(after: .toolbar) {
                 Button("Sync Now") {

@@ -225,6 +225,12 @@ struct DeckDetailView: View {
                 } label: {
                     Label("Add Note", systemImage: "square.and.pencil")
                 }
+                // Browse drill-in scoped to this deck (D1).
+                Button {
+                    BrowseLauncher.shared.launch(query: "deck:\"\(deck.name)\"")
+                } label: {
+                    Label("Browse Cards", systemImage: "square.stack.3d.up")
+                }
                 if !deck.isFiltered {
                     Button {
                         newSubdeckName = ""

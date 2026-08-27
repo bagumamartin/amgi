@@ -18,17 +18,40 @@ struct StudyLandingView: View {
     @Dependency(\.liveReviewCounts) private var liveCounts
     @State private var model = StudyLandingModel()
 
+    /// Account menu (profile switch + settings push). iOS renders it in
+    /// the landing header's accessory slot because the navigation bar is
+    /// hidden there; macOS gets the standard toolbar placement.
+    #if os(iOS)
+    @State private var accountDestination: AccountMenuDestination?
+    private var headerAccessory: some View {
+        ProfilePickerMenu(open: $accountDestination)
+            .accountMenuDestinations($accountDestination)
+    }
+    #endif
+
     var body: some View {
+        #if os(iOS)
+        studyContent(
+            headerAccessory: ProfilePickerMenu(open: $accountDestination)
+                .accountMenuDestinations($accountDestination)
+        )
+        .toolbar(.hidden, for: .navigationBar)
+        #else
+        studyContent(headerAccessory: EmptyView())
+            .accountMenu()
+        #endif
+    }
+
+    @ViewBuilder
+    private func studyContent<Accessory: View>(headerAccessory: Accessory) -> some View {
         StudyLandingContent(
             state: model.contentState,
+            headerAccessory: headerAccessory,
             onBeginSession: beginSession,
             onSelectDeck: { id in onSelectDeck(DeckID(id)) },
             onSelectBook: { bookID in model.selectBook(bookID) },
             onRefresh: { await model.load() }
         )
-        #if os(iOS)
-        .toolbar(.hidden, for: .navigationBar)
-        #endif
         .sheet(item: $model.selectedBook) { book in
             NavigationStack {
                 ChapterListView(book: book, progress: model.progressCoordinator)

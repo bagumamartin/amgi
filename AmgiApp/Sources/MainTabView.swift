@@ -5,8 +5,12 @@ import Sharing
 
 /// The app's top-level sections. Shared by the iOS tab bar and the macOS
 /// sidebar so menu commands (⌘1–5) and the root switcher stay in sync.
+///
+/// Browse fills the fifth slot; Settings lives in every root's account
+/// menu (`ProfilePickerMenu`) plus the menu bar on macOS / iPadOS 26+
+/// (browse-redesign-spec D1/D2).
 enum MainSection: String, CaseIterable, Identifiable {
-    case library, read, study, stats, settings
+    case library, read, study, stats, browse
 
     var id: String { rawValue }
 
@@ -16,7 +20,7 @@ enum MainSection: String, CaseIterable, Identifiable {
         case .read: "Read"
         case .study: "Study"
         case .stats: "Stats"
-        case .settings: "Settings"
+        case .browse: "Browse"
         }
     }
 
@@ -26,7 +30,7 @@ enum MainSection: String, CaseIterable, Identifiable {
         case .read: "book"
         case .study: "graduationcap"
         case .stats: "chart.bar"
-        case .settings: "gearshape"
+        case .browse: "square.stack.3d.up"
         }
     }
 }
@@ -52,26 +56,19 @@ struct MainTabView: View {
     /// Persisted so menu commands and the sidebar share one source of truth.
     @Shared(.appStorage(NavigationPreferences.rootSection)) private var sectionRaw: String = MainSection.study.rawValue
 
+    /// Consume drill-in launch requests (deck detail "Browse", deep links)
+    /// by switching sections; BrowseView clears after consuming.
+    @State private var browseRequest = BrowseLauncher.shared
+
     private var sections: [MainSection] {
         MainSection.allCases.filter { section in
-            switch section {
-            case .read: return showReaderTab
-            #if os(macOS)
-            // Settings lives in its own window (⌘,) on macOS — not a section.
-            case .settings: return false
-            #endif
-            default: return true
-            }
+            if case .read = section { return showReaderTab }
+            return true
         }
     }
 
     private var selection: MainSection {
-        let resolved = MainSection(rawValue: sectionRaw) ?? .study
-        #if os(macOS)
-        return resolved == .settings ? .study : resolved
-        #else
-        return resolved
-        #endif
+        MainSection(rawValue: sectionRaw) ?? .study
     }
 
     /// Writes the `@Shared` raw value directly (nonmutating), so the binding
@@ -86,30 +83,37 @@ struct MainTabView: View {
     }
 
     var body: some View {
-        #if os(macOS)
-        NavigationSplitView {
-            List(selection: selectionBinding) {
+        Group {
+            #if os(macOS)
+            NavigationSplitView {
+                List(selection: selectionBinding) {
+                    ForEach(sections) { section in
+                        Label(section.title, systemImage: section.systemImage)
+                            .tag(section)
+                    }
+                }
+                .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 260)
+            } detail: {
+                sectionContent(selection)
+            }
+            #else
+            TabView(selection: selectionBinding) {
                 ForEach(sections) { section in
-                    Label(section.title, systemImage: section.systemImage)
-                        .tag(section)
+                    Tab(section.title, systemImage: section.systemImage, value: section) {
+                        sectionContent(section)
+                    }
                 }
             }
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 260)
-        } detail: {
-            sectionContent(selection)
+            // iPadOS HIG: adaptive sidebar/tab bar on regular width; iPhone
+            // keeps the compact bottom tab bar.
+            .tabViewStyle(.sidebarAdaptable)
+            #endif
         }
-        #else
-        TabView(selection: selectionBinding) {
-            ForEach(sections) { section in
-                Tab(section.title, systemImage: section.systemImage, value: section) {
-                    sectionContent(section)
-                }
-            }
+        .onChange(of: browseRequest.requestID) {
+            // A drill-in arrived from any root: surface Browse now; the
+            // query payload is picked up when its view appears.
+            selectionBinding.wrappedValue = .browse
         }
-        // iPadOS HIG: adaptive sidebar/tab bar on regular width; iPhone
-        // keeps the compact bottom tab bar.
-        .tabViewStyle(.sidebarAdaptable)
-        #endif
     }
 
     @ViewBuilder
@@ -118,26 +122,31 @@ struct MainTabView: View {
         case .library:
             NavigationStack {
                 DeckListView(onStartReview: { onSelectStudyDeck(DeckID(0)) })
+                    .accountMenu()
                     .toolbar { libraryToolbar }
             }
         case .read:
             NavigationStack {
                 ReaderLibraryView()
                     .id(refreshID)
+                    .accountMenu()
             }
         case .study:
             NavigationStack {
                 StudyLandingView(onSelectDeck: onSelectStudyDeck)
+                    .id(refreshID)
             }
         case .stats:
             NavigationStack {
                 StatsDashboardView()
                     .id(refreshID)
+                    .accountMenu()
             }
-        case .settings:
+        case .browse:
             NavigationStack {
-                SettingsView()
+                BrowseView()
                     .id(refreshID)
+                    .accountMenu()
             }
         }
     }
