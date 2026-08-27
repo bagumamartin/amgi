@@ -87,12 +87,18 @@ extension Request where Response == Void {
 
     /// Removes a single note (and its cards) by id.
     public static func removeNote(id: NoteID) -> Self {
+        .removeNotes(noteIds: [id])
+    }
+
+    /// Batch note removal — one engine transaction, one undo entry
+    /// (Browse "Delete" must be reversible, spec D6).
+    public static func removeNotes(noteIds: [NoteID]) -> Self {
         Self(
             serviceId: ServiceID.notes,
             methodId: NotesMethod.removeNotes,
             encode: {
                 var proto = Anki_Notes_RemoveNotesRequest()
-                proto.noteIds = [id.rawValue]
+                proto.noteIds = noteIds.map(\.rawValue)
                 return try proto.serializedData()
             },
             decode: { _ in () }

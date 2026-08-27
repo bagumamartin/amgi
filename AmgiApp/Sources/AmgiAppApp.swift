@@ -215,8 +215,24 @@ struct AnkiAppApp: App {
                 CardWebViewPrewarmer.shared.prewarmIfNeeded()
             }
             .onOpenURL { url in
-                guard url.scheme == "amgi", url.host == "study" else { return }
-                $rootSection.withLock { $0 = MainSection.study.rawValue }
+                guard url.scheme == "amgi" else { return }
+                switch url.host {
+                case "study":
+                    $rootSection.withLock { $0 = MainSection.study.rawValue }
+                case "browse":
+                    // amgi://browse?deck=<name> drill-ins; %20 etc. restored
+                    // by URLComponents so quoted deck names survive.
+                    var query: String?
+                    if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+                       let value = components.queryItems?.first(where: { $0.name == "deck" })?.value,
+                       !value.isEmpty {
+                        query = "deck:\"\(value)\""
+                    }
+                    BrowseLauncher.shared.launch(query: query)
+                    $rootSection.withLock { $0 = MainSection.browse.rawValue }
+                default:
+                    break
+                }
             }
             .themedRoot()
             .environment(\.appFont, AppFont(rawValue: appFontRaw) ?? .system)

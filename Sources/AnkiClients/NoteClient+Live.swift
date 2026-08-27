@@ -1,4 +1,6 @@
+import AnkiBackend
 import AnkiKit
+import AnkiProtoBridge
 import AnkiServices
 public import Dependencies
 import DependenciesMacros
@@ -6,6 +8,7 @@ import DependenciesMacros
 extension NoteClient: DependencyKey {
     public static let liveValue: Self = {
         @Dependency(\.notesService) var notes
+        @Dependency(\.ankiBackend) var backend
 
         return Self(
             fetch: { noteId in
@@ -52,6 +55,17 @@ extension NoteClient: DependencyKey {
                         }
                     }
                     return results
+                }
+            },
+            searchIds: { query, order in
+                try await backendOffload {
+                    try backend.invoke(.searchNoteIds(query: query, order: order))
+                }
+            },
+            deleteBatch: { noteIds in
+                guard !noteIds.isEmpty else { return }
+                try await backendOffload {
+                    _ = try backend.invoke(.removeNotes(noteIds: noteIds))
                 }
             },
             save: { note in

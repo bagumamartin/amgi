@@ -1,4 +1,5 @@
 public import AnkiKit
+public import AnkiProtoBridge
 public import Dependencies
 import DependenciesMacros
 
@@ -15,6 +16,11 @@ public struct NoteClient: Sendable {
     /// placeholders. Slower for large results but required when the
     /// caller reads `flds` immediately.
     public var searchAll: @Sendable (_ query: String, _ limit: Int?) async throws -> [NoteRecord]
+    /// Raw id search with engine-side ordering (browse-redesign-spec D3:
+    /// sorting never happens client-side over paged windows).
+    public var searchIds: @Sendable (_ query: String, _ order: SearchOrder?) async throws -> [NoteID]
+    /// Single-transaction batch delete — one engine undo entry.
+    public var deleteBatch: @Sendable (_ noteIds: [NoteID]) async throws -> Void
     public var save: @Sendable (_ note: NoteRecord) async throws -> Void
     public var delete: @Sendable (_ noteId: NoteID) async throws -> Void
 }

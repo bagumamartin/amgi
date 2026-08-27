@@ -92,6 +92,9 @@ extension CardClient: DependencyKey {
                 try await backend.invoke(.removeCards(cardIds: cardIds))
                 logger.info("Removed \(cardIds.count) cards")
             },
+            searchIds: { query, order in
+                try await backend.invoke(.searchCardIds(query: query, order: order))
+            },
             suspendCards: { cardIds, noteIds in
                 try await backend.invoke(.suspendCards(cardIds: cardIds, noteIds: noteIds))
                 logger.info("Suspended \(cardIds.count) cards / \(noteIds.count) notes")

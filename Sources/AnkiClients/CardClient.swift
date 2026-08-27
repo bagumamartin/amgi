@@ -1,4 +1,5 @@
 public import AnkiKit
+public import AnkiProtoBridge
 public import Dependencies
 import DependenciesMacros
 @DependencyClient
@@ -20,6 +21,8 @@ public struct CardClient: Sendable {
     public var getCardFlags: @Sendable (_ cardId: CardID) async throws -> UInt32
     public var hasUndoableAction: @Sendable () async throws -> Bool
     public var removeCards: @Sendable (_ cardIds: [CardID]) async throws -> Void
+    /// Raw id search with engine-side ordering (spec D3).
+    public var searchIds: @Sendable (_ query: String, _ order: SearchOrder?) async throws -> [CardID]
 
     // MARK: Batch operations (Browse selection bar)
 

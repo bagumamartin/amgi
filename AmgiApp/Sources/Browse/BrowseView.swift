@@ -4,14 +4,8 @@ import AnkiClients
 import Dependencies
 import AmgiTheme
 
-enum BrowseSortOrder: String, CaseIterable, Sendable {
-    case dateDesc = "Date (newest)"
-    case titleAsc = "Title (A→Z)"
-    case templateAsc = "Type (A→Z)"
-}
-
 /// Browse container: owns navigation, sheets, selection, and the toolbar,
-/// and drives a `BrowseModel` for load/search/paging + note mutations.
+/// and drives a `BrowseModel` for load/search/windowing + mutations.
 /// Rendering is delegated to `BrowseContent`; the model owns all I/O so the
 /// View is thin presentation wiring with no direct engine access.
 struct BrowseView: View {
@@ -34,10 +28,30 @@ struct BrowseView: View {
         @Bindable var model = model
         decoratedContent
             .searchable(text: $model.searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search notes...")
-            .onChange(of: model.searchText) { Task { await model.performSearch() } }
-            .onChange(of: model.activeDeck) { Task { await model.performSearch() } }
-            .onChange(of: model.activeTag) { Task { await model.performSearch() } }
-            .task { await model.loadInitial() }
+            .onChange(of: model.searchText) { _, _ in model.scheduleSearch() }
+            .onChange(of: model.activeDeck) { _, _ in model.scheduleSearch(immediate: true) }
+            .onChange(of: model.activeTag) { _, _ in model.scheduleSearch(immediate: true) }
+            .task { await appear() }
+    }
+
+    private func appear() async {
+        await model.loadDecks()
+        if let seed = BrowseLauncher.shared.consume(), !seed.isEmpty,
+           seed.hasPrefix("deck:"), let name = seed.dropFirst(5).trimmedQuoted,
+           let deck = model.allDecks.first(where: { $0.name == name }) {
+            // Drill-in: scope to that deck, reusing the chip bar state.
+            model.parentDeck = deck
+            model.activeDeck = deck
+            await model.loadInitial()
+            await model.performSearch()
+        } else if let seed = BrowseLauncher.shared.consume(), !seed.isEmpty {
+            model.searchText = seed
+            await model.loadInitial()
+            await model.performSearch()
+        } else {
+            await model.loadInitial()
+        }
+        await model.refreshUndoStatus()
     }
 
     private var decoratedContent: some View {
@@ -67,7 +81,7 @@ struct BrowseView: View {
                     pendingSwipeDelete = nil
                 }
             } message: { _ in
-                Text("This action cannot be undone.")
+                Text("You can undo this from the toolbar.")
             }
             .confirmationDialog(
                 "Delete \(selectionState.count) note\(selectionState.count == 1 ? "" : "s")?",
@@ -78,7 +92,7 @@ struct BrowseView: View {
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("This action cannot be undone.")
+                Text("One undo entry is created; you can restore from the toolbar.")
             }
     }
 
@@ -112,43 +126,65 @@ struct BrowseView: View {
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
             Menu {
-                Button("Add Note") { showAddNote = true }
-                Button("Add Image Occlusion") { showAddImageOcclusion = true }
-            } label: {
-                Image(systemName: "plus")
-            }
-        }
-        ToolbarItem(placement: .topBarLeading) {
-            Menu {
-                ForEach(BrowseSortOrder.allCases, id: \.self) { order in
-                    Button {
-                        model.sortOrder = order
-                    } label: {
-                        if model.sortOrder == order {
-                            Label(order.rawValue, systemImage: "checkmark")
-                        } else {
-                            Text(order.rawValue)
-                        }
-                    }
-                }
+                modeSection
+                Divider()
+                sortSection
             } label: {
                 Image(systemName: "arrow.up.arrow.down")
             }
-            .disabled(model.notes.isEmpty)
+            .disabled(model.ids.isEmpty && !model.isLoading)
         }
         ToolbarItem(placement: .topBarTrailing) {
             if selectionState.isSelectMode {
                 Button("Done") {
                     selectionState.exitSelectMode()
                 }
-            } else if !model.notes.isEmpty {
-                Button("Edit") {
-                    selectionState.enterSelectMode()
+            } else {
+                Menu {
+                    Button("Add Note") { showAddNote = true }
+                    Button("Add Image Occlusion") { showAddImageOcclusion = true }
+                } label: {
+                    Image(systemName: "plus")
                 }
             }
         }
+        ToolbarItem(placement: .principal) {
+            Picker("Mode", selection: $model.mode) {
+                ForEach(BrowseModel.Mode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .fixedSize()
+        }
         if selectionState.isSelectMode {
             selectionToolbar
+        }
+    }
+
+    @ViewBuilder
+    private var modeSection: some View {
+        Picker("Show", selection: $model.mode) {
+            ForEach(BrowseModel.Mode.allCases) { mode in
+                Text(mode.title).tag(mode)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var sortSection: some View {
+        Section("Sort by") {
+            ForEach(BrowseModel.SortOrder.allCases) { order in
+                Button {
+                    model.sortOrder = order
+                } label: {
+                    if model.sortOrder == order {
+                        Label(order.label, systemImage: "checkmark")
+                    } else {
+                        Text(order.label)
+                    }
+                }
+            }
         }
     }
 
@@ -162,24 +198,15 @@ struct BrowseView: View {
             }
             .disabled(selectionState.isEmpty)
         }
-        ToolbarItem(placement: .bottomBar) { Spacer() }
         ToolbarItem(placement: .bottomBar) {
-            Menu {
-                Button { applyFlag(1) } label: { Label("Red flag",       systemImage: "flag.fill") }
-                Button { applyFlag(2) } label: { Label("Orange flag",    systemImage: "flag.fill") }
-                Button { applyFlag(3) } label: { Label("Green flag",     systemImage: "flag.fill") }
-                Button { applyFlag(4) } label: { Label("Blue flag",      systemImage: "flag.fill") }
-                Button { applyFlag(5) } label: { Label("Pink flag",      systemImage: "flag.fill") }
-                Button { applyFlag(6) } label: { Label("Turquoise flag", systemImage: "flag.fill") }
-                Button { applyFlag(7) } label: { Label("Purple flag",    systemImage: "flag.fill") }
-                Divider()
-                Button { applyFlag(0) } label: { Label("Clear flag",     systemImage: "flag.slash") }
-            } label: {
-                Label("Flag", systemImage: "flag")
-            }
-            .disabled(selectionState.isEmpty)
+            Spacer()
         }
-        ToolbarItem(placement: .bottomBar) { Spacer() }
+        ToolbarItem(placement: .bottomBar) {
+            flagMenu
+        }
+        ToolbarItem(placement: .bottomBar) {
+            Spacer()
+        }
         ToolbarItem(placement: .bottomBar) {
             Button {
                 showTagSheet = true
@@ -188,7 +215,15 @@ struct BrowseView: View {
             }
             .disabled(selectionState.isEmpty)
         }
-        ToolbarItem(placement: .bottomBar) { Spacer() }
+        ToolbarItem(placement: .bottomBar) {
+            Spacer()
+        }
+        ToolbarItem(placement: .bottomBar) {
+            undoRedoMenu
+        }
+        ToolbarItem(placement: .bottomBar) {
+            Spacer()
+        }
         ToolbarItem(placement: .bottomBar) {
             Button(role: .destructive) {
                 showDeleteConfirm = true
@@ -196,6 +231,61 @@ struct BrowseView: View {
                 Label("Delete", systemImage: "trash")
             }
             .disabled(selectionState.isEmpty)
+        }
+    }
+
+    /// Flags rendered with their semantic hues (Anki's seven flag colors —
+    /// brand constants, not theme slots; card states stay palette-driven).
+    private var flagMenu: some View {
+        Menu {
+            flagButton(value: 1, label: "Red", color: Color(hex: 0xFF3B30))
+            flagButton(value: 2, label: "Orange", color: Color(hex: 0xFF9500))
+            flagButton(value: 3, label: "Green", color: Color(hex: 0x34C759))
+            flagButton(value: 4, label: "Blue", color: Color(hex: 0x007AFF))
+            flagButton(value: 5, label: "Pink", color: Color(hex: 0xFF2D55))
+            flagButton(value: 6, label: "Turquoise", color: Color(hex: 0x32ADE6))
+            flagButton(value: 7, label: "Purple", color: Color(hex: 0xAF52DE))
+            Divider()
+            Button {
+                applyFlag(0)
+            } label: {
+                Label("Clear flag", systemImage: "flag.slash")
+            }
+        } label: {
+            Label("Flag", systemImage: "flag")
+        }
+        .disabled(selectionState.isEmpty)
+    }
+
+    private func flagButton(value: UInt32, label: String, color: Color) -> some View {
+        Button {
+            applyFlag(value)
+        } label: {
+            HStack {
+                Image(systemName: "flag.fill").foregroundStyle(color)
+                Text(label)
+            }
+        }
+    }
+
+    /// Undo/redo ride the ENGINE stack, so they reverse batch deletes too.
+    private var undoRedoMenu: some View {
+        HStack(spacing: 16) {
+            Button {
+                Task { await model.undoLast() }
+            } label: {
+                Image(systemName: "arrow.uturn.backward")
+            }
+            .disabled(model.undoStatus?.canUndo != true)
+            .accessibilityLabel(model.undoStatus.map { "Undo \($0.undoText)" } ?? "Undo")
+
+            Button {
+                Task { await model.redoLast() }
+            } label: {
+                Image(systemName: "arrow.uturn.forward")
+            }
+            .disabled(model.undoStatus?.canRedo != true)
+            .accessibilityLabel(model.undoStatus.map { "Redo \($0.redoText)" } ?? "Redo")
         }
     }
 
@@ -222,10 +312,18 @@ struct BrowseView: View {
     }
 }
 
+private extension Substring {
+    /// Unwraps a quoted fragment like `"A::B"` → A::B.
+    var trimmedQuoted: String? {
+        let s = trimmingCharacters(in: CharacterSet(charactersIn: "\" "))
+        return s.isEmpty ? nil : s
+    }
+}
+
 // MARK: - BrowseContent
 
-/// Pure rendering for the Browse screen: the note list (with select-mode,
-/// swipe-to-delete, and paging hooks) plus the deck/tag filter bar. Reads
+/// Pure rendering for the Browse screen: the notes/cards list (select-mode,
+/// swipe-to-delete, windowing hooks) plus the deck/tag filter bar. Reads
 /// state from the model and drives mutations through it, but owns no I/O of
 /// its own — so it renders in a `#Preview` from a seeded model.
 struct BrowseContent: View {
@@ -243,37 +341,38 @@ struct BrowseContent: View {
             }
     }
 
-    @ViewBuilder
-    private var statefulContent: some View {
-        if model.notes.isEmpty && !model.isLoading && model.searchText.isEmpty && model.activeDeck == nil {
-            ContentUnavailableView(
-                "Browse Notes",
-                systemImage: "magnifyingglass",
-                description: Text("Search by content, tags, or filter by deck.")
-            )
-        } else if model.notes.isEmpty && !model.isLoading {
-            ContentUnavailableView.search(text: model.searchText)
-        } else {
-            noteList
+    private var isEmpty: Bool {
+        switch model.mode {
+        case .notes: return model.ids.isEmpty
+        case .cards: return model.ids.isEmpty
         }
     }
 
-    // MARK: - Note List
+    @ViewBuilder
+    private var statefulContent: some View {
+        if isEmpty && !model.isLoading && model.searchText.isEmpty && model.activeDeck == nil {
+            ContentUnavailableView(
+                "Browse \(model.mode.title)",
+                systemImage: "magnifyingglass",
+                description: Text("Search by content, tags, or filter by deck.")
+            )
+        } else if isEmpty && !model.isLoading {
+            ContentUnavailableView.search(text: model.searchText)
+        } else {
+            itemList
+        }
+    }
 
-    private var noteList: some View {
+    // MARK: - Item List
+
+    private var itemList: some View {
         List {
-            ForEach(model.sortedNotes, id: \.id) { note in
-                noteRow(note)
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        Button(role: .destructive) {
-                            onSwipeDelete(note)
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                    }
+            ForEach(Array(model.ids.prefix(model.loadedCount).enumerated()),
+                    id: \.element) { index, idRaw in
+                row(for: idRaw, index: index)
             }
 
-            if model.isLoading {
+            if model.hasMorePages || model.isLoading {
                 HStack {
                     Spacer()
                     ProgressView()
@@ -282,30 +381,44 @@ struct BrowseContent: View {
             }
         }
         .navigationDestination(for: NoteRecord.self) { note in
-            // If tapped a stub, fetch full details first.
-            NoteEditingDestinationView(note: model.resolved(note)) {
+            NoteEditingDestinationView(note: note) {
                 Task { await model.performSearch() }
             }
         }
     }
 
     @ViewBuilder
-    private func noteRow(_ note: NoteRecord) -> some View {
+    private func row(for idRaw: Int64, index: Int) -> some View {
+        switch model.mode {
+        case .notes:
+            if let note = model.note(at: idRaw) {
+                noteRow(note, index: index)
+            } else {
+                hydratingRow(index: index)
+            }
+        case .cards:
+            CardRowView(card: model.card(at: idRaw))
+                .onAppear { Task { await model.loadMoreIfNeeded(index: index) } }
+        }
+    }
+
+    @ViewBuilder
+    private func noteRow(_ note: NoteRecord, index: Int) -> some View {
         HStack {
             if selectionState.isSelectMode {
-                Image(systemName: selectionState.contains(note.id) ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(selectionState.contains(note.id) ? palette.accent : palette.textSecondary)
+                Image(systemName: selectionState.contains(note.id.rawValue) ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(selectionState.contains(note.id.rawValue) ? palette.accent : palette.textSecondary)
                 NoteRowView(note: note, notetypeName: model.notetypeNames[note.mid])
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        selectionState.toggle(note.id)
+                        selectionState.toggle(note.id.rawValue)
                     }
-                    .onAppear { onRowAppear(note) }
+                    .onAppear { onRowAppear(note.id.rawValue, index: index) }
             } else {
                 HStack {
                     NavigationLink(value: note) {
                         NoteRowView(note: note, notetypeName: model.notetypeNames[note.mid])
-                            .onAppear { onRowAppear(note) }
+                            .onAppear { onRowAppear(note.id.rawValue, index: index) }
                     }
                     NoteContextMenuButton(noteId: note.id) {
                         Task { await model.performSearch() }
@@ -313,24 +426,41 @@ struct BrowseContent: View {
                 }
                 .contentShape(Rectangle())
                 .onLongPressGesture(minimumDuration: 0.5) {
-                    selectionState.enterSelectMode(preselect: note.id)
+                    selectionState.enterSelectMode(preselect: note.id.rawValue)
                 }
+            }
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) {
+                onSwipeDelete(note)
+            } label: {
+                Label("Delete", systemImage: "trash")
             }
         }
     }
 
-    /// Lazy-load stub notes when they scroll on screen, and page in the next
-    /// batch as the last row appears.
-    private func onRowAppear(_ note: NoteRecord) {
-        if note.sfld == "Loading..." {
-            Task { await model.fetchNoteDetails(id: note.id) }
+    private func hydratingRow(index: Int) -> some View {
+        HStack(spacing: 12) {
+            Circle().fill(palette.surfaceElevated).frame(width: 34, height: 34)
+            VStack(alignment: .leading, spacing: 4) {
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(palette.surfaceElevated)
+                    .frame(width: 160, height: 12)
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(palette.surfaceElevated.opacity(0.6))
+                    .frame(width: 100, height: 10)
+            }
         }
-        if note.id == model.notes.last?.id {
-            Task { await model.loadNextPage() }
-        }
+        .opacity(0.7)
+        .onAppear { Task { await model.loadMoreIfNeeded(index: index) } }
     }
 
-    // MARK: - Filter Bar
+    /// Trigger window extension when near the end of loaded rows.
+    private func onRowAppear(_ id: Int64, index: Int) {
+        Task { await model.loadMoreIfNeeded(index: index) }
+    }
+
+    // MARK: - Filter Bar (phase 3 replaces with filter rail)
 
     private var filterBar: some View {
         VStack(spacing: 0) {
@@ -362,7 +492,6 @@ struct BrowseContent: View {
 
     private var deckFilterBar: some View {
         VStack(spacing: 0) {
-            // Top-level deck chips
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     chipButton(label: "All", isSelected: model.activeDeck == nil) {
@@ -383,11 +512,9 @@ struct BrowseContent: View {
                 .padding(.vertical, 8)
             }
 
-            // Subdeck row — stays visible as long as a parent with children is selected
             if !model.childDecks.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
-                        // "All" chip = parent deck (includes subdecks)
                         chipButton(
                             label: "All",
                             isSelected: model.activeDeck?.id == model.parentDeck?.id,
@@ -470,27 +597,166 @@ struct NoteContextMenuButton: View {
     }
 }
 
-// MARK: - NoteRowView
+// MARK: - Rows
 
+extension BrowseSelectionState {
+    func contains(_ rawValue: Int64) -> Bool {
+        selectedNoteIDs.contains(NoteID(rawValue))
+    }
+
+    func toggle(_ rawValue: Int64) {
+        toggle(NoteID(rawValue))
+    }
+
+    func enterSelectMode(preselect rawValue: Int64) {
+        enterSelectMode(preselect: NoteID(rawValue))
+    }
+}
+
+/// Notes-mode row: title + subtitle + trailing state/flag chips.
+/// State dot colors bind to theme card-state slots (decisions.md rule).
 struct NoteRowView: View {
     @Environment(\.palette) private var palette
     let note: NoteRecord
     let notetypeName: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(note.sfld)
-                .amgiFont(.body)
-                .lineLimit(1)
-            if let subtitle = composeNoteSubtitle(notetypeName: notetypeName, tags: note.tags) {
-                Text(subtitle)
-                    .amgiFont(.caption)
-                    .foregroundStyle(palette.textSecondary)
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(strippedTitle)
+                    .amgiFont(.body)
                     .lineLimit(1)
-                    .truncationMode(.tail)
+                subtitleView
+            }
+            Spacer(minLength: 8)
+            if hasMarkedTag {
+                Image(systemName: "star.fill")
+                    .font(.caption2)
+                    .foregroundStyle(palette.customStudyBadge)
             }
         }
         .padding(.vertical, 2)
+    }
+
+    private var strippedTitle: String {
+        note.sfld.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    @ViewBuilder
+    private var subtitleView: some View {
+        let parts = [notetypeName].compactMap { $0.isEmpty ? nil : $0 } +
+            note.tags.split(separator: " ").filter { $0 != "marked" }.map(String.init)
+        if !parts.isEmpty {
+            Text(parts.joined(separator: " · "))
+                .amgiFont(.caption)
+                .foregroundStyle(palette.textSecondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+    }
+
+    private var hasMarkedTag: Bool {
+        note.tags.split(separator: " ").contains { $0.caseInsensitiveCompare("marked") == .orderedSame }
+    }
+}
+
+/// Cards-mode row: per-card granularity with scheduling info.
+struct CardRowView: View {
+    @Environment(\.palette) private var palette
+    let card: CardRecord?
+
+    var body: some View {
+        HStack(spacing: 10) {
+            if let card {
+                stateDot(queue: card.queue, type: card.type)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title(for: card))
+                        .amgiFont(.body)
+                        .lineLimit(1)
+                    Text(subtitle(for: card))
+                        .amgiFont(.caption)
+                        .foregroundStyle(palette.textSecondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                duePill(queue: card.queue, type: card.type, due: card.due)
+            } else {
+                // Hydrating placeholder mirrors hydratingRow geometry.
+                Circle().fill(palette.surfaceElevated).frame(width: 10, height: 10)
+                Text("Loading…")
+                    .amgiFont(.caption)
+                    .foregroundStyle(palette.textTertiary)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func title(for card: CardRecord) -> String {
+        "Card #\(card.id.rawValue)"
+    }
+
+    private func subtitle(for card: CardRecord) -> String {
+        let typeName: String = switch card.type {
+        case 0: "New"
+        case 1: "Learning"
+        case 2: "Review"
+        case 3: "Relearning"
+        default: ""
+        }
+        let flags = ["No flag", "Red", "Orange", "Green", "Blue", "Pink", "Turquoise", "Purple"]
+        let flagName = flags[Int(card.flags & 0b111)]
+        return [typeName.isEmpty ? nil : typeName, "Ease \(card.factor / 10)%"].compactMap { $0 }.joined(separator: " · ") + (flagName == "No flag" ? "" : " · \(flagName)")
+    }
+
+    private func stateDot(queue: Int16, type: Int16) -> some View {
+        Circle().fill(dotColor(queue: queue, type: type)).frame(width: 10, height: 10)
+    }
+
+    private func dotColor(queue: Int16, type: Int16) -> Color {
+        if queue < -1 { return palette.warning }
+        if queue == -1 { return palette.cardStateSuspended }
+        switch type {
+        case 0: return palette.cardStateNew
+        case 1: return palette.cardStateLearning
+        case 3: return palette.cardStateRelearn
+        default: return palette.cardStateReview
+        }
+    }
+
+    @ViewBuilder
+    private func duePill(queue: Int16, type: Int16, due: Int32) -> some View {
+        guard let text = dueText(queue: queue, type: type, due: due) else { return }
+        Text(text)
+            .amgiFont(.caption2)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(dotColor(queue: queue, type: type).opacity(0.14))
+            .foregroundStyle(dotColor(queue: queue, type: type))
+            .clipShape(Capsule())
+    }
+
+    private func dueText(queue: Int16, type: Int16, due: Int32) -> String? {
+        switch type {
+        case 0:
+            return "pos \(due)"
+        default:
+            // Learning epochs vs review days differ; coarse labels only —
+            // exact formatting arrives with engine rows (P2d follow-up).
+            return queue < 0 ? nil : (due > 86_400 ? "+\(due / 86_400)d" : "today")
+        }
+    }
+}
+
+// MARK: - Hex helper
+
+private extension Color {
+    init(hex: UInt32) {
+        self.init(.sRGB,
+                  red: Double((hex >> 16) & 0xFF) / 255,
+                  green: Double((hex >> 8) & 0xFF) / 255,
+                  blue: Double(hex & 0xFF) / 255,
+                  opacity: 1)
     }
 }
 
@@ -501,17 +767,18 @@ struct NoteRowView: View {
     // Seed the model directly: BrowseContent has no `.task`, so the sample
     // notes aren't overwritten by a load, and no live backend is touched.
     let model = BrowseModel()
-    model.notes = [
-        NoteRecord(id: NoteID(1), guid: "g1", mid: NotetypeID(1), mod: 1_700_000_300,
-                   tags: "vocab", flds: "", sfld: "안녕하세요 — hello", csum: 0),
-        NoteRecord(id: NoteID(2), guid: "g2", mid: NotetypeID(1), mod: 1_700_000_200,
-                   tags: "marked grammar", flds: "", sfld: "Bonjour le monde", csum: 0),
-        NoteRecord(id: NoteID(3), guid: "g3", mid: NotetypeID(2), mod: 1_700_000_100,
-                   flds: "", sfld: "The quick brown fox jumps over the lazy dog", csum: 0),
+    let records: [(Int64, String)] = [
+        (1, "안녕하세요 — hello"),
+        (2, "Bonjour le monde"),
+        (3, "The quick brown fox jumps over the lazy dog"),
     ]
-    model.allNotes = model.notes
+    model.ids = records.map(\.0)
+    for (id, text) in records {
+        let mod: Int64 = switch id { case 1: 1_700_000_300; case 2: 1_700_000_200; default: 1_700_000_100 }
+        let tags = id == 1 ? "vocab" : (id == 2 ? "marked grammar" : "")
+        model.noteRecords[id] = NoteRecord(id: NoteID(id), guid: "g\(id)", mid: NotetypeID(1), mod: mod, tags: tags, flds: "", sfld: text, csum: 0)
+    }
     model.hasMorePages = false
-    model.notetypeNames = [NotetypeID(1): "Basic", NotetypeID(2): "Cloze"]
     model.allTags = ["vocab", "grammar", "marked"]
     return NavigationStack {
         BrowseContent(
