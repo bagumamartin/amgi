@@ -24,7 +24,7 @@ struct ShortcutsSettingsView: View {
             } header: {
                 Text("Review Shortcuts")
             } footer: {
-                Text("Shortcuts apply while reviewing. Select a shortcut to record a new one; press Escape to cancel.")
+                Text("Shortcuts apply while reviewing. Select a shortcut to record a new one — letters, digits, space, or arrow keys, with any modifiers (e.g. ⌥→). Press Escape to cancel.")
             }
         }
         .navigationTitle("Shortcuts")
@@ -37,6 +37,7 @@ private struct ShortcutRow: View {
     @Binding var shortcut: ReviewShortcut
 
     @State private var isRecording = false
+    @FocusState private var isFocused: Bool
 
     var body: some View {
         LabeledContent {
@@ -45,20 +46,31 @@ private struct ShortcutRow: View {
             }
             .buttonStyle(.bordered)
             .monospaced()
-            .onKeyPress { press in
-                guard isRecording else { return .ignored }
-                if press.key == .escape {
-                    isRecording = false
-                    return .handled
-                }
-                let key = String(press.key.character)
-                guard !key.isEmpty else { return .handled }
-                shortcut = ReviewShortcut(key: key, modifiers: press.modifiers)
+        } label: {
+            Label(action.title, systemImage: action.systemImage)
+        }
+        .contentShape(Rectangle())
+        .focusable()
+        .focused($isFocused)
+        .onChange(of: isRecording) { _, recording in
+            if recording {
+                // Dispatch async so the Form row can become focusable after the tap
+                DispatchQueue.main.async { isFocused = true }
+            } else {
+                isFocused = false
+            }
+        }
+        .onKeyPress { press in
+            guard isRecording else { return .ignored }
+            if press.key == .escape {
                 isRecording = false
                 return .handled
             }
-        } label: {
-            Label(action.title, systemImage: action.systemImage)
+            let key = String(press.key.character)
+            guard !key.isEmpty else { return .handled }
+            shortcut = ReviewShortcut(key: key, modifiers: press.modifiers)
+            isRecording = false
+            return .handled
         }
     }
 }

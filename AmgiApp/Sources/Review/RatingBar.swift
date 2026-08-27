@@ -1,6 +1,7 @@
 import SwiftUI
 import AmgiTheme
 import AnkiKit
+import Sharing
 
 /// R11 rating row: four elevated cards — surface background, hairline ring,
 /// 3px colored top border, next-interval caption above the label.
@@ -11,16 +12,17 @@ struct RatingBar: View {
     let onRate: (Rating) -> Void
 
     @Environment(\.palette) private var palette
+    @Shared(.reviewShortcuts) private var reviewShortcuts: [String: ReviewShortcut] = [:]
 
     var body: some View {
         // Ratings reuse the category-state hues (Again/Hard/Good/Easy ↔
         // relearn/learning/review/new) so the buttons, count dots, badges,
         // rings, and progress fills all speak one palette in every theme.
         HStack(spacing: AmgiSpacing.md) {
-            ratingCard(.again, label: "Again", color: palette.cardStateRelearn, key: "1")
-            ratingCard(.hard, label: "Hard", color: palette.cardStateLearning, key: "2")
-            ratingCard(.good, label: "Good", color: palette.cardStateReview, key: "3")
-            ratingCard(.easy, label: "Easy", color: palette.cardStateNew, key: "4")
+            ratingCard(.again, label: "Again", color: palette.cardStateRelearn)
+            ratingCard(.hard, label: "Hard", color: palette.cardStateLearning)
+            ratingCard(.good, label: "Good", color: palette.cardStateReview)
+            ratingCard(.easy, label: "Easy", color: palette.cardStateNew)
         }
         // Four equal actions should remain a single, easy-to-compare group.
         // On wide iPad windows, letting each card claim a quarter of the
@@ -35,7 +37,11 @@ struct RatingBar: View {
         #endif
     }
 
-    private func ratingCard(_ rating: Rating, label: String, color: Color, key: String) -> some View {
+    @ViewBuilder
+    private func ratingCard(_ rating: Rating, label: String, color: Color) -> some View {
+        let action = ReviewShortcutAction.ratingAction(for: rating)
+        let binding = reviewShortcuts[action.rawValue] ?? action.defaultShortcut
+        let keyDisplay = binding.displayString
         Button {
             onRate(rating)
         } label: {
@@ -94,11 +100,12 @@ struct RatingBar: View {
         .buttonStyle(.plain)
         #endif
         .disabled(isDisabled)
-        // Hardware-keyboard rating (Mac + iPad): 1–4 map to Again–Easy.
-        .keyboardShortcut(KeyEquivalent(Character(key)), modifiers: [])
+        // Hardware-keyboard rating (Mac + iPad): bound per action in
+        // Settings → Shortcuts (defaults 1–4 map to Again–Easy).
+        .keyboardShortcut(binding.keyEquivalent, modifiers: binding.modifiers)
         .accessibilityLabel("\(label)\(showIntervals ? ", next in \(intervals[rating] ?? "")" : "")")
         #if os(macOS)
-        .help("\(label) (\(key))")
+        .help("\(label) (\(keyDisplay))")
         #endif
     }
 }

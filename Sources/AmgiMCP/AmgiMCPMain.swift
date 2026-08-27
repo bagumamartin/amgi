@@ -1,4 +1,5 @@
 import Foundation
+@preconcurrency import System
 import AnkiBackend
 import AnkiKit
 import AnkiProtoBridge
@@ -51,13 +52,6 @@ struct AmgiMCPMain {
             let context = EngineContext(engine: engine, settings: settings, paths: paths)
             let registry = ToolCatalog.tools(for: settings.tier)
 
-            if options.environment["AMGI_MCP_HTTP"] == "1" {
-                let port = Int(options.environment["AMGI_MCP_HTTP_PORT"] ?? "")
-                    ?? LocalHTTPServer.defaultPort
-                try await LocalHTTPServer.run(port: port, context: context, registry: registry)
-                return
-            }
-
             let server = Server(
                 name: "amgi",
                 version: version,
@@ -72,7 +66,24 @@ struct AmgiMCPMain {
                 await dispatch(toolNamed: params.name, arguments: params.arguments, context: context, registry: registry)
             }
 
-            try await server.start(transport: StdioTransport())
+            // Stdin relay: the transport reads from a pipe we feed, so we
+            // own fd 0 exclusively and can detect the client's disconnect
+            // (EOF) without racing the SDK's reader. Watching fd 0 with a
+            // second reader/kqueue breaks the SDK's non-blocking loop, and
+            // a getppid watch never fires through uvx (the uvx process
+            // outlives its own parent and keeps the helper alive) — both
+            // verified empirically. The relay is the only thing that works.
+            var relayFDs: [Int32] = [0, 0]
+            guard pipe(&relayFDs) == 0 else {
+                throw UsageError("stdin relay pipe failed")
+            }
+            let transport = StdioTransport(
+                input: FileDescriptor(rawValue: relayFDs[0]),
+                output: FileDescriptor(rawValue: FileHandle.standardOutput.fileDescriptor)
+            )
+            startStdinRelay(into: relayFDs[1])
+
+            try await server.start(transport: transport)
             log.info(
                 "serving profile '\(paths.profileID)' tier=\(settings.tier.rawValue) tools=\(registry.count) (collection opens lazily)"
             )
@@ -129,14 +140,6 @@ struct AmgiMCPMain {
                 index += 1
                 guard index < arguments.count else { throw UsageError("--config needs a value") }
                 environment["AMGI_MCP_CONFIG"] = arguments[index]
-            case "--http":
-                environment["AMGI_MCP_HTTP"] = "1"
-            case "--port":
-                index += 1
-                guard index < arguments.count, Int(arguments[index]) != nil else {
-                    throw UsageError("--port needs a number")
-                }
-                environment["AMGI_MCP_HTTP_PORT"] = arguments[index]
             case "--help", "-h":
                 printUsage()
                 exit(0)
@@ -176,12 +179,10 @@ struct AmgiMCPMain {
             Data(
                 """
                 amgi-mcp \(version) — Amgi MCP server (macOS)
-                usage: amgi-mcp [--profile <id>] [--root <dir>] [--config <path>] [--http [--port <n>]]
+                usage: amgi-mcp [--profile <id>] [--root <dir>] [--config <path>]
                   --profile  Profile id to expose (default: app's active profile)
                   --root     Override collection root (AMGI_COLLECTION_ROOT)
                   --config   Settings JSON path (default: <root>/mcp.json)
-                  --http     Also serve Streamable HTTP on 127.0.0.1 (for URL-based clients)
-                  --port     Port for --http (default \(LocalHTTPServer.defaultPort))
 
                 """.utf8
             )
@@ -190,13 +191,47 @@ struct AmgiMCPMain {
 
     // MARK: - Lifetime
 
-    /// Parks until the owning client terminates the process (stdio close
-    /// or SIGTERM/SIGINT under their default dispositions — both paths
-    /// kill us outright, which is safe: every engine write is a committed
-    /// SQLite transaction, so crash-style shutdown loses nothing).
-    static func runUntilTerminated() async throws {
-        while true {
-            try await Task.sleep(for: .seconds(3600))
+    /// Sole reader of fd 0. Forwards bytes into the transport's pipe;
+    /// on EOF (client closed stdin) closes the relay so the transport
+    /// finishes naturally, gives the final response a moment to flush,
+    /// then exits. A blocked write (transport gone) also exits.
+    static func startStdinRelay(into writeFD: Int32) {
+        Thread.detachNewThread {
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while true {
+                let n = buffer.withUnsafeMutableBytes { mut in
+                    read(0, mut.baseAddress, mut.count)
+                }
+                if n <= 0 { break }
+                var offset = 0
+                var writeFailed = false
+                buffer.withUnsafeBytes { raw in
+                    while offset < n {
+                        let written = write(writeFD, raw.baseAddress!.advanced(by: offset), n - offset)
+                        if written <= 0 { writeFailed = true; return }
+                        offset += written
+                    }
+                }
+                if writeFailed { break }
+            }
+            close(writeFD)
+            // Grace for the last in-flight response, then leave. SIGTERM
+            // keeps its default kill too — both are safe: every engine
+            // write is a committed SQLite transaction.
+            Thread.sleep(forTimeInterval: 1.0)
+            exit(0)
         }
+    }
+
+    /// Backstop for clients that vanish without closing stdin (kill -9 of
+    /// a GUI app can leave our stdin open forever). When the parent chain
+    /// dies the helper is reparented to launchd; exit then. Normal path
+    /// is the stdin relay above.
+    static func runUntilTerminated() async throws {
+        let parent = getppid()
+        while getppid() == parent {
+            try await Task.sleep(for: .seconds(5))
+        }
+        exit(0)
     }
 }

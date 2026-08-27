@@ -53,7 +53,7 @@ struct MediumWidgetView: View {
                         .font(.system(size: 11))
                         .foregroundStyle(palette.textTertiary)
                     Spacer()
-                    Text("\(snapshot.reviewedToday)")
+                    Text("\(snapshot.completedToday)")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(palette.textSecondary)
                 }

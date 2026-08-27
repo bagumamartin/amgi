@@ -49,7 +49,12 @@ final class StudyLandingModel {
             //    summing the flattened tree would double-count subdecks.
             let totalDue = tree.reduce(0) { $0 + $1.counts.total }
             let totalNew = tree.reduce(0) { $0 + $1.counts.newCount }
-            let totalLearn = tree.reduce(0) { $0 + $1.counts.learnCount }
+            // Learning remaining must include intraday cards due later today
+            // — tree counts drop them beyond the scheduler's learn-ahead
+            // window, which would make the ring's denominator drift from the
+            // reviewer's. Falls back to the tree count on failure.
+            let totalLearn = (try? await statsClient.learningDueToday(search: ""))
+                ?? tree.reduce(0) { $0 + $1.counts.learnCount }
             let totalReview = tree.reduce(0) { $0 + $1.counts.reviewCount }
             let deckCount = tree.filter { $0.counts.total > 0 }.count
 

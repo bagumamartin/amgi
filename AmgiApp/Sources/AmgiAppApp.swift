@@ -90,7 +90,16 @@ struct AnkiAppApp: App {
             AccountStore.shared.consumePendingSwitch()
         }
 
-        try! prepareDependencies {
+        // Collection open is deliberately NON-fatal: MCP helper sessions
+        // legitimately hold the collection while the app is closed (rslib's
+        // exclusive lock), so `openCollection` can fail on launch with
+        // "already open". A `try!` here was a guaranteed launch crash; the
+        // busy screen + background retry in `CollectionLaunchState` degrades
+        // gracefully instead, and the helpers switch to bridged mode as soon
+        // as the open succeeds.
+        var openError: String?
+        var launchBackend: AnkiBackend?
+        do {
             let backend = try AnkiBackend(preferredLangs: ["en"])
 
             let ankiDir = AccountStore.profileDirectory(for: activeProfile.id)
@@ -109,13 +118,31 @@ struct AnkiAppApp: App {
                 mediaDbPath: mediaDbPath
             )
             try? backend.checkDatabase()
-            $0.ankiBackend = backend
+            launchBackend = backend
+        } catch {
+            openError = error.localizedDescription
+            // The backend handle itself is cheap and lock-free — only the
+            // collection open contends. Rebuild it so the bridge and the
+            // retry loop have something to drive.
+            launchBackend = try? AnkiBackend(preferredLangs: ["en"])
+        }
+
+        prepareDependencies {
+            if let launchBackend {
+                $0.ankiBackend = launchBackend
+            }
             $0.syncCoordinator = SyncCoordinator()
             // Wire the Anki-backed concrete realization of the dictionary
             // engine's abstract config store. Keeps the engine package
             // (AmgiReaderDictionary) free of Anki imports.
             $0.dictionaryConfigStore = AnkiBackedDictionaryConfigStore.makeStore()
         }
+
+        CollectionLaunchState.shared.configure(
+            backend: launchBackend,
+            profileID: activeProfile.id,
+            error: openError
+        )
 
         #if os(macOS)
         // macOS has no BGTaskScheduler, but it also doesn't suspend a running
@@ -150,17 +177,28 @@ struct AnkiAppApp: App {
     var body: some Scene {
         WindowGroup {
             Group {
-                switch destination {
-                case .onboarding:
-                    OnboardingView()
-                case .main:
-                    ContentView(pendingReviewDeckId: $pendingReviewDeckId)
+                if CollectionLaunchState.shared.openError != nil {
+                    CollectionBusyView()
+                } else {
+                    switch destination {
+                    case .onboarding:
+                        OnboardingView()
+                    case .main:
+                        ContentView(pendingReviewDeckId: $pendingReviewDeckId)
+                    }
                 }
             }
             #if os(macOS)
             // macOS HIG: sensible default + minimum window sizes instead of
             // the iOS full-screen slab.
             .frame(minWidth: 960, minHeight: 620)
+            // Widget clicks deliver `amgi://study`. SwiftUI's default on
+            // macOS is to spawn a NEW WindowGroup window for every external
+            // event before onOpenURL runs. `preferring` makes an existing
+            // main window claim the event instead (activated + navigated in
+            // place); the scene-level `matching` below only creates a window
+            // when none exists.
+            .handlesExternalEvents(preferring: ["study"], allowing: ["*"])
             #endif
             .onChange(of: scenePhase) { _, newPhase in
                 if newPhase == .active {
@@ -190,6 +228,9 @@ struct AnkiAppApp: App {
         }
         #if os(macOS)
         .defaultSize(width: 1180, height: 800)
+        // Scene half of the widget-click reuse pair (see `preferring` on the
+        // root view): only creates a main window when none exists.
+        .handlesExternalEvents(matching: ["study"])
         .commands {
             CommandGroup(replacing: .undoRedo) {
                 Button("Undo") { reviewActions?.undo() }

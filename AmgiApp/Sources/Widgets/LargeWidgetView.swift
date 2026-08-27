@@ -56,7 +56,7 @@ struct LargeWidgetView: View {
                 }
                 .frame(height: 10)
 
-                Text("\(snapshot.reviewedToday) of \(snapshot.dueBaselineToday) today · \(totalDue) remaining")
+                Text("\(snapshot.completedToday) done · \(totalDue) remaining today")
                     .font(.system(size: 11))
                     .foregroundStyle(palette.textTertiary)
             }

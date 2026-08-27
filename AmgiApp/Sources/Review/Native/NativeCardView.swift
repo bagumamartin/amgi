@@ -1,36 +1,59 @@
 import SwiftUI
-#if canImport(UIKit)
-import UIKit
-#elseif canImport(AppKit)
-import AppKit
-#endif
 import AmgiUI
 import AmgiTheme
 import AmgiCardWeb
 
 /// Native SwiftUI renderer for allowlist-simple cards (R11). Renders the
-/// side's parsed blocks on a radius-24 `AmgiCard` surface: the first text
-/// block is the serif headword (large on the front, reduced on the back —
-/// Anki back HTML already contains `{{FrontSide}}` plus an `<hr>` divider),
-/// remaining text blocks are body copy, `<hr>` becomes a hairline.
-struct NativeCardView: View {
+/// side's parsed blocks on a radius-24 `AmgiCard` surface with UNIFORM
+/// typography per region — no invented hierarchy:
+///
+/// - Front: every text block 32pt semibold serif.
+/// - Back recap (blocks before the divider, i.e. the `{{FrontSide}}`
+///   expansion): 22pt semibold — slightly bigger/bolder than the answer for
+///   differentiation.
+/// - Back answer (blocks from the divider onward): 20pt regular.
+///
+/// `<hr>` becomes a hairline; when the template lacks one, the split point
+/// is synthesized from the front text prefix (`resolvingBackAnswerSplit`). Only
+/// user-authored inline markup (`<b>/<i>` runs) adds emphasis.
+///
+/// Conforms to `Equatable` so `.equatable()` at the call site can skip body
+/// evaluation when unrelated session fields invalidate the parent — closure
+/// properties are excluded from the comparison because they are recreated
+/// every render but always wrap identical behaviour.
+struct NativeCardView: View, Equatable {
     let content: NativeCardContent
     let isAnswerSide: Bool
+    /// Back side only: index of the first answer block (nil = no reliable
+    /// split, everything renders as answer).
+    let answerStartIndex: Int?
     let mediaFolder: URL?
     let onQuestionCanvasTap: (() -> Void)?
     let onTextLookup: ((String) -> Void)?
 
+    // Nonisolated: only reads immutable Sendable stored properties, so the
+    // comparison is safe off the main actor.
+    nonisolated static func == (lhs: NativeCardView, rhs: NativeCardView) -> Bool {
+        lhs.content == rhs.content
+            && lhs.isAnswerSide == rhs.isAnswerSide
+            && lhs.answerStartIndex == rhs.answerStartIndex
+            && lhs.mediaFolder == rhs.mediaFolder
+    }
+
     @Environment(\.palette) private var palette
+    @Environment(\.nativeCardMinHeight) private var minCardHeight
 
     init(
         content: NativeCardContent,
         isAnswerSide: Bool,
+        answerStartIndex: Int? = nil,
         mediaFolder: URL?,
         onQuestionCanvasTap: (() -> Void)? = nil,
         onTextLookup: ((String) -> Void)? = nil
     ) {
         self.content = content
         self.isAnswerSide = isAnswerSide
+        self.answerStartIndex = answerStartIndex
         self.mediaFolder = mediaFolder
         self.onQuestionCanvasTap = onQuestionCanvasTap
         self.onTextLookup = onTextLookup
@@ -43,16 +66,18 @@ struct NativeCardView: View {
                 cornerRadius: AmgiRadius.card,
                 contentInsets: EdgeInsets(top: 40, leading: 24, bottom: 40, trailing: 24)
             ) {
-                ZStack {
-                    VStack(spacing: AmgiSpacing.lg) {
-                        ForEach(Array(content.blocks.enumerated()), id: \.offset) { index, block in
-                            blockView(block, isFirst: index == firstTextIndex)
-                        }
+                VStack(spacing: AmgiSpacing.lg) {
+                    ForEach(Array(content.blocks.enumerated()), id: \.offset) { index, block in
+                        blockView(block, index: index)
                     }
-                    .frame(maxWidth: .infinity)
                 }
+                .frame(maxWidth: .infinity)
+                // Measure the NATURAL content height (the card's minHeight is
+                // applied outside it), so FlipContainer can equalize both
+                // sides to the taller one without a feedback loop.
+                .background(heightReader)
             }
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, minHeight: minCardHeight, alignment: .top)
             .padding(.horizontal)
             .padding(.top, 8)
         }
@@ -69,37 +94,43 @@ struct NativeCardView: View {
         #endif
     }
 
-    private var firstTextIndex: Int? {
-        content.blocks.firstIndex {
-            if case .text = $0 { return true }
-            return false
+    @ViewBuilder
+    private var heightReader: some View {
+        if isAnswerSide {
+            GeometryReader { geo in
+                Color.clear.preference(key: BackCardNaturalHeightKey.self, value: geo.size.height)
+            }
+        } else {
+            GeometryReader { geo in
+                Color.clear.preference(key: FrontCardNaturalHeightKey.self, value: geo.size.height)
+            }
         }
     }
 
-    private func mediaImage(_ filename: String) -> Image? {
-        guard let mediaFolder else { return nil }
-        let path = mediaFolder.appendingPathComponent(filename).path
-        #if canImport(UIKit)
-        guard let image = UIImage(contentsOfFile: path) else { return nil }
-        return Image(uiImage: image)
-        #elseif canImport(AppKit)
-        guard let image = NSImage(contentsOfFile: path) else { return nil }
-        return Image(nsImage: image)
-        #else
-        return nil
-        #endif
+    /// Recap = back-side blocks before the answer split.
+    private func isRecap(_ index: Int) -> Bool {
+        guard isAnswerSide, let answerStart = answerStartIndex else { return false }
+        return index < answerStart
+    }
+
+    private func textFont(isRecap: Bool) -> Font {
+        if !isAnswerSide {
+            return .system(size: 32, weight: .semibold, design: .serif)
+        }
+        // Recap (the front-side text) stays header-like — semibold, slightly
+        // smaller than the front; the answer below the hairline is the only
+        // normal-weight text.
+        return isRecap
+            ? .system(size: 22, weight: .semibold, design: .serif)
+            : .system(size: 20, weight: .regular, design: .serif)
     }
 
     @ViewBuilder
-    private func blockView(_ block: NativeCardContent.Block, isFirst: Bool) -> some View {
+    private func blockView(_ block: NativeCardContent.Block, index: Int) -> some View {
         switch block {
         case .text(let attributed):
-            let font: Font = isFirst
-                ? .system(size: isAnswerSide ? 34 : 48, weight: .semibold, design: .serif)
-                : .system(size: 20, design: .serif)
             Text(attributed)
-                .font(font)
-                .minimumScaleFactor(isFirst ? 0.5 : 1)
+                .font(textFont(isRecap: isRecap(index)))
                 .multilineTextAlignment(.center)
                 .foregroundStyle(palette.textPrimary)
             #if os(iOS)
@@ -107,12 +138,7 @@ struct NativeCardView: View {
             .highPriorityGesture(textLookupGesture(for: String(attributed.characters)))
             #endif
         case .image(let filename):
-            if let image = mediaImage(filename) {
-                image
-                    .resizable()
-                    .scaledToFit()
-                    .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.small, style: .continuous))
-            }
+            NativeMediaImageView(filename: filename, mediaFolder: mediaFolder)
         case .divider:
             Rectangle()
                 .fill(palette.separator)
@@ -133,6 +159,45 @@ struct NativeCardView: View {
     #endif
 }
 
+/// One media image on a native card. Loads asynchronously through the shared
+/// cache (decode off-main) instead of synchronously in the card's body, so a
+/// flip never blocks on disk I/O or image decode.
+private struct NativeMediaImageView: View {
+    let filename: String
+    let mediaFolder: URL?
+
+    @State private var cgImage: CGImage?
+
+    var body: some View {
+        Group {
+            if let cgImage {
+                Image(decorative: cgImage, scale: 2, orientation: .up)
+                    .resizable()
+                    .scaledToFit()
+                    .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.small, style: .continuous))
+            }
+        }
+        .task(id: filename) { await load() }
+    }
+
+    private func load() async {
+        if cgImage != nil { return }
+        guard let mediaFolder else { return }
+        let path = mediaFolder.appendingPathComponent(filename).path
+
+        let startedAt = Date()
+        let decoded = await NativeMediaImageCache.shared.image(at: path)
+        let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
+
+        if let decoded {
+            cgImage = decoded
+            print("[NativeCard] image \(filename) ready in \(elapsedMs)ms")
+        } else {
+            print("[NativeCard] missing/unreadable media: \(filename)")
+        }
+    }
+}
+
 #if DEBUG
 #Preview("Front") {
     NativeCardView(
@@ -143,9 +208,14 @@ struct NativeCardView: View {
 }
 
 #Preview("Back") {
+    let front = NativeCardContent.parse(html: "猫")
+    let resolved = NativeCardContent
+        .parse(html: "猫<hr>cat<br><i>The cat sat on the mat.</i>")
+        .resolvingBackAnswerSplit(front: front)
     NativeCardView(
-        content: .parse(html: "猫<hr>cat<br><i>The cat sat on the mat.</i>"),
+        content: resolved.content,
         isAnswerSide: true,
+        answerStartIndex: resolved.answerStart,
         mediaFolder: nil
     )
 }

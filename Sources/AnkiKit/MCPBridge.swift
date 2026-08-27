@@ -22,6 +22,12 @@ public enum MCPBridge {
     public static let pingService: UInt32 = 0
     public static let pingMethod: UInt32 = 0
 
+    /// App-level session-state request (same service-0 sentinel as ping).
+    /// The app answers from its live `ReviewSession` — the card on screen,
+    /// deck scope, answered-today list. Only meaningful while the app runs;
+    /// the helper surfaces it as the `get_review_context` tool.
+    public static let sessionStateMethod: UInt32 = 1
+
     public struct Frame: Sendable, Equatable {
         public let service: UInt32
         public let method: UInt32

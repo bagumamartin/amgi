@@ -7,6 +7,7 @@ AmgiApp/memory/
 DerivedData/
 build/
 AnkiRust.xcframework/
+AnkiRustLib.xcframework/
 anki-bridge-rs/target/
 anki-upstream/target/
 .claude/
@@ -23,6 +24,10 @@ design/
 
 # Working files
 *.pdf
+
+# Python publish artifacts + local helper logs
+python/dist/
+stderr*.log
 
 # CoreML model weights — 224MB, exceeds GitHub limit and public forks
 # reject LFS uploads. Fetch per AmgiIcons/README.md.

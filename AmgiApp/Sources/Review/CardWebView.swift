@@ -104,6 +104,7 @@ struct CardWebView {
         config.userContentController.add(coordinator, name: "amgiSpeakTts")
         config.userContentController.add(coordinator, name: "amgiStopTts")
         config.userContentController.add(coordinator, name: "amgiCardTheme")
+        config.userContentController.add(coordinator, name: "amgiDiag")
         #if os(iOS)
         config.userContentController.add(coordinator, name: "amgiLookupText")
         config.userContentController.add(coordinator, name: "amgiRevealAnswer")

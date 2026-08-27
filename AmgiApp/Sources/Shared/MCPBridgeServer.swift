@@ -56,34 +56,6 @@ enum MCPBridgeServer {
         Thread.detachNewThread {
             core.run()
         }
-
-        // Supervise the bundled helper's local HTTP endpoint so
-        // URL-only agent clients can connect. Duplicates are harmless:
-        // a second instance sees the live listener and exits.
-        spawnHTTPHelper()
-    }
-
-    /// Launches the bundled amgi-mcp in `--http` mode. The child exits
-    /// on its own when this app dies (orphan watch) or if another
-    /// instance already serves the port (probe + exit 0).
-    private static func spawnHTTPHelper() {
-        enum Holder { nonisolated(unsafe) static var process: Process? }
-        let contents = Bundle.main.bundleURL
-            .appendingPathComponent("Contents", isDirectory: true)
-        let helperPath = contents.appendingPathComponent("Helpers/amgi-mcp").path
-        guard FileManager.default.fileExists(atPath: helperPath) else { return }
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: helperPath)
-        process.arguments = ["--http"]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-            Holder.process = process  // keep a handle for the session
-        } catch {
-            // Already served by an earlier session — fine.
-        }
     }
 
     private struct Core: @unchecked Sendable {
@@ -151,6 +123,25 @@ enum MCPBridgeServer {
         }
 
         private func handleFrame(_ frame: MCPBridge.Frame, client: Int32) {
+            // App-level sentinel service (ping + session state) never
+            // touches the engine — answered from process state.
+            if frame.service == MCPBridge.pingService {
+                if frame.method == MCPBridge.sessionStateMethod {
+                    if let payload = ReviewSessionContext.shared.encodedSnapshot() {
+                        reply(client, status: .ok, payload: payload)
+                    } else {
+                        reply(
+                            client, status: .unavailable,
+                            payload: Data("No active review session — open Amgi and start reviewing.".utf8)
+                        )
+                    }
+                } else {
+                    // Ping or any future sentinel: bare ok.
+                    reply(client, status: .ok, payload: Data())
+                }
+                return
+            }
+
             do {
                 let response = try backend.performRawCall(
                     service: frame.service, method: frame.method, input: frame.payload

@@ -14,7 +14,7 @@ enum NoteTools {
                     Lists every notetype with its field names and template count. \
                     Consult before add_note so field names match exactly.
                     """,
-                inputSchema: .object([:]),
+                inputSchema: Schema.object([:]),
                 minimumTier: .readOnly
             ) { ctx, _ in
                 let list = try ctx.backend().invoke(.notetypeNames)
@@ -247,7 +247,7 @@ enum NoteTools {
                     Undoes the most recent undoable collection action (notes/deck ops). \
                     Safety net after an agent edit that went wrong.
                     """,
-                inputSchema: .object([:]),
+                inputSchema: Schema.object([:]),
                 minimumTier: .safeWrite,
                 mutates: true
             ) { ctx, _ in

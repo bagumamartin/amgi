@@ -88,97 +88,7 @@ final class MCPManager {
         return nil
     }
 
-    /// Local streamable-HTTP endpoint served by the bundled helper
-   /// (`amgi-mcp --http`, supervised by the app). URL-only agent apps
-   /// use this instead of the command path.
-    var localHTTPEndpoint: (url: String, token: String)? {
-        let fileURL = CollectionLayout.rootDirectory()
-            .appendingPathComponent("mcp.http.json")
-        guard let data = FileManager.default.contents(atPath: fileURL.path),
-              let ep = try? JSONDecoder().decode(
-                HTTPEndpoint.self, from: data) else { return nil }
-        return ("http://127.0.0.1:\(ep.port)/mcp", ep.token)
-    }
-
-    struct HTTPEndpoint: Codable {
-        var port: Int
-        var token: String
-    }
-
-    /// JSON body for clients whose UI takes a URL + headers object.
-    func localHTTPJSON() -> String? {
-        guard let endpoint = localHTTPEndpoint else { return nil }
-        return """
-                "amgi": {
-                  "url": "\(endpoint.url)",
-                  "headers": {
-                    "Authorization": "Bearer \(endpoint.token)"
-                  }
-                }
-                """
-    }
-
     // MARK: - Registration snippets
-
-    enum MCPClient: String, CaseIterable, Identifiable {
-        case claudeDesktop = "Claude Desktop"
-        case claudeCode = "Claude Code"
-        case cursor = "Cursor"
-        case codex = "Codex CLI"
-        case generic = "Any other app"
-
-        var id: String { rawValue }
-
-        var iconName: String {
-            switch self {
-            case .claudeDesktop: return "message.fill"
-            case .claudeCode: return "terminal"
-            case .cursor: return "cursorarrow.click.2"
-            case .codex: return "chevron.left.forwardslash.chevron.right"
-            case .generic: return "server.rack"
-            }
-        }
-
-        /// Plain-language setup steps shown under each disclosure.
-        var steps: [String] {
-            switch self {
-            case .claudeDesktop:
-                return [
-                    "Open Claude Desktop, then choose Settings (⌘,) → Developer → Edit Config. A folder with claude_desktop_config.json opens.",
-                    "Open that file with TextEdit.",
-                    "Replace the file's contents with the text below (or add the \"mcpServers\" part inside the existing braces).",
-                    "Save the file, quit Claude completely (⌘Q), and reopen it. Amgi appears under Connected Servers.",
-                ]
-            case .claudeCode:
-                return [
-                    "Open the Terminal app (from Applications → Utilities).",
-                    "Paste the command below and press Return.",
-                    "Restart Claude Code if it was open. Done — ask it about your decks.",
-                ]
-            case .cursor:
-                return [
-                    "In Cursor, open Cursor Settings → MCP & Integrations (some versions call it Tools & MCP).",
-                    "Choose “Add Custom MCP server”. The file mcp.json opens.",
-                    "If the file is empty, replace its contents with the text below. If it already has content, add the \"amgi\" entry inside mcpServers.",
-                    "Save, then restart Cursor once.",
-                ]
-            case .codex:
-                return [
-                    "Open the Terminal app.",
-                    "Paste the command below and press Return.",
-                    "Start a new Codex session — Amgi's tools are available immediately.",
-                ]
-            case .generic:
-                return [
-                    "In the client's MCP settings, choose STDIO (standard input/output) as the connection type — not SSE or HTTP.",
-                    "Quick trial: set Command to uvx (use /opt/homebrew/bin/uvx if the client needs an absolute path) and Parameters to amgi-mcp — no install needed. For multi-client or daily use this can hit the uv cache lock (10 s timeout) — see below.",
-                    "Daily / multi-client (recommended): run once in Terminal: uv tool install amgi-mcp — then set Command to amgi-mcp (or the direct path below) with no Arguments. This is persistent, fastest, and avoids the lock.",
-                    "Bundled helper (also persistent): paste the Command path below with no Arguments — works without uv at all.",
-                    "If your client only offers a JSON option instead of fields, copy the matching JSON block below.",
-                ]
-            }
-        }
-    }
 
     struct ConnectionSnippet: Identifiable {
         let label: String
@@ -186,31 +96,19 @@ final class MCPManager {
         var id: String { label }
     }
 
-    /// Everything the user pastes for this client, each with its own
-    /// Copy button. JSON clients get a complete ready-to-save file
-    /// body; CLI clients get the whole command; generic form-based UIs
-    /// get the command path plus a universal JSON body.
-    func connectionSnippets(for client: MCPClient, helperPath: String) -> [ConnectionSnippet] {
-        let jsonBody = """
-                {
-                  "mcpServers": {
-                    "amgi": {
-                      "command": "\(helperPath)"
-                    }
-                  }
-                }
-                """
-        switch client {
-        case .claudeDesktop:
-            return [.init(label: "claude_desktop_config.json", text: jsonBody)]
-        case .cursor:
-            return [.init(label: ".cursor/mcp.json", text: jsonBody)]
-        case .claudeCode:
-            return [.init(label: "Terminal command", text: "claude mcp add amgi -- \(helperPath)")]
-        case .codex:
-            return [.init(label: "Terminal command", text: "codex mcp add amgi -- \(helperPath)")]
-        case .generic:
-            let uvxJson = """
+    /// The one industry-standard registration: `uvx amgi-mcp` over stdio.
+    /// Every MCP client speaks this (Claude Desktop/Code, Cursor, Codex,
+    /// Zed, Gemini, Qwen, Hermes, …). The PyPI shim finds the bundled
+    /// helper itself, so no absolute paths and no per-client formats.
+    var connectionSnippets: [ConnectionSnippet] {
+        [
+            .init(
+                label: "Command / Parameters",
+                text: "Command: uvx\nParameters: amgi-mcp"
+            ),
+            .init(
+                label: "JSON configuration",
+                text: """
                 {
                   "mcpServers": {
                     "amgi": {
@@ -220,28 +118,7 @@ final class MCPManager {
                   }
                 }
                 """
-            let toolJson = """
-                {
-                  "mcpServers": {
-                    "amgi": {
-                      "command": "amgi-mcp"
-                    }
-                  }
-                }
-                """
-            return [
-                .init(label: "Command (bundled helper)", text: helperPath),
-                .init(label: "Via uvx — trial, no install (Command: uvx, Parameters: amgi-mcp)", text: uvxJson),
-                .init(label: "Via uv tool install — daily / multi-client (run: uv tool install amgi-mcp, then Command: amgi-mcp)", text: toolJson),
-                .init(label: "JSON — bundled helper", text: jsonBody),
-            ]
-        }
-    }
-
-    /// Universal JSON body shared by several clients.
-    func jsonConfiguration(helperPath: String) -> String {
-        // Generic now exposes 4 snippets; the bundled-helper JSON is the canonical one.
-        connectionSnippets(for: .generic, helperPath: helperPath)
-            .first { $0.label.contains("bundled helper") }!.text
+            ),
+        ]
     }
 }

@@ -109,6 +109,14 @@ final class CardWebViewCoordinator: NSObject, WKNavigationDelegate, WKScriptMess
         }
 
 
+        if message.name == "amgiDiag" {
+            guard let body = message.body as? [String: Any] else { return }
+            let event = body["event"] as? String ?? "?"
+            let detail = body["detail"] as? String ?? ""
+            print("[CardWebView][diag] \(event) \(detail)")
+            return
+        }
+
         if message.name == "amgiCardTheme" {
             guard let body = message.body as? [String: Any] else { return }
             let colorString = body["backgroundColor"] as? String ?? ""

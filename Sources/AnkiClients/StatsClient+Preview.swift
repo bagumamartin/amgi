@@ -9,7 +9,9 @@ extension StatsClient {
         fetchGraphs: { _, _ in
             GraphsSnapshot.sample
         },
-        graduatedToday: { _ in 7 }
+        graduatedToday: { _ in 7 },
+        learningDueToday: { _ in 3 },
+        lastRating: { _ in nil }
     )
 }
 #endif

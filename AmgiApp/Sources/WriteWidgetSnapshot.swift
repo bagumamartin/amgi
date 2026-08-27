@@ -49,7 +49,9 @@ func writeWidgetSnapshot() async {
         let libraryDecks = tree.map(\.asDeckInfo)
         let individualDecks = tree.flattened()
 
-        // 2. Fetch 28-day stats graph for streak + daily counts
+        // 2. Fetch 28-day stats graph for streak + daily counts. The
+        // rollover hour rides along — the widget's day boundary comes from
+        // here, never from calendar midnight.
         let graphs = try await statsClient.fetchGraphs("", 28)
 
         // 3+4. Compute streak and last-7-days totals via shared helper.
@@ -60,47 +62,65 @@ func writeWidgetSnapshot() async {
 
         let reviewedToday = graphs.today.answerCount
         let now = Date()
-        let calendar = Calendar.current
+        let nextDayStart = now.addingTimeInterval(
+            Double(DailyProgressCalculator.secondsUntilNextDayStart(
+                rolloverHour: graphs.rolloverHour
+            ))
+        )
 
-        func dueBaseline(deckId: Int64, totalDue: Int) -> Int {
-            let currentSum = max(reviewedToday + totalDue, 1)
-            guard let existing = WidgetSnapshotStore.read(deckId: deckId),
-                  calendar.isDate(existing.snapshotDate, inSameDayAs: now) else {
-                return currentSum
-            }
-            return max(existing.dueBaselineToday, 1)
-        }
+        // "Completed" = graduated past today's Anki-day scope — the exact
+        // quantity the reviewer's daily progress bar counts. Answer counts
+        // would diverge (Again / mid-step learning re-answers inflate them).
+        let allDecksCompleted = try await statsClient.graduatedToday(search: "")
 
-        let allDecksTotalDue = libraryDecks.reduce(0) { $0 + $1.counts.total }
+        // Learning remaining must include intraday cards due later today —
+        // tree counts drop them beyond the learn-ahead window, which would
+        // make the widget's denominator (and bar) drift from the reviewer's.
+        let allDecksLearning = (try? await statsClient.learningDueToday(search: ""))
+            ?? libraryDecks.reduce(0) { $0 + $1.counts.learnCount }
 
         // 5. Write all-decks aggregate snapshot (deckId = 0)
         let allDecksSnapshot = WidgetSnapshot(
             deckId: 0,
             deckName: "All Decks",
             newCount: libraryDecks.reduce(0) { $0 + $1.counts.newCount },
-            learnCount: libraryDecks.reduce(0) { $0 + $1.counts.learnCount },
+            learnCount: allDecksLearning,
             reviewCount: libraryDecks.reduce(0) { $0 + $1.counts.reviewCount },
             reviewedToday: reviewedToday,
-            dueBaselineToday: dueBaseline(deckId: 0, totalDue: allDecksTotalDue),
+            completedToday: allDecksCompleted,
             streak: streak,
             lastSevenDays: lastSevenDays,
-            snapshotDate: now
+            snapshotDate: now,
+            nextDayStart: nextDayStart
         )
         try WidgetSnapshotStore.write(allDecksSnapshot)
 
-        // 6. Write per-deck snapshots
+        // 6. Write per-deck snapshots. Graduated counts are scoped searches,
+        // so compute them only where a widget can actually be watching:
+        // decks with due cards now, or decks that already have a snapshot
+        // file (someone configured a widget for them). Bounds the N+1
+        // searches to real consumers.
         for deck in individualDecks {
+            let hasWidget = WidgetSnapshotStore.read(deckId: deck.id.rawValue) != nil
+            guard deck.counts.total > 0 || hasWidget else { continue }
+            let completed = try await statsClient.graduatedToday(
+                search: DeckUsageRanking.deckSearch(fullName: deck.name)
+            )
+            let learning = (try? await statsClient.learningDueToday(
+                search: DeckUsageRanking.deckSearch(fullName: deck.name)
+            )) ?? deck.counts.learnCount
             let snapshot = WidgetSnapshot(
                 deckId: deck.id.rawValue,
                 deckName: deck.name,
                 newCount: deck.counts.newCount,
-                learnCount: deck.counts.learnCount,
+                learnCount: learning,
                 reviewCount: deck.counts.reviewCount,
                 reviewedToday: reviewedToday,
-                dueBaselineToday: dueBaseline(deckId: deck.id.rawValue, totalDue: deck.counts.total),
+                completedToday: completed,
                 streak: streak,
                 lastSevenDays: lastSevenDays,
-                snapshotDate: now
+                snapshotDate: now,
+                nextDayStart: nextDayStart
             )
             try WidgetSnapshotStore.write(snapshot)
         }

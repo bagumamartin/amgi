@@ -97,7 +97,7 @@ enum ConfigMediaTools {
             AmgiTool(
                 name: "check_media",
                 description: "Runs the media integrity check; reports missing/unused files.",
-                inputSchema: .object([:]),
+                inputSchema: Schema.object([:]),
                 minimumTier: .readOnly
             ) { ctx, _ in
                 let result = try ctx.backend().invoke(.checkMedia)

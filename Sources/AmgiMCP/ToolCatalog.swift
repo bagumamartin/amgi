@@ -90,7 +90,7 @@ enum Schema {
 enum ToolCatalog {
     static var allTools: [AmgiTool] {
         DeckTools.tools + SearchTools.tools + NoteTools.tools
-            + RenderStatsTools.tools + ConfigMediaTools.tools
+            + RenderStatsTools.tools + ConfigMediaTools.tools + ReviewContextTools.tools
     }
 
     /// Tools visible at a given tier, ordered by group for stable listing.

@@ -30,6 +30,9 @@ private struct AnswerRecord {
     let timeSpent: Int
     let graduated: Bool
     let streakBefore: Int
+    /// Wall-clock moment of the answer — feeds the agent-facing
+    /// `ReviewSessionSnapshot.answered` timeline.
+    let at: Date = .now
 }
 
 /// Fired when the backend undo stack cannot rewind the target card back to
@@ -103,6 +106,15 @@ final class ReviewSession {
     private var notetypeCache: [NotetypeID: Notetype] = [:]
     private var currentQueuedCard: QueuedReviewCard?
     private(set) var lastRating: Rating? = nil
+    /// The rating the CURRENT card received on its most recent review (from
+    /// the revlog), prefetched during card preparation. `nil` for cards never
+    /// reviewed — the space-bar "repeat last rating" shortcut maps that to
+    /// `.again`.
+    private(set) var currentCardLastRating: Rating? = nil
+    /// Which category the current card belongs to (new / learning / review /
+    /// relearning), derived from the card's `type` field at advance time and
+    /// surfaced as the state dot in the review title bar.
+    private(set) var currentCardState: CardReviewState = .new
     /// Increments once per answered card so the view can fire a rating-tuned
     /// haptic as the next card snaps in.
     private(set) var answerPulse = 0
@@ -202,6 +214,54 @@ final class ReviewSession {
         self.deckId = deckId
     }
 
+    deinit {
+        // Session gone (user backed out / view torn down) — agents must not
+        // see a stale "current card". Lock-based registry, safe off-actor.
+        ReviewSessionContext.shared.clear()
+    }
+
+    // MARK: - Agent context (get_review_context)
+
+    /// Publishes live session state for the MCP bridge. Called on every
+    /// card transition (start / answer / undo / finish) — one publish
+    /// point in `advanceToNextCard` covers all of them, since answer and
+    /// undo mutate their bookkeeping before advancing.
+    private func publishContext() {
+        let ratingName: (Rating) -> String = {
+            switch $0 {
+            case .again: return "again"
+            case .hard: return "hard"
+            case .good: return "good"
+            case .easy: return "easy"
+            }
+        }
+        let snapshot = ReviewSessionSnapshot(
+            deckId: deckId.rawValue,
+            deckName: deckName,
+            isAllDecksScope: deckId.rawValue == 0,
+            currentCardId: currentQueuedCard?.card.id.rawValue,
+            currentNoteId: currentQueuedCard?.card.nid.rawValue,
+            cardOrdinal: currentCardOrdinal,
+            queueRemaining: max(cardQueue.count - (currentQueuedCard == nil ? 0 : 1), 0),
+            isFinished: isFinished,
+            isAnswerRevealed: showAnswer,
+            reviewed: sessionStats.reviewed,
+            correct: sessionStats.correct,
+            streak: correctStreak,
+            remainingNew: remainingCounts.newCount,
+            remainingLearning: remainingCounts.learnCount,
+            remainingReview: remainingCounts.reviewCount,
+            answered: answerStack.map { record in
+                .init(
+                    cardId: record.cardID.rawValue,
+                    rating: ratingName(record.rating),
+                    atMs: Int64(record.at.timeIntervalSince1970 * 1000)
+                )
+            }
+        )
+        ReviewSessionContext.shared.publish(snapshot)
+    }
+
     // MARK: - Public interface
 
     func start() {
@@ -266,12 +326,13 @@ final class ReviewSession {
                 remainingAllDeckIDs = pendingDeckIDs
                 deckName = allDeckScope ? "All Decks" : name
                 remainingCounts = countsIncludingUnselectedDecks(queue)
+                await refineRemainingLearning()
                 sessionInitialCounts = remainingCounts
                 updateSessionProgressTotal()
                 publishLiveCounts()
                 print("[ReviewSession] Started with \(cardQueue.count) cards, counts: new=\(queue.newCount) learn=\(queue.learningCount) review=\(queue.reviewCount)")
                 await loadDailyProgress()
-                await advanceToNextCard(notes: notes, notetypes: notetypes, notetypesClient: notetypesClient, cardRendering: cardRendering)
+                await advanceToNextCard(notes: notes, notetypes: notetypes, notetypesClient: notetypesClient, cardRendering: cardRendering, statsClient: statsClient)
             } catch {
                 print("[ReviewSession] Start failed: \(error)")
                 liveCounts.clear()
@@ -295,17 +356,24 @@ final class ReviewSession {
             )
         } catch {
             dailyBaseGraduatedToday = 0
-            secondsUntilNextDayStart = 0
+            // Conservative rollover fallback: with the boundary unknown,
+            // sub-day intervals must NOT count as graduated (0 would make
+            // every learning step `secs >= 0` → instant graduation).
+            secondsUntilNextDayStart = 86_400
         }
     }
 
     func revealAnswer() {
+        print("[ReviewSession] revealAnswer entered, showAnswer=\(showAnswer)")
         if let state = typedAnswerState {
             backHTML = makeTypedAnswerBackHTML(state: state, typedAnswer: typedAnswer)
         } else {
+            // Also consumed by the watch surface, so this runs even when
+            // `resolvedMode` is native.
             backHTML = strippingTypedAnswerPlaceholders(from: renderedBackHTML)
         }
         showAnswer = true
+        publishContext()
     }
 
     func answer(rating: Rating) {
@@ -375,19 +443,28 @@ final class ReviewSession {
 
                 cardQueue = queue.cards
                 remainingCounts = countsIncludingUnselectedDecks(queue)
+                await refineRemainingLearning()
                 updateSessionProgressTotal()
                 publishLiveCounts()
-                await advanceToNextCard(notes: notes, notetypes: notetypes, notetypesClient: notetypesClient, cardRendering: cardRendering)
+                await advanceToNextCard(notes: notes, notetypes: notetypes, notetypesClient: notetypesClient, cardRendering: cardRendering, statsClient: statsClient)
             } catch {
                 print("[ReviewSession] Answer failed: \(String(describing: error))")
                 if !cardQueue.isEmpty { cardQueue.removeFirst() }
-                await advanceToNextCard(notes: notes, notetypes: notetypes, notetypesClient: notetypesClient, cardRendering: cardRendering)
+                await advanceToNextCard(notes: notes, notetypes: notetypes, notetypesClient: notetypesClient, cardRendering: cardRendering, statsClient: statsClient)
             }
         }
     }
 
-    func undo() {
-        guard canUndo, !isAdvancing, let record = answerStack.last else {
+    /// Space-bar repeat: rate the card the way IT was rated last time
+    /// (from its revlog history). New cards with no review history default
+    /// to Again. No-op unless the answer is showing and no transition is
+    /// in flight.
+    func answerWithLastRating() {
+        guard showAnswer, !isAdvancing else { return }
+        answer(rating: currentCardLastRating ?? .again)
+    }
+
+    func undo() {        guard canUndo, !isAdvancing, let record = answerStack.last else {
             print("[ReviewSession] Undo skipped: canUndo=\(canUndo) isAdvancing=\(isAdvancing) answerStack=\(answerStack.count)")
             return
         }
@@ -455,9 +532,10 @@ final class ReviewSession {
                 // deterministic from the pre-answer capture.
                 cardQueue = [target] + queue.cards.filter { $0.card.id != undoneCardID }
                 remainingCounts = countsIncludingUnselectedDecks(queue)
+                await refineRemainingLearning()
                 updateSessionProgressTotal()
                 publishLiveCounts()
-                await advanceToNextCard(notes: notes, notetypes: notetypes, notetypesClient: notetypesClient, cardRendering: cardRendering)
+                await advanceToNextCard(notes: notes, notetypes: notetypes, notetypesClient: notetypesClient, cardRendering: cardRendering, statsClient: statsClient)
                 undoToastPulse += 1
             } catch {
                 print("[ReviewSession] Undo failed: \(String(describing: error))")
@@ -572,6 +650,22 @@ private extension ReviewSession {
         return counts
     }
 
+    /// Replaces the queue-derived learn count with the TRUE number of
+    /// learning/relearning cards still due before the next rollover. The
+    /// scheduler's counts only include intraday learning within its
+    /// learn-ahead window (~20 min) — a card answered Again with a longer
+    /// step would vanish from `remaining`, making the progress bar jump
+    /// without any graduation. The search is rollover-aware (`prop:due<=0`
+    /// compares against the next day start) and excludes buried/suspended.
+    /// Best-effort: on failure the queue-derived count stands.
+    private func refineRemainingLearning() async {
+        let allDeckScope = deckId.rawValue == 0
+        let search = allDeckScope ? "" : DeckUsageRanking.deckSearch(fullName: deckName)
+        if let learning = try? await statsClient.learningDueToday(search: search) {
+            remainingCounts.learnCount = learning
+        }
+    }
+
     /// Keeps the session denominator stable: set once at start, then only
     /// grow when re-learning inflates the remaining queue.
     func updateSessionProgressTotal() {
@@ -589,12 +683,14 @@ private extension ReviewSession {
         notes: NotesService,
         notetypes: NotetypesService,
         notetypesClient: NotetypesClient,
-        cardRendering: CardRenderingService
+        cardRendering: CardRenderingService,
+        statsClient: StatsClient
     ) async {
         guard let next = cardQueue.first else {
             isFinished = true
             currentQueuedCard = nil
             currentNote = nil
+            publishContext()
             return
         }
 
@@ -606,13 +702,15 @@ private extension ReviewSession {
                 notetypes: notetypes,
                 cardRendering: cardRendering,
                 notetypesClient: notetypesClient,
-                notetypeCache: cache
+                notetypeCache: cache,
+                statsClient: statsClient
             )
         }.value
 
         currentQueuedCard = next
         currentNote = prepared.note
         isFinished = false
+        publishContext()
         if let notetype = prepared.notetype {
             notetypeCache[notetype.id] = notetype
         }
@@ -627,6 +725,18 @@ private extension ReviewSession {
         frontHTML = prepared.frontHTML
         backHTML = prepared.renderedBackHTML  // back substitution happens at reveal
         nextIntervals = next.nextIntervals
+        currentCardLastRating = prepared.lastRating
+        currentCardState = CardReviewState(cardType: next.card.type)
+        // Preserve chrome continuity for HTML→HTML: the progress bar and
+        // button regions share `cardChromeColor` with the card canvas via
+        // `ReviewContent.background`. Clearing unconditionally caused a flash
+        // to `palette.background`/`Color.clear` between HTML cards, breaking
+        // the illusion. Only clear for native cards (which never report a
+        // chrome colour) so a stale HTML colour doesn't pin the palette.
+        if case .native = prepared.resolvedMode {
+            cardChromeColor = .clear
+            cardChromeIsDark = false
+        }
         showAnswer = false
         reviewStartTime = .now
         stopAudioRequestID += 1
@@ -654,6 +764,42 @@ private extension ReviewSession {
 }
 
 // MARK: - Off-main card preparation
+
+/// The scheduling category of the card under review, for the title-bar state
+/// dot. Anki's `card.type` is 0 new / 1 learning / 2 review / 3 relearning,
+/// but the reviewer's progress model is 3-way — new / learning / review —
+/// where relearning is a sub-state of learning (it is counted in
+/// `QueuedCards.learningCount` / `DeckCounts.learnCount` and painted with the
+/// same orange in `DailyProgressBar`). Mapping `type == 3` → `.learning`
+/// keeps the title-bar dot's hue aligned with the progress bar's segment for
+/// the current card. `.relearning` is retained as an alias for
+/// compatibility but is not produced.
+enum CardReviewState: Sendable {
+    case new
+    case learning
+    case review
+    case relearning
+
+    init(cardType: Int16) {
+        switch cardType {
+        case 1, 3: self = .learning
+        case 2: self = .review
+        default: self = .new
+        }
+    }
+
+    /// Convenience for queue-based callers; `type == 3` is learning for the
+    /// same reason as above.
+    init(cardQueue: Int16) {
+        switch cardQueue {
+        case 0: self = .new
+        case 1, 3, 4: self = .learning // Learn / DayLearn / PreviewRepeat → orange
+        case 2: self = .review
+        default: self = .new
+        }
+    }
+}
+
 //
 // These run inside `Task.detached`, so they are file-scope `nonisolated`
 // functions that take the Sendable service facades explicitly rather than
@@ -693,6 +839,9 @@ private struct PreparedCard: Sendable {
     /// Freshly fetched notetype for the session cache; nil on cache hit
     /// or fetch failure.
     let notetype: Notetype?
+    /// The card's most recent historical rating (nil = never reviewed);
+    /// prefetched off-actor so the space-bar repeat shortcut is instant.
+    let lastRating: Rating?
 }
 
 /// Applies the R11 resolution order — template override → global preference
@@ -744,7 +893,8 @@ private func prepareCard(
     notetypes: NotetypesService,
     cardRendering: CardRenderingService,
     notetypesClient: NotetypesClient,
-    notetypeCache: [NotetypeID: Notetype]
+    notetypeCache: [NotetypeID: Notetype],
+    statsClient: StatsClient
 ) async -> PreparedCard {
     let note: NoteRecord?
     do {
@@ -753,6 +903,11 @@ private func prepareCard(
         print("[ReviewSession] getNote failed: \(error)")
         note = nil
     }
+
+    // Prefetch the card's most recent rating (revlog) so the space-bar
+    // "repeat last rating" shortcut is instant at reveal time. Best-effort:
+    // a failure just means no hint (falls back to Again).
+    let lastRating = try? await statsClient.lastRating(queued.card.id.rawValue)
 
     // Template name comes from the full notetype (cached per session);
     // fetch failure only costs the chip-row label.
@@ -807,7 +962,8 @@ private func prepareCard(
             resolvedMode: resolution.mode,
             resolvedByAuto: resolution.byAuto,
             templateName: templateName,
-            notetype: fetchedNotetype
+            notetype: fetchedNotetype,
+            lastRating: lastRating
         )
     } catch {
         print("[ReviewSession] Render failed for card \(queued.card.id): \(error)")
@@ -821,7 +977,8 @@ private func prepareCard(
             resolvedMode: .html,
             resolvedByAuto: false,
             templateName: templateName,
-            notetype: fetchedNotetype
+            notetype: fetchedNotetype,
+            lastRating: lastRating
         )
     }
 }

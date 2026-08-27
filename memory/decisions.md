@@ -114,6 +114,30 @@
 
 ## Agent surface — amgi-mcp helper + App Intents (2026-08)
 
+- **ONE channel, industry standard: `uvx amgi-mcp` over stdio (2026-08,
+  after every channel failed in the wild)**. HTTP transport (LocalHTTPServer/
+  HTTPTransport.swift, `--http`, mcp.http.json, app-supervised spawn) was
+  REMOVED — it required the app running and its Accept/Origin/Bearer
+  validation 406'd real clients. Per-client snippet generation (Zed
+  context_servers, Hermes YAML, Codex TOML, Qwen httpUrl…) was also removed:
+  Qwen desktop rejects any command except literal "npx"/"uvx", which proved
+  custom paths can't be made universal. Settings now shows exactly one
+  registration: Command `uvx`, Parameters `amgi-mcp` (+ JSON block). The
+  PyPI shim (python/) finds the bundled helper itself, so no absolute paths.
+- **Helper lifetime — stdin relay (2026-08)**: the SDK's StdioTransport
+  parks forever on stdin EOF, orphaning helpers (4 stale processes observed;
+  through uvx a getppid watch NEVER fires — uvx outlives its own parent and
+  keeps the helper as its child). Fix: `pipe()` + relay thread — the sole
+  reader of fd 0 forwards bytes into the transport (constructed with
+  `input: FileDescriptor(rawValue: pipeReadEnd)` from `System` — NOT
+  SystemPackage, the SDK's `#if canImport(System)` picks System); on EOF it
+  closes the write end, sleeps 1s (last response flush), `exit(0)`.
+  GOTCHAS, both hit live: (a) a second fd-0 reader or a kqueue
+  EVFILT_READ watcher breaks the SDK's non-blocking read loop — responses
+  silently stop; (b) `swift build | tail` masks build failure (pipeline
+  exit = tail's) — chain with `&&` only, never pipe before `&&`.
+  Verified: handshake + clean exit 1.0s after stdin close via uvx.
+
 - **MCP server lives in Swift** (`Sources/AmgiMCP/`, executable product
   `amgi-mcp`, official swift-sdk): zero changes to anki-bridge-rs or
   anki-upstream; reuses AnkiProtoBridge Request<R> factories. Depends on
@@ -165,6 +189,82 @@
   ("failed to produce diagnostic") — use `<Client>.liveValue` stored lets
   there instead. DeckEntity ids must be String (EntityIdentifierConvertible).
 
+- **`get_review_context` — live session state over the bridge (2026-08)**:
+  the ONE tool about app UI state, not the collection. `MCPBridge` service-0
+  sentinel grew `sessionStateMethod = 1` (ping is 0/0); `MCPBridgeServer`
+  intercepts it before the engine forward and answers from
+  `ReviewSessionContext.shared` — a lock-based (NOT actor; bridge thread
+  reads it) snapshot registry that `ReviewSession.publishContext()` refreshes
+  on every card transition (single publish point inside `advanceToNextCard`
+  covers start/answer/undo/finish) and `deinit` clears. Snapshot type
+  (`ReviewSessionSnapshot`, AnkiKit — shared Codable) carries current
+  cardId+noteId, deck scope, queue remaining + new/learn/review, session
+  stats, answered-today timeline. Helper tool (readOnly) probes
+  `ProxyCaller.ping` FIRST — `ctx.backend()` would fall through to a direct
+  collection open and die on the engine lock held by sibling helpers before
+  it could say "app not running" — then enriches with `is:buried` /
+  `is:suspended` counts in scope via `Request.searchCardIds`. App closed ⇒
+  clean error by design: current card exists only while the app does.
+  GOTCHA: IDs are **Int64**-backed (`Identifiers.swift`), not UInt64.
+
+- **Widget progress = reviewer math (2026-08 fix)**: widgets showed
+  answers-today over a frozen calendar-midnight baseline — diverging from
+  the study screen, which counts GRADUATIONS over live remaining. Widget
+  snapshot now carries `completedToday` (`statsClient.graduatedToday` =
+  `is:review rated:1` in scope — re-answers/Again don't inflate) and
+  `todayProgressFraction = completed / (completed + live totalDue)` — the
+  exact `DailyProgressBar` formula. `reviewedToday` kept as FYI only.
+  Day boundary: snapshot carries `nextDayStart` computed from
+  `graphs.rolloverHour` via `DailyProgressCalculator` — the timeline's
+  rollover entry + reload policy use it, NEVER calendar midnight (Anki
+  rollover hour is user-settable). Per-deck graduated searches bounded to
+  decks with due cards or an existing snapshot file (N+1 guard). Theme:
+  `ThemeManager.refreshFromDefaults()` called per widget timeline reload —
+  widget processes can outlive an app-side theme change; palette plumbing
+  (app-group defaults + Bundle.module themes + `palette(for: colorScheme)`)
+  was already correct, only the cache was stale-prone. Study landing ring
+  already used graduated math (`StudyLandingModel.resolveCollectionProgress`)
+  — its `dueBaselineToday` field name is a misnomer (holds completed+remaining).
+
+- **Progress nuance — Again holds the bar everywhere (2026-08 fix)**:
+  "done for today" = re-graduated past the rollover. Two engine-verified
+  bugs: (1) `is:review` is TYPE-based (`type IN (Review, Relearn)` per
+  sqlwriter.rs) so `is:review rated:1` counted Again-lapsed cards that
+  Anki keeps showing today — `graduatedToday` now uses
+  **`rated:1 -is:learn`** (state-based: excludes type Learn/Relearn
+  whatever button sequence got it there; Hard on a review card counts —
+  it schedules ≥1 day). (2) learn counts (queue AND deck-tree
+  `due_counts.sql`) only include intraday learning within the ~20-min
+  learn-ahead window — answering Again with a longer step made
+  `completed/(completed+remaining)` jump without graduation, then dip.
+  Fix: **`learningDueToday`** on StatsClient — search
+  `is:learn prop:due<=0 -is:suspended -is:buried` (+scope); `prop:due` is
+  queue-aware (learn epoch dues compared vs next-day start), so it's the
+  true learning-remaining-today. Used by ReviewSession
+  (`refineRemainingLearning()` after start/answer/undo — replaces
+  queue.learningCount), WriteWidgetSnapshot (widget learnCount),
+  StudyLandingModel (ring). Hardening: `loadDailyProgress()` failure now
+  falls back to `secondsUntilNextDayStart = 86_400` (was 0 → every
+  sub-day interval instantly "graduated"). All four indicators (review
+  bar, landing ring, widgets, live repaint) observe: Again holds the bar;
+  re-graduation past today moves it once; sub-day FSRS steps hold.
+
+- **Launch crash on locked collection (2026-08 fix)**: `try!
+  prepareDependencies` in `AnkiAppApp.init` trapped (EXC_BREAKPOINT via
+  `swift_unexpectedError`, symbolicated to AmgiAppApp.swift:93) whenever
+  `openCollection` failed — which is now a NORMAL condition: MCP helper
+  sessions hold the collection while the app is closed. Fix:
+  `CollectionLaunchState` (@MainActor @Observable singleton) + busy screen
+  (`CollectionBusyView`): open failure degrades to "Amgi is busy — an AI
+  assistant is using your collection", background retry every 2 s on a
+  DETACHED task (blocking FFI off main per the NonisolatedNonsending
+  rule), auto-recovers when helpers quit or switch to bridged mode.
+  Backend handle is rebuilt on the failure path (init is lock-free; only
+  openCollection contends). `prepareDependencies` still registers the
+  backend so the bridge/services work; ContentView is replaced by the
+  busy view until open succeeds, so nothing downstream touches a closed
+  collection.
+
 ## General
 
 - **NonisolatedNonsendingByDefault + blocking FFI = main-thread freezes** (fixed
@@ -179,3 +279,122 @@
   app's project.yml; root `Package.swift` (AnkiBridge) is separate.
 - `DeckRowViewData` / `DeckDetailViewData` carry optional `iconName`;
   AmgiUI renders glyphs only through `DeckIconRendering.provider`.
+
+## Review card rendering
+
+- **MathJax loader sentinel (fixed 2026-08)**: `amgiEnsureMathJaxReady` in
+  `CardWebViewBridge.js` used to cache its promise and only clear it on throw,
+  but the normal failure paths RESOLVE — one slow/failed first load (1.3 MB
+  core + cold WebContent) disabled math for the whole session. Now: sentinel
+  resets whenever the load doesn't succeed, MathJax warms eagerly at frame-page
+  load, budget raised 1500→4000 ms, typesetting happens after visibility
+  restore so a hung load shows raw TeX instead of a blank card.
+- **Native card reveal perf**: `NativeCardView` no longer decodes media images
+  synchronously in `body` (`NativeMediaImageCache`, CGImage thumbnails ≤2048px,
+  decode off-main, NSCache); `FlipContainer` builds both sides up-front in a
+  ZStack (opacity cross-dissolve, no identity swap) so back-side construction
+  is off the animation's critical path; `NativeCardView: Equatable` +
+  `.equatable()` at call site stops unrelated session-field invalidations from
+  re-running body. Diagnostic logs: `[NativeCard] image … ready`,
+  `[FlipContainer] back committed`, `[CardWebView][diag] mathjax-*`,
+  `[CardAssetScheme] serving/unresolvable asset`.
+
+## macOS app groups — TWO IDs required (fixed 2026-08)
+
+The macOS app must be entitled to BOTH group IDs in `AmgiApp-macOS.entitlements`:
+- `39557WW39R.group.com.bagumamartin.AmgiApp` (via `$(APP_GROUP_IDENTIFIER)`
+  sdk=macosx* override) — widget snapshots + shared defaults
+  (`AppGroup.identifier`).
+- `group.com.bagumamartin.AmgiApp` (literal) — canonical collection root
+  (`CollectionLayout.macGroupAnkiCollectionRoot`), shared with the unsandboxed
+  amgi-mcp helper. The live collection.anki2 lives in THIS container.
+
+Listing only one breaks the other half: prefixed-only → SQLite CannotOpen(14)
+on collection open → "Amgi is busy" screen; unprefixed-only → widget snapshot
+writes fail EPERM (Code=513) and cfprefsd detaches the defaults suite. The
+entitlements file must never collapse back to a single ID.
+
+## Review screen macOS update loop (fixed 2026-08)
+
+`ReviewContent`'s `.focusedSceneValue(\.reviewActions, …)` allocated a NEW
+`ReviewActions` struct of closures on every body evaluation. SwiftUI treats
+each write as a change → scene/menu rebuild → body re-eval → new struct →
+loop: hundreds of body evals/sec saturating the main thread, delaying every
+card reveal (native ~250–1000 ms, HTML slightly) — macOS-only, because the
+modifier is `#if os(macOS)` (iOS was instant). Log signature: endless
+`[ReviewCardArea] body built` + "FocusedValue update tried to update multiple
+times per frame". Fix: `ReviewActions` is now a stable CLASS instance in
+`@State`, closures rebound once in `onAppear`; writing the same reference is
+a no-op for change detection. Rule: focused-value payloads must have stable
+identity across renders — never construct them inline in `body`.
+
+## Native card typography — uniform, no invented hierarchy (2026-08)
+
+User directive: the renderer must NOT invent typography. All their cards are
+plain text; the old "first text block = headword" heuristic (48/34pt first
+line) misled on list cards (e.g. a 6-drug list where line 1 looked like a
+heading). Rules now, identical on iOS/iPadOS/macOS:
+- Front: ALL text blocks 32pt semibold serif.
+- Back: recap (front-side text, before the divider) 22pt SEMIBOLD — header-like,
+  per user's explicit preference; answer 20pt regular.
+- Only user-authored inline markup (<b>/<i>) adds emphasis. No
+  minimumScaleFactor shrink; long lines wrap.
+- Recap/answer split: real <hr> is authoritative; when the template lacks one
+  (user's hand-made templates do), synthesize the split by matching the
+  front side's normalized plain text as a prefix of the back's
+  (`NativeCardContent.answerStartIndex(front:)`); nil → whole side is answer.
+- FlipContainer equalizes both sides' card height to the taller side
+  (Front/BackCardNaturalHeightKey → `\.nativeCardMinHeight` environment), so
+  flips don't jump geometrically. Height is measured on the inner VStack,
+  outside the minHeight application, to avoid a feedback loop.
+
+## Widget-click window reuse (2026-08)
+
+`widgetURL(amgi://study)` taps opened a NEW main window on every click —
+SwiftUI macOS delivers external events to a `WindowGroup` by spawning a
+window before `onOpenURL` runs (known behavior; SO 66647052). Fix is the
+two-part `handlesExternalEvents` recipe in AmgiAppApp:
+- Root view: `.handlesExternalEvents(preferring: ["study"], allowing: ["*"])`
+  → an existing main window claims the event (activated + navigated in place).
+- Scene: `.handlesExternalEvents(matching: ["study"])` → creates a window only
+  when none exists.
+The "study" string matches the URL's path component (`amgi://study`). The
+AppDelegate second-instance guard (DerivedData vs /Applications copies) stays.
+
+## Review context dots + repeat-last-rating action (2026-08)
+
+- Title-bar context dots (principal toolbar item, both platforms): state dot
+  (new/learning/review/relearning via `CardReviewState` from card `type`) +
+  rating dot (last revlog rating; never-reviewed → new-state hue). Dots only,
+  no text; hairline ring for tinted-chrome visibility. Rating dot is tappable
+  = repeat last rating; dims while the answer isn't showing.
+- `ReviewShortcutAction.repeatLastRating` (default Space) is the 10th
+  rebindable action; the hidden zero-size button uses its binding. It and
+  revealAnswer (also Space by default) never coexist — reveal is active only
+  while the answer is hidden, repeat only while showing.
+
+## Review window title + appearance (2026-08)
+
+- macOS review title: plain left-leaning `navigationTitle`, breadcrumb
+  "Parent › Child" (engine's `::` replaced); NO principal toolbar item —
+  macOS 26 wraps principal items in a Liquid Glass pill.
+- iOS/iPad title: `.topBarLeading` (left-leaning), no deck-tone dot; deck
+  name (parent) gets `.bodyEmphasis`, subdeck leaf gets `.micro` — swapped
+  from the old sizes per user preference. Top-level decks (no parent) keep
+  the big font.
+- Context dots (state + last rating) live in the DailyProgressBar header
+  center via its `center` @ViewBuilder slot (ZStack header so they sit at the
+  true bar midpoint).
+- **Stale-chrome bug**: `cardChromeColor/isDark` were never reset between
+  cards — an HTML card's dark chrome pinned `contentPalette` (auto-match →
+  `palette(forExplicitScheme:)`) for all later native cards, so the window
+  ignored system light/dark. Fix: reset both in `advanceToNextCard`; WebView
+  re-reports per card.
+
+## Revlog ease vs button (2026-08)
+
+`CardStats`'s `StatsRevlogEntry.ease` is the ease FACTOR (e.g. 2500), not the
+pressed button — upstream populates it from `RevlogEntry.ease_factor`. The
+pressed button is `button_chosen`. Any "last rating" logic must read
+`buttonChosen` (walking backwards past button-0 entries from manual
+reschedules), never `ease`.

@@ -14,7 +14,7 @@ enum DeckTools {
                     Full deck hierarchy with today's due counts (new / learning / review) \
                     per deck, including subdecks. Use this to orient before any other call.
                     """,
-                inputSchema: .object([:]),
+                inputSchema: Schema.object([:]),
                 minimumTier: .readOnly
             ) { ctx, _ in
                 let tree = try Resolver.deckTree(ctx)
@@ -38,7 +38,7 @@ enum DeckTools {
                     collection is currently open, and why not if it isn't \
                     (Amgi.app holds an exclusive engine lock while running).
                     """,
-                inputSchema: .object([:]),
+                inputSchema: Schema.object([:]),
                 minimumTier: .readOnly
             ) { ctx, _ in
                 var lines = [

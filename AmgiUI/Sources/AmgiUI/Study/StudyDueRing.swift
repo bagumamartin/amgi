@@ -42,10 +42,17 @@ public struct StudyDueRing: View {
 
     // MARK: - Track
 
+    @ViewBuilder
     private var trackCircle: some View {
-        Circle()
-            .stroke(palette.separator, lineWidth: lineWidth)
-            .frame(width: ringSize, height: ringSize)
+        // With a segmented composition, the dim arcs themselves are the
+        // track — a full separator circle underneath would fill the segment
+        // gaps with its own tone, erasing the boundaries. The plain circle
+        // remains only for the zero-due fallback sweep.
+        if compositionSegments.isEmpty {
+            Circle()
+                .stroke(palette.separator, lineWidth: lineWidth)
+                .frame(width: ringSize, height: ringSize)
+        }
     }
 
     // MARK: - Segments
@@ -68,7 +75,9 @@ public struct StudyDueRing: View {
         guard !active.isEmpty else { return [] }
 
         let activeTotal = active.reduce(0) { $0 + $1.1 }
-        let gap = 0.008
+        // Wide enough that the background showing through reads as a real
+        // separator at ring size (≈8pt at 224pt diameter).
+        let gap = 0.012
         let totalGap = gap * Double(active.count - 1)
 
         var cursor = 0.0

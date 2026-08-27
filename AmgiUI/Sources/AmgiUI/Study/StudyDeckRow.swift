@@ -60,9 +60,16 @@ public struct StudyDeckRow: View {
                         }
                     }
                     Spacer(minLength: 12)
-                    Text("\(data.totalDue) cards")
+                    // Unit-free count, right-aligned at a uniform edge: the
+                    // chevron zone below is reserved on EVERY row, so counts
+                    // stop at the same distance from the trailing edge
+                    // whether or not the deck expands. Top-level counts are
+                    // as bold as their deck names.
+                    Text("\(data.totalDue)")
                         .amgiFont(.caption)
-                        .foregroundStyle(palette.textSecondary)
+                        .fontWeight(depth == 0 ? .bold : .regular)
+                        .monospacedDigit()
+                        .foregroundStyle(depth == 0 ? palette.textPrimary : palette.textSecondary)
                 }
                 .padding(.vertical, depth == 0 ? 10 : 8)
                 .padding(.leading, leadingIndent)
@@ -72,16 +79,24 @@ public struct StudyDeckRow: View {
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            if !data.subdecks.isEmpty {
-                Button(action: onToggleExpand) {
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(palette.textTertiary)
-                        .rotationEffect(.degrees(isExpanded ? 180 : 0))
+            // Reserved trailing zone: the expand/collapse chevron when the
+            // deck has subdecks, otherwise blank space of the same width so
+            // every row's count lines up.
+            Group {
+                if !data.subdecks.isEmpty {
+                    Button(action: onToggleExpand) {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(palette.textTertiary)
+                            .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                            .frame(width: 40, height: depth == 0 ? 56 : 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Color.clear
                         .frame(width: 40, height: depth == 0 ? 56 : 44)
-                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
             }
         }
     }

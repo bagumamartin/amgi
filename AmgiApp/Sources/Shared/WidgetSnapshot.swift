@@ -7,21 +7,33 @@ public struct WidgetSnapshot: Codable, Sendable {
     public var newCount: Int
     public var learnCount: Int
     public var reviewCount: Int
+    /// Answers given today (engine revlog, already rollover-aware). Kept as
+    /// an FYI stat — NOT the progress numerator, because re-answers would
+    /// inflate it (see `completedToday`).
     public var reviewedToday: Int
-    /// Cards due + already reviewed today, frozen at the first snapshot of
-    /// each calendar day. Drives the large-widget progress bar denominator.
-    public var dueBaselineToday: Int
+    /// Cards graduated past today's Anki-day scope — the SAME quantity the
+    /// reviewer's daily progress bar counts (`dailyCompletedToday`):
+    /// `is:review rated:1` in scope. Re-answers (Again, mid-step learning)
+    /// don't count, so widget and study screen agree.
+    public var completedToday: Int
     public var streak: Int
     public var lastSevenDays: [Int]   // index 0 = 6 days ago, index 6 = today
     public var snapshotDate: Date
+    /// When the current Anki day ends (rollover hour from settings, NOT
+    /// calendar midnight). The widget schedules its day-rollover timeline
+    /// entry here — the engine computes "today", so the widget must not
+    /// assume 00:00.
+    public var nextDayStart: Date?
 
     public var totalDue: Int { newCount + learnCount + reviewCount }
 
-    /// Fraction of today's baseline completed. Clamped to 1 when re-learning
-    /// pushes reviewedToday past the morning baseline.
+    /// Fraction of today's work done — mirrors the reviewer's
+    /// `DailyProgressBar`: completed / (completed + live remaining). Live
+    /// denominator keeps the bar honest (can't read 100% while cards are
+    /// still due, self-corrects when cards appear mid-day).
     public var todayProgressFraction: Double {
-        let baseline = max(dueBaselineToday, 1)
-        return min(1.0, Double(reviewedToday) / Double(baseline))
+        let total = max(completedToday + totalDue, 1)
+        return min(1.0, Double(max(completedToday, 0)) / Double(total))
     }
 
     public init(
@@ -31,10 +43,11 @@ public struct WidgetSnapshot: Codable, Sendable {
         learnCount: Int,
         reviewCount: Int,
         reviewedToday: Int,
-        dueBaselineToday: Int,
+        completedToday: Int,
         streak: Int,
         lastSevenDays: [Int],
-        snapshotDate: Date
+        snapshotDate: Date,
+        nextDayStart: Date? = nil
     ) {
         self.deckId = deckId
         self.deckName = deckName
@@ -42,10 +55,11 @@ public struct WidgetSnapshot: Codable, Sendable {
         self.learnCount = learnCount
         self.reviewCount = reviewCount
         self.reviewedToday = reviewedToday
-        self.dueBaselineToday = dueBaselineToday
+        self.completedToday = completedToday
         self.streak = streak
         self.lastSevenDays = lastSevenDays
         self.snapshotDate = snapshotDate
+        self.nextDayStart = nextDayStart
     }
 
     public init(from decoder: Decoder) throws {
@@ -56,12 +70,14 @@ public struct WidgetSnapshot: Codable, Sendable {
         learnCount = try container.decode(Int.self, forKey: .learnCount)
         reviewCount = try container.decode(Int.self, forKey: .reviewCount)
         reviewedToday = try container.decode(Int.self, forKey: .reviewedToday)
+        // Pre-graduation snapshots only had the answer count; it's the
+        // closest available approximation until the app writes fresh data.
+        completedToday = try container.decodeIfPresent(Int.self, forKey: .completedToday)
+            ?? reviewedToday
         streak = try container.decode(Int.self, forKey: .streak)
         lastSevenDays = try container.decode([Int].self, forKey: .lastSevenDays)
         snapshotDate = try container.decode(Date.self, forKey: .snapshotDate)
-        let totalDue = newCount + learnCount + reviewCount
-        dueBaselineToday = try container.decodeIfPresent(Int.self, forKey: .dueBaselineToday)
-            ?? max(reviewedToday + totalDue, 1)
+        nextDayStart = try container.decodeIfPresent(Date.self, forKey: .nextDayStart)
     }
 
     /// Runtime fallback used when the app has not written a shared snapshot
@@ -75,7 +91,7 @@ public struct WidgetSnapshot: Codable, Sendable {
             learnCount: 0,
             reviewCount: 0,
             reviewedToday: 0,
-            dueBaselineToday: 1,
+            completedToday: 0,
             streak: 0,
             lastSevenDays: Array(repeating: 0, count: 7),
             snapshotDate: .distantPast
@@ -90,7 +106,7 @@ public struct WidgetSnapshot: Codable, Sendable {
             learnCount: 8,
             reviewCount: 22,
             reviewedToday: 18,
-            dueBaselineToday: 53,
+            completedToday: 18,
             streak: 7,
             lastSevenDays: [20, 15, 22, 18, 25, 12, 8],
             snapshotDate: Date()

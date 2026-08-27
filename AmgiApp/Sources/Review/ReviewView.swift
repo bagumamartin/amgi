@@ -116,6 +116,10 @@ private struct ReviewContent: View {
     @State private var showUndoToast = false
     @Environment(\.dismiss) private var dismiss
     @Shared(.reviewShortcuts) private var reviewShortcuts: [String: ReviewShortcut] = [:]
+    // Stable-identity focused value — see `ReviewActions`. Created once per
+    // screen; closures rebound in `onAppear` (all captures are stable
+    // references, so rebinding once is sufficient).
+    @State private var reviewActions = ReviewActions()
 
     var body: some View {
         NavigationStack {
@@ -125,7 +129,9 @@ private struct ReviewContent: View {
                         completedToday: session.dailyCompletedToday,
                         remainingToday: session.dailyRemainingToday,
                         remainingCounts: session.remainingCounts
-                    )
+                    ) {
+                        ReviewContextDots(session: session)
+                    }
                 }
 
                 if session.isFinished {
@@ -189,18 +195,23 @@ private struct ReviewContent: View {
             // scene observes it to rebuild commands while this view recreates
             // it during rendering, which can cause a same-frame update loop
             // and leave the review hierarchy temporarily unresponsive.
-            .focusedSceneValue(\.reviewActions, ReviewActions(
-                undo: { session.undo() },
-                editNote: { editingNote = session.currentNote },
-                lookup: { lookupQuery = "" },
-                replayAudio: {
+            //
+            // `reviewActions` is a stable class instance (see `ReviewActions`);
+            // writing the same reference every render is a no-op for SwiftUI's
+            // change detection, which is what breaks the update loop.
+            .focusedSceneValue(\.reviewActions, reviewActions)
+            .onAppear {
+                reviewActions.undo = { session.undo() }
+                reviewActions.editNote = { editingNote = session.currentNote }
+                reviewActions.lookup = { lookupQuery = "" }
+                reviewActions.replayAudio = {
                     if session.isAudioPlaying {
                         session.bumpStopAudioRequest()
                     } else {
                         session.bumpReplayRequest()
                     }
                 }
-            ))
+            }
             #endif
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -215,26 +226,29 @@ private struct ReviewContent: View {
                 }
                 #endif
                 #if os(iOS)
-                ToolbarItem(placement: .principal) {
-                    HStack(spacing: AmgiSpacing.sm) {
-                        Circle()
-                            .fill(deckTone)
-                            .frame(width: 6, height: 6)
-                            .accessibilityHidden(true)
-                        VStack(alignment: .leading, spacing: 1) {
-                            if !deckSubtitle.isEmpty {
-                                Text(deckSubtitle)
-                                    .amgiFont(.micro)
-                                    .foregroundStyle(palette.textSecondary)
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.7)
-                            }
-                            Text(deckTitle)
-                                .amgiFont(.bodyEmphasis)
-                                .foregroundStyle(palette.textPrimary)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.8)
-                        }
+                // Title sits immediately right of the dismiss button, but as
+                // its OWN toolbar item with the shared glass background
+                // removed — grouping it with the X fuses both into one pill
+                // that's too small for the deck/subdeck combination and
+                // ellipsizes the title. Plain text keeps the X's circular
+                // glass intact.
+                if #available(iOS 26.0, *) {
+                    ToolbarItem(placement: .topBarLeading) {
+                        reviewTitleBlock
+                            // Breathing room from the X button's glass circle.
+                            .padding(.leading, 16)
+                            // Toolbar items propose a narrow width that
+                            // scales+ellipsizes the title; take the text's
+                            // ideal width instead (lineLimit(1) still caps
+                            // pathologically long names at the screen edge).
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                    .sharedBackgroundVisibility(.hidden)
+                } else {
+                    ToolbarItem(placement: .topBarLeading) {
+                        reviewTitleBlock
+                            .padding(.leading, 32)
+                            .fixedSize(horizontal: true, vertical: false)
                     }
                 }
                 #endif
@@ -244,10 +258,10 @@ private struct ReviewContent: View {
             }
             #if os(macOS)
             // macOS HIG: the deck name is the window title (no inline title
-            // bar) and Escape is the standard cancel/close path alongside
-            // the window controls (⌘W, traffic light). Guarded so Escape
-            // never closes mid-typing in a `{{type:}}` card.
-            .navigationTitle(session.deckName)
+            // bar) — left-leaning, plain, no principal-item glass pill.
+            // "Parent::Child" renders as a "Parent › Child" breadcrumb so
+            // the hierarchy reads without the engine's separator clutter.
+            .navigationTitle(navigationBreadcrumb)
             .onExitCommand {
                 if !session.requiresTypedAnswerInput {
                     dismiss()
@@ -324,12 +338,27 @@ private struct ReviewContent: View {
         }
     }
 
-    private var deckTone: Color {
-        DeckTonePalette.tone(for: session.deckName)
+    /// The review title block for the leading toolbar area: the deck name
+    /// (parent) in the large font, the subdeck leaf below it in the small
+    /// one. Top-level decks (no parent) render the leaf alone at full size.
+    private var reviewTitleBlock: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            if !deckSubtitle.isEmpty {
+                Text(deckSubtitle)
+                    .amgiFont(.bodyEmphasis)
+                    .foregroundStyle(palette.textPrimary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            Text(deckTitle)
+                .amgiFont(deckSubtitle.isEmpty ? .bodyEmphasis : .micro)
+                .foregroundStyle(deckSubtitle.isEmpty ? palette.textPrimary : palette.textSecondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
     }
 
-    /// Leaf deck name, with the parent path stripped. The backend hands
-    /// back a "Parent::Child" path; the leaf alone is what a reviewer
+    /// Leaf deck name, with the parent path stripped. The backend hands    /// back a "Parent::Child" path; the leaf alone is what a reviewer
     /// actually needs to identify which deck they're studying.
     private var deckTitle: String {
         session.deckName.components(separatedBy: "::").last?.trimmingCharacters(in: .whitespaces) ?? session.deckName
@@ -341,6 +370,16 @@ private struct ReviewContent: View {
         let parts = session.deckName.components(separatedBy: "::")
         guard parts.count > 1 else { return "" }
         return parts.dropLast().joined(separator: " - ")
+    }
+
+    /// "Parent::Child" rendered as a "Parent › Child" breadcrumb for the
+    /// window title — the engine's `::` separator reads as clutter; a
+    /// chevron keeps the hierarchy legible without it.
+    private var navigationBreadcrumb: String {
+        session.deckName
+            .components(separatedBy: "::")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .joined(separator: " › ")
     }
 
     /// The card renderer has reported a real chrome background. WebKit cards
@@ -510,6 +549,11 @@ private struct ReviewContent: View {
                 Text("Accuracy: \(Int(session.sessionStats.accuracy * 100))%")
                     .foregroundStyle(palette.textSecondary)
             }
+            if session.dailyRemainingToday > 0 {
+                Text("\(session.dailyRemainingToday) due later today")
+                    .foregroundStyle(palette.textSecondary)
+                    .font(.callout)
+            }
             Spacer()
             Button("Done") { dismiss() }
                 .buttonStyle(.borderedProminent)
@@ -529,6 +573,11 @@ private struct ReviewContent: View {
                 .foregroundStyle(palette.textSecondary)
             if session.sessionStats.reviewed > 0 {
                 Text("Accuracy: \(Int(session.sessionStats.accuracy * 100))%")
+                    .amgiFont(.body)
+                    .foregroundStyle(palette.textSecondary)
+            }
+            if session.dailyRemainingToday > 0 {
+                Text("\(session.dailyRemainingToday) due later today")
                     .amgiFont(.body)
                     .foregroundStyle(palette.textSecondary)
             }
@@ -558,8 +607,101 @@ private extension ReviewContent {
 
 // MARK: - Card Area
 
-/// The card region of the reviewer: flip surface plus reveal/rating controls.
-/// Extracted from `ReviewContent` so session mutations it doesn't read
+/// Title-bar context dots for the reviewer: the current card's scheduling/// category and its last rating, color-coded with the same hues as the
+/// progress indicators and rating bar. Dots only — color carries the
+/// meaning; a hairline ring keeps them visible on tinted card chrome.
+/// The rating dot is tappable to repeat the last rating (new cards default
+/// to Again); it dims while the answer isn't showing, since repeat only
+/// applies then.
+private struct ReviewContextDots: View {
+    let session: ReviewSession
+
+    @Environment(\.palette) private var palette
+
+    var body: some View {
+        HStack(spacing: 5) {
+            contextDot(stateColor)
+                .accessibilityLabel(stateLabel)
+            ratingDot
+        }
+    }
+
+    private var stateColor: Color {
+        switch session.currentCardState {
+        case .new: palette.cardStateNew
+        case .learning: palette.cardStateLearning
+        case .review: palette.cardStateReview
+        case .relearning: palette.cardStateLearning // relearning is learning for the progress bar (orange, not red)
+        }
+    }
+
+    private var stateLabel: String {
+        switch session.currentCardState {
+        case .new: "New card"
+        case .learning, .relearning: "Learning"
+        case .review: "Review"
+        }
+    }
+
+    /// Same hue mapping the rating bar uses (Again/Good ↔ relearn/review
+    /// etc.). Never-reviewed cards show the new-state hue.
+    private var lastRatingColor: Color {
+        switch session.currentCardLastRating {
+        case .again: palette.cardStateRelearn
+        case .hard: palette.cardStateLearning
+        case .good: palette.cardStateReview
+        case .easy: palette.cardStateNew
+        case nil: palette.cardStateNew
+        }
+    }
+
+    /// Neutral grey used *before* the answer is revealed so the dot doesn't
+    /// give away the previous rating's hue. Theme-aware via the palette
+    /// (`cardStateSuspended` is the designated neutral state grey and exists
+    /// in every palette / light+dark variant, unlike a hardcoded `Color.gray`).
+    private var neutralRatingColor: Color {
+        palette.cardStateSuspended
+    }
+
+    /// The color actually painted for the rating dot — neutral grey on the
+    /// front, the true rating hue only after `showAnswer`.
+    private var effectiveRatingColor: Color {
+        session.showAnswer ? lastRatingColor : neutralRatingColor
+    }
+
+    private var lastRatingLabel: String {
+        switch session.currentCardLastRating {
+        case .again: "Last rated Again"
+        case .hard: "Last rated Hard"
+        case .good: "Last rated Good"
+        case .easy: "Last rated Easy"
+        case nil: "Never reviewed"
+        }
+    }
+
+    private func contextDot(_ color: Color) -> some View {
+        Circle()
+            .fill(color)
+            .frame(width: 8, height: 8)
+            .overlay(Circle().strokeBorder(palette.separator.opacity(0.5), lineWidth: 1))
+    }
+
+    private var ratingDot: some View {
+        Button {
+            session.answerWithLastRating()
+        } label: {
+            contextDot(effectiveRatingColor)
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!session.showAnswer || session.isAdvancing)
+        .opacity(session.isAdvancing ? 0.45 : 1)
+        .accessibilityLabel("\(lastRatingLabel). Tap to repeat it")
+    }
+}
+
+/// The card region of the reviewer: flip surface plus reveal/rating controls./// Extracted from `ReviewContent` so session mutations it doesn't read
 /// (audio-playing toggles, toast, deck counts) skip its body — otherwise every
 /// such change re-runs `CardWebView.updateUIView` and its HTML processing.
 /// Owns the native audio player, which is only relevant here.
@@ -573,6 +715,11 @@ private struct ReviewCardArea: View {
 
     @Environment(\.palette) private var palette
     @State private var nativeAudioPlayer = NativeCardAudioPlayer()
+    @Shared(.reviewShortcuts) private var reviewShortcuts: [String: ReviewShortcut] = [:]
+
+    private func shortcut(_ action: ReviewShortcutAction) -> ReviewShortcut {
+        reviewShortcuts[action.rawValue] ?? action.defaultShortcut
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -598,13 +745,36 @@ private struct ReviewCardArea: View {
 
             if session.showAnswer {
                 answerButtons
+                // Space repeats the card's PREVIOUS rating (Again for new
+                // cards) — the answer-side counterpart of the reveal
+                // shortcut below. Hidden zero-size button, same pattern as
+                // the iOS review keyboard shortcuts. Not installed while a
+                // typed-answer field is up: space must keep typing spaces.
+                if !session.requiresTypedAnswerInput {
+                    Button {
+                        session.answerWithLastRating()
+                    } label: {
+                        Text("Repeat Last Rating")
+                    }
+                    .keyboardShortcut(
+                        shortcut(.repeatLastRating).keyEquivalent,
+                        modifiers: shortcut(.repeatLastRating).modifiers
+                    )
+                    .frame(width: 0, height: 0)
+                    .opacity(0)
+                    .accessibilityHidden(true)
+                    .disabled(session.isAdvancing)
+                }
             } else if session.requiresTypedAnswerInput {
-                // No Space shortcut while the typed-answer field is active —
+                // No reveal shortcut while the typed-answer field is active —
                 // it would steal spaces from the user's input.
                 revealButton
             } else {
                 revealButton
-                    .keyboardShortcut(.space, modifiers: [])
+                    .keyboardShortcut(
+                        shortcut(.revealAnswer).keyEquivalent,
+                        modifiers: shortcut(.revealAnswer).modifiers
+                    )
             }
         }
         #if os(macOS)
@@ -639,7 +809,7 @@ private struct ReviewCardArea: View {
         .tint(palette.accent)
         #if os(macOS)
         .controlSize(.large)
-        .help("Show Answer (Space)")
+        .help("Show Answer (\(shortcut(.revealAnswer).displayString))")
         #else
         // A full-width primary action is ergonomic on an iPhone, but becomes
         // an impersonal, hard-to-scan slab on iPad. Cap its readable/tappable
@@ -656,10 +826,6 @@ private struct ReviewCardArea: View {
     private var isNativeMode: Bool {
         if case .native = session.resolvedMode { return true }
         return false
-    }
-
-    private var deckTone: Color {
-        DeckTonePalette.tone(for: session.deckName)
     }
 
     /// The reveal region. Native cards get the 3D flip (pure SwiftUI, crisp);
@@ -687,13 +853,19 @@ private struct ReviewCardArea: View {
     private func cardSurface(isBack: Bool) -> some View {
         switch session.resolvedMode {
         case .native(let front, let back):
+            let resolvedBack = isBack ? back.resolvingBackAnswerSplit(front: front) : nil
             NativeCardView(
-                content: isBack ? back : front,
+                content: resolvedBack?.content ?? front,
                 isAnswerSide: isBack,
+                answerStartIndex: resolvedBack?.answerStart,
                 mediaFolder: mediaFolder,
                 onQuestionCanvasTap: questionCanvasReveal,
                 onTextLookup: textLookupCallback
             )
+            // Skip body evaluation when unrelated session fields invalidate
+            // `ReviewCardArea` — previously every such pass re-read media
+            // images from disk mid-flip.
+            .equatable()
         case .html:
             CardWebView(
                 html: isBack ? session.backHTML : session.frontHTML,
@@ -736,7 +908,9 @@ private struct ReviewCardArea: View {
         guard case .native(let front, let back) = session.resolvedMode else { return }
         let files = session.showAnswer ? back.audioFiles : front.audioFiles
         guard !files.isEmpty else { return }
+        let startedAt = Date()
         nativeAudioPlayer.play(files: files, mediaFolder: mediaFolder)
+        print("[ReviewCardArea] playNativeAudio took \(Int(Date().timeIntervalSince(startedAt) * 1000))ms for \(files.count) file(s)")
     }
 
     private var answerButtons: some View {
