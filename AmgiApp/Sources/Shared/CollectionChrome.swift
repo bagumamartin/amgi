@@ -125,15 +125,23 @@ extension View {
     }
 
     /// iOS 26 collapses an inactive toolbar search field into the floating
-    /// bottom-right button; iPad/Mac ignore the request and render their
-    /// native field. Attach AFTER `.searchable`.
+    /// bottom-right button. Attach AFTER `.searchable`.
+    ///
+    /// Deliberately iOS-only (`#if os(iOS)`): the API annotation is
+    /// unavailable on macOS even though the doc page lists it — and Mac
+    /// SHOULD keep its persistent toolbar field anyway (HIG), which the
+    /// plain-else branch guarantees.
     @ViewBuilder
     func searchMinimizedIfAvailable() -> some View {
-        if #available(iOS 26.0, macOS 26.0, *) {
+        #if os(iOS)
+        if #available(iOS 26.0, *) {
             self.searchToolbarBehavior(.minimize)
         } else {
             self
         }
+        #else
+        self
+        #endif
     }
 }
 

@@ -14,6 +14,11 @@ options:
 settings:
   base:
     SWIFT_VERSION: "6.0"
+    # NOTE: "swift compiler caching requires explicit module build" warnings
+    # on AmgiApp/AmgiReaderDictionary are toolchain-emitted (Cxx interop
+    # disables explicit modules for those compiles). No public build setting
+    # silences them as of 26.5 — SWIFT_ENABLE_COMPILER_CACHING was probed and
+    # is inert. Benign: zero functional impact, once per target per build.
     SWIFT_STRICT_CONCURRENCY: complete
     # Must match the SPM packages: NonisolatedNonsendingByDefault changes the
     # mangling of `nonisolated async` function types, so the app target has to

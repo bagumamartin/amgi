@@ -1,4 +1,4 @@
-public import AnkiProtoBridge
+import AnkiProtoBridge
 import AnkiClients
 import AnkiKit
 import AnkiServices
