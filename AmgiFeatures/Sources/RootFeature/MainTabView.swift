@@ -1,67 +1,11 @@
-// AmgiApp/Sources/ContentView.swift
-import SwiftUI
 import AmgiAppCore
-import AmgiAppShared
 import AnkiKit
-import Sharing
-import Dependencies
-import SyncFeature
-import ReviewFeature
-import ReaderFeature
-import StatsFeature
 import DecksFeature
+import ReaderFeature
 import SettingsFeature
-
-/// App root. Hosts the tab bar (`MainTabView`) and orchestrates the
-/// cross-cutting flows that sit above it: sync, deck import, and the review
-/// cover. Each flow is a single modifier owned by the feature it belongs to,
-/// so the body stays a thin composition.
-struct ContentView: View {
-    @Binding var pendingReviewDeckId: DeckID?
-
-    @Dependency(\.collectionStore) private var store
-    @Bindable private var accountStore = AccountStore.shared
-
-    @State private var showImport = false
-    @State private var refreshID = UUID()
-
-    @Shared(.appStorage(ReaderPreferences.Keys.showTab))
-    private var showReaderTab: Bool = true
-
-    var body: some View {
-        MainTabView(
-            refreshID: refreshID,
-            showReaderTab: showReaderTab,
-            onImport: { showImport = true },
-            onSelectStudyDeck: { pendingReviewDeckId = $0 }
-        )
-        .alert(
-            "Couldn't switch profile",
-            isPresented: $accountStore.hasSwitchFailure
-        ) {
-            Button("OK", role: .cancel) { accountStore.switchFailure = nil }
-        } message: {
-            Text(accountStore.switchFailure ?? "")
-        }
-        // still drives the tabs not yet on CollectionStore
-        .syncFlow { refreshID = UUID() }
-        .deckImport(isPresented: $showImport) {
-            store.invalidateAll()
-            refreshID = UUID()
-        }
-        .fullScreenCover(item: $pendingReviewDeckId) { deckId in
-            ReviewView(deckId: deckId) {
-                pendingReviewDeckId = nil
-                store.invalidateAll()
-                refreshID = UUID()
-            }
-        }
-        // Review presents the reader's dictionary popup without importing
-        // ReaderFeature; the root injects it. Applied last so it reaches the
-        // tabs and every sheet/cover presented above.
-        .environment(\.lookupPopup, ReaderLookupPopup())
-    }
-}
+import StatsFeature
+import SwiftUI
+import SyncFeature
 
 /// Root tab bar. Pure layout: each tab wraps a feature view in a
 /// `NavigationStack`. `refreshID` (bumped by the host after sync / import /
@@ -75,7 +19,7 @@ struct ContentView: View {
 /// position, search text, selected deck, pushed navigation — to trigger a
 /// reload their own `.task` already performs. Settings took the teardown and
 /// got nothing for it: its root has no data load at all.
-private struct MainTabView: View {
+struct MainTabView: View {
     let refreshID: UUID
     let showReaderTab: Bool
     let onImport: () -> Void

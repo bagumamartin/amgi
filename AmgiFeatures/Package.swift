@@ -50,6 +50,7 @@ let package = Package(
         .library(name: "WidgetFeature", targets: ["WidgetFeature"]),
         .library(name: "SettingsFeature", targets: ["SettingsFeature"]),
         .library(name: "WatchFeature", targets: ["WatchFeature"]),
+        .library(name: "RootFeature", targets: ["RootFeature"]),
     ],
     dependencies: [
         .package(path: ".."),
@@ -393,6 +394,40 @@ let package = Package(
                 .product(name: "Dependencies", package: "swift-dependencies"),
             ],
             swiftSettings: sharedSwiftSettings
+        ),
+        // The app's composition root: view composition (RootView, MainTabView,
+        // StartupErrorView) and dependency bootstrap (AmgiRoot.bootstrap,
+        // openCollection, switchProfile). The AmgiApp target holds only @main —
+        // same split as WidgetFeature/WatchFeature, and what lets every other
+        // feature module drop from public to package.
+        //
+        // In the Cxx chain, via ReaderFeature: without
+        // .interoperabilityMode(.Cxx) the build fails with "module
+        // 'CHoshiDicts' requires feature 'cplusplus'". AmgiReader is here for
+        // the \.dictionaryConfigStore dependency key and AnkiClients for
+        // AnkiBackedDictionaryConfigStore, both used by the bootstrap.
+        .target(
+            name: "RootFeature",
+            dependencies: [
+                "AmgiAppCore",
+                "AmgiAppShared",
+                "DecksFeature",
+                "ReaderFeature",
+                "ReviewFeature",
+                "SettingsFeature",
+                "StatsFeature",
+                "SyncFeature",
+                .product(name: "AnkiKit", package: "amgi"),
+                .product(name: "AnkiBackend", package: "amgi"),
+                .product(name: "AnkiClients", package: "amgi"),
+                .product(name: "AnkiSync", package: "amgi"),
+                .product(name: "AmgiReader", package: "AmgiReader"),
+                .product(name: "AmgiTheme", package: "AmgiUI"),
+                .product(name: "AmgiUI", package: "AmgiUI"),
+                .product(name: "Dependencies", package: "swift-dependencies"),
+                .product(name: "Sharing", package: "swift-sharing"),
+            ],
+            swiftSettings: sharedSwiftSettings + [.interoperabilityMode(.Cxx)]
         ),
     ],
     swiftLanguageModes: [.v6]

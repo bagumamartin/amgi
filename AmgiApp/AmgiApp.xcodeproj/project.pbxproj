@@ -7,58 +7,33 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		040033C6E335CD8EF283273C /* StatsFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 6134D4828EF9AAF6F6BB6DF6 /* StatsFeature */; };
 		05B3C09F3B96E96D972F0424 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CAE0DE68DC7E04F773A57E14 /* SwiftUI.framework */; };
-		125CB371BB8CCAEE250459BD /* AmgiAppCore in Frameworks */ = {isa = PBXBuildFile; productRef = 116C9E134761B3BF0647B3AF /* AmgiAppCore */; };
-		12BF73D42FEE3F5990828D1C /* SwiftNavigation in Frameworks */ = {isa = PBXBuildFile; productRef = A83E8288FCBE678AC922CFF0 /* SwiftNavigation */; };
 		1BA1F93AC6C6FF8C357063BA /* SwiftNavigation in Frameworks */ = {isa = PBXBuildFile; productRef = 5E4DD888EA7B00AFD7922CBF /* SwiftNavigation */; };
 		1CCF36BA63528C1E2FA3F9FD /* AnkiClients in Frameworks */ = {isa = PBXBuildFile; productRef = 1D9F9CD702DB5DC5DC8AAB30 /* AnkiClients */; };
 		2F6CCEA4FF8B775FCA9299DA /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2B60A11C277A30E8180CB0F1 /* WidgetKit.framework */; };
 		300C45BEA20065427F563AAD /* AmgiAppCore in Frameworks */ = {isa = PBXBuildFile; productRef = 22DC7EB8B98A3ED9E71AC3D1 /* AmgiAppCore */; };
-		34270B208122270BAC697B31 /* AmgiReader in Frameworks */ = {isa = PBXBuildFile; productRef = 2BD648FA756A72588752BD8B /* AmgiReader */; };
-		43AFA498E11BD8D3C7329EB8 /* SwiftUINavigation in Frameworks */ = {isa = PBXBuildFile; productRef = CA8CCDB6FCA0124A188DC0B8 /* SwiftUINavigation */; };
 		4806E64030A4EBAA1A2DF239 /* AnkiKit in Frameworks */ = {isa = PBXBuildFile; productRef = AB49118FC7A518B48ED09051 /* AnkiKit */; };
-		4D082714A42AC42E79311B2B /* ReviewFeature in Frameworks */ = {isa = PBXBuildFile; productRef = D0ABBAC0A47EAB612FE8A1DF /* ReviewFeature */; };
 		5197DE6744C39404AA7BCC59 /* AmgiCharts in Frameworks */ = {isa = PBXBuildFile; productRef = 16A0D6E4347ACFB21E40E615 /* AmgiCharts */; };
 		5206D53A52E116E129C0E956 /* AnkiSync in Frameworks */ = {isa = PBXBuildFile; productRef = 1D52A2C890DE8794E39904C4 /* AnkiSync */; };
 		5540802A47E5AE6133162993 /* Sharing in Frameworks */ = {isa = PBXBuildFile; productRef = E246B9A74FC08245970AE0E4 /* Sharing */; };
-		556FBD2BE239FF491BAAECB2 /* BrowseFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 2F8EB1A41829323C618C55E2 /* BrowseFeature */; };
-		58CAEF6BE5C190FC9FE8D511 /* AmgiTheme in Frameworks */ = {isa = PBXBuildFile; productRef = DCE589747DD31E211851D79C /* AmgiTheme */; };
 		5F5B77D77DD4749D9539DE34 /* AmgiReviewCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8A765015A79B5CB13C813D22 /* AmgiReviewCore */; };
 		652134A3080AAB2E8524794F /* WidgetFeature in Frameworks */ = {isa = PBXBuildFile; productRef = DDECB4DC220C7664DB15D012 /* WidgetFeature */; };
 		67A2ED31F59B08EBD06A4FED /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A12D2167226A912462BF60EA /* Assets.xcassets */; };
-		6932C86281AB9089FDCF9C6B /* AnkiServices in Frameworks */ = {isa = PBXBuildFile; productRef = 9C12DFB8208798638ECB4C68 /* AnkiServices */; };
-		6B10979FEE38C6E41A306E60 /* SyncFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 4C469D6EF802EC825D6E2D20 /* SyncFeature */; };
 		6CF26B3108E38F231B7113AC /* WatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86204AF7D14861EEF82FF7E2 /* WatchApp.swift */; };
-		71A1B053966773D1157AA618 /* AnkiClients in Frameworks */ = {isa = PBXBuildFile; productRef = 3FED5E304581C8F9AF5A7AA8 /* AnkiClients */; };
-		73BED515464AA8C80C765BFF /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44792958B343213988DC8FFB /* ContentView.swift */; };
-		7C4497B5B8FEB2820FD860B0 /* TemplatesFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 9620FA12A6D7E51DE075AA07 /* TemplatesFeature */; };
-		7C46534E4D979D315641F713 /* AnkiSync in Frameworks */ = {isa = PBXBuildFile; productRef = 9F148DCECED472C7DE230AB6 /* AnkiSync */; };
-		8037088122D7F4739E1D412A /* AnkiKit in Frameworks */ = {isa = PBXBuildFile; productRef = EEE5266ACE0725F53E9703A8 /* AnkiKit */; };
+		8037088122D7F4739E1D412A /* RootFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 7FCF06FE5B51661CB6F41B7F /* RootFeature */; };
 		85730DEFCB36C5C27D16DFBB /* WatchFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 704E7B1DEE3EB580AE3FDB2E /* WatchFeature */; };
-		870A4E4AC65F6875365D6225 /* AmgiReviewCore in Frameworks */ = {isa = PBXBuildFile; productRef = CF8C83822C8D9F7FB8575A15 /* AmgiReviewCore */; };
-		88C9801267943920AF0688C8 /* AmgiCharts in Frameworks */ = {isa = PBXBuildFile; productRef = 4116783E1BE6EA8C1C4481B9 /* AmgiCharts */; };
 		88CEBB679A25C18EFA30E22A /* AmgiCardWeb in Frameworks */ = {isa = PBXBuildFile; productRef = 81149E565C8204F6F4E79A3F /* AmgiCardWeb */; };
 		8AD06D30608491B042880E1E /* AmgiWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A837EB0A30B6E90B20D5C1CD /* AmgiWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		8AE5F2F0A719B566CC316F35 /* Review in Resources */ = {isa = PBXBuildFile; fileRef = 1B84A2ADB8D6A599253D2E78 /* Review */; };
-		8B08273A16790AC5FCBBA6A5 /* SettingsFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 170EB4CD6203F3DC3701CEED /* SettingsFeature */; };
 		8F888B18043AFB901AA52598 /* AnkiBackend in Frameworks */ = {isa = PBXBuildFile; productRef = 35974FDD258EB94D5852A939 /* AnkiBackend */; };
 		9063E7D11DDAA9D8A7A0CF5D /* Fonts in Resources */ = {isa = PBXBuildFile; fileRef = 32D10E5F584CDD7816F8408A /* Fonts */; };
 		914745C4D1A6A52334194F09 /* EPUBReader in Resources */ = {isa = PBXBuildFile; fileRef = 795E67571E8B9C7014F5A3E7 /* EPUBReader */; };
-		94AB6A9BE4BC63D84EC48E6B /* AmgiCardWeb in Frameworks */ = {isa = PBXBuildFile; productRef = 5089B17C1D8C3637BE4FB0A9 /* AmgiCardWeb */; };
 		9E79CAC91DE4DC297BDB10DE /* mathjax in Resources */ = {isa = PBXBuildFile; fileRef = 308AC2057FB8232A7A730D15 /* mathjax */; };
-		9F04117D1D3772A46BD87844 /* AmgiUI in Frameworks */ = {isa = PBXBuildFile; productRef = DAC2CBBCA214A6D82D147002 /* AmgiUI */; };
-		A87D48D4DA8668BA3F705983 /* AmgiReaderDictionary in Frameworks */ = {isa = PBXBuildFile; productRef = DFF78E17542FA42887E61316 /* AmgiReaderDictionary */; };
 		A93978D7EA5D702A9FEC5B1B /* AmgiTheme in Frameworks */ = {isa = PBXBuildFile; productRef = A8F51D85BA3DE2215333A244 /* AmgiTheme */; };
 		BB3E89CDD647E53D949E751D /* AmgiAppApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8194F942C511DFA83C0CB371 /* AmgiAppApp.swift */; };
-		C0E1BDBCA1C96F26EC31E956 /* DecksFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 324C4DAD3E669D72C1F8C948 /* DecksFeature */; };
-		C19817C4D671B6B7CA605B87 /* ReaderFeature in Frameworks */ = {isa = PBXBuildFile; productRef = CBE98F95767A0BAEE71ED603 /* ReaderFeature */; };
-		C417D0DB3832D3592A5A3BA1 /* AnkiBackend in Frameworks */ = {isa = PBXBuildFile; productRef = F40C6D05700BCD9DB3969CD4 /* AnkiBackend */; };
 		C7E42C769A4C5821E0D2A65E /* AnkiServices in Frameworks */ = {isa = PBXBuildFile; productRef = 38DEF6B96461889F8EAAAE48 /* AnkiServices */; };
 		CD7A425CC4ECBA61920F09E6 /* AmgiUI in Frameworks */ = {isa = PBXBuildFile; productRef = 87D0CB2695723E94A8F6EEE4 /* AmgiUI */; };
-		DDB626BDCF55944EA44313ED /* Sharing in Frameworks */ = {isa = PBXBuildFile; productRef = 4F99E922EA9267E4EE4CD5D6 /* Sharing */; };
 		E45540503268E00A3CAC9B04 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2B60A11C277A30E8180CB0F1 /* WidgetKit.framework */; };
-		F37C1A973A4F933CE3C9B39C /* AmgiAppShared in Frameworks */ = {isa = PBXBuildFile; productRef = ACD15169111E238EEB55BFCB /* AmgiAppShared */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -97,7 +72,6 @@
 		2B60A11C277A30E8180CB0F1 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		308AC2057FB8232A7A730D15 /* mathjax */ = {isa = PBXFileReference; lastKnownFileType = folder; name = mathjax; path = Resources/mathjax; sourceTree = SOURCE_ROOT; };
 		32D10E5F584CDD7816F8408A /* Fonts */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Fonts; path = Resources/Fonts; sourceTree = SOURCE_ROOT; };
-		44792958B343213988DC8FFB /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		6FC065BB94EC4D03C744D66D /* AmgiUI */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AmgiUI; path = ../AmgiUI; sourceTree = SOURCE_ROOT; };
 		795E67571E8B9C7014F5A3E7 /* EPUBReader */ = {isa = PBXFileReference; lastKnownFileType = folder; name = EPUBReader; path = Resources/EPUBReader; sourceTree = SOURCE_ROOT; };
 		8194F942C511DFA83C0CB371 /* AmgiAppApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmgiAppApp.swift; sourceTree = "<group>"; };
@@ -108,13 +82,13 @@
 		BE8DDAC853DEF5B6112EB833 /* AmgiFeatures */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AmgiFeatures; path = ../AmgiFeatures; sourceTree = SOURCE_ROOT; };
 		C57E0A30A0C5B7FE232BF0C3 /* amgi */ = {isa = PBXFileReference; lastKnownFileType = folder; name = amgi; path = ..; sourceTree = SOURCE_ROOT; };
 		CAE0DE68DC7E04F773A57E14 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
-		DE61E854280804F08BB1DD31 /* AmgiApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AmgiApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DE61E854280804F08BB1DD31 /* AmgiApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = AmgiApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E52A1F699FA8746826E4EAB0 /* AmgiWatchApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AmgiWatchApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FEF6D1A33091968455963805 /* AmgiAppTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AmgiAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		1B98150CA7E87F8DFC46FAE3 /* Exceptions for "Widgets" folder in "AmgiWidget" target */ = {
+		1B98150CA7E87F8DFC46FAE3 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -127,13 +101,23 @@
 		004874923745BECF98EEBD18 /* Widgets */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				1B98150CA7E87F8DFC46FAE3 /* Exceptions for "Widgets" folder in "AmgiWidget" target */,
+				1B98150CA7E87F8DFC46FAE3 /* PBXFileSystemSynchronizedBuildFileExceptionSet */,
 			);
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			name = Widgets;
 			path = Widgets;
 			sourceTree = "<group>";
 		};
 		70BB06347ADF26FA0276AD23 /* AmgiAppTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			name = AmgiAppTests;
 			path = AmgiAppTests;
 			sourceTree = "<group>";
 		};
@@ -154,31 +138,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				8037088122D7F4739E1D412A /* AnkiKit in Frameworks */,
-				6932C86281AB9089FDCF9C6B /* AnkiServices in Frameworks */,
-				71A1B053966773D1157AA618 /* AnkiClients in Frameworks */,
-				7C46534E4D979D315641F713 /* AnkiSync in Frameworks */,
-				C417D0DB3832D3592A5A3BA1 /* AnkiBackend in Frameworks */,
-				94AB6A9BE4BC63D84EC48E6B /* AmgiCardWeb in Frameworks */,
-				34270B208122270BAC697B31 /* AmgiReader in Frameworks */,
-				A87D48D4DA8668BA3F705983 /* AmgiReaderDictionary in Frameworks */,
-				58CAEF6BE5C190FC9FE8D511 /* AmgiTheme in Frameworks */,
-				9F04117D1D3772A46BD87844 /* AmgiUI in Frameworks */,
-				125CB371BB8CCAEE250459BD /* AmgiAppCore in Frameworks */,
-				F37C1A973A4F933CE3C9B39C /* AmgiAppShared in Frameworks */,
-				88C9801267943920AF0688C8 /* AmgiCharts in Frameworks */,
-				7C4497B5B8FEB2820FD860B0 /* TemplatesFeature in Frameworks */,
-				040033C6E335CD8EF283273C /* StatsFeature in Frameworks */,
-				556FBD2BE239FF491BAAECB2 /* BrowseFeature in Frameworks */,
-				6B10979FEE38C6E41A306E60 /* SyncFeature in Frameworks */,
-				C19817C4D671B6B7CA605B87 /* ReaderFeature in Frameworks */,
-				870A4E4AC65F6875365D6225 /* AmgiReviewCore in Frameworks */,
-				4D082714A42AC42E79311B2B /* ReviewFeature in Frameworks */,
-				C0E1BDBCA1C96F26EC31E956 /* DecksFeature in Frameworks */,
-				8B08273A16790AC5FCBBA6A5 /* SettingsFeature in Frameworks */,
-				12BF73D42FEE3F5990828D1C /* SwiftNavigation in Frameworks */,
-				43AFA498E11BD8D3C7329EB8 /* SwiftUINavigation in Frameworks */,
-				DDB626BDCF55944EA44313ED /* Sharing in Frameworks */,
+				8037088122D7F4739E1D412A /* RootFeature in Frameworks */,
 				2F6CCEA4FF8B775FCA9299DA /* WidgetKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -231,7 +191,6 @@
 			isa = PBXGroup;
 			children = (
 				8194F942C511DFA83C0CB371 /* AmgiAppApp.swift */,
-				44792958B343213988DC8FFB /* ContentView.swift */,
 				F6E98429D27EAD0FEB43C4D4 /* Watch */,
 				004874923745BECF98EEBD18 /* Widgets */,
 			);
@@ -308,31 +267,7 @@
 			);
 			name = AmgiApp;
 			packageProductDependencies = (
-				EEE5266ACE0725F53E9703A8 /* AnkiKit */,
-				9C12DFB8208798638ECB4C68 /* AnkiServices */,
-				3FED5E304581C8F9AF5A7AA8 /* AnkiClients */,
-				9F148DCECED472C7DE230AB6 /* AnkiSync */,
-				F40C6D05700BCD9DB3969CD4 /* AnkiBackend */,
-				5089B17C1D8C3637BE4FB0A9 /* AmgiCardWeb */,
-				2BD648FA756A72588752BD8B /* AmgiReader */,
-				DFF78E17542FA42887E61316 /* AmgiReaderDictionary */,
-				DCE589747DD31E211851D79C /* AmgiTheme */,
-				DAC2CBBCA214A6D82D147002 /* AmgiUI */,
-				116C9E134761B3BF0647B3AF /* AmgiAppCore */,
-				ACD15169111E238EEB55BFCB /* AmgiAppShared */,
-				4116783E1BE6EA8C1C4481B9 /* AmgiCharts */,
-				9620FA12A6D7E51DE075AA07 /* TemplatesFeature */,
-				6134D4828EF9AAF6F6BB6DF6 /* StatsFeature */,
-				2F8EB1A41829323C618C55E2 /* BrowseFeature */,
-				4C469D6EF802EC825D6E2D20 /* SyncFeature */,
-				CBE98F95767A0BAEE71ED603 /* ReaderFeature */,
-				CF8C83822C8D9F7FB8575A15 /* AmgiReviewCore */,
-				D0ABBAC0A47EAB612FE8A1DF /* ReviewFeature */,
-				324C4DAD3E669D72C1F8C948 /* DecksFeature */,
-				170EB4CD6203F3DC3701CEED /* SettingsFeature */,
-				A83E8288FCBE678AC922CFF0 /* SwiftNavigation */,
-				CA8CCDB6FCA0124A188DC0B8 /* SwiftUINavigation */,
-				4F99E922EA9267E4EE4CD5D6 /* Sharing */,
+				7FCF06FE5B51661CB6F41B7F /* RootFeature */,
 			);
 			productName = AmgiApp;
 			productReference = DE61E854280804F08BB1DD31 /* AmgiApp.app */;
@@ -423,6 +358,8 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+				};
 			};
 			buildConfigurationList = BC4A80AD6076C8423E530840 /* Build configuration list for PBXProject "AmgiApp" */;
 			developmentRegion = en;
@@ -497,7 +434,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				BB3E89CDD647E53D949E751D /* AmgiAppApp.swift in Sources */,
-				73BED515464AA8C80C765BFF /* ContentView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -629,7 +565,6 @@
 				CLANG_CXX_LIBRARY = "libc++";
 				CODE_SIGN_ENTITLEMENTS = AmgiApp.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = WMWSB972VT;
 				INFOPLIST_FILE = Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -772,7 +707,6 @@
 				CLANG_CXX_LIBRARY = "libc++";
 				CODE_SIGN_ENTITLEMENTS = AmgiApp.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = WMWSB972VT;
 				INFOPLIST_FILE = Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -907,17 +841,9 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		116C9E134761B3BF0647B3AF /* AmgiAppCore */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = AmgiAppCore;
-		};
 		16A0D6E4347ACFB21E40E615 /* AmgiCharts */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = AmgiCharts;
-		};
-		170EB4CD6203F3DC3701CEED /* SettingsFeature */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = SettingsFeature;
 		};
 		1D52A2C890DE8794E39904C4 /* AnkiSync */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -931,18 +857,6 @@
 			isa = XCSwiftPackageProductDependency;
 			productName = AmgiAppCore;
 		};
-		2BD648FA756A72588752BD8B /* AmgiReader */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = AmgiReader;
-		};
-		2F8EB1A41829323C618C55E2 /* BrowseFeature */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = BrowseFeature;
-		};
-		324C4DAD3E669D72C1F8C948 /* DecksFeature */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = DecksFeature;
-		};
 		35974FDD258EB94D5852A939 /* AnkiBackend */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = AnkiBackend;
@@ -951,39 +865,18 @@
 			isa = XCSwiftPackageProductDependency;
 			productName = AnkiServices;
 		};
-		3FED5E304581C8F9AF5A7AA8 /* AnkiClients */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = AnkiClients;
-		};
-		4116783E1BE6EA8C1C4481B9 /* AmgiCharts */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = AmgiCharts;
-		};
-		4C469D6EF802EC825D6E2D20 /* SyncFeature */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = SyncFeature;
-		};
-		4F99E922EA9267E4EE4CD5D6 /* Sharing */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 7B720D20F213A6E6D8D5745C /* XCRemoteSwiftPackageReference "swift-sharing" */;
-			productName = Sharing;
-		};
-		5089B17C1D8C3637BE4FB0A9 /* AmgiCardWeb */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = AmgiCardWeb;
-		};
 		5E4DD888EA7B00AFD7922CBF /* SwiftNavigation */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 0654502C09BEED604C13D953 /* XCRemoteSwiftPackageReference "swift-navigation" */;
 			productName = SwiftNavigation;
 		};
-		6134D4828EF9AAF6F6BB6DF6 /* StatsFeature */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = StatsFeature;
-		};
 		704E7B1DEE3EB580AE3FDB2E /* WatchFeature */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = WatchFeature;
+		};
+		7FCF06FE5B51661CB6F41B7F /* RootFeature */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = RootFeature;
 		};
 		81149E565C8204F6F4E79A3F /* AmgiCardWeb */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -997,23 +890,6 @@
 			isa = XCSwiftPackageProductDependency;
 			productName = AmgiReviewCore;
 		};
-		9620FA12A6D7E51DE075AA07 /* TemplatesFeature */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = TemplatesFeature;
-		};
-		9C12DFB8208798638ECB4C68 /* AnkiServices */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = AnkiServices;
-		};
-		9F148DCECED472C7DE230AB6 /* AnkiSync */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = AnkiSync;
-		};
-		A83E8288FCBE678AC922CFF0 /* SwiftNavigation */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 0654502C09BEED604C13D953 /* XCRemoteSwiftPackageReference "swift-navigation" */;
-			productName = SwiftNavigation;
-		};
 		A8F51D85BA3DE2215333A244 /* AmgiTheme */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = AmgiTheme;
@@ -1022,55 +898,14 @@
 			isa = XCSwiftPackageProductDependency;
 			productName = AnkiKit;
 		};
-		ACD15169111E238EEB55BFCB /* AmgiAppShared */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = AmgiAppShared;
-		};
-		CA8CCDB6FCA0124A188DC0B8 /* SwiftUINavigation */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 0654502C09BEED604C13D953 /* XCRemoteSwiftPackageReference "swift-navigation" */;
-			productName = SwiftUINavigation;
-		};
-		CBE98F95767A0BAEE71ED603 /* ReaderFeature */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = ReaderFeature;
-		};
-		CF8C83822C8D9F7FB8575A15 /* AmgiReviewCore */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = AmgiReviewCore;
-		};
-		D0ABBAC0A47EAB612FE8A1DF /* ReviewFeature */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = ReviewFeature;
-		};
-		DAC2CBBCA214A6D82D147002 /* AmgiUI */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = AmgiUI;
-		};
-		DCE589747DD31E211851D79C /* AmgiTheme */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = AmgiTheme;
-		};
 		DDECB4DC220C7664DB15D012 /* WidgetFeature */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = WidgetFeature;
-		};
-		DFF78E17542FA42887E61316 /* AmgiReaderDictionary */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = AmgiReaderDictionary;
 		};
 		E246B9A74FC08245970AE0E4 /* Sharing */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 7B720D20F213A6E6D8D5745C /* XCRemoteSwiftPackageReference "swift-sharing" */;
 			productName = Sharing;
-		};
-		EEE5266ACE0725F53E9703A8 /* AnkiKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = AnkiKit;
-		};
-		F40C6D05700BCD9DB3969CD4 /* AnkiBackend */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = AnkiBackend;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
