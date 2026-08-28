@@ -20,6 +20,7 @@ struct ContentView: View {
     @Binding var pendingReviewDeckId: DeckID?
 
     @Dependency(\.collectionStore) private var store
+    @Bindable private var accountStore = AccountStore.shared
 
     @State private var showImport = false
     @State private var refreshID = UUID()
@@ -36,14 +37,11 @@ struct ContentView: View {
         )
         .alert(
             "Couldn't switch profile",
-            isPresented: Binding(
-                get: { AccountStore.shared.switchFailure != nil },
-                set: { if !$0 { AccountStore.shared.switchFailure = nil } }
-            )
+            isPresented: $accountStore.hasSwitchFailure
         ) {
-            Button("OK", role: .cancel) { AccountStore.shared.switchFailure = nil }
+            Button("OK", role: .cancel) { accountStore.switchFailure = nil }
         } message: {
-            Text(AccountStore.shared.switchFailure ?? "")
+            Text(accountStore.switchFailure ?? "")
         }
         // still drives the tabs not yet on CollectionStore
         .syncFlow { refreshID = UUID() }

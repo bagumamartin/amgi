@@ -49,6 +49,17 @@ public final class AccountStore {
     /// visible rather than presenting as a mysteriously empty app.
     public var switchFailure: String?
 
+    /// Binding projection for the failure alert. SwiftUI wants a `Bool`
+    /// binding and the state is an optional message; a get/set closure
+    /// `Binding` at the call site allocates on every body evaluation and
+    /// defeats comparison, so the projection lives here instead.
+    ///
+    /// Writing `true` is a no-op: only a failed switch produces a message.
+    public var hasSwitchFailure: Bool {
+        get { switchFailure != nil }
+        set { if !newValue { switchFailure = nil } }
+    }
+
     private init() {
         let defaults = UserDefaults.standard
         if let data = defaults.data(forKey: Self.accountsKey),
