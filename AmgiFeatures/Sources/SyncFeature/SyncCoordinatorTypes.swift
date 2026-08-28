@@ -20,7 +20,7 @@ struct SyncLogEntry: Identifiable, Sendable, Equatable {
     }
 }
 
-public struct SyncFullSyncRequirement: Sendable, Equatable {
+struct SyncFullSyncRequirement: Sendable, Equatable {
     /// Brief explanation of why a full sync is required (e.g. "Schema mismatch", "Local collection empty").
     let reason: String
 

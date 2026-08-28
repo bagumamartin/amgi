@@ -9,18 +9,15 @@
 /* Begin PBXBuildFile section */
 		040033C6E335CD8EF283273C /* StatsFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 6134D4828EF9AAF6F6BB6DF6 /* StatsFeature */; };
 		05B3C09F3B96E96D972F0424 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CAE0DE68DC7E04F773A57E14 /* SwiftUI.framework */; };
-		0ABD171B90F34E6CCB8B4A45 /* StartupErrorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01D90CF96822FCA3F381CEA7 /* StartupErrorView.swift */; };
 		125CB371BB8CCAEE250459BD /* AmgiAppCore in Frameworks */ = {isa = PBXBuildFile; productRef = 116C9E134761B3BF0647B3AF /* AmgiAppCore */; };
 		12BF73D42FEE3F5990828D1C /* SwiftNavigation in Frameworks */ = {isa = PBXBuildFile; productRef = A83E8288FCBE678AC922CFF0 /* SwiftNavigation */; };
 		1BA1F93AC6C6FF8C357063BA /* SwiftNavigation in Frameworks */ = {isa = PBXBuildFile; productRef = 5E4DD888EA7B00AFD7922CBF /* SwiftNavigation */; };
 		1CCF36BA63528C1E2FA3F9FD /* AnkiClients in Frameworks */ = {isa = PBXBuildFile; productRef = 1D9F9CD702DB5DC5DC8AAB30 /* AnkiClients */; };
-		2F43663149BBF09CD9A48432 /* DeckImportModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 294159A0F3FE92450BEAEA05 /* DeckImportModifier.swift */; };
 		2F6CCEA4FF8B775FCA9299DA /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2B60A11C277A30E8180CB0F1 /* WidgetKit.framework */; };
 		300C45BEA20065427F563AAD /* AmgiAppCore in Frameworks */ = {isa = PBXBuildFile; productRef = 22DC7EB8B98A3ED9E71AC3D1 /* AmgiAppCore */; };
 		34270B208122270BAC697B31 /* AmgiReader in Frameworks */ = {isa = PBXBuildFile; productRef = 2BD648FA756A72588752BD8B /* AmgiReader */; };
 		43AFA498E11BD8D3C7329EB8 /* SwiftUINavigation in Frameworks */ = {isa = PBXBuildFile; productRef = CA8CCDB6FCA0124A188DC0B8 /* SwiftUINavigation */; };
 		4806E64030A4EBAA1A2DF239 /* AnkiKit in Frameworks */ = {isa = PBXBuildFile; productRef = AB49118FC7A518B48ED09051 /* AnkiKit */; };
-		49104EDF36126D6FEB4063F4 /* RetroactiveIdentifiable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 843DF8545ED1E3A956981DB1 /* RetroactiveIdentifiable.swift */; };
 		4D082714A42AC42E79311B2B /* ReviewFeature in Frameworks */ = {isa = PBXBuildFile; productRef = D0ABBAC0A47EAB612FE8A1DF /* ReviewFeature */; };
 		5197DE6744C39404AA7BCC59 /* AmgiCharts in Frameworks */ = {isa = PBXBuildFile; productRef = 16A0D6E4347ACFB21E40E615 /* AmgiCharts */; };
 		5206D53A52E116E129C0E956 /* AnkiSync in Frameworks */ = {isa = PBXBuildFile; productRef = 1D52A2C890DE8794E39904C4 /* AnkiSync */; };
@@ -32,7 +29,6 @@
 		67A2ED31F59B08EBD06A4FED /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A12D2167226A912462BF60EA /* Assets.xcassets */; };
 		6932C86281AB9089FDCF9C6B /* AnkiServices in Frameworks */ = {isa = PBXBuildFile; productRef = 9C12DFB8208798638ECB4C68 /* AnkiServices */; };
 		6B10979FEE38C6E41A306E60 /* SyncFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 4C469D6EF802EC825D6E2D20 /* SyncFeature */; };
-		6C75D6E4500FC310A8EAE524 /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A745D7266B06FFE28B219996 /* MainTabView.swift */; };
 		6CF26B3108E38F231B7113AC /* WatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86204AF7D14861EEF82FF7E2 /* WatchApp.swift */; };
 		71A1B053966773D1157AA618 /* AnkiClients in Frameworks */ = {isa = PBXBuildFile; productRef = 3FED5E304581C8F9AF5A7AA8 /* AnkiClients */; };
 		73BED515464AA8C80C765BFF /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44792958B343213988DC8FFB /* ContentView.swift */; };
@@ -97,9 +93,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		01D90CF96822FCA3F381CEA7 /* StartupErrorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StartupErrorView.swift; sourceTree = "<group>"; };
 		1B84A2ADB8D6A599253D2E78 /* Review */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Review; path = Resources/Review; sourceTree = SOURCE_ROOT; };
-		294159A0F3FE92450BEAEA05 /* DeckImportModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckImportModifier.swift; sourceTree = "<group>"; };
 		2B60A11C277A30E8180CB0F1 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		308AC2057FB8232A7A730D15 /* mathjax */ = {isa = PBXFileReference; lastKnownFileType = folder; name = mathjax; path = Resources/mathjax; sourceTree = SOURCE_ROOT; };
 		32D10E5F584CDD7816F8408A /* Fonts */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Fonts; path = Resources/Fonts; sourceTree = SOURCE_ROOT; };
@@ -107,22 +101,20 @@
 		6FC065BB94EC4D03C744D66D /* AmgiUI */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AmgiUI; path = ../AmgiUI; sourceTree = SOURCE_ROOT; };
 		795E67571E8B9C7014F5A3E7 /* EPUBReader */ = {isa = PBXFileReference; lastKnownFileType = folder; name = EPUBReader; path = Resources/EPUBReader; sourceTree = SOURCE_ROOT; };
 		8194F942C511DFA83C0CB371 /* AmgiAppApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmgiAppApp.swift; sourceTree = "<group>"; };
-		843DF8545ED1E3A956981DB1 /* RetroactiveIdentifiable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RetroactiveIdentifiable.swift; sourceTree = "<group>"; };
 		86204AF7D14861EEF82FF7E2 /* WatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchApp.swift; sourceTree = "<group>"; };
 		9508481C0DD815976FA19522 /* AmgiReader */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AmgiReader; path = ../AmgiReader; sourceTree = SOURCE_ROOT; };
 		A12D2167226A912462BF60EA /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		A745D7266B06FFE28B219996 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
 		A837EB0A30B6E90B20D5C1CD /* AmgiWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = AmgiWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		BE8DDAC853DEF5B6112EB833 /* AmgiFeatures */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AmgiFeatures; path = ../AmgiFeatures; sourceTree = SOURCE_ROOT; };
 		C57E0A30A0C5B7FE232BF0C3 /* amgi */ = {isa = PBXFileReference; lastKnownFileType = folder; name = amgi; path = ..; sourceTree = SOURCE_ROOT; };
 		CAE0DE68DC7E04F773A57E14 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
-		DE61E854280804F08BB1DD31 /* AmgiApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = AmgiApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DE61E854280804F08BB1DD31 /* AmgiApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AmgiApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E52A1F699FA8746826E4EAB0 /* AmgiWatchApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AmgiWatchApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FEF6D1A33091968455963805 /* AmgiAppTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AmgiAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		1B98150CA7E87F8DFC46FAE3 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+		1B98150CA7E87F8DFC46FAE3 /* Exceptions for "Widgets" folder in "AmgiWidget" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -135,23 +127,13 @@
 		004874923745BECF98EEBD18 /* Widgets */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				1B98150CA7E87F8DFC46FAE3 /* PBXFileSystemSynchronizedBuildFileExceptionSet */,
+				1B98150CA7E87F8DFC46FAE3 /* Exceptions for "Widgets" folder in "AmgiWidget" target */,
 			);
-			explicitFileTypes = {
-			};
-			explicitFolders = (
-			);
-			name = Widgets;
 			path = Widgets;
 			sourceTree = "<group>";
 		};
 		70BB06347ADF26FA0276AD23 /* AmgiAppTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			explicitFileTypes = {
-			};
-			explicitFolders = (
-			);
-			name = AmgiAppTests;
 			path = AmgiAppTests;
 			sourceTree = "<group>";
 		};
@@ -250,10 +232,6 @@
 			children = (
 				8194F942C511DFA83C0CB371 /* AmgiAppApp.swift */,
 				44792958B343213988DC8FFB /* ContentView.swift */,
-				294159A0F3FE92450BEAEA05 /* DeckImportModifier.swift */,
-				A745D7266B06FFE28B219996 /* MainTabView.swift */,
-				843DF8545ED1E3A956981DB1 /* RetroactiveIdentifiable.swift */,
-				01D90CF96822FCA3F381CEA7 /* StartupErrorView.swift */,
 				F6E98429D27EAD0FEB43C4D4 /* Watch */,
 				004874923745BECF98EEBD18 /* Widgets */,
 			);
@@ -445,8 +423,6 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
-				TargetAttributes = {
-				};
 			};
 			buildConfigurationList = BC4A80AD6076C8423E530840 /* Build configuration list for PBXProject "AmgiApp" */;
 			developmentRegion = en;
@@ -522,10 +498,6 @@
 			files = (
 				BB3E89CDD647E53D949E751D /* AmgiAppApp.swift in Sources */,
 				73BED515464AA8C80C765BFF /* ContentView.swift in Sources */,
-				2F43663149BBF09CD9A48432 /* DeckImportModifier.swift in Sources */,
-				6C75D6E4500FC310A8EAE524 /* MainTabView.swift in Sources */,
-				49104EDF36126D6FEB4063F4 /* RetroactiveIdentifiable.swift in Sources */,
-				0ABD171B90F34E6CCB8B4A45 /* StartupErrorView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -657,6 +629,7 @@
 				CLANG_CXX_LIBRARY = "libc++";
 				CODE_SIGN_ENTITLEMENTS = AmgiApp.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = WMWSB972VT;
 				INFOPLIST_FILE = Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -799,6 +772,7 @@
 				CLANG_CXX_LIBRARY = "libc++";
 				CODE_SIGN_ENTITLEMENTS = AmgiApp.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = WMWSB972VT;
 				INFOPLIST_FILE = Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

@@ -1,6 +1,4 @@
-// AmgiApp/Sources/DeckImportModifier.swift
-import SwiftUI
-import AmgiAppShared
+public import SwiftUI
 import UniformTypeIdentifiers
 
 /// Self-contained deck-import flow: presents the system file importer,
@@ -57,7 +55,7 @@ private extension DeckImportModifier {
 extension View {
     /// Attach the deck-import flow. `isPresented` toggles the file picker;
     /// `onRefresh` fires after a successful import so the host can reload.
-    func deckImport(isPresented: Binding<Bool>, onRefresh: @escaping () -> Void) -> some View {
+    public func deckImport(isPresented: Binding<Bool>, onRefresh: @escaping () -> Void) -> some View {
         modifier(DeckImportModifier(isPresented: isPresented, onRefresh: onRefresh))
     }
 }

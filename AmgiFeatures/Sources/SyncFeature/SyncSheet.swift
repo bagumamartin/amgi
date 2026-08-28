@@ -1,5 +1,5 @@
 import AmgiUI
-public import SwiftUI
+import SwiftUI
 import AmgiTheme
 import AmgiAppCore
 import AnkiKit
@@ -25,7 +25,7 @@ enum SyncSheetState {
 /// login/server-setup sheets. Derives plain snapshots (endpoint, log
 /// entries, last-synced label) from the engine and hands them to the pure
 /// `SyncSheetContent`, translating its callbacks back into engine calls.
-public struct SyncSheet: View {
+struct SyncSheet: View {
     @Binding var isPresented: Bool
 
     @Dependency(\.syncClient) var syncClient
@@ -36,11 +36,11 @@ public struct SyncSheet: View {
     @State private var showServerSetup = false
     @Shared(.syncMode) private var syncMode
 
-    public init(isPresented: Binding<Bool>) {
+    init(isPresented: Binding<Bool>) {
         _isPresented = isPresented
     }
 
-    public var body: some View {
+    var body: some View {
         // Read the endpoint once per render — `body` re-evaluates on every
         // sync-log line (coordinator.logEntries), and isAnkiWeb derives from
         // the same value, so we avoid the extra keychain lookups.

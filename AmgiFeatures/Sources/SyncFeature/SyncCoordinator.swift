@@ -10,7 +10,7 @@ public import Dependencies
 
 @Observable @MainActor
 public final class SyncCoordinator {
-    public enum SyncState: Sendable, Equatable {
+    enum SyncState: Sendable, Equatable {
         case idle
         case syncing(message: String)
         // No `.syncingMedia`: it was declared, rendered by SyncToastController,
@@ -24,7 +24,7 @@ public final class SyncCoordinator {
         case noServer
     }
 
-    public private(set) var state: SyncState = .idle
+    private(set) var state: SyncState = .idle
     private(set) var logEntries: [SyncLogEntry] = []
     private(set) var requiresLogin: Bool = false
 
@@ -90,7 +90,7 @@ public final class SyncCoordinator {
 
     // MARK: - Public surface (stubs filled in Phase B)
 
-    public func startSync() async {
+    func startSync() async {
         guard activeTask == nil else {
             appendLog("Sync already in progress", level: .warning)
             return

@@ -5,8 +5,13 @@ import Foundation
 /// `Tag` makes `EntityID<DeckTag>` and `EntityID<NoteTag>` distinct types
 /// at the source level even though both wrap `Int64`. This prevents a
 /// noteId from being passed where a deckId is expected.
-public struct EntityID<Tag>: Hashable, Sendable, Codable, RawRepresentable {
+/// `Identifiable` so raw ids can drive `.sheet(item:)` /
+/// `.fullScreenCover(item:)` presentations without a retroactive conformance
+/// in the app target.
+public struct EntityID<Tag>: Hashable, Sendable, Codable, RawRepresentable, Identifiable {
     public let rawValue: Int64
+
+    public var id: Int64 { rawValue }
 
     public init(_ rawValue: Int64) {
         self.rawValue = rawValue

@@ -1,5 +1,5 @@
 import AmgiTheme
-public import SwiftUI
+import SwiftUI
 
 /// Owns the bottom sync-toast state machine that used to live inline in
 /// `ContentView`. Translates `SyncCoordinator.SyncState` transitions into a
@@ -7,22 +7,22 @@ public import SwiftUI
 /// Kept off the View so the mapping is testable in isolation.
 @Observable
 @MainActor
-public final class SyncToastController {
-    public private(set) var toast: SyncToast.Kind?
+final class SyncToastController {
+    private(set) var toast: SyncToast.Kind?
 
     @ObservationIgnored private var dismissTask: Task<Void, Never>?
 
     /// Immediate feedback when the user taps Sync, before the coordinator
     /// has had a chance to flip its state.
-    public init() {}
+    init() {}
 
-    public func presentSyncing() {
+    func presentSyncing() {
         cancelDismiss()
         toast = .progress("Syncing\u{2026}")
     }
 
     /// Drive the toast from a coordinator state change.
-    public func handle(_ state: SyncCoordinator.SyncState) {
+    func handle(_ state: SyncCoordinator.SyncState) {
         switch state {
         case .syncing(let message):
             cancelDismiss()
@@ -41,7 +41,7 @@ public final class SyncToastController {
     }
 
     /// Whether a state should pull up the sync sheet for the user.
-    public static func needsAttention(_ state: SyncCoordinator.SyncState) -> Bool {
+    static func needsAttention(_ state: SyncCoordinator.SyncState) -> Bool {
         switch state {
         case .needsFullSync, .error: return true
         default: return false
@@ -61,7 +61,7 @@ extension View {
     /// Pins the sync toast to the bottom edge with the standard transition
     /// and animation. Lifted out of `ContentView`'s body so the host keeps
     /// a flat modifier chain.
-    public func syncToastOverlay(_ kind: SyncToast.Kind?) -> some View {
+    func syncToastOverlay(_ kind: SyncToast.Kind?) -> some View {
         overlay(alignment: .bottom) {
             if let kind {
                 SyncToast(kind: kind)

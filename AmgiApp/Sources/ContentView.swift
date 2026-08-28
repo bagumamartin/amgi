@@ -3,26 +3,24 @@ import SwiftUI
 import AmgiAppCore
 import AmgiAppShared
 import AnkiKit
-import AnkiSync
 import Sharing
 import Dependencies
 import SyncFeature
 import ReviewFeature
 import ReaderFeature
+import StatsFeature
+import DecksFeature
+import SettingsFeature
 
 /// App root. Hosts the tab bar (`MainTabView`) and orchestrates the
-/// cross-cutting flows that sit above it: sync (sheet + toast), deck
-/// import, and the review cover. Each flow lives in its own piece —
-/// `MainTabView`, `SyncToastController`, `deckImport` — so the body stays a
-/// thin composition.
+/// cross-cutting flows that sit above it: sync, deck import, and the review
+/// cover. Each flow is a single modifier owned by the feature it belongs to,
+/// so the body stays a thin composition.
 struct ContentView: View {
     @Binding var pendingReviewDeckId: DeckID?
 
-    @Dependency(\.syncCoordinator) private var coordinator
     @Dependency(\.collectionStore) private var store
 
-    @State private var syncToast = SyncToastController()
-    @State private var showSync = false
     @State private var showImport = false
     @State private var refreshID = UUID()
 
@@ -33,7 +31,6 @@ struct ContentView: View {
         MainTabView(
             refreshID: refreshID,
             showReaderTab: showReaderTab,
-            onSync: startSync,
             onImport: { showImport = true },
             onSelectStudyDeck: { pendingReviewDeckId = $0 }
         )
@@ -48,22 +45,8 @@ struct ContentView: View {
         } message: {
             Text(AccountStore.shared.switchFailure ?? "")
         }
-        .sheet(isPresented: $showSync) {
-            store.invalidateAll()
-            refreshID = UUID()          // still drives the tabs not yet on CollectionStore
-        } content: {
-            SyncSheet(isPresented: $showSync)
-                .presentationDetents([.fraction(0.7), .large])
-                .presentationDragIndicator(.visible)
-        }
-        .onChange(of: SyncToastController.needsAttention(coordinator.state)) { _, needs in
-            if needs { showSync = true }
-        }
-        .onChange(of: coordinator.state) { _, newState in
-            syncToast.handle(newState)
-            if case .success = newState { store.invalidateAll() }
-        }
-        .syncToastOverlay(syncToast.toast)
+        // still drives the tabs not yet on CollectionStore
+        .syncFlow { refreshID = UUID() }
         .deckImport(isPresented: $showImport) {
             store.invalidateAll()
             refreshID = UUID()
@@ -82,12 +65,79 @@ struct ContentView: View {
             AnyView(LookupPopupView(initialQuery: query, onDismiss: dismiss))
         }
     }
-
 }
 
-private extension ContentView {
-    func startSync() {
-        syncToast.presentSyncing()
-        Task { await coordinator.startSync() }
+/// Root tab bar. Pure layout: each tab wraps a feature view in a
+/// `NavigationStack`. `refreshID` (bumped by the host after sync / import /
+/// review) now only drives the tabs not yet on `CollectionStore` — Library
+/// and Study reload via the store's generation instead. All side effects are
+/// forwarded to the host via closures or `\.startSync` so this view owns no
+/// I/O or sync state.
+///
+/// `refreshID` is *handed to* the two tabs that reload from it, not applied as
+/// an `.id()`. As an `.id()` it discarded each tab's whole subtree — scroll
+/// position, search text, selected deck, pushed navigation — to trigger a
+/// reload their own `.task` already performs. Settings took the teardown and
+/// got nothing for it: its root has no data load at all.
+private struct MainTabView: View {
+    let refreshID: UUID
+    let showReaderTab: Bool
+    let onImport: () -> Void
+    let onSelectStudyDeck: (DeckID) -> Void
+
+    @Environment(\.startSync) private var startSync
+
+    var body: some View {
+        TabView {
+            // 1. Library
+            Tab("Library", systemImage: "books.vertical") {
+                NavigationStack {
+                    DeckListView(onSwitchProfile: { await switchProfile(to: $0) })
+                        .toolbar { libraryToolbar }
+                }
+            }
+            // 2. Reader
+            if showReaderTab {
+                Tab("Read", systemImage: "book") {
+                    NavigationStack {
+                        ReaderLibraryView(refreshID: refreshID)
+                    }
+                }
+            }
+            // 3. Study
+            Tab("Study", systemImage: "graduationcap") {
+                NavigationStack {
+                    StudyLandingView(onSelectDeck: onSelectStudyDeck)
+                }
+            }
+            // 4. Stats
+            Tab("Stats", systemImage: "chart.bar") {
+                NavigationStack {
+                    StatsDashboardView(refreshID: refreshID)
+                }
+            }
+            // 5. Settings
+            Tab("Settings", systemImage: "gearshape") {
+                NavigationStack {
+                    SettingsView(onSwitchProfile: { await switchProfile(to: $0) })
+                }
+            }
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var libraryToolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            Button(action: startSync) {
+                Image(systemName: "arrow.triangle.2.circlepath")
+            }
+            .accessibilityLabel("Sync")
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            Button(action: onImport) {
+                Image(systemName: "square.and.arrow.down")
+            }
+            .accessibilityLabel("Import deck")
+        }
     }
 }
