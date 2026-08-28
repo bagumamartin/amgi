@@ -12,6 +12,11 @@ public import SwiftUI
 /// `AnyView` is deliberate — erasing the reader's view type across the module
 /// boundary is the point of this key, and this is a single leaf presentation
 /// site, not a per-row cost.
+///
+/// Conforming types need no `Equatable` conformance. SwiftUI compares struct
+/// environment values field-by-field, so a conformer with zero stored
+/// properties compares equal by reflection regardless — `Equatable` is a fast
+/// path here, not a prerequisite.
 @MainActor
 public protocol LookupPopupProviding {
     func popup(query: String, onDismiss: @escaping () -> Void) -> AnyView
