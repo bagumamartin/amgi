@@ -1,8 +1,21 @@
 public import SwiftUI
 
-/// Builds the dictionary-lookup popup for a query, calling the second
-/// argument when the popup should close.
-public typealias LookupPopupBuilder = @MainActor (String, @escaping () -> Void) -> AnyView
+/// Supplies the reader's dictionary popup to features that must not import
+/// `ReaderFeature`.
+///
+/// A protocol rather than a stored closure: SwiftUI cannot compare function
+/// values, so the previous `LookupPopupBuilder` typealias made every reader
+/// of `\.lookupPopup` invalidate on each root body evaluation. Conforming
+/// types must have no stored properties, so the environment value compares
+/// equal across evaluations.
+///
+/// `AnyView` is deliberate — erasing the reader's view type across the module
+/// boundary is the point of this key, and this is a single leaf presentation
+/// site, not a per-row cost.
+@MainActor
+public protocol LookupPopupProviding {
+    func popup(query: String, onDismiss: @escaping () -> Void) -> AnyView
+}
 
 public extension EnvironmentValues {
     /// Injection point for the reader's dictionary popup.
@@ -11,9 +24,9 @@ public extension EnvironmentValues {
     /// `ReaderFeature` for it dragged Review — and `DecksFeature` behind it —
     /// into the Cxx-interop chain, costing both targets explicit modules and
     /// compilation caching (rdar://122829880). The app root is in that chain
-    /// regardless, so it supplies the real view here instead.
+    /// regardless, so it supplies the real provider here instead.
     ///
-    /// Defaults to an empty view: a feature that renders without the app root
-    /// (a preview, a test host) simply shows nothing rather than failing.
-    @Entry var lookupPopup: LookupPopupBuilder = { _, _ in AnyView(EmptyView()) }
+    /// `nil` means no provider: a feature that renders without the app root
+    /// (a preview, a test host) shows nothing rather than failing.
+    @Entry var lookupPopup: (any LookupPopupProviding)? = nil
 }

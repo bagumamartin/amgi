@@ -61,9 +61,7 @@ struct ContentView: View {
         // Review presents the reader's dictionary popup without importing
         // ReaderFeature; the root injects it. Applied last so it reaches the
         // tabs and every sheet/cover presented above.
-        .environment(\.lookupPopup) { query, dismiss in
-            AnyView(LookupPopupView(initialQuery: query, onDismiss: dismiss))
-        }
+        .environment(\.lookupPopup, ReaderLookupPopup())
     }
 }
 

@@ -149,8 +149,10 @@ struct ReviewContent: View {
                 }
             }
             .sheet(isPresented: Binding($destination.lookup)) {
-                lookupPopup(lookupQuery.wrappedValue ?? "") {
-                    destination = nil
+                if let lookupPopup {
+                    lookupPopup.popup(query: lookupQuery.wrappedValue ?? "") {
+                        destination = nil
+                    }
                 }
             }
         }
