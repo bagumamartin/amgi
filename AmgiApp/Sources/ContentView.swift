@@ -126,7 +126,7 @@ private struct MainTabView: View {
     @ToolbarContentBuilder
     private var libraryToolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
-            Button(action: startSync) {
+            Button { startSync() } label: {
                 Image(systemName: "arrow.triangle.2.circlepath")
             }
             .accessibilityLabel("Sync")

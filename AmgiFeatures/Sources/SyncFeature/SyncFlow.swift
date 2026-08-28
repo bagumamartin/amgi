@@ -22,7 +22,7 @@ private struct SyncFlowModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .environment(\.startSync, start)
+            .environment(\.startSync, SyncAction(toast: toast))
             .sheet(isPresented: $showSheet) {
                 store.invalidateAll()
                 onFinished()
@@ -40,17 +40,41 @@ private struct SyncFlowModifier: ViewModifier {
             }
             .syncToastOverlay(toast.toast)
     }
+}
 
-    private func start() {
+/// Starts a sync. Installed by `.syncFlow()`; a no-op elsewhere, so a preview
+/// or test host renders the toolbar button without a coordinator.
+///
+/// A struct rather than a closure: SwiftUI cannot compare function values, so
+/// the previous `() -> Void` entry made every reader — the tab bar's toolbar
+/// — invalidate on each root body evaluation. The one stored property is a
+/// class reference, which SwiftUI compares by identity, and `@State` in
+/// `SyncFlowModifier` keeps a single instance, so the value is stable.
+public struct SyncAction: Equatable {
+    private let toast: SyncToastController?
+
+    /// The uninstalled action: calling it does nothing.
+    public init() { self.toast = nil }
+
+    init(toast: SyncToastController) { self.toast = toast }
+
+    var isInstalled: Bool { toast != nil }
+
+    @MainActor
+    public func callAsFunction() {
+        guard let toast else { return }
+        @Dependency(\.syncCoordinator) var coordinator
         toast.presentSyncing()
         Task { await coordinator.startSync() }
+    }
+
+    public static func == (lhs: SyncAction, rhs: SyncAction) -> Bool {
+        lhs.toast === rhs.toast
     }
 }
 
 extension EnvironmentValues {
-    /// Starts a sync. Installed by `.syncFlow()`; a no-op elsewhere, so a
-    /// preview or test host renders the toolbar button without a coordinator.
-    @Entry public var startSync: () -> Void = {}
+    @Entry public var startSync = SyncAction()
 }
 
 extension View {
