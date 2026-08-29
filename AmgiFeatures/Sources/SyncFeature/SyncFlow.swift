@@ -50,6 +50,17 @@ private struct SyncFlowModifier: ViewModifier {
 /// — invalidate on each root body evaluation. The one stored property is a
 /// class reference, which SwiftUI compares by identity, and `@State` in
 /// `SyncFlowModifier` keeps a single instance, so the value is stable.
+///
+/// Resolution timing note (2026-08-29): `callAsFunction()` resolves
+/// `@Dependency(\.syncCoordinator)` at tap time, while `SyncFlowModifier`
+/// resolves its own copy when the modifier is constructed. In the shipping
+/// app these are the same instance — `bootstrap()` installs one coordinator
+/// process-wide — so this never diverges today. It would diverge under a
+/// `withDependencies { $0.syncCoordinator = fake }` scope wrapped around view
+/// construction, the normal way a preview or test host injects a fake: the
+/// modifier's `.onChange` handlers would observe the fake while a tap here
+/// would still resolve the real one. Not fixed here — would mean storing the
+/// coordinator in `SyncAction` alongside the toast, a real code change.
 package struct SyncAction: Equatable {
     private let toast: SyncToastController?
 

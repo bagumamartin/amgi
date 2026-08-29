@@ -21,10 +21,12 @@ and called from Swift via C FFI + protobuf.
 
 ```
 AmgiApp (iOS app target — AmgiApp/, xcodegen → AmgiApp.xcodeproj)
-  ├─ depends on → AnkiBridge  package (this repo's root Package.swift)
-  ├─ depends on → AmgiReader  (sibling SPM, ./AmgiReader; vendors EPUBKit)
-  ├─ depends on → AmgiUI      (sibling SPM, ./AmgiUI)
-  └─ depends on → AmgiFeatures (sibling SPM, ./AmgiFeatures)
+  └─ depends on → RootFeature product (sibling SPM, ./AmgiFeatures)
+     (2026-08-29: collapsed from four direct dependencies — AnkiBridge,
+     AmgiReader, AmgiUI, AmgiFeatures — to this one. `project.yml` lists
+     exactly three app-target entries: the RootFeature product, the
+     WidgetKit SDK, and the embedded AmgiWidget target; RootFeature pulls
+     the rest of the graph in transitively.)
 
 AmgiFeatures package — app-layer shared code + migrated features
   Sinks:     AmgiAppShared → AmgiAppCore        AmgiCharts (watchOS-clean)
@@ -40,10 +42,13 @@ AmgiFeatures package — app-layer shared code + migrated features
                                                 (the watchOS app; watchOS-clean)
              SettingsFeature → Reader, Review, Browse, Templates, Sync,
                              AmgiReviewCore, AmgiAppCore   (the aggregator)
+             RootFeature   → Decks, Reader, Review, Settings, Stats, Sync,
+                             AmgiAppCore, AmgiAppShared   (the composition
+                             root; AmgiApp's sole dependency)
   Everything else reaches sideways into AmgiUI/AmgiTheme/AnkiKit/AnkiClients.
 
   **Cxx chain.** ReaderFeature declares `.interoperabilityMode(.Cxx)`, and so
-  do SettingsFeature and the app target. Only ReaderFeature actually touches C++
+  do SettingsFeature, RootFeature, and the app target. Only ReaderFeature actually touches C++
   (AmgiReaderDictionary → hoshidicts); the app inherits it because Cxx interop
   is transitive through the module graph — a target that imports a Cxx-mode
   module gets the CHoshiDicts modulemap in its own Clang dependency scan and
@@ -158,7 +163,7 @@ Three prefixes/suffixes, each answering a different question:
 - **`*Feature`** — app-owned **screen-level** module: `BrowseFeature`,
   `SyncFeature`, `StatsFeature`, `TemplatesFeature`, `ReaderFeature`,
   `ReviewFeature`, `DecksFeature`, `WidgetFeature`, `SettingsFeature`,
-  `WatchFeature`. (No
+  `WatchFeature`, `RootFeature`. (No
   `StudyFeature` — Study was absorbed into `ReaderFeature`.)
 
   On the suffix: `WidgetFeature` and `WatchFeature` stretch "screen-level"
@@ -183,6 +188,10 @@ Three prefixes/suffixes, each answering a different question:
   `Review → Templates`, `Reader → Browse`, `Decks → Browse`) are deliberate:
   each is a sheet over another feature's editor, and none costs anything
   measurable. Only the Reader edge did, so only that one was inverted.
+  (`RootFeature`'s six edges — into `Decks`, `Reader`, `Review`, `Settings`,
+  `Stats`, `Sync` — don't belong in this count: a composition root composing
+  the screens it hosts is a different kind of edge from one feature reaching
+  sideways into another's editor, so it isn't "the four" becoming ten.)
 
 `Feature` is a **suffix, not a prefix** — Swift/Cocoa put the head noun last
 (`UIViewController` *is a* Controller), so `SyncFeature` reads "the Sync
@@ -221,14 +230,16 @@ most misread pair. The suffix keeps the app layer visually distinct.
   `AmgiAppCore`, `Sharing`, `SwiftNavigation` — are imported by **no** watch
   source and look vestigial; they were left alone as out of scope for the
   extraction, not verified as needed.
-- Direct `AnkiBackend` imports left in the app target: `RootFeature`
-  (`Bootstrap.swift`, `ProfileSwitching.swift` — the composition root,
-  correct; `AmgiAppApp.swift` itself imports only `RootFeature`) and
-  `Watch/WatchApp` (the watch's composition root, same reason). Two
-  `*Feature`s import it —
+- Direct `AnkiBackend` imports: the app target proper (`AmgiAppApp.swift`)
+  imports only `RootFeature` and nothing from `AnkiBridge` directly. The two
+  composition roots import it correctly, by construction — `RootFeature`
+  (`Bootstrap.swift`, `ProfileSwitching.swift`) for the app, `Watch/WatchApp`
+  for the watch. Two more `*Feature`s import it beyond the composition
+  roots —
   `SettingsFeature/MaintenanceModel`, for `closeCollection()` in "Reset
-  Everything", and `WatchFeature/WatchReviewView` — and it should stay at
-  those two. The old reason for the
+  Everything", and `WatchFeature/WatchReviewView` — for three `*Feature`
+  importers total (`RootFeature`, `SettingsFeature`, `WatchFeature`), and it
+  should stay at those three. The old reason for the
   ban ("a feature target that links `AnkiRustLib` stops rendering previews")
   died with the dynamic-framework fix on 2026-08-17, and every feature that
   links `AnkiClients` already links `AnkiBackend` transitively anyway; what
@@ -361,9 +372,16 @@ not preference.
    (`AccessLevelOnImport` named each one). Three `public` entry points
    survive, one per executable that actually links a product directly:
    `RootFeature` (the app), `WidgetFeature` (the widget), `WatchFeature` (the
-   watch) — plus the four sinks the widget and watch link directly
-   (`AmgiAppCore`, `AmgiAppShared`, `AmgiCharts`, `AmgiReviewCore`), left
-   untouched. Verification: `rg -c "^\s*public " AmgiFeatures/Sources/{Browse,Decks,Reader,Review,Settings,Stats,Sync,Templates}Feature`
+   watch) — plus `AmgiAppCore`, `AmgiCharts`, `AmgiReviewCore` (the sinks the
+   widget and watch link directly) and `AmgiAppShared`, left untouched.
+   `AmgiAppShared` is not itself widget- or watch-linked — the widget links
+   `WidgetFeature` alone, and the watch cannot link `AmgiAppShared` at all
+   (see the Cxx-chain note above: it imports UIKit and WidgetKit unguarded).
+   It stays `public` because narrowing `AmgiAppShared`/`AmgiAppCore` was an
+   explicit non-goal of this task — a much larger sweep, deliberately left
+   for later. (Corrected 2026-08-29 — an earlier note here cited the wrong
+   reason for `AmgiAppShared`.)
+   Verification: `rg -c "^\s*public " AmgiFeatures/Sources/{Browse,Decks,Reader,Review,Settings,Stats,Sync,Templates}Feature`
    returns zero for all eight.
 
 **If you extract another module, budget for these five.** Every lift this

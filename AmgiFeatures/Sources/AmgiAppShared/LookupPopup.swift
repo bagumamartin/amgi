@@ -17,6 +17,13 @@ public import SwiftUI
 /// environment values field-by-field, so a conformer with zero stored
 /// properties compares equal by reflection regardless — `Equatable` is a fast
 /// path here, not a prerequisite.
+///
+/// This "no stored properties" rule is a convention, not something the
+/// compiler enforces. If you're adding a second conformer: giving it even one
+/// stored property (a `String`, a closure, anything) silently reintroduces
+/// the per-body-evaluation invalidation this design exists to remove — every
+/// reader of `\.lookupPopup` invalidates again, with no test and no warning
+/// to catch it.
 @MainActor
 public protocol LookupPopupProviding {
     func popup(query: String, onDismiss: @escaping () -> Void) -> AnyView
