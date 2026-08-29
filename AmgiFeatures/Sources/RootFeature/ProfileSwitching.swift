@@ -1,7 +1,6 @@
 import AmgiAppCore
 import AmgiAppShared
 import AnkiBackend
-import AnkiKit
 import Dependencies
 import Foundation
 import SyncFeature

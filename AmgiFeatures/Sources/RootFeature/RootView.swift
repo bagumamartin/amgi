@@ -38,9 +38,12 @@ public struct RootView: View {
         routed
             // Rebuild the entire view tree when the active profile changes —
             // every screen holds state derived from the previously open
-            // collection. This also resets `pendingReviewDeckId`, which used
-            // to need a manual `.onChange` clear.
+            // collection. `.id(_:)` sets identity for `routed` and its
+            // subtree only; it does not touch state held on `RootView`
+            // itself, so `pendingReviewDeckId` needs the explicit clear
+            // below.
             .id(accountStore.selectedID)
+            .onChange(of: accountStore.selectedID) { pendingReviewDeckId = nil }
             .onChange(of: scenePhase) { _, newPhase in
                 if newPhase == .active {
                     Task { await writeWidgetSnapshot() }
