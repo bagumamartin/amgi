@@ -247,13 +247,16 @@ most misread pair. The suffix keeps the app layer visually distinct.
 - `project.yml` must contain **no per-file `path:` entries under `Sources/`**.
   Cross-target file sharing goes through a product (see `AmgiReviewCore`).
 
-### Extraction status (2026-08-15)
+### Extraction status (last updated 2026-08-29)
 The app target went from ~18.7k LOC to ~4.4k in one session, then to ~1.2k
 when Settings followed on 2026-08-18. That last figure is 505 lines of root
 files plus what was then 735 lines in `Watch/`; the `WatchFeature` lift on
 2026-08-23 took all but the 85-line `@main WatchApp.swift`. `Watch/` is
-excluded from the iOS target either way, so the iOS app itself is ~500 lines. Order was forced by the coupling graph,
-not preference.
+excluded from the iOS target either way, so the iOS app itself was ~500 lines
+at that point. The `RootFeature` lift on 2026-08-29 took the remainder:
+`AmgiAppApp.swift` is now **13 lines** — `@main`, an `init` that calls
+`AmgiRoot.bootstrap()`, and a `body` returning `RootView()`. Order was forced
+by the coupling graph, not preference.
 
 1. **`Sources/Shared` dissolved.** Neither file was shared — `DeckCountsView`
    had one consumer (the watch), the tags UI had one (Settings). Went to
