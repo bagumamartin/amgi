@@ -1,22 +1,22 @@
-public import SwiftUI
-public import AnkiKit
+package import SwiftUI
+package import AnkiKit
 import AmgiTheme
 
 /// Edit Note container: owns the toolbar and the transient "Saved" toast, and
 /// drives a `NoteEditorModel` for the notetype lookup + note write. The form
 /// is `NoteEditorContent`, bound to the model.
-public struct NoteEditorView: View {
+package struct NoteEditorView: View {
     @State private var model: NoteEditorModel
     let onSave: () -> Void
 
     @State private var showSavedConfirmation = false
 
-    public init(note: NoteRecord, onSave: @escaping () -> Void) {
+    package init(note: NoteRecord, onSave: @escaping () -> Void) {
         _model = State(initialValue: NoteEditorModel(note: note))
         self.onSave = onSave
     }
 
-    public var body: some View {
+    package var body: some View {
         NoteEditorContent(model: model)
             .navigationTitle("Edit Note")
             .navigationBarTitleDisplayMode(.inline)

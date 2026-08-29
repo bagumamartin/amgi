@@ -1,17 +1,17 @@
-public import SwiftUI
+package import SwiftUI
 import UIKit
 
 /// Hex <-> SwiftUI.Color bridge for the reader's custom-theme editor.
 /// Stored as `#RRGGBB` strings in `@Shared(.appStorage)` so the colours
 /// round-trip through plist and slot directly into the chapter reader's
 /// CSS without further conversion.
-public enum ReaderThemeColor {
-    public static func color(fromHex hex: String, fallback: Color) -> Color {
+package enum ReaderThemeColor {
+    package static func color(fromHex hex: String, fallback: Color) -> Color {
         guard let resolved = parseHex(hex) else { return fallback }
         return Color(red: resolved.r, green: resolved.g, blue: resolved.b)
     }
 
-    public static func hex(from color: Color) -> String {
+    package static func hex(from color: Color) -> String {
         let ui = UIColor(color)
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         guard ui.getRed(&r, green: &g, blue: &b, alpha: &a) else { return "#000000" }

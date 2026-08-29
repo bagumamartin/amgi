@@ -139,7 +139,7 @@ dictionary UI, widgets.
 | `AmgiCharts` (./AmgiFeatures) | Pure chart/heatmap views over `GraphsSnapshot` + palette. No `AnkiClients` path, so its previews render without linking the xcframework. **Compiled for watchOS in its entirety** — the watch links the product, so every file here must be watchOS-clean, not just the ones the watch renders. |
 | `TemplatesFeature` (./AmgiFeatures) | Card-template editor (`DeckTemplateListView`, `TemplateEditorView`, `TemplateSourceEditor`, …). Lifted out of `Decks/` to close the Decks↔Review cycle; consumed by Settings and Review. |
 | `StatsFeature` (./AmgiFeatures) | Stats dashboard — `StatsDashboardView` Container / `StatsDashboardContent` + `State` enum / `StatsDashboardModel`. Deps: `AmgiCharts`, `AnkiClients`. |
-| `SyncFeature` (./AmgiFeatures) | Sync flow: `SyncCoordinator`, `SyncSheet`, `LoginSheet`, `OnboardingView`, `SyncToast(+Controller)`, `AnkiMobileAttributionView`. Public surface is deliberately four items — the `syncFlow` modifier (sheet + toast + state transitions in one, so the app root drives none of them by hand), its `EnvironmentValues.startSync` trigger, `OnboardingView`, and `AnkiMobileAttributionView` — plus `SyncCoordinator`'s `init`/`cancel()`/`resetForProfileSwitch()` and the `DependencyValues.syncCoordinator` key, which the composition root needs for profile switching. `SyncState`, `state`, `startSync()`, `SyncSheet` and the toast are internal; don't re-export them to drive sync from a view. |
+| `SyncFeature` (./AmgiFeatures) | Sync flow: `SyncCoordinator`, `SyncSheet`, `LoginSheet`, `OnboardingView`, `SyncToast(+Controller)`, `AnkiMobileAttributionView`. Public surface is now **zero items, all `package`** (narrowed 2026-08-29 with `RootFeature` inside the package): the `syncFlow` modifier, its `EnvironmentValues.startSync` trigger, `OnboardingView`, `AnkiMobileAttributionView`, `SyncCoordinator`'s `init`/`cancel()`/`resetForProfileSwitch()`, and the `DependencyValues.syncCoordinator` key are all `package` — `RootFeature` is the only consumer, and it's in the same package. `SyncState`, `state`, `startSync()`, `SyncSheet` and the toast stay internal; don't re-export them to drive sync from a view. |
 | `ReaderFeature` (./AmgiFeatures) | The EPUB + Anki-note readers, the offline-dictionary lookup UI, and the Study landing screen (absorbed — it was a landing screen over Reader, not a feature). The only target that touches `AmgiReaderDictionary`, and — since the `LookupPopupView` edge was inverted on 2026-08-15 — once again the only feature in the Cxx chain. See the Cxx-chain note in the diagram above before adding an import of it. Public surface is six entry points — `ReaderLibraryView`, `StudyLandingView`, `LookupPopupView`, `ReaderDictionarySettingsView`, `ReaderFontOption`, `ReaderThemeColor`; models stay internal. Note it holds **two** readers with separate preference namespaces (`EPUBChapterReaderView`/`reader_typo_*` and `ChapterReaderView`/`reader_pref_*`), branched at `ReaderBookDetailView.swift:120`. |
 | `BrowseFeature` (./AmgiFeatures) | Note browsing + note authoring: browse list/search/selection, add & edit note, batch tagging, collection-wide tag management, and the whole image-occlusion editor. Public surface is exactly five views — `BrowseView`, `AddNoteView`, `NoteEditorView`, `NoteEditingDestinationView`, `TagsView`; models stay internal. It has **no** app-folder dependencies, which is why it extracted first: Reader, Review, Decks, and Settings all reach into it, so it had to leave the app target before they can. |
 | `AmgiReviewCore` (./AmgiFeatures) | The review state machine (`ReviewSession`) + `TemplateRenderOverrides`. Watch-shared: `AmgiWatchApp` links it, so it must stay watchOS-clean — no `AmgiAppShared`, no UI, guard UIKit with `#if canImport(UIKit)`. Exists because project.yml used to cherry-pick these files into the watch target by path, compiling them twice as two distinct types. Same role `AmgiCharts` plays for stats. |
@@ -148,6 +148,7 @@ dictionary UI, widgets.
 | `SettingsFeature` (./AmgiFeatures) | The Settings root plus every screen it pushes to (appearance, accounts, sync, review behaviour, card rendering, reader display, code editor, template overrides, database maintenance, empty cards, media check, backups, about) and the shared `SettingsRow`/`SettingsControls` chrome. Public surface is `SettingsView` alone. It is the app's fan-in point, so it depends on nearly every other feature — inherent to a settings screen, not a layering smell. Two consequences: it's in the **Cxx chain** (imports `ReaderFeature`), and it's the only `*Feature` that imports `AnkiBackend` (`MaintenanceModel.resetEverything` needs `closeCollection()`; `AnkiClients` already links it, so this costs no new linkage). `SettingsView.init` takes `onSwitchProfile` for the same reason `DeckListView.init` does. Extracted 2026-08-18. |
 | `WidgetFeature` (./AmgiFeatures) | Everything the iOS widget extension does: the `AmgiWidget` `Widget`, its `AmgiWidgetIntent` AppIntents configuration + `DeckEntity` query, the `AppIntentTimelineProvider` that replays `WidgetSnapshot.projectedEntries`, and the three family views. Only `@main AmgiWidgetBundle` stays in the `AmgiWidget` target. Public surface is `AmgiWidget` alone. Deps: `AmgiAppCore`, `AmgiTheme` — **must never gain `AnkiClients`**; the widget is a separate process that reads the app group and has no business reaching the Rust engine. Extracted 2026-08-16. |
 | `WatchFeature` (./AmgiFeatures) | Every screen the watchOS app renders: `WatchContentView`, `WatchDeckListView`, `WatchDeckDetailView`, `WatchReviewView`, `WatchStatsView`, `WatchLoginView`, `DeckCountsView`. Only `@main WatchApp` stays in the `AmgiWatchApp` target, holding the backend/collection bootstrap — same split as `WidgetFeature`. Public surface is `WatchContentView` + `WatchLoginView`. Deps: `AmgiCharts`, `AmgiReviewCore`, `AnkiKit`/`AnkiClients`/`AnkiBackend`/`AnkiSync`/`AmgiCardWeb`, `AmgiTheme`. **Must stay watchOS-clean** — no `AmgiAppShared`, no iOS-only API. Extracted 2026-08-23. |
+| `RootFeature` (./AmgiFeatures) | The composition root: `RootView` (root composition + the `MainTabView` tab bar it hosts), `StartupErrorView`, and dependency bootstrap (`AmgiRoot.bootstrap()`, `openCollection`, `switchProfile`). The only iOS-app-facing product — `AmgiApp/Sources/AmgiAppApp.swift` imports nothing else. Public surface is `RootView`, `AmgiRoot`/`AmgiRoot.bootstrap()` — kept `public` because the app target links this product directly, the same reason `WidgetFeature`/`WatchFeature` keep theirs. In the **Cxx chain** (imports `ReaderFeature`). Extracted 2026-08-29, which is what let every other `*Feature` module narrow from `public` to `package` (see the narrowing entry below). |
 
 ### Module naming convention
 Three prefixes/suffixes, each answering a different question:
@@ -195,16 +196,22 @@ most misread pair. The suffix keeps the app layer visually distinct.
 - `AmgiApp/` — Xcode project, generated by xcodegen from `project.yml`.
 - Remaining folders: a `Watch/` stub holding only `@main WatchApp.swift`, a
   `Widgets/` stub holding only `@main AmgiWidgetBundle.swift` + `Info.plist`,
-  plus **two** root files: `AmgiAppApp` (bootstrap, `openCollection`,
-  `switchProfile`, the startup-error screen) and `ContentView` (the root
-  composition + the `MainTabView` tab bar it hosts). Everything else migrated
-  into `AmgiFeatures`/`AmgiUI` — `Watch/` and `Widgets/` are in
-  `AmgiApp.sources.excludes`, so the iOS app target proper is those two files.
-  (2026-08-23: `MainTabView` folded into `ContentView`, `StartupErrorView`
-  into `AmgiAppApp`, `DeckImportModifier` moved to `AmgiAppShared`, and
-  `RetroactiveIdentifiable` deleted — `Int64: Identifiable` had no callers and
-  `EntityID: Identifiable` now lives non-retroactively in `AnkiKit`. `DebugView`
-  was already gone when this note was written.)
+  plus one root file: `AmgiAppApp.swift`, which imports only `RootFeature`
+  (plus `SwiftUI`) and holds `@main` alone — `init` calls
+  `AmgiRoot.bootstrap()` and `body` returns `RootView()`, both from
+  `RootFeature`. `Watch/` and `Widgets/` are in `AmgiApp.sources.excludes`,
+  so the iOS app target proper is that one file.
+  (2026-08-29: `RootFeature` extracted — view composition (`RootView`,
+  `MainTabView`, `StartupErrorView`) and dependency bootstrap
+  (`AmgiRoot.bootstrap`, `openCollection`, `switchProfile`) moved out of the
+  app target into a new `RootFeature` package target; `ContentView.swift` no
+  longer exists, its contents having become `RootFeature/RootView.swift` +
+  `RootFeature/MainTabView.swift`. 2026-08-23: `MainTabView` folded into
+  `ContentView`, `StartupErrorView` into `AmgiAppApp`, `DeckImportModifier`
+  moved to `AmgiAppShared`, and `RetroactiveIdentifiable` deleted —
+  `Int64: Identifiable` had no callers and `EntityID: Identifiable` now lives
+  non-retroactively in `AnkiKit`. `DebugView` was already gone when this note
+  was written.)
 - Widget target depends on `WidgetFeature` alone (which brings `AmgiAppCore` +
   `AmgiTheme`). The old `AnkiKit` dependency was vestigial and was dropped on
   2026-08-16 — no widget source ever imported it. Keep its deps narrow.
@@ -214,9 +221,11 @@ most misread pair. The suffix keeps the app layer visually distinct.
   `AmgiAppCore`, `Sharing`, `SwiftNavigation` — are imported by **no** watch
   source and look vestigial; they were left alone as out of scope for the
   extraction, not verified as needed.
-- Direct `AnkiBackend` imports left in the app target: `AmgiAppApp` (the
-  composition root, correct) and `Watch/WatchApp` (the watch's
-  composition root, same reason). Two `*Feature`s import it —
+- Direct `AnkiBackend` imports left in the app target: `RootFeature`
+  (`Bootstrap.swift`, `ProfileSwitching.swift` — the composition root,
+  correct; `AmgiAppApp.swift` itself imports only `RootFeature`) and
+  `Watch/WatchApp` (the watch's composition root, same reason). Two
+  `*Feature`s import it —
   `SettingsFeature/MaintenanceModel`, for `closeCollection()` in "Reset
   Everything", and `WatchFeature/WatchReviewView` — and it should stay at
   those two. The old reason for the
@@ -340,6 +349,22 @@ not preference.
    compile as a package target with the package's stricter settings
    (`MemberImportVisibility`, `AccessLevelOnImport`) instead of the app
    target's looser ones.
+
+8. **`RootFeature`** (2026-08-29) unblocked a narrowing pass across the eight
+   feature modules it composes (`Browse`, `Decks`, `Reader`, `Review`,
+   `Settings`, `Stats`, `Sync`, `Templates`): with `RootFeature` inside
+   `AmgiFeatures` and no target outside the package composing those views any
+   longer, `public` on them was dead reach. 110 `public` declarations across
+   25 files went to `package` (re-verified at narrowing time — same figure as
+   at plan time). Every `public import` that existed only to support one of
+   those declarations dropped to `package import` or plain `import`
+   (`AccessLevelOnImport` named each one). Three `public` entry points
+   survive, one per executable that actually links a product directly:
+   `RootFeature` (the app), `WidgetFeature` (the widget), `WatchFeature` (the
+   watch) — plus the four sinks the widget and watch link directly
+   (`AmgiAppCore`, `AmgiAppShared`, `AmgiCharts`, `AmgiReviewCore`), left
+   untouched. Verification: `rg -c "^\s*public " AmgiFeatures/Sources/{Browse,Decks,Reader,Review,Settings,Stats,Sync,Templates}Feature`
+   returns zero for all eight.
 
 **If you extract another module, budget for these five.** Every lift this
 session hit at least two:

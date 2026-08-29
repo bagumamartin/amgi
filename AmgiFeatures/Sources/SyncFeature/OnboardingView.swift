@@ -1,11 +1,11 @@
-public import SwiftUI
+package import SwiftUI
 import AmgiTheme
 import AmgiUI
 import AmgiAppCore
 import AnkiSync
 import Sharing
 
-public struct OnboardingView: View {
+package struct OnboardingView: View {
     @Environment(\.palette) private var palette
     @Shared(.onboardingCompleted) private var onboardingCompleted
     @Shared(.syncMode) private var syncMode
@@ -13,9 +13,9 @@ public struct OnboardingView: View {
     @State private var serverURL = ""
     @State private var endpointError: String?
 
-    public init() {}
+    package init() {}
 
-    public var body: some View {
+    package var body: some View {
         VStack(spacing: AmgiSpacing.xxl) {
             Spacer()
 

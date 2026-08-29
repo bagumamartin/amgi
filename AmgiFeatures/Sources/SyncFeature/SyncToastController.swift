@@ -2,7 +2,7 @@ import AmgiTheme
 import SwiftUI
 
 /// Owns the bottom sync-toast state machine that used to live inline in
-/// `ContentView`. Translates `SyncCoordinator.SyncState` transitions into a
+/// `RootView`. Translates `SyncCoordinator.SyncState` transitions into a
 /// `SyncToast.Kind?`, and auto-dismisses the success toast after a beat.
 /// Kept off the View so the mapping is testable in isolation.
 @Observable
@@ -59,7 +59,7 @@ private extension SyncToastController {
 
 extension View {
     /// Pins the sync toast to the bottom edge with the standard transition
-    /// and animation. Lifted out of `ContentView`'s body so the host keeps
+    /// and animation. Lifted out of `RootView`'s body so the host keeps
     /// a flat modifier chain.
     func syncToastOverlay(_ kind: SyncToast.Kind?) -> some View {
         overlay(alignment: .bottom) {

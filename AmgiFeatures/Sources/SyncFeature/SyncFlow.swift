@@ -1,4 +1,4 @@
-public import SwiftUI
+package import SwiftUI
 import AmgiAppShared
 import Dependencies
 
@@ -50,37 +50,37 @@ private struct SyncFlowModifier: ViewModifier {
 /// — invalidate on each root body evaluation. The one stored property is a
 /// class reference, which SwiftUI compares by identity, and `@State` in
 /// `SyncFlowModifier` keeps a single instance, so the value is stable.
-public struct SyncAction: Equatable {
+package struct SyncAction: Equatable {
     private let toast: SyncToastController?
 
     /// The uninstalled action: calling it does nothing.
-    public init() { self.toast = nil }
+    package init() { self.toast = nil }
 
     init(toast: SyncToastController) { self.toast = toast }
 
     var isInstalled: Bool { toast != nil }
 
     @MainActor
-    public func callAsFunction() {
+    package func callAsFunction() {
         guard let toast else { return }
         @Dependency(\.syncCoordinator) var coordinator
         toast.presentSyncing()
         Task { await coordinator.startSync() }
     }
 
-    public static func == (lhs: SyncAction, rhs: SyncAction) -> Bool {
+    package static func == (lhs: SyncAction, rhs: SyncAction) -> Bool {
         lhs.toast === rhs.toast
     }
 }
 
 extension EnvironmentValues {
-    @Entry public var startSync = SyncAction()
+    @Entry package var startSync = SyncAction()
 }
 
 extension View {
     /// Attach the sync flow. `onFinished` fires after the sheet is dismissed
     /// so the host can refresh anything not backed by `CollectionStore`.
-    public func syncFlow(onFinished: @escaping () -> Void) -> some View {
+    package func syncFlow(onFinished: @escaping () -> Void) -> some View {
         modifier(SyncFlowModifier(onFinished: onFinished))
     }
 }

@@ -1,19 +1,19 @@
-public import SwiftUI
-public import AnkiKit
+package import SwiftUI
+package import AnkiKit
 import AmgiTheme
 
-public struct NoteEditingDestinationView: View {
+package struct NoteEditingDestinationView: View {
     let note: NoteRecord
     let embedInNavigationStack: Bool
     let onSave: () -> Void
 
-    public init(note: NoteRecord, embedInNavigationStack: Bool = false, onSave: @escaping () -> Void) {
+    package init(note: NoteRecord, embedInNavigationStack: Bool = false, onSave: @escaping () -> Void) {
         self.note = note
         self.embedInNavigationStack = embedInNavigationStack
         self.onSave = onSave
     }
 
-    public var body: some View {
+    package var body: some View {
         Group {
             if embedInNavigationStack {
                 NavigationStack {

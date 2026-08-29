@@ -1,15 +1,15 @@
-public import Foundation
+import Foundation
 import SwiftUI
 import UIKit
 import AmgiAppCore
 import AmgiAppShared
 import AnkiClients
-public import AnkiKit
+import AnkiKit
 import AnkiSync
-public import Dependencies
+package import Dependencies
 
 @Observable @MainActor
-public final class SyncCoordinator {
+package final class SyncCoordinator {
     enum SyncState: Sendable, Equatable {
         case idle
         case syncing(message: String)
@@ -61,7 +61,7 @@ public final class SyncCoordinator {
     /// touches it first, so the old `MainActor.assumeIsolated` would abort
     /// the process on first resolution from a detached task or background
     /// test. Observer registration is main-actor work, so it hops.
-    public nonisolated init() {
+    package nonisolated init() {
         Task { @MainActor [self] in registerLifecycleObservers() }
     }
 
@@ -199,7 +199,7 @@ public final class SyncCoordinator {
     /// Called after an in-app profile switch, once the scoping anchor has
     /// flipped: drop the old profile's transient state and re-derive from
     /// the new profile's persisted flags.
-    public func resetForProfileSwitch() {
+    package func resetForProfileSwitch() {
         cancel()
         clearLog()
         requiresLogin = false
@@ -223,7 +223,7 @@ public final class SyncCoordinator {
     /// backend lock and a stale full-download could land after a newer
     /// operation — collection-level data loss. The task clears itself when
     /// the in-flight work actually finishes.
-    public func cancel() {
+    package func cancel() {
         guard activeTask != nil, !isCancelling else { return }
         isCancelling = true
         activeTask?.cancel()
@@ -308,7 +308,7 @@ private enum SyncCoordinatorKey: DependencyKey {
 }
 
 extension DependencyValues {
-    public var syncCoordinator: SyncCoordinator {
+    package var syncCoordinator: SyncCoordinator {
         get { self[SyncCoordinatorKey.self] }
         set { self[SyncCoordinatorKey.self] = newValue }
     }

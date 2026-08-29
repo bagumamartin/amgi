@@ -1,4 +1,4 @@
-public import SwiftUI
+package import SwiftUI
 import AmgiAppShared
 import AnkiKit
 import AmgiTheme
@@ -14,12 +14,12 @@ enum BrowseSortOrder: String, CaseIterable, Sendable {
 /// and drives a `BrowseModel` for load/search/paging + note mutations.
 /// Rendering is delegated to `BrowseContent`; the model owns all I/O so the
 /// View is thin presentation wiring with no direct engine access.
-public struct BrowseView: View {
+package struct BrowseView: View {
     @State private var model: BrowseModel
     @State private var selectionState = BrowseSelectionState()
     @State private var destination: BrowseDestination?
 
-    public init() {
+    package init() {
         _model = State(initialValue: BrowseModel())
     }
 
@@ -32,7 +32,7 @@ public struct BrowseView: View {
     // The body is split into small layered computed views: a single chained
     // expression here blows past the Swift type-checker's time budget, so each
     // layer applies only a few modifiers.
-    public var body: some View {
+    package var body: some View {
         @Bindable var model = model
         decoratedContent
             .searchable(text: $model.searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search notes...")

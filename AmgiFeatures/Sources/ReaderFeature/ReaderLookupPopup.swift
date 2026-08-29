@@ -1,5 +1,5 @@
-public import AmgiAppShared
-public import SwiftUI
+import AmgiAppShared
+package import SwiftUI
 
 /// The concrete `LookupPopupProviding` the app root injects.
 ///
@@ -9,10 +9,10 @@ public import SwiftUI
 /// be inert — the environment stores the boxed `any LookupPopupProviding`
 /// existential, so SwiftUI reflects on that box either way, never on this
 /// concrete type's own conformance.
-public struct ReaderLookupPopup: LookupPopupProviding {
-    public init() {}
+package struct ReaderLookupPopup: LookupPopupProviding {
+    package init() {}
 
-    public func popup(query: String, onDismiss: @escaping () -> Void) -> AnyView {
+    package func popup(query: String, onDismiss: @escaping () -> Void) -> AnyView {
         AnyView(LookupPopupView(initialQuery: query, onDismiss: onDismiss))
     }
 }

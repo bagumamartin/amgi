@@ -1,5 +1,5 @@
-public import SwiftUI
-public import AmgiAppCore
+package import SwiftUI
+package import AmgiAppCore
 import AmgiAppShared
 import AmgiUI
 import AnkiKit
@@ -11,7 +11,7 @@ import BrowseFeature
 /// a `DeckListModel` for load/refresh + deck mutations. Rendering is
 /// delegated to `LibraryListContent` (AmgiUI); data assembly lives in the
 /// model. The View is intentionally thin — presentation wiring only.
-public struct DeckListView: View {
+package struct DeckListView: View {
     private let onSwitchProfile: (AmgiAccount) async -> Void
     @Dependency(\.collectionStore) private var store
     @State private var model: DeckListModel
@@ -24,7 +24,7 @@ public struct DeckListView: View {
 
     /// `onSwitchProfile` is the app root's profile switch — see
     /// `ProfilePickerMenu`.
-    public init(onSwitchProfile: @escaping (AmgiAccount) async -> Void) {
+    package init(onSwitchProfile: @escaping (AmgiAccount) async -> Void) {
         self.onSwitchProfile = onSwitchProfile
         _model = State(initialValue: DeckListModel())
     }
@@ -35,7 +35,7 @@ public struct DeckListView: View {
         _model = State(initialValue: model)
     }
 
-    public var body: some View {
+    package var body: some View {
         LibraryListContent(
             state: model.state,
             onRefresh: { await model.load() },

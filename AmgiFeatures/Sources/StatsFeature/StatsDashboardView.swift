@@ -1,4 +1,4 @@
-public import SwiftUI
+package import SwiftUI
 import AmgiTheme
 import AmgiUI
 import AmgiCharts
@@ -6,7 +6,7 @@ import AnkiKit
 import AnkiClients
 import Dependencies
 
-public struct StatsDashboardView: View {
+package struct StatsDashboardView: View {
     @Environment(\.palette) private var palette
 
     /// Bumped by the host after sync / import / review so the dashboard
@@ -20,11 +20,11 @@ public struct StatsDashboardView: View {
     @State private var period: StatsPeriod = .month
     @State private var selectedDeck: DeckInfo?
 
-    public init(refreshID: UUID? = nil) {
+    package init(refreshID: UUID? = nil) {
         self.refreshID = refreshID
     }
 
-    public var body: some View {
+    package var body: some View {
         StatsDashboardContent(
             state: model.state,
             period: period,

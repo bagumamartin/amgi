@@ -4,7 +4,7 @@ import AmgiTheme
 import AmgiAppCore
 import Dependencies
 import Sharing
-public import SwiftUI
+package import SwiftUI
 import UniformTypeIdentifiers
 
 /// Dictionary library management surface. Lists term / frequency / pitch
@@ -14,8 +14,8 @@ import UniformTypeIdentifiers
 /// While the lookup engine is still a stub, every action no-ops and the
 /// list stays empty. The shape here is what the engine plugs into; no
 /// view-side changes needed when the real runtime ports.
-public struct ReaderDictionarySettingsView: View {
-    public init() {}
+package struct ReaderDictionarySettingsView: View {
+    package init() {}
 
     @State private var model = ReaderDictionarySettingsModel()
 
@@ -37,7 +37,7 @@ public struct ReaderDictionarySettingsView: View {
 
     private static let zipType = UTType(filenameExtension: "zip") ?? .data
 
-    public var body: some View {
+    package var body: some View {
         Form {
             Section("Lookup behavior") {
                 Stepper("Max results: \(maxResults)", value: Binding($maxResults), in: 1...50)

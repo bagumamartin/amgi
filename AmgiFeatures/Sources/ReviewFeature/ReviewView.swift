@@ -1,11 +1,11 @@
-public import SwiftUI
+package import SwiftUI
 import AmgiCardWeb
 import AmgiTheme
 import AmgiUI
 import AmgiAppCore
 import AmgiAppShared
 import AnkiClients
-public import AnkiKit
+package import AnkiKit
 import Dependencies
 import BrowseFeature
 import TemplatesFeature
@@ -19,7 +19,7 @@ import SwiftUINavigation
 /// application, widget snapshot on disappear). Hands the session plus pref
 /// values and sheet bindings to the pure `ReviewContent`, which is what the
 /// `#Preview`s build with a stub session.
-public struct ReviewView: View {
+package struct ReviewView: View {
     let deckId: DeckID
     let onDismiss: () -> Void
 
@@ -47,13 +47,13 @@ public struct ReviewView: View {
     @State private var session: ReviewSession
     @State private var destination: ReviewDestination?
 
-    public init(deckId: DeckID, onDismiss: @escaping () -> Void) {
+    package init(deckId: DeckID, onDismiss: @escaping () -> Void) {
         self.deckId = deckId
         self.onDismiss = onDismiss
         self._session = State(initialValue: ReviewSession(deckId: deckId))
     }
 
-    public var body: some View {
+    package var body: some View {
         ReviewContent(
             session: session,
             showRemainingDays: showRemainingDays,

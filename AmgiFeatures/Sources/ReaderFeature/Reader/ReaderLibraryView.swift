@@ -1,7 +1,7 @@
 import AmgiReader
 import AmgiAppCore
 import Sharing
-public import SwiftUI
+package import SwiftUI
 import UniformTypeIdentifiers
 
 // MARK: - Sort mode
@@ -28,7 +28,7 @@ enum BookshelfSortMode: String, CaseIterable, Identifiable {
 /// drives a `ReaderLibraryModel` for load/import. Rendering is delegated to
 /// `ReaderLibraryContent`; the model owns all I/O so the View is thin
 /// presentation wiring with no direct engine access.
-public struct ReaderLibraryView: View {
+package struct ReaderLibraryView: View {
     /// Bumped by the host after sync / import / review so the shelf reloads.
     /// Keyed into `.task` rather than applied as an `.id` — an `.id` change
     /// discards the whole subtree, throwing away the search text and scroll
@@ -45,7 +45,7 @@ public struct ReaderLibraryView: View {
     @State private var isImporting: Bool = false
     @State private var showConfiguration: Bool = false
 
-    public init(refreshID: UUID? = nil) {
+    package init(refreshID: UUID? = nil) {
         self.refreshID = refreshID
         _model = State(initialValue: ReaderLibraryModel())
     }
@@ -61,7 +61,7 @@ public struct ReaderLibraryView: View {
         BookshelfSortMode(rawValue: sortModeRaw) ?? .recent
     }
 
-    public var body: some View {
+    package var body: some View {
         ReaderLibraryContent(
             state: model.state,
             bookForId: { model.book(for: $0) },

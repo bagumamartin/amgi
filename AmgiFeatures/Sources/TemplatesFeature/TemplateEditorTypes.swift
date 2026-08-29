@@ -8,7 +8,7 @@ struct TemplateEditorTarget: Identifiable {
 
 /// Where the editor was launched from. Affects toolbar copy and whether the
 /// user can pick a different card template inside the editor.
-public enum TemplateEditorMode {
+package enum TemplateEditorMode {
     case manager
     case currentCard
 

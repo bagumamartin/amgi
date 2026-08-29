@@ -6,7 +6,7 @@ enum CardWebViewReplayMode: String, Sendable {
     case answerWithQuestion
 }
 
-public enum CardWebViewContentAlignment: String, Sendable {
+package enum CardWebViewContentAlignment: String, Sendable {
     case top
     case center
 }

@@ -1,4 +1,4 @@
-public import SwiftUI
+package import SwiftUI
 import AmgiTheme
 import AmgiUI
 import AnkiClients
@@ -9,7 +9,7 @@ import Dependencies
 /// owns the @State and presents `TemplateEditorView` as a sheet; the list
 /// rows, alerts, and the editor itself live in sibling files under
 /// `DeckTemplateList/`.
-public struct DeckTemplateListView: View {
+package struct DeckTemplateListView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.palette) private var palette
 
@@ -23,13 +23,13 @@ public struct DeckTemplateListView: View {
     @State private var deleteTarget: NotetypeNameId?
     @State private var showDeleteConfirm = false
 
-    public init() {}
+    package init() {}
 
     private var filteredEntries: [NotetypeNameId] {
         filterDeckTemplateEntries(model.entries, searchText: searchText)
     }
 
-    public var body: some View {
+    package var body: some View {
         mainContent
             .background(palette.background)
             .navigationTitle("Card Templates")

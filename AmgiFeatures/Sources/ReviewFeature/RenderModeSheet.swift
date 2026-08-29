@@ -1,12 +1,12 @@
 import SwiftUI
-public import AmgiCardWeb
+package import AmgiCardWeb
 import AmgiTheme
 import AmgiAppCore
 import Sharing
 import AmgiReviewCore
 
 extension CardRenderEngine {
-    public var displayName: String {
+    package var displayName: String {
         switch self {
         case .auto: "Auto"
         case .alwaysNative: "Native"
@@ -14,7 +14,7 @@ extension CardRenderEngine {
         }
     }
 
-    public var summary: String {
+    package var summary: String {
         switch self {
         case .auto: "Simple cards render natively, the rest use the template's HTML."
         case .alwaysNative: "Prefer native rendering wherever the card allows it."

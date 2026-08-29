@@ -1,27 +1,27 @@
-public import SwiftUI
+package import SwiftUI
 import AmgiAppShared
 import AmgiUI
 import AmgiReader
-public import AnkiKit
+package import AnkiKit
 import Dependencies
 
 /// Study tab container. Holds a `StudyLandingModel` that loads the deck tree
 /// + reader books and maps to `StudyLandingContent.State`; forwards
-/// navigation callbacks to the parent (`ContentView`).
-public struct StudyLandingView: View {
+/// navigation callbacks to the parent (`RootView`).
+package struct StudyLandingView: View {
     /// Called when the user taps a deck row or "Begin Session".
-    /// Sets `pendingReviewDeckId` on ContentView to trigger the
+    /// Sets `pendingReviewDeckId` on RootView to trigger the
     /// existing fullscreen cover.
     let onSelectDeck: (DeckID) -> Void
 
-    public init(onSelectDeck: @escaping (DeckID) -> Void) {
+    package init(onSelectDeck: @escaping (DeckID) -> Void) {
         self.onSelectDeck = onSelectDeck
     }
 
     @Dependency(\.collectionStore) private var store
     @State private var model = StudyLandingModel()
 
-    public var body: some View {
+    package var body: some View {
         StudyLandingContent(
             state: model.contentState,
             onBeginSession: beginSession,

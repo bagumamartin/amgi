@@ -1,8 +1,8 @@
-public import SwiftUI
+package import SwiftUI
 import AmgiAppCore
 import AmgiTheme
 import AmgiUI
-public import AnkiKit
+package import AnkiKit
 import Sharing
 import SwiftUINavigation
 
@@ -10,7 +10,7 @@ import SwiftUINavigation
 /// preview. Container owns the editable `Notetype`; the cosmetic subviews
 /// (`TemplateEditorHeaderCard`, `InsertFieldSearchBox`) and presentation
 /// modifier (`TemplateEditorPresentations`) live below.
-public struct TemplateEditorView: View {
+package struct TemplateEditorView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.palette) private var palette
@@ -31,7 +31,7 @@ public struct TemplateEditorView: View {
     @State private var editorTab: TemplateEditorTab = .front
     @State private var editorSearchText = ""
 
-    public init(
+    package init(
         notetypeId: NotetypeID,
         previewNoteId: NoteID? = nil,
         initialTemplateIndex: Int,
@@ -68,7 +68,7 @@ public struct TemplateEditorView: View {
         return model.notetype.templates[model.selectedTemplateIndex].name
     }
 
-    public var body: some View {
+    package var body: some View {
         NavigationStack {
             mainContent
                 .background(palette.background)
