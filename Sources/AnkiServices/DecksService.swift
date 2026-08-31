@@ -17,6 +17,9 @@ public struct DecksService: Sendable {
     public var removeDeck: @Sendable (_ deckId: DeckID) throws -> CollectionChanges
     public var rebuildFilteredDeck: @Sendable (_ deckId: DeckID) throws -> Int
     public var emptyFilteredDeck: @Sendable (_ deckId: DeckID) throws -> Void
+    /// Raises today's new/review limits for a deck by the given deltas —
+    /// Anki's "custom study → increase today's limit".
+    public var extendLimits: @Sendable (_ deckId: DeckID, _ newDelta: Int32, _ reviewDelta: Int32) throws -> Void
     public var fetchDeckConfigContext: @Sendable (_ deckId: DeckID) throws -> DeckConfigsForUpdate
     public var getDeckConfig: @Sendable (_ deckId: DeckID) throws -> DeckConfig
     public var updateDeckConfig: @Sendable (
@@ -83,6 +86,9 @@ extension DecksService: DependencyKey {
             },
             emptyFilteredDeck: { deckId in
                 try backend.invoke(.emptyFilteredDeck(deckId: deckId))
+            },
+            extendLimits: { deckId, newDelta, reviewDelta in
+                try backend.invoke(.extendLimits(deckId: deckId, newDelta: newDelta, reviewDelta: reviewDelta))
             },
             fetchDeckConfigContext: { deckId in
                 try backend.invoke(.deckConfigsForUpdate(deckId: deckId))

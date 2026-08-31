@@ -14,6 +14,7 @@ extension DeckClient {
         delete: { _ in CollectionChanges() },
         rebuildFilteredDeck: { _ in 0 },
         emptyFilteredDeck: { _ in },
+        extendLimits: { _, _, _ in },
         fetchDeckConfigContext: { _ in
             throw PreviewClientError.notImplementedInPreview("fetchDeckConfigContext")
         },

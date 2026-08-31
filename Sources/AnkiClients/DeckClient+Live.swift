@@ -51,6 +51,12 @@ extension DeckClient: DependencyKey {
                     logger.info("Emptied filtered deck \(deckId)")
                 }
             },
+            extendLimits: { deckId, newDelta, reviewDelta in
+                try await backendOffload {
+                    try decks.extendLimits(deckId, newDelta, reviewDelta)
+                    logger.info("Extended limits for deck \(deckId): new+\(newDelta) review+\(reviewDelta)")
+                }
+            },
             fetchDeckConfigContext: { deckId in
                 try await backendOffload { try decks.fetchDeckConfigContext(deckId) }
             },

@@ -95,6 +95,32 @@ private import SwiftProtobuf
         #expect(proto.did == 33)
     }
 
+    // MARK: - extendLimits
+
+    @Test func extendLimits_dispatches_and_encodes_deckId_and_deltas() throws {
+        let envelope: Request<Void> = .extendLimits(deckId: DeckID(55), newDelta: 10, reviewDelta: 0)
+        #expect(envelope.serviceId == ServiceID.scheduler)
+        #expect(envelope.methodId == SchedulerMethod.extendLimits)
+        let proto = try Anki_Scheduler_ExtendLimitsRequest(serializedBytes: envelope.body)
+        #expect(proto.deckID == 55)
+        #expect(proto.newDelta == 10)
+        #expect(proto.reviewDelta == 0)
+    }
+
+    /// Guards the method-ID arithmetic: BackendSchedulerService's three
+    /// RPCs are dispatched first, so every SchedulerService index is
+    /// offset by 3 (ExtendLimits is #6 in the .proto → 9 on the wire).
+    @Test func extendLimits_uses_the_offset_scheduler_method_id() {
+        #expect(SchedulerMethod.extendLimits == 9)
+    }
+
+    @Test func extendLimits_carries_a_review_only_delta() throws {
+        let envelope: Request<Void> = .extendLimits(deckId: DeckID(1), newDelta: 0, reviewDelta: 50)
+        let proto = try Anki_Scheduler_ExtendLimitsRequest(serializedBytes: envelope.body)
+        #expect(proto.newDelta == 0)
+        #expect(proto.reviewDelta == 50)
+    }
+
     // MARK: - scheduleCardsAsNew
 
     @Test func scheduleCardsAsNew_dispatches_and_encodes_ids_and_log_flag() throws {

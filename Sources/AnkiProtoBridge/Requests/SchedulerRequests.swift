@@ -75,6 +75,30 @@ extension Request where Response == Void {
         )
     }
 
+    /// Raises (or lowers, with a negative delta) today's new/review
+    /// limits for a deck — the engine side of Anki's "custom study →
+    /// increase today's limit". Parents are extended too when the
+    /// collection has `applyAllParentLimits` set.
+    ///
+    /// This is the same `extend_limits` call `CustomStudy`'s
+    /// new/review-limit-delta cases route through; going direct skips
+    /// only the deck's remembered `extend_new`/`extend_review` prefill,
+    /// which nothing here reads back.
+    public static func extendLimits(deckId: DeckID, newDelta: Int32, reviewDelta: Int32) -> Self {
+        Self(
+            serviceId: ServiceID.scheduler,
+            methodId: SchedulerMethod.extendLimits,
+            encode: {
+                var proto = Anki_Scheduler_ExtendLimitsRequest()
+                proto.deckID = deckId.rawValue
+                proto.newDelta = newDelta
+                proto.reviewDelta = reviewDelta
+                return try proto.serializedData()
+            },
+            decode: { _ in () }
+        )
+    }
+
     /// Resets the given cards to "new" state. `log: true` records the
     /// operation in the undo stack.
     public static func scheduleCardsAsNew(cardIds: [CardID], log: Bool) -> Self {
