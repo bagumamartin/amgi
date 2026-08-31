@@ -121,6 +121,24 @@ final class DeckDetailModel {
         }
     }
 
+    /// Raises today's new *or* review limit for this deck. Returns nil on
+    /// success; otherwise an error message to surface.
+    func extendLimit(_ kind: DeckLimitKind, by delta: Int32) async -> String? {
+        actionInFlight = true
+        defer { actionInFlight = false }
+        do {
+            try await deckClient.extendLimits(
+                deck.id,
+                kind == .new ? delta : 0,
+                kind == .review ? delta : 0
+            )
+            store.apply(CollectionChanges(deck: true, studyQueues: true))
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
     func exportDeck() async -> ExportOutcome {
         exportInProgress = true
         defer { exportInProgress = false }

@@ -32,4 +32,18 @@ enum DeckDetailAlert {
     case error(String)
     case info(String)
     case subdeck
+    case extendLimit(DeckLimitKind)
+}
+
+/// Which of today's two per-deck caps a custom-study extension raises.
+enum DeckLimitKind {
+    case new
+    case review
+
+    var noun: String {
+        switch self {
+        case .new: "New"
+        case .review: "Review"
+        }
+    }
 }

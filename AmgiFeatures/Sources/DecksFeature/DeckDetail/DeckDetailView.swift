@@ -22,6 +22,7 @@ struct DeckDetailView: View {
     @State private var model: DeckDetailModel
     @State private var destination: DeckDetailDestination?
     @State private var newSubdeckName = ""
+    @State private var limitDelta = ""
     @State private var pendingSubdeck: DeckInfo?
 
     init(deck: DeckInfo) {
@@ -53,6 +54,7 @@ struct DeckDetailView: View {
         case .error: return "Something went wrong"
         case .info: return "Done"
         case .subdeck: return "Create Subdeck"
+        case .extendLimit(let kind): return "Increase Today's \(kind.noun) Limit"
         }
     }
 
@@ -163,6 +165,18 @@ struct DeckDetailView: View {
                     } label: {
                         Label("Deck Options…", systemImage: "slider.horizontal.3")
                     }
+                    Button {
+                        limitDelta = Self.defaultNewDelta
+                        destination = .alert(.extendLimit(.new))
+                    } label: {
+                        Label("Increase New Limit…", systemImage: "plus.rectangle.on.rectangle")
+                    }
+                    Button {
+                        limitDelta = Self.defaultReviewDelta
+                        destination = .alert(.extendLimit(.review))
+                    } label: {
+                        Label("Increase Review Limit…", systemImage: "plus.rectangle.on.rectangle")
+                    }
                 }
                 Divider()
                 Button {
@@ -263,6 +277,15 @@ private extension DeckDetailView {
             Button("Cancel", role: .cancel) {
                 newSubdeckName = ""
             }
+        case .extendLimit(let kind):
+            TextField("Extra cards", text: $limitDelta)
+                .keyboardType(.numberPad)
+            Button("Increase") {
+                let delta = limitDelta
+                Task { await runExtendLimit(kind, delta: delta) }
+            }
+            .disabled(Self.parseDelta(limitDelta) == nil)
+            Button("Cancel", role: .cancel) {}
         }
     }
 
@@ -275,6 +298,8 @@ private extension DeckDetailView {
             Text(msg)
         case .subdeck:
             Text("Will be created as \(deck.name)::<name>")
+        case .extendLimit(let kind):
+            Text("Extra \(kind.noun.lowercased()) cards to show today, on top of this deck's daily limit. Resets tomorrow.")
         }
     }
 
@@ -309,6 +334,26 @@ private extension DeckDetailView {
             destination = .alert(.info(summary))
         case .failure(let msg):
             destination = .alert(.error(msg))
+        }
+    }
+
+    /// Anki's own prefills for the same two custom-study fields. We don't
+    /// read the deck's remembered `extend_new`/`extend_review` back, so
+    /// these stay constant rather than tracking the last value used.
+    static let defaultNewDelta = "10"
+    static let defaultReviewDelta = "50"
+
+    /// Positive whole number, or nil — the Increase button keys off this,
+    /// so "", "-3", "1.5" and "abc" all leave it disabled.
+    static func parseDelta(_ text: String) -> Int32? {
+        guard let value = Int32(text.trimmingCharacters(in: .whitespaces)), value > 0 else { return nil }
+        return value
+    }
+
+    func runExtendLimit(_ kind: DeckLimitKind, delta: String) async {
+        guard let amount = Self.parseDelta(delta) else { return }
+        if let err = await model.extendLimit(kind, by: amount) {
+            destination = .alert(.error(err))
         }
     }
 
