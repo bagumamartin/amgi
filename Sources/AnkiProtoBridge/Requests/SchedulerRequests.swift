@@ -99,6 +99,35 @@ extension Request where Response == Void {
         )
     }
 
+    /// Suspends the given cards — they leave every queue until manually
+    /// unsuspended.
+    public static func suspendCards(cardIds: [CardID]) -> Self {
+        buryOrSuspend(cardIds: cardIds, mode: .suspend)
+    }
+
+    /// Buries the given cards — hidden until the next day rolls over.
+    /// Uses the user-initiated mode, not the scheduler's sibling burying.
+    public static func buryCards(cardIds: [CardID]) -> Self {
+        buryOrSuspend(cardIds: cardIds, mode: .buryUser)
+    }
+
+    private static func buryOrSuspend(
+        cardIds: [CardID],
+        mode: Anki_Scheduler_BuryOrSuspendCardsRequest.Mode
+    ) -> Self {
+        Self(
+            serviceId: ServiceID.scheduler,
+            methodId: SchedulerMethod.buryOrSuspendCards,
+            encode: {
+                var proto = Anki_Scheduler_BuryOrSuspendCardsRequest()
+                proto.cardIds = cardIds.map(\.rawValue)
+                proto.mode = mode
+                return try proto.serializedData()
+            },
+            decode: { _ in () }
+        )
+    }
+
     /// Resets the given cards to "new" state. `log: true` records the
     /// operation in the undo stack.
     public static func scheduleCardsAsNew(cardIds: [CardID], log: Bool) -> Self {

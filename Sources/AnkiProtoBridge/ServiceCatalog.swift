@@ -56,6 +56,7 @@ enum SchedulerMethod {
     static let getQueuedCards: UInt32 = 3
     static let answerCard: UInt32 = 4
     static let extendLimits: UInt32 = 9
+    static let buryOrSuspendCards: UInt32 = 14
     static let emptyFilteredDeck: UInt32 = 15
     static let rebuildFilteredDeck: UInt32 = 16
     static let scheduleCardsAsNew: UInt32 = 17
@@ -99,6 +100,7 @@ enum NotesMethod {
     static let removeNotes: UInt32 = 7
     static let updateNotes: UInt32 = 5
     static let getNote: UInt32 = 6
+    static let cardsOfNote: UInt32 = 12
 }
 
 enum SearchMethod {

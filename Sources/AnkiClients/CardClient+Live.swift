@@ -42,14 +42,24 @@ extension CardClient: DependencyKey {
                     }
                 }
             },
-            fetchByNote: { _ in [] },
-            save: { _ in },
+            fetchByNote: { noteId in
+                let ids = try await backend.invoke(.cardIDsOfNote(id: noteId))
+                var cards: [CardRecord] = []
+                cards.reserveCapacity(ids.count)
+                for id in ids {
+                    cards.append(try await backend.invoke(.getCard(id: id)))
+                }
+                return cards
+            },
             answer: { cardId, rating, timeSpent in
                 try await backendOffload { try scheduler.answerCard(cardId, rating, timeSpent) }
             },
-            undo: { _ in },
-            suspend: { _ in },
-            bury: { _ in },
+            suspend: { cardId in
+                try await backend.invoke(.suspendCards(cardIds: [cardId]))
+            },
+            bury: { cardId in
+                try await backend.invoke(.buryCards(cardIds: [cardId]))
+            },
             flag: { cardId, value in
                 try await backend.invoke(.setFlag(cardIds: [cardId], flag: value))
             },
