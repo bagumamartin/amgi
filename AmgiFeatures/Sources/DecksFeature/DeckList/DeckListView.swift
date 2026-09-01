@@ -46,6 +46,11 @@ package struct DeckListView: View {
             onCreateDeck: { showCreateSheet = true },
             deckTransition: deckTransition
         )
+        // `LibraryListContent` stores seven closures, which makes it
+        // incomparable to AttributeGraph by default — see the Equatable
+        // conformance in AmgiUI. It declares equality over `state`, so this
+        // turns a field walk into a value compare.
+        .equatable()
         .navigationTitle("Library")
         .navigationDestination(item: $pendingDeck) { deck in
             DeckDetailView(deck: deck)

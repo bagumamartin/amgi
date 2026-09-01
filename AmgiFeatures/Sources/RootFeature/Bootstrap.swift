@@ -15,6 +15,11 @@ public enum AmgiRoot {
 
     @MainActor
     public static func bootstrap() {
+        AppSignpost.measure("Bootstrap") { bootstrapBody() }
+    }
+
+    @MainActor
+    private static func bootstrapBody() {
         // Multi-profile bootstrap: migrate legacy single-collection layout
         // into the default profile, then open the selected profile's
         // collection.

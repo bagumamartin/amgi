@@ -27,6 +27,10 @@ final class DeckListModel {
     /// waited on the secondary — a blank screen at launch on a large
     /// collection. Rows go out first, activity fills in.
     func load() async {
+        await AppSignpost.measure("DeckListLoad") { await loadBody() }
+    }
+
+    private func loadBody() async {
         // Carry the previous activity data through a refresh rather than
         // flashing placeholders over numbers that are still on screen.
         let carried: (hero: HeroData, heatmap: HeatmapCardData?)?
@@ -37,7 +41,13 @@ final class DeckListModel {
         }
 
         do {
-            let tree = try await store.tree()
+            // Separates engine wait from Swift assembly. Phase one measured
+            // 145 ms in-app but only 0.44 ms against stubbed clients
+            // (DeckListLoadPerformanceTests), so the cost has to be in here —
+            // and it is I/O-bound, which is why the CPU profile barely sees it.
+            let tree = try await AppSignpost.measure("DeckTreeFetch") {
+                try await store.tree()
+            }
             if tree.isEmpty {
                 state = .empty
                 return
@@ -56,7 +66,13 @@ final class DeckListModel {
                 heatmap: carried?.heatmap
             )
 
-            let (hero, heatmap) = await buildHeroAndHeatmap(rows: rows)
+            // Nested inside DeckListLoad on purpose: phase one (the deck
+            // tree) and phase two (a 365-day revlog scan) have very
+            // different costs, and a single interval hides which one the
+            // launch path is actually waiting on.
+            let (hero, heatmap) = await AppSignpost.measure("DeckListActivity") {
+                await buildHeroAndHeatmap(rows: rows)
+            }
             guard !Task.isCancelled else { return }
             state = .loaded(rows: viewRows, hero: hero, heatmap: heatmap)
         } catch {
