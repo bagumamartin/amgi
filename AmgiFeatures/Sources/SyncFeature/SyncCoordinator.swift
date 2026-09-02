@@ -39,7 +39,7 @@ package final class SyncCoordinator {
     /// task handle has to stay put to keep the re-entry gate shut.
     @ObservationIgnored private var isCancelling = false
     @ObservationIgnored private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
-    @ObservationIgnored nonisolated(unsafe) private var lifecycleObservers: [any NSObjectProtocol] = []
+    @ObservationIgnored private var lifecycleObservers: [any NSObjectProtocol] = []
 
     // Profile-scoped persisted state. Computed per access — the key embeds
     // the active profile id, and this coordinator is a singleton that
@@ -65,10 +65,15 @@ package final class SyncCoordinator {
         Task { @MainActor [self] in registerLifecycleObservers() }
     }
 
-    deinit {
-        // Tokens from addObserver(forName:object:queue:) were previously
-        // discarded, so the observers outlived any non-singleton instance
-        // and kept calling into a dead coordinator.
+    /// `isolated deinit` so the observer tokens can be plain main-actor state
+    /// instead of `nonisolated(unsafe)` — a nonisolated `deinit` was the only
+    /// thing reading them from off the actor, and it is the only reason the
+    /// array carried an unchecked escape hatch.
+    ///
+    /// Tokens from addObserver(forName:object:queue:) were previously
+    /// discarded, so the observers outlived any non-singleton instance
+    /// and kept calling into a dead coordinator.
+    isolated deinit {
         for token in lifecycleObservers {
             NotificationCenter.default.removeObserver(token)
         }
