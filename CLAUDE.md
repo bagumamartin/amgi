@@ -1,15 +1,5 @@
 # Amgi — Project Instructions — Project Instructions
 
-## Memory System
-
-At the start of every session, read these files to understand context:
-- `memory/user.md` — Who the user is, their experience and Swift preferences
-- `memory/preferences.md` — Code style, architecture patterns, tools & build setup
-- `memory/decisions.md` — Key architectural decisions and their rationale
-- `memory/people.md` — People involved and key repositories
-
-Update these files when you learn new information during the session.
-
 ## Project Overview
 
 Amgi is an offline-first, Anki-compatible iOS flashcard client with sync-server
@@ -136,7 +126,7 @@ dictionary UI, widgets.
 | `AmgiReader` (./AmgiReader) | Pure-Swift reader domain types — no EPUB/Cxx deps. |
 | `AmgiReaderDictionary` (./AmgiReader) | Cxx-mode wrapper around `hoshidicts` (Yomitan-compatible offline dictionary). Isolated so importing `AmgiReader` stays Cxx-free. |
 | `AmgiReaderEPUB` (./AmgiReader) | EPUB parsing built on the vendored EPUBKit. |
-| `AmgiTheme` (./AmgiUI) | Palette data, theme tokens, resources. Themes are **data, not enum-bound code** (see memory). |
+| `AmgiTheme` (./AmgiUI) | Palette data, theme tokens, resources. Themes are **data, not enum-bound code**. |
 | `AmgiUI` (./AmgiUI) | Shared SwiftUI components built on `AmgiTheme`. |
 | `EPUBKit` (./Libraries/EPUBKit) | Vendored MIT-licensed EPUB parser; consumed only by `AmgiReaderEPUB`. |
 | `AmgiAppCore` (./AmgiFeatures) | The engine-free sink: preferences (`ReviewPreferences`, `ReaderPreferences`, `SyncPreferences`), `AccountStore`, app-group keys, `WidgetSnapshot(+Store)`, `StreakCalculator`, `CardFlag`. Deps: `AnkiKit`, `Sharing`. **Must never gain an `AnkiClients` dependency** — the widget and watch extensions link it, and that edge would drag the Rust engine into both. |
@@ -469,7 +459,7 @@ Two servers may be connected; pick the branch by what's available this session:
   the ground truth for "it builds" / "tests pass". Works headlessly (no Xcode
   window needed) and is immune to the run-destination gotcha below.
 - Simulator work: `install_app_sim`, `launch_app_sim`; drive the UI with
-  `snapshot_ui` → `tap`/`batch`/`type_text` (never osascript — see memory).
+  `snapshot_ui` → `tap`/`batch`/`type_text` (never osascript).
 - IDE-only tools (need Xcode.app open) go through the bridge:
   `xcode_ide_call_tool` exposes the full built-in set — `RenderPreview`,
   `DocumentationSearch`, `GetBuildLog`, `XcodeListNavigatorIssues`, etc.
@@ -503,7 +493,7 @@ Two servers may be connected; pick the branch by what's available this session:
   "No result" — fall back to `xcodebuild test -only-testing:` to confirm.
 
 Either branch: SPM tests are compile-verified only under `swift test` because
-`AnkiRustLib` is iOS-only (see memory) — run them on a simulator destination.
+`AnkiRustLib` is iOS-only — run them on a simulator destination.
 
 Either branch: the iOS scheme does **not** build `AmgiWatchApp`. Changes to
 `Sources/Watch/`, to `AmgiReviewCore`/`AmgiCharts`/`AmgiAppCore` (the products

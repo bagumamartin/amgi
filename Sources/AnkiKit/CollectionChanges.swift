@@ -1,7 +1,6 @@
 /// Which Collection facets a mutation touched. Decoded from the Engine's
 /// `OpChanges` response by AnkiProtoBridge and consumed by the app's
-/// CollectionStore to invalidate cached reads (see CONTEXT.md:
-/// CollectionChanges, Invalidation).
+/// CollectionStore to invalidate cached reads.
 public struct CollectionChanges: Equatable, Sendable {
     public var card: Bool
     public var note: Bool

@@ -8,7 +8,7 @@ public import Observation
 /// counts) in v1. Screens key `.task(id: store.generation)` so an
 /// Invalidation re-runs their load; mutations hand their
 /// `CollectionChanges` to `apply(_:)`; sync/import/review-end call
-/// `invalidateAll()`. See CONTEXT.md: CollectionStore, Invalidation.
+/// `invalidateAll()`.
 @Observable
 @MainActor
 public final class CollectionStore {
