@@ -13,11 +13,11 @@ package final class SyncCoordinator {
     enum SyncState: Sendable, Equatable {
         case idle
         case syncing(message: String)
-        // No `.syncingMedia`: it was declared, rendered by SyncToastController,
-        // and never assigned by anything — a progress state that could not
-        // occur, which read as "media progress is shown" to anyone auditing
-        // this. `syncClient.syncMedia()` reports no counts, so bring it back
-        // only when the engine can supply real ones.
+        /// Assigned only from `waitForMediaCompletion`, carrying the engine's
+        /// own localized progress line. It was previously declared and never
+        /// assigned — a progress state that could not occur — and was
+        /// removed for that reason; the engine can supply real progress now.
+        case syncingMedia(String)
         case success(SyncSummary)
         case error(String)
         case needsFullSync(SyncFullSyncRequirement)
@@ -40,6 +40,9 @@ package final class SyncCoordinator {
     @ObservationIgnored private var isCancelling = false
     @ObservationIgnored private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
     @ObservationIgnored private var lifecycleObservers: [any NSObjectProtocol] = []
+    /// How often `waitForMediaCompletion` re-reads the engine's media
+    /// status. Injectable so tests don't pay the real interval.
+    @ObservationIgnored private let mediaPollInterval: Duration
 
     // Profile-scoped persisted state. Computed per access — the key embeds
     // the active profile id, and this coordinator is a singleton that
@@ -61,7 +64,8 @@ package final class SyncCoordinator {
     /// touches it first, so the old `MainActor.assumeIsolated` would abort
     /// the process on first resolution from a detached task or background
     /// test. Observer registration is main-actor work, so it hops.
-    package nonisolated init() {
+    package nonisolated init(mediaPollInterval: Duration = .milliseconds(250)) {
+        self.mediaPollInterval = mediaPollInterval
         Task { @MainActor [self] in registerLifecycleObservers() }
     }
 
@@ -110,12 +114,19 @@ package final class SyncCoordinator {
             let client = self.syncClient
             do {
                 let summary = try await client.sync()
-                self.appendLog("Sync complete: \(summary.cardsPushed) pushed, \(summary.cardsPulled) pulled")
-                self.state = .success(summary)
+                // `syncCollection` kicks media off in the background and
+                // returns immediately; without this the sheet claimed
+                // success while media was still downloading.
+                let mediaFailure = try await self.awaitMediaCompletion(using: client)
+                // Recorded even when media failed: the collection is
+                // already committed by this point, and letting one bad
+                // media file roll the timestamp back made the next sync
+                // look overdue and the last one look lost.
                 self.lastSyncedAtUnix = Date().timeIntervalSince1970
                 self.needsFullSyncFlag = false
                 self.activeTask = nil
                 self.isCancelling = false
+                self.report(mediaFailure: mediaFailure, otherwise: summary)
                 // Sync can change counts without any review — refresh widgets
                 // or they keep showing the pre-sync collection.
                 await writeWidgetSnapshot()
@@ -160,12 +171,12 @@ package final class SyncCoordinator {
             let client = self.syncClient
             do {
                 try await client.fullSync(direction)
-                self.appendLog("Full sync complete")
-                self.state = .success(SyncSummary())
+                let mediaFailure = try await self.awaitMediaCompletion(using: client)
                 self.lastSyncedAtUnix = Date().timeIntervalSince1970
                 self.needsFullSyncFlag = false
                 self.activeTask = nil
                 self.isCancelling = false
+                self.report(mediaFailure: mediaFailure, otherwise: SyncSummary())
                 // A full download replaces the whole collection — widgets are
                 // guaranteed stale without a rewrite.
                 await writeWidgetSnapshot()
@@ -222,6 +233,22 @@ package final class SyncCoordinator {
         activeTask?.cancel()
         if case .syncing = state {
             appendLog("Cancelling — finishing the current step in the background", level: .warning)
+        } else if case .syncingMedia = state {
+            // Media sync *is* abortable in the engine, unlike the collection
+            // RPC — so cancelling it actually stops work rather than just
+            // hiding it.
+            appendLog("Media sync cancelled", level: .warning)
+            let client = syncClient
+            Task { [weak self] in
+                do {
+                    try await client.abortMediaSync()
+                } catch {
+                    self?.appendLog(
+                        "Failed to abort media sync: \(error.localizedDescription)",
+                        level: .error
+                    )
+                }
+            }
         }
     }
 
@@ -241,6 +268,55 @@ package final class SyncCoordinator {
 }
 
 private extension SyncCoordinator {
+    /// Waits out the media sync and *returns* its failure rather than
+    /// throwing it. The collection sync has already committed by the time
+    /// this runs, so a media error is a partial failure, not a failed sync,
+    /// and must not unwind the caller's success bookkeeping. Cancellation
+    /// still propagates — a cancelled sync is not a completed one.
+    /// Returns the failure's description, not the error itself — `any Error`
+    /// is not `Sendable`, and this result crosses into `MainActor.run`.
+    func awaitMediaCompletion(using client: SyncClient) async throws -> String? {
+        do {
+            try await waitForMediaCompletion(using: client)
+            return nil
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    /// Terminal state for a sync whose collection half succeeded.
+    func report(mediaFailure: String?, otherwise summary: SyncSummary) {
+        guard let mediaFailure else {
+            appendLog("Sync complete: \(summary.cardsPushed) pushed, \(summary.cardsPulled) pulled")
+            state = .success(summary)
+            return
+        }
+        appendLog("Collection synced; media sync failed: \(mediaFailure)", level: .error)
+        state = .error("Collection synced, but media failed: \(mediaFailure)")
+    }
+
+    /// The engine localizes its own progress lines, so they are shown as-is.
+    /// Nil until the background task publishes its first snapshot.
+    static func mediaProgressMessage(_ progress: MediaSyncProgress?) -> String {
+        guard let progress else { return "Syncing media\u{2026}" }
+        return "\(progress.checked) \u{00B7} \(progress.added)"
+    }
+
+    /// Polls the engine until its background media task reports idle,
+    /// publishing each progress snapshot as `.syncingMedia`.
+    func waitForMediaCompletion(using client: SyncClient) async throws {
+        while true {
+            try Task.checkCancellation()
+            let status = try await client.mediaSyncStatus()
+            guard status.active else { return }
+
+            state = .syncingMedia(Self.mediaProgressMessage(status.progress))
+            try await Task.sleep(for: mediaPollInterval)
+        }
+    }
+
     func registerLifecycleObservers() {
         let center = NotificationCenter.default
         lifecycleObservers.append(center.addObserver(
@@ -273,7 +349,7 @@ private extension SyncCoordinator {
     func beginBackgroundExecutionIfNeeded() {
         let isSyncing: Bool
         switch state {
-        case .syncing: isSyncing = true
+        case .syncing, .syncingMedia: isSyncing = true
         default: isSyncing = false
         }
         guard isSyncing, backgroundTaskID == .invalid else { return }

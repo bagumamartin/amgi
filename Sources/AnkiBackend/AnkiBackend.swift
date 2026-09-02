@@ -110,11 +110,6 @@ public final class AnkiBackend: Sendable {
         try callVoid(service: Service.collection, method: CollectionMethod.close, request: req)
     }
 
-    /// Runs CheckDatabase to repair any inconsistencies (CollectionService 2, method 0).
-    public func checkDatabase() throws {
-        _ = try callRaw(service: Service.collectionOps, method: CollectionOpsMethod.checkDatabase, input: Data())
-    }
-
     // MARK: - Collection Config (typed JSON helpers)
 
     /// Fetches a JSON-encoded value from the Anki collection config under
@@ -294,15 +289,14 @@ public final class AnkiBackend: Sendable {
 
 // MARK: - Internal service constants
 //
-// AnkiBackend's *internal* RPCs (openCollection/closeCollection/checkDatabase
-// and the config-JSON helpers) keep a small private constant table. The
+// AnkiBackend's *internal* RPCs (openCollection/closeCollection and the
+// config-JSON helpers) keep a small private constant table. The
 // canonical, exhaustive service/method ID catalog lives in AnkiProtoBridge.
 // Bridge factories are the only sanctioned way for service code to dispatch
 // RPCs — every other constant exposure was a drift risk.
 
 extension AnkiBackend {
     fileprivate enum Service {
-        static let collectionOps: UInt32 = 2
         static let collection: UInt32 = 3
         static let config: UInt32 = 9
     }
@@ -310,10 +304,6 @@ extension AnkiBackend {
     fileprivate enum CollectionMethod {
         static let open: UInt32 = 0
         static let close: UInt32 = 1
-    }
-
-    fileprivate enum CollectionOpsMethod {
-        static let checkDatabase: UInt32 = 0
     }
 
     // BackendConfigService (service 9). Verified against the DreamAfar fork.

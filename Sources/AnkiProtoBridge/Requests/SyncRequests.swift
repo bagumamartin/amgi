@@ -45,13 +45,34 @@ extension Request where Response == Void {
         )
     }
 
-    /// Runs a media-only sync (no collection changes).
-    public static func syncMedia(auth: SyncAuth) -> Self {
-        Self(
+    /// Requests cancellation of an active media sync.
+    public static var abortMediaSync: Self {
+        .empty(
             serviceId: ServiceID.sync,
-            methodId: SyncMethod.syncMedia,
-            encode: { try Anki_Sync_SyncAuth(auth).serializedData() },
+            methodId: SyncMethod.abortMediaSync,
             decode: { _ in () }
+        )
+    }
+}
+
+extension Request where Response == MediaSyncStatus {
+    /// Returns active media-sync state and its latest progress snapshot.
+    /// A completed background task may surface its terminal error here.
+    public static var mediaSyncStatus: Self {
+        .empty(
+            serviceId: ServiceID.sync,
+            methodId: SyncMethod.mediaSyncStatus,
+            decode: { bytes in
+                let proto = try Anki_Sync_MediaSyncStatusResponse(serializedBytes: bytes)
+                let progress = proto.hasProgress
+                    ? MediaSyncProgress(
+                        checked: proto.progress.checked,
+                        added: proto.progress.added,
+                        removed: proto.progress.removed
+                    )
+                    : nil
+                return MediaSyncStatus(active: proto.active, progress: progress)
+            }
         )
     }
 }

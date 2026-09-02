@@ -39,6 +39,31 @@ public struct SyncSummary: Sendable, Equatable {
     }
 }
 
+/// The engine's own progress lines, already localized ("Checked: 12",
+/// "Added: 7\u{2191} 0\u{2193}"). They are display strings, not counts — the
+/// proto carries no numbers to parse back out.
+public struct MediaSyncProgress: Sendable, Equatable {
+    public let checked: String
+    public let added: String
+    public let removed: String
+
+    public init(checked: String, added: String, removed: String) {
+        self.checked = checked
+        self.added = added
+        self.removed = removed
+    }
+}
+
+public struct MediaSyncStatus: Sendable, Equatable {
+    public let active: Bool
+    public let progress: MediaSyncProgress?
+
+    public init(active: Bool, progress: MediaSyncProgress?) {
+        self.active = active
+        self.progress = progress
+    }
+}
+
 /// Backend sync credentials. `endpoint` may be rewritten by the
 /// backend mid-sync (server redirect) — call sites must use the
 /// auth returned in `SyncCollectionResult` for subsequent RPCs.

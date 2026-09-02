@@ -90,15 +90,38 @@ private import SwiftProtobuf
         #expect(proto.serverUsn == 7)
     }
 
-    // MARK: - syncMedia
+    // MARK: - media sync
 
-    @Test func syncMedia_dispatches_and_encodes_auth() throws {
-        let envelope: Request<Void> = .syncMedia(auth: auth)
-        #expect(envelope.serviceId == ServiceID.sync)
-        #expect(envelope.methodId == SyncMethod.syncMedia)
-        let proto = try Anki_Sync_SyncAuth(serializedBytes: envelope.body)
-        #expect(proto.hkey == "abc123")
-        #expect(proto.endpoint == "https://sync.example.com")
+    @Test func mediaSyncStatus_dispatches_and_decodes_progress() throws {
+        var proto = Anki_Sync_MediaSyncStatusResponse()
+        proto.active = true
+        // The engine sends localized display lines, not numbers.
+        proto.progress.checked = "Checked: 12"
+        proto.progress.added = "Added: 7\u{2191} 0\u{2193}"
+        proto.progress.removed = "Removed: 2\u{2191} 0\u{2193}"
+
+        let request: Request<MediaSyncStatus> = .mediaSyncStatus
+        #expect(request.serviceId == ServiceID.sync)
+        #expect(request.methodId == SyncMethod.mediaSyncStatus)
+        #expect(try request.body.isEmpty)
+        #expect(
+            try request.decode(proto.serializedData())
+                == MediaSyncStatus(
+                    active: true,
+                    progress: MediaSyncProgress(
+                        checked: "Checked: 12",
+                        added: "Added: 7\u{2191} 0\u{2193}",
+                        removed: "Removed: 2\u{2191} 0\u{2193}"
+                    )
+                )
+        )
+    }
+
+    @Test func abortMediaSync_dispatches_with_empty_body() throws {
+        let request: Request<Void> = .abortMediaSync
+        #expect(request.serviceId == ServiceID.sync)
+        #expect(request.methodId == SyncMethod.abortMediaSync)
+        #expect(try request.body.isEmpty)
     }
 
     // MARK: - syncLogin

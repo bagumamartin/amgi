@@ -27,6 +27,9 @@ final class SyncToastController {
         case .syncing(let message):
             cancelDismiss()
             toast = .progress(message.isEmpty ? "Syncing\u{2026}" : message)
+        case .syncingMedia(let message):
+            cancelDismiss()
+            toast = .progress(message)
         case .success(let summary):
             toast = .success(SyncToast.summaryMessage(for: summary))
             cancelDismiss()
