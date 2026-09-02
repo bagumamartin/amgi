@@ -6,7 +6,7 @@ import Foundation
 /// to a runtime `Palette`. Built-in themes are bundled resources; future
 /// user-created themes will be scanned from `applicationSupport/Themes/`
 /// and merged into the same registry without touching call sites.
-public final class ThemeRegistry: @unchecked Sendable {
+public final class ThemeRegistry: Sendable {
     public static let shared = ThemeRegistry()
 
     private let themesByID: [String: PaletteData]
