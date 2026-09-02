@@ -105,44 +105,36 @@ package final class SyncCoordinator {
             let client = self.syncClient
             do {
                 let summary = try await client.sync()
-                await MainActor.run {
-                    self.appendLog("Sync complete: \(summary.cardsPushed) pushed, \(summary.cardsPulled) pulled")
-                    self.state = .success(summary)
-                    self.lastSyncedAtUnix = Date().timeIntervalSince1970
-                    self.needsFullSyncFlag = false
-                    self.activeTask = nil
-                    self.isCancelling = false
-                }
+                self.appendLog("Sync complete: \(summary.cardsPushed) pushed, \(summary.cardsPulled) pulled")
+                self.state = .success(summary)
+                self.lastSyncedAtUnix = Date().timeIntervalSince1970
+                self.needsFullSyncFlag = false
+                self.activeTask = nil
+                self.isCancelling = false
                 // Sync can change counts without any review — refresh widgets
                 // or they keep showing the pre-sync collection.
                 await writeWidgetSnapshot()
             } catch let error as SyncError where error == .fullSyncRequired {
-                await MainActor.run {
-                    self.appendLog("Server requires a full sync", level: .warning)
-                    self.state = .needsFullSync(SyncFullSyncRequirement(
-                        reason: "Schema mismatch — choose upload or download",
-                        localIsEmpty: false
-                    ))
-                    self.needsFullSyncFlag = true
-                    self.activeTask = nil
-                    self.isCancelling = false
-                }
+                self.appendLog("Server requires a full sync", level: .warning)
+                self.state = .needsFullSync(SyncFullSyncRequirement(
+                    reason: "Schema mismatch — choose upload or download",
+                    localIsEmpty: false
+                ))
+                self.needsFullSyncFlag = true
+                self.activeTask = nil
+                self.isCancelling = false
             } catch let error as SyncError where error == .authFailed {
-                await MainActor.run {
-                    self.appendLog("Authentication failed", level: .error)
-                    self.requiresLogin = true
-                    self.state = .error("Authentication failed — please sign in again")
-                    self.activeTask = nil
-                    self.isCancelling = false
-                }
+                self.appendLog("Authentication failed", level: .error)
+                self.requiresLogin = true
+                self.state = .error("Authentication failed — please sign in again")
+                self.activeTask = nil
+                self.isCancelling = false
             } catch {
-                await MainActor.run {
-                    self.activeTask = nil
-                    // A cancelled sync shouldn't surface as a failure.
-                    guard !self.finishCancellationIfNeeded() else { return }
-                    self.appendLog("Sync failed: \(error.localizedDescription)", level: .error)
-                    self.state = .error(error.localizedDescription)
-                }
+                self.activeTask = nil
+                // A cancelled sync shouldn't surface as a failure.
+                guard !self.finishCancellationIfNeeded() else { return }
+                self.appendLog("Sync failed: \(error.localizedDescription)", level: .error)
+                self.state = .error(error.localizedDescription)
             }
         }
         activeTask = task
@@ -163,24 +155,20 @@ package final class SyncCoordinator {
             let client = self.syncClient
             do {
                 try await client.fullSync(direction)
-                await MainActor.run {
-                    self.appendLog("Full sync complete")
-                    self.state = .success(SyncSummary())
-                    self.lastSyncedAtUnix = Date().timeIntervalSince1970
-                    self.needsFullSyncFlag = false
-                    self.activeTask = nil
-                    self.isCancelling = false
-                }
+                self.appendLog("Full sync complete")
+                self.state = .success(SyncSummary())
+                self.lastSyncedAtUnix = Date().timeIntervalSince1970
+                self.needsFullSyncFlag = false
+                self.activeTask = nil
+                self.isCancelling = false
                 // A full download replaces the whole collection — widgets are
                 // guaranteed stale without a rewrite.
                 await writeWidgetSnapshot()
             } catch {
-                await MainActor.run {
-                    self.activeTask = nil
-                    guard !self.finishCancellationIfNeeded() else { return }
-                    self.appendLog("Full sync failed: \(error.localizedDescription)", level: .error)
-                    self.state = .error(error.localizedDescription)
-                }
+                self.activeTask = nil
+                guard !self.finishCancellationIfNeeded() else { return }
+                self.appendLog("Full sync failed: \(error.localizedDescription)", level: .error)
+                self.state = .error(error.localizedDescription)
             }
         }
         activeTask = task
