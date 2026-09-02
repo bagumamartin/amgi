@@ -65,7 +65,13 @@ struct WatchReviewView: View {
                     mode: .default,
                     policy: .longFormAudio
                 )
+                // watchOS-only API. Unguarded, it makes WatchFeature fail to
+                // compile for an iOS destination, which is what the
+                // AmgiFeatures-Package scheme builds — so no package test
+                // target could run at all. Guarding changes nothing on watchOS.
+                #if os(watchOS)
                 try await AVAudioSession.sharedInstance().activate(options: [])
+                #endif
             } catch {
                 // Audio may fail silently on watchOS if session setup errors.
             }
