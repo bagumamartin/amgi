@@ -1,3 +1,4 @@
+import AmgiAppCore
 import AnkiClients
 import AnkiKit
 import Dependencies
@@ -33,6 +34,10 @@ final class StatsDashboardModel {
     }
 
     func loadStats(search: String, days: Int) async {
+        await AppSignpost.measure("StatsLoad") { await loadStatsBody(search: search, days: days) }
+    }
+
+    private func loadStatsBody(search: String, days: Int) async {
         // A refresh keeps the previous graphs on screen; only a first load
         // shows the spinner. Preserves the old `isLoading = graphs == nil`.
         if case .loaded = state { isRefreshing = true } else { state = .loading }
