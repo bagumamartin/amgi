@@ -107,10 +107,15 @@ public struct LibraryListContent: View {
                         onDelete: { Task { await onDeleteDeck(row.id) } },
                         onRename: { onRenameDeck(row) }
                     )
-                    .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
-                    .listRowBackground(palette.surfaceElevated)
-                    .listRowSeparatorTint(palette.separator)
-                    .modifier(DeckTransitionSource(id: row.id, namespace: deckTransition))
+                    // One modifier, not four. Chained inline, the ForEach
+                    // element type is a four-deep ModifiedContent nest, and
+                    // AttributeGraph describes that whole type per row.
+                    .modifier(DeckRowChrome(
+                        rowID: row.id,
+                        namespace: deckTransition,
+                        background: palette.surfaceElevated,
+                        separator: palette.separator
+                    ))
                 }
             }
 
@@ -128,8 +133,24 @@ public struct LibraryListContent: View {
     }
 }
 
-/// Anchors a deck row as the zoom source for the detail push, when the
-/// container supplied a namespace to anchor into.
+/// Every per-row list modifier in one place, including anchoring the row as
+/// the zoom source for the detail push when the container supplied a
+/// namespace to anchor into.
+private struct DeckRowChrome: ViewModifier {
+    let rowID: Int64
+    let namespace: Namespace.ID?
+    let background: Color
+    let separator: Color
+
+    func body(content: Content) -> some View {
+        content
+            .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+            .listRowBackground(background)
+            .listRowSeparatorTint(separator)
+            .modifier(DeckTransitionSource(id: rowID, namespace: namespace))
+    }
+}
+
 private struct DeckTransitionSource: ViewModifier {
     let id: Int64
     let namespace: Namespace.ID?
@@ -140,6 +161,24 @@ private struct DeckTransitionSource: ViewModifier {
         } else {
             content
         }
+    }
+}
+
+/// AttributeGraph cannot compare a view that stores closures: a function
+/// value carries no `Equatable` conformance, so `LayoutDescriptor::Builder`
+/// walks the type's fields and asks the runtime a conformance question per
+/// field — the path that dominated the CPU profile
+/// (`swift_conformsToProtocol*`, 352 ms of self time in a 76 s capture).
+/// Declaring equality over the data this view actually renders lets
+/// `.equatable()` short-circuit with a value compare instead.
+///
+/// Sound because every stored closure writes to the container's `@State`
+/// through a wrapper that is stable across body passes, and none of them
+/// reads a value that changes between passes. `@Environment` changes still
+/// invalidate normally — `EquatableView` does not suppress those.
+extension LibraryListContent: Equatable {
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.state == rhs.state && lhs.deckTransition == rhs.deckTransition
     }
 }
 
