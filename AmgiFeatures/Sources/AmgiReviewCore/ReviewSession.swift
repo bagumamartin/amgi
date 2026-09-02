@@ -236,41 +236,36 @@ public final class ReviewSession {
         answerTapCount += 1
         tappedRating = rating
 
-        // The interval brackets the whole tap-to-next-card wait, not the
-        // synchronous prologue above: the scheduler round-trip and the
-        // advance are what the user actually waits on.
         Task {
             defer { isAdvancing = false }
-            await AppSignpost.measure("AnswerCard") {
-                do {
-                    let queue = try await Task.detached {
-                        try scheduler.answerReviewCard(cardId, rating, timeSpent, states)
-                        return try scheduler.getQueuedCards(200)
-                    }.value
+            do {
+                let queue = try await Task.detached {
+                    try scheduler.answerReviewCard(cardId, rating, timeSpent, states)
+                    return try scheduler.getQueuedCards(200)
+                }.value
 
-                    answerError = nil
-                    sessionStats.reviewed += 1
-                    if rating != .again { sessionStats.correct += 1 }
-                    sessionStats.totalTimeMs += Int(timeSpent)
-                    lastRating = rating
-                    canUndo = true
+                answerError = nil
+                sessionStats.reviewed += 1
+                if rating != .again { sessionStats.correct += 1 }
+                sessionStats.totalTimeMs += Int(timeSpent)
+                lastRating = rating
+                canUndo = true
 
-                    cardQueue = queue.cards
-                    remainingCounts = DeckCounts(
-                        newCount: queue.newCount,
-                        learnCount: queue.learningCount,
-                        reviewCount: queue.reviewCount
-                    )
-                    await advanceToNextCard(notes: notes, notetypes: notetypes, notetypesClient: notetypesClient, cardRendering: cardRendering)
-                } catch {
-                    // Do NOT drop the card. Silently removing it from the queue
-                    // and advancing meant the review was never recorded, the
-                    // card was skipped for the session, remainingCounts drifted
-                    // permanently from the backend's, and the user saw an
-                    // entirely normal advance.
-                    Log.review.error("Answer failed: \(error)")
-                    answerError = error.localizedDescription
-                }
+                cardQueue = queue.cards
+                remainingCounts = DeckCounts(
+                    newCount: queue.newCount,
+                    learnCount: queue.learningCount,
+                    reviewCount: queue.reviewCount
+                )
+                await advanceToNextCard(notes: notes, notetypes: notetypes, notetypesClient: notetypesClient, cardRendering: cardRendering)
+            } catch {
+                // Do NOT drop the card. Silently removing it from the queue
+                // and advancing meant the review was never recorded, the
+                // card was skipped for the session, remainingCounts drifted
+                // permanently from the backend's, and the user saw an
+                // entirely normal advance.
+                Log.review.error("Answer failed: \(error)")
+                answerError = error.localizedDescription
             }
         }
     }

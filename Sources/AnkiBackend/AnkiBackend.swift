@@ -273,18 +273,21 @@ public final class AnkiBackend: Sendable {
         }
     }
 
+    /// `@concurrent` for the same reasons as `backendOffload`: cancellation
+    /// reaches the call, the `withDependencies` scope survives it, and the
+    /// caller's priority is inherited.
+    ///
+    /// Goes through `runInvoke` rather than the synchronous `invoke` overload
+    /// above — in an async context Swift prefers the `async` overload, so a
+    /// bare `try invoke(request)` here would resolve to this function and
+    /// recurse. Calling the shared helper sidesteps the ambiguity, and it
+    /// keeps the typed `throws(BackendError)` that `Task.detached` used to
+    /// erase to `any Error`.
+    @concurrent
     public func invoke<R>(_ request: Request<R>) async throws(BackendError) -> R {
-        do {
-            return try await Task.detached(priority: .userInitiated) { [self] in
-                try invoke(request)
-            }.value
-        } catch let error as BackendError {
-            throw error
-        } catch {
-            // Task.detached returns 'any Error'; in practice we only throw
-            // BackendError from sync invoke, so this branch is unreachable
-            // but the compiler can't prove that.
-            throw BackendError(kind: .ioError, message: "Unexpected error: \(error)")
+        switch Self.runInvoke(backend: self, request: request) {
+        case .success(let value): return value
+        case .failure(let error): throw error
         }
     }
 }

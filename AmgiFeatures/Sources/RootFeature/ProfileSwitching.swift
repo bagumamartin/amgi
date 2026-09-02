@@ -10,17 +10,15 @@ import os
 /// on `backend`. Shared by the bootstrap and in-app profile switching.
 @MainActor
 func openCollection(for profileID: String, backend: AnkiBackend) throws {
-    try AppSignpost.measure("OpenCollection") {
-        let ankiDir = AccountStore.profileDirectory(for: profileID)
-        try FileManager.default.createDirectory(at: ankiDir, withIntermediateDirectories: true)
-        let mediaPath = ankiDir.appendingPathComponent("media").path
-        try FileManager.default.createDirectory(atPath: mediaPath, withIntermediateDirectories: true)
-        try backend.openCollection(
-            collectionPath: ankiDir.appendingPathComponent("collection.anki2").path,
-            mediaFolderPath: mediaPath,
-            mediaDbPath: ankiDir.appendingPathComponent("media.db").path
-        )
-    }
+    let ankiDir = AccountStore.profileDirectory(for: profileID)
+    try FileManager.default.createDirectory(at: ankiDir, withIntermediateDirectories: true)
+    let mediaPath = ankiDir.appendingPathComponent("media").path
+    try FileManager.default.createDirectory(atPath: mediaPath, withIntermediateDirectories: true)
+    try backend.openCollection(
+        collectionPath: ankiDir.appendingPathComponent("collection.anki2").path,
+        mediaFolderPath: mediaPath,
+        mediaDbPath: ankiDir.appendingPathComponent("media.db").path
+    )
 }
 
 /// In-app profile switch: cancels any running sync, swaps the open collection
