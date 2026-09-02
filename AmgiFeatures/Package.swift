@@ -132,6 +132,18 @@ let package = Package(
             swiftSettings: sharedSwiftSettings
         ),
         .testTarget(
+            name: "DecksFeatureTests",
+            dependencies: [
+                "DecksFeature",
+                "AmgiAppShared",
+                .product(name: "AmgiUI", package: "AmgiUI"),
+                .product(name: "AnkiKit", package: "amgi"),
+                .product(name: "AnkiClients", package: "amgi"),
+                .product(name: "Dependencies", package: "swift-dependencies"),
+            ],
+            swiftSettings: sharedSwiftSettings
+        ),
+        .testTarget(
             name: "StatsFeatureTests",
             dependencies: [
                 "StatsFeature",
