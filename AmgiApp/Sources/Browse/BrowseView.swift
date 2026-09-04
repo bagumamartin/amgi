@@ -5,8 +5,10 @@ import AnkiClients
 import Dependencies
 import AmgiTheme
 
-/// Browse container: ONE three-column `NavigationSplitView` — sources, list,
-/// detail — plus the toolbar, sheets and confirmation dialogs.
+/// Browse container. Regular width (Mac / iPad) is ONE three-column
+/// `NavigationSplitView` — sources, list, detail. Compact width (iPhone)
+/// is a `NavigationStack` rooted on `BrowseLandingView`, which is what
+/// lets `Tab(role: .search)` morph the tab-bar circle into a search pill.
 ///
 /// It used to be mounted inside another `NavigationSplitView` (the root
 /// sidebar) with a `NavigationStack` around each of its own columns. Four
@@ -14,8 +16,8 @@ import AmgiTheme
 /// toolbar items above the wrong panes, so on macOS Browse now takes the
 /// window over and `exit` is the way back.
 ///
-/// Rendering is delegated to `BrowseSourceColumn` / `BrowseListColumn` /
-/// `BrowseDetailTabs`; the model owns all I/O.
+/// Rendering is delegated to `BrowseSourceColumn` / `BrowseLandingView` /
+/// `BrowseListColumn` / `BrowseDetailTabs`; the model owns all I/O.
 struct BrowseView: View {
     @State private var model: BrowseModel
     @State private var selectionState = BrowseSelectionState()
@@ -35,6 +37,10 @@ struct BrowseView: View {
     @State private var notetypeFieldNames: [String] = []
     @State private var showSaveSearchPrompt = false
     @State private var saveSearchName = ""
+    #if os(iOS)
+    /// Compact push stack: landing → scoped list → note detail.
+    @State private var path: [BrowseRoute] = []
+    #endif
 
     @Dependency(\.notetypesService) private var notetypesService
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -51,6 +57,27 @@ struct BrowseView: View {
     }
 
     var body: some View {
+        dialogChrome
+            .onChange(of: model.searchText) { _, _ in model.scheduleSearch() }
+            .task { await appear() }
+    }
+
+    @ViewBuilder
+    private var layout: some View {
+        #if os(macOS)
+        splitLayout
+        #else
+        if horizontalSizeClass == .compact {
+            compactLayout
+        } else {
+            splitLayout
+        }
+        #endif
+    }
+
+    // MARK: - Split (Mac / iPad)
+
+    private var splitLayout: some View {
         NavigationSplitView {
             BrowseSourceColumn(model: model, exit: exit)
                 .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 360)
@@ -61,17 +88,107 @@ struct BrowseView: View {
             detailPane
         }
         .navigationSplitViewStyle(.balanced)
-        .onChange(of: model.searchText) { _, _ in model.scheduleSearch() }
-        .task { await appear() }
     }
+
+    // MARK: - Compact (iPhone)
+
+    /// Search-tab morph requires this stack to be the tab's root, with
+    /// `.searchable` and no `placement:` — iOS 26 then hoists the field into
+    /// the tab bar. `searchToolbarBehavior(.minimize)` is a no-op here.
+    #if os(iOS)
+    private var compactLayout: some View {
+        NavigationStack(path: $path) {
+            BrowseLandingView(
+                model: model,
+                selectionState: $selectionState,
+                onSwipeDelete: { pendingSwipeDelete = $0 },
+                onSelect: { source in
+                    model.source = source
+                    path.append(.source(source))
+                },
+                onOpenDetail: openDetail
+            )
+            .navigationTitle("Search")
+            .navigationBarTitleDisplayMode(.large)
+            .accountMenu()
+            .toolbar { toolbarContent }
+            .navigationDestination(for: BrowseRoute.self) { route in
+                compactDestination(route)
+            }
+        }
+        .searchable(text: $model.searchText, prompt: "Search notes and cards")
+        .onSubmit(of: .search) { model.commitSearchHistory() }
+        .toolbarBackground(.visible, for: .bottomBar)
+        .toolbarBackground(.ultraThinMaterial, for: .bottomBar)
+    }
+
+    @ViewBuilder
+    private func compactDestination(_ route: BrowseRoute) -> some View {
+        switch route {
+        case .source(let source):
+            BrowseListColumn(
+                model: model,
+                selectionState: $selectionState,
+                onSwipeDelete: { pendingSwipeDelete = $0 },
+                onOpenDetail: openDetail
+            )
+            .navigationTitle(sourceTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { toolbarContent }
+            .onDisappear {
+                // Popping back to landing unscopes the query. Pushing detail
+                // on top of this source must NOT reset — the source is still
+                // in the path.
+                if !path.contains(.source(source)), model.source == source {
+                    model.source = .allDecks
+                }
+            }
+        case .detail:
+            compactDetail
+        }
+    }
+
+    @ViewBuilder
+    private var compactDetail: some View {
+        if model.focusedNote != nil || model.focusedCard != nil {
+            BrowseDetailTabs(
+                note: model.focusedNote,
+                notetypeName: model.focusedNote.flatMap { model.notetypeNames[$0.mid] },
+                infoCard: model.focusedCard,
+                firstCardID: model.focusedCardID,
+                onSaved: { Task { await model.performSearch() } }
+            )
+            .id(model.focusedNote?.id ?? NoteID(0))
+            .navigationTitle("Details")
+            .navigationBarTitleDisplayMode(.inline)
+        } else {
+            ContentUnavailableView(
+                "No Selection",
+                systemImage: "doc.text.magnifyingglass",
+                description: Text("Select a \(rowNoun) to view its details.")
+            )
+        }
+    }
+
+    private func openDetail() {
+        if path.last != .detail {
+            path.append(.detail)
+        }
+    }
+    #endif
 
     // MARK: - Columns
 
     /// The list column owns the search field and the toolbar, so both sit
-    /// above the list they act on (Mail's arrangement).
+    /// above the list they act on (Mail's arrangement). Split-view only —
+    /// compact attaches `.searchable` to its own stack.
     private var listPane: some View {
         NavigationStack {
-            dialogContent
+            BrowseListColumn(
+                model: model,
+                selectionState: $selectionState,
+                onSwipeDelete: { pendingSwipeDelete = $0 }
+            )
                 .navigationTitle(sourceTitle)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar { toolbarContent }
@@ -192,6 +309,14 @@ struct BrowseView: View {
         await model.loadInitial()
         await model.refreshUndoStatus()
         await refreshNotetypeFields()
+        #if os(iOS)
+        // Compact landing does not observe `model.source` by itself — a
+        // scoped seed has to push the list, otherwise the user lands on
+        // the idle tree with the query silently scoped underneath.
+        if horizontalSizeClass == .compact, model.source != .allDecks {
+            path = [.source(model.source)]
+        }
+        #endif
     }
 
     /// Field names of the most common notetype among current results —
@@ -211,10 +336,12 @@ struct BrowseView: View {
     // MARK: - Dialogs & sheets
     //
     // Layered into small computed views on purpose: one chained expression
-    // blows past the Swift type-checker's time budget.
+    // blows past the Swift type-checker's time budget. These wrap `layout`
+    // so both the compact stack and the split view share one presentation
+    // host — landing, pushed list, and iPad list all raise the same sheets.
 
-    private var dialogContent: some View {
-        sheetContent
+    private var dialogChrome: some View {
+        sheetChrome
             .confirmationDialog(
                 "Delete this note?",
                 isPresented: Binding(
@@ -258,12 +385,8 @@ struct BrowseView: View {
             }
     }
 
-    private var sheetContent: some View {
-        BrowseListColumn(
-            model: model,
-            selectionState: $selectionState,
-            onSwipeDelete: { pendingSwipeDelete = $0 }
-        )
+    private var sheetChrome: some View {
+        layout
         .sheet(isPresented: $showAddNote) {
             AddNoteView {
                 Task { await model.performSearch() }
@@ -632,3 +755,10 @@ private func previewBrowseModel() -> BrowseModel {
 #endif
 
 extension BrowseView.Sheet: Identifiable {}
+
+/// Compact NavigationStack destinations. Split view never uses this —
+/// its columns are always on screen.
+enum BrowseRoute: Hashable {
+    case source(BrowseSource)
+    case detail
+}

@@ -21,6 +21,10 @@ struct BrowseListColumn: View {
     @Bindable var model: BrowseModel
     @Binding var selectionState: BrowseSelectionState
     let onSwipeDelete: (NoteRecord) -> Void
+    /// Compact NavigationStack only: after focusing a row, push the detail
+    /// route. Nil on the split-view path, where `List(selection:)` already
+    /// drives the inspector column.
+    var onOpenDetail: (() -> Void)? = nil
 
     #if os(macOS)
     @State private var multiSelection: Set<Int64> = []
@@ -41,7 +45,10 @@ struct BrowseListColumn: View {
         #else
         .onChange(of: rowSelection) { _, new in
             guard let new else { return }
-            Task { await focusRow(new) }
+            Task {
+                await focusRow(new)
+                onOpenDetail?()
+            }
         }
         .onChange(of: model.mode) { _, _ in rowSelection = nil }
         #endif

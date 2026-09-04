@@ -424,6 +424,40 @@
   `test` can't run at all: `TEST_HOST` in project.yml is the iOS bundle
   layout (`AmgiApp.app/AmgiApp`, missing `Contents/MacOS`).
 
+## Browse compact Search tab (2026-09)
+
+- **iPhone is a NavigationStack, not a collapsed split view.** `Tab(role:
+  .search)` only morphs the tab-bar magnifying-glass circle into a bottom
+  search pill when the tab's root is a `NavigationStack` with `.searchable`
+  and **no** `placement:`. The previous compact path showed the split-view
+  sidebar first, so the only `.searchable` (on the list column) was
+  off-screen and the morph never fired. `BrowseView` now forks on
+  `horizontalSizeClass`: compact → `BrowseLandingView` in a stack; regular
+  → the three-column split unchanged.
+- **Platform search matrix**:
+  - iPhone (compact): tab-bar pill, large "Search" title, `.accountMenu()`
+    at default leading placement. `searchToolbarBehavior(.minimize)` is
+    **off** this path (it targets toolbar search, not tab search).
+  - iPad (regular): three-column split; field floats top-trailing (iPadOS
+    26) via existing `.searchable(placement:)` + `searchMinimizedIfAvailable`.
+  - macOS: always-expanded Mail-style field in the list column toolbar.
+    `searchToolbarBehavior` is documented for macOS 26; we do not opt in
+    (Anki Desktop / Mail parity). The earlier "annotation missing on macOS"
+    comment was stale.
+- **Landing states**: idle = quick-filter capsules (`today().prefix(3)` +
+  `cardStates()`) plus inset-grouped Decks / Tags / Saved Searches (plain
+  `Button`s, no `List(selection:)` — that was the grey full-bleed slab);
+  focused-empty = Recent Searches + Clear (`BrowseModel.clearSearchHistory`)
+  plus Saved Searches; non-empty query = `BrowseListColumn` in place.
+  Deck-tree flattening lives in `BrowseDeckTree`, sharing
+  `@AppStorage("browse.sidebar.expandedDecks")` with the sidebar.
+- **Tab bar**: `.tabBarMinimizeBehavior(.onScrollDown)` availability-gated
+  to iOS 26 on the root `TabView`. If the morph fails because `BrowseView`
+  sits between `Tab` and the stack, inline the compact stack into the
+  search tab (plan fallback). `.task { await appear() }` and the
+  `searchText` debounce hang off the shared `BrowseView` body so both
+  layouts get deep-link seeds and typed search.
+
 ## RenderPreview spawns a REAL app instance (2026-08)
 
 - Calling MCP `RenderPreview` on this project boots the actual app binary

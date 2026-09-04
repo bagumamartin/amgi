@@ -222,6 +222,14 @@ final class BrowseModel {
         recordHistory(candidate)
     }
 
+    /// Empties in-memory history and the persisted `"browse.searchHistory"`
+    /// key. The compact Search landing's Clear button is the only caller.
+    func clearSearchHistory() {
+        UserDefaults.standard.removeObject(forKey: Self.historyKey)
+        recentQueries = []
+        lastCommittedQuery = ""
+    }
+
     func performSearch() async {
         isLoading = true
         defer { isLoading = false }

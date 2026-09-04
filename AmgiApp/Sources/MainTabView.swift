@@ -142,6 +142,7 @@ struct MainTabView: View {
             // iPadOS HIG: adaptive sidebar/tab bar on regular width; iPhone
             // keeps the compact bottom tab bar.
             .tabViewStyle(.sidebarAdaptable)
+            .tabBarMinimizedOnScrollIfAvailable()
             #endif
         }
         .onChange(of: selection) { oldValue, newValue in
@@ -184,11 +185,11 @@ struct MainTabView: View {
                     .accountMenu()
             }
         case .browse:
-            // No NavigationStack wrapper: BrowseView IS a NavigationSplitView
-            // and owns the stacks for its own columns (plus `.accountMenu()`
-            // inside the list column). Wrapping it here re-created the nesting
-            // that broke the layout. On macOS this case is unreachable — the
-            // window-takeover branch in `body` handles Browse.
+            // No NavigationStack wrapper: compact BrowseView roots its own
+            // stack (required for the iOS 26 search-tab morph), and regular
+            // width is a NavigationSplitView. Wrapping either re-creates the
+            // nesting that broke the layout. On macOS this case is unreachable
+            // — the window-takeover branch in `body` handles Browse.
             BrowseView()
                 .id(refreshID)
         }
