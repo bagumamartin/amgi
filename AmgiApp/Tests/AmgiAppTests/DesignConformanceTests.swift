@@ -59,6 +59,8 @@ struct DesignConformanceTests {
             "Radius literals with no AmgiRadius equivalent; changing them would be a layout change (R29 is no-layout).",
         "Widgets/LargeWidgetView.swift":
             "Separate target (shares only AmgiTheme + AnkiKit). Renders in the system's context and cannot observe ThemeManager at render time, so palette adoption is a design decision, not a conformance sweep. Tracked separately if widget theming is wanted.",
+        "Widgets/SmallWidgetView.swift":
+            "Widget target (shares only AmgiTheme + AnkiKit) cannot use the app-target amgiChromeShadow mechanism. The one .shadow call is a palette.positive-derived completion glow — on-system by construction and part of the specified empty-composition design (positive sweep + glow).",
         "Watch/WatchApp.swift": watchExemptReason,
         "Watch/WatchContentView.swift": watchExemptReason,
         "Watch/WatchDeckDetailView.swift": watchExemptReason,

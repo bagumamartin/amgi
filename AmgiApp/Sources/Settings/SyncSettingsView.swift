@@ -58,7 +58,7 @@ struct SyncSettingsView: View {
                         }
                     }
                     Text("Changes sync after a short pause and periodically every 15 minutes.")
-                        .font(.caption)
+                        .amgiFont(.caption)
                         .foregroundStyle(palette.textSecondary)
                 }
 

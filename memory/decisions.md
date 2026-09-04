@@ -409,20 +409,27 @@
   nothing called `refresh()` at startup, so saved searches never appeared;
   (c) `loadHistory()` was private and never called, so search suggestions
   were empty on every fresh launch. All three fixed.
-- **DesignConformanceTests is RED on develop** (26 pre-existing offenders as
-  of 2026-09: BrowseInspector, BrowseSheets, BrowseFilterRailView,
-  RichNoteFieldEditor, DeckIconSection, RatingBar, MCPServerSettingsView, …).
-  It is a whole-tree scanner, so it fails for everyone's files, not just
-  yours — check the offender LIST, not the pass/fail. New files must be clean:
-  use `.amgiFont(.micro)` for 11–12pt glyphs, `AmgiRadius.small` for small
-  tiles, `Capsule()` instead of a raw `cornerRadius:` on skeleton bars, and
-  `palette.textSecondary` instead of `.secondary`.
+- **DesignConformanceTests is GREEN (2026-09)**: the 26 pre-existing
+  offenders were fixed (palette/amgiFont/AmgiRadius adoption across 13
+  files) plus one justified `permanentlyExempt` entry for
+  Widgets/SmallWidgetView.swift (palette.positive-derived completion glow;
+  widget target can't use the app-target amgiChromeShadow). The scanner
+  reports first-match-per-pattern per file, so fix EVERY occurrence in a
+  flagged file, not just the reported lines.
 - **Verification note**: Xcode MCP was unavailable, so builds went through
   `xcodebuild`. `-destination 'generic/platform=iOS Simulator'` FAILS at link
   time — it builds arm64 + x86_64 and the Rust xcframework's simulator slice
   is arm64-only; pass `ARCHS=arm64` or name a concrete simulator. macOS
-  `test` can't run at all: `TEST_HOST` in project.yml is the iOS bundle
-  layout (`AmgiApp.app/AmgiApp`, missing `Contents/MacOS`).
+  `test` runs natively since 2026-09: `TEST_HOST` + `LD_RUNPATH_SEARCH_PATHS`
+  carry `[sdk=macosx*]` variants (Contents/MacOS executable, ../Frameworks
+  runpaths) in project.yml. 94/94 AmgiAppTests pass on both `platform=macOS`
+  and iOS Simulator.
+- **macOS tests share the login keychain with the real app** (KeychainHelper
+  service derives from the host bundle id): SyncCoordinatorTests
+  snapshot/restore ambient credentials around a staged `test.invalid`
+  endpoint, and CollectionStoreTests scope a neutered syncCoordinator, so a
+  real endpoint can never fire the live auto-sync debounce into an unstubbed
+  client (and signOut tests can't wipe real credentials).
 
 ## Browse compact Search tab (2026-09)
 

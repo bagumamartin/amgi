@@ -11,6 +11,7 @@ import SwiftUI
 struct MCPServerSettingsView: View {
     @State private var manager = MCPManager.shared
     @State private var copiedLabel: String?
+    @Environment(\.palette) private var palette
 
     var body: some View {
         form
@@ -86,8 +87,8 @@ struct MCPServerSettingsView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
                             Text(snippet.label)
-                                .font(.caption.weight(.medium))
-                                .foregroundStyle(.secondary)
+                                .amgiFont(.captionBold)
+                                .foregroundStyle(palette.textSecondary)
                             Spacer()
                             Button(copiedLabel == snippet.id ? "Copied" : "Copy") {
                                 copy(snippet.text, label: snippet.id)
@@ -99,14 +100,14 @@ struct MCPServerSettingsView: View {
                             .padding(8)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .background(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .fill(Color.secondary.opacity(0.12))
+                                RoundedRectangle(cornerRadius: AmgiRadius.small)
+                                    .fill(palette.textSecondary.opacity(0.12))
                             )
                     }
                 }
             } else {
                 Text("This copy of Amgi is missing part of the assistant feature. Updating or reinstalling Amgi restores it.")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(palette.textSecondary)
             }
         } header: {
             Text("Connect an AI assistant")

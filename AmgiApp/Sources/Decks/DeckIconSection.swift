@@ -1,6 +1,7 @@
 import SwiftUI
 import AnkiKit
 import AmgiIcons
+import AmgiTheme
 import AnkiClients
 import Dependencies
 
@@ -16,6 +17,7 @@ struct DeckIconSection: View {
     @Binding var selectedIconName: String?
     @Binding var iconManuallySet: Bool
     let deckName: String
+    @Environment(\.palette) private var palette
 
     @State private var showPicker = false
     /// Live suggestion while the user hasn't picked manually.
@@ -30,10 +32,10 @@ struct DeckIconSection: View {
             iconPreview
             VStack(alignment: .leading, spacing: 2) {
                 Text(displayedIconName.map { displayName($0) } ?? "Automatic")
-                    .font(.body)
+                    .amgiFont(.body)
                 Text(iconManuallySet ? "Manually set" : "Suggested from deck name")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .amgiFont(.caption)
+                    .foregroundStyle(palette.textSecondary)
             }
             Spacer()
             Button("Change…") { showPicker = true }
@@ -72,18 +74,18 @@ struct DeckIconSection: View {
     private var iconPreview: some View {
         if let name = displayedIconName,
            let glyph = AmgiIcons.DeckIconGlyph.image(for: name) {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.accentColor.opacity(0.15))
+            RoundedRectangle(cornerRadius: AmgiRadius.small, style: .continuous)
+                .fill(palette.accent.opacity(0.15))
                 .frame(width: 44, height: 44)
                 .overlay { glyph.font(.system(size: 24)) }
         } else {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: AmgiRadius.small, style: .continuous)
                 .fill(.quaternary)
                 .frame(width: 44, height: 44)
                 .overlay {
                     Image(systemName: "questionmark")
                         .font(.system(size: 20))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(palette.textSecondary)
                 }
         }
     }

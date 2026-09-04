@@ -50,6 +50,7 @@ struct ChangeDeckSheet: View {
 
 struct SetDueDateSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.palette) private var palette
     let onApply: (String) -> Void
 
     @State private var customDays = 3
@@ -87,8 +88,8 @@ struct SetDueDateSheet: View {
                 }
                 Section {
                     Text("Applies to review cards; the engine rejects the rest with an explanatory error.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .amgiFont(.caption)
+                        .foregroundStyle(palette.textSecondary)
                 }
             }
             .navigationTitle("Set Due Date")
@@ -166,14 +167,14 @@ struct FindReplaceSheet: View {
                 if selectionCount > 0 {
                     Section {
                         Text("Scoped to \(selectionCount) selected note\(selectionCount == 1 ? "" : "s").")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .amgiFont(.caption)
+                            .foregroundStyle(palette.textSecondary)
                     }
                 } else {
                     Section {
                         Text("Scope: current results.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .amgiFont(.caption)
+                            .foregroundStyle(palette.textSecondary)
                     }
                 }
                 Section("Find") {
@@ -276,8 +277,8 @@ struct FindDuplicatesView: View {
         Section {
             if exactGroups.isEmpty {
                 Text(exactSummary ?? "Pick a field and search to group exact matches.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .amgiFont(.body)
+                    .foregroundStyle(palette.textSecondary)
             } else {
                 ForEach(Array(exactGroups.enumerated()), id: \.offset) { _, group in
                     Button {
@@ -291,7 +292,7 @@ struct FindDuplicatesView: View {
                                 .amgiFont(.caption)
                                 .foregroundStyle(palette.textSecondary)
                             Image(systemName: "chevron.right")
-                                .font(.caption2)
+                                .amgiFont(.micro)
                                 .foregroundStyle(palette.textTertiary)
                         }
                     }
@@ -308,8 +309,8 @@ struct FindDuplicatesView: View {
         Section("Semantic near-duplicates") {
             if nearGroups.isEmpty {
                 Text("No fuzzy clusters above \(Int(SemanticNoteIndex.nearDupeThreshold * 100))% similarity yet — the index fills as you browse.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .amgiFont(.body)
+                    .foregroundStyle(palette.textSecondary)
             } else {
                 ForEach(Array(nearGroups.enumerated()), id: \.offset) { _, ids in
                     Button {

@@ -92,7 +92,7 @@ struct ProfileIconEditorSheet: View {
                     Text("Choose Emoji")
                     Spacer()
                     if let current = iconStore.icon(for: account.id) {
-                        Text(current).font(.title3)
+                        Text(current).amgiFont(.cardTitle)
                     } else {
                         Image(systemName: "face.smiling")
                             .foregroundStyle(palette.textSecondary)

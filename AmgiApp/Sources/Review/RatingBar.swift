@@ -54,8 +54,8 @@ struct RatingBar: View {
                     .fontWeight(.medium)
                 if showIntervals {
                     Text(intervals[rating] ?? " ")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .amgiFont(.caption)
+                        .foregroundStyle(palette.textSecondary)
                 }
             }
             .frame(minWidth: 84)

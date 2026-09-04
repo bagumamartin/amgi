@@ -56,8 +56,8 @@ struct BrowseDetailTabs: View {
                     .id(note.id)
             } else {
                 Text("Select one row to edit its fields and tags.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .amgiFont(.body)
+                    .foregroundStyle(palette.textSecondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             }
         case .preview:
@@ -65,7 +65,7 @@ struct BrowseDetailTabs: View {
                 CardPreviewPane(cardId: firstCardID)
             } else {
                 Text("Preview needs a card; switch to Cards mode or resolve the note's cards.")
-                    .font(.callout).foregroundStyle(.secondary)
+                    .amgiFont(.body).foregroundStyle(palette.textSecondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             }
         case .info:
@@ -128,9 +128,9 @@ struct CardPreviewPane: View {
             lookupPopupEnabled: false
         )
         .frame(minHeight: 220)
-        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.hero))
         .overlay(
-            RoundedRectangle(cornerRadius: 14)
+            RoundedRectangle(cornerRadius: AmgiRadius.hero)
                 .strokeBorder(palette.separator, lineWidth: 1)
         )
     }
@@ -206,8 +206,8 @@ struct CardInfoPane: View {
                 }
             } else {
                 Text("Scheduling info is per-card. Switch to Cards mode or pick a specific card to inspect it.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .amgiFont(.body)
+                    .foregroundStyle(palette.textSecondary)
             }
         }
     }
@@ -219,7 +219,7 @@ struct CardInfoPane: View {
             Text(value.isEmpty ? "—" : value)
                 .monospacedDigit()
         }
-        .font(.callout)
+        .amgiFont(.body)
     }
 
     private func typeName(_ type: Int16) -> String {

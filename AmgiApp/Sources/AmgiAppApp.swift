@@ -371,6 +371,7 @@ private extension AnkiAppApp {
 /// decks can be reviewed concurrently in separate windows.
 private struct ReviewWindowHost: View {
     @State private var deckID: DeckID?
+    @Environment(\.palette) private var palette
 
     var body: some View {
         Group {
@@ -379,10 +380,10 @@ private struct ReviewWindowHost: View {
             } else {
                 VStack(spacing: AmgiSpacing.md) {
                     Image(systemName: "graduationcap")
-                        .font(.largeTitle)
-                        .foregroundStyle(.secondary)
+                        .amgiFont(.displayHero)
+                        .foregroundStyle(palette.textSecondary)
                     Text("No deck selected")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(palette.textSecondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }

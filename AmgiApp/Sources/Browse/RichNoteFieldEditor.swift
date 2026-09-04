@@ -1,4 +1,5 @@
 import SwiftUI
+import AmgiTheme
 #if canImport(UIKit)
 import UIKit
 #elseif canImport(AppKit)
@@ -472,9 +473,9 @@ struct RichNoteFieldEditor: View {
             // The NSTextView host draws no background/border of its own; give
             // the field a subtle macOS control boundary so it reads as an
             // editable field rather than floating text.
-            .background(.quinary, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .background(.quinary, in: RoundedRectangle(cornerRadius: AmgiRadius.small, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                RoundedRectangle(cornerRadius: AmgiRadius.small, style: .continuous)
                     .strokeBorder(.quaternary, lineWidth: 1)
             }
             toolbar

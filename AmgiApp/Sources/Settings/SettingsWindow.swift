@@ -10,6 +10,7 @@ import AmgiTheme
 /// `NavigationStack` within the detail.
 struct SettingsWindowHost: View {
     @State private var selection: SettingsItem? = .appearance
+    @Environment(\.palette) private var palette
 
     var body: some View {
         NavigationSplitView {
@@ -31,7 +32,7 @@ struct SettingsWindowHost: View {
                     detailView(for: selection)
                 } else {
                     Text("Choose a setting")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(palette.textSecondary)
                 }
             }
         }

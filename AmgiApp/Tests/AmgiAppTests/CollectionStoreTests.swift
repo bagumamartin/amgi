@@ -47,11 +47,19 @@ struct CollectionStoreTests {
     @Test @MainActor
     func cachedTreeIsReusedUntilInvalidated() async throws {
         let counter = CallCounter()
+        // apply() with the default .localUser origin queues an automatic sync
+        // push. Scope a neutered coordinator so this cache test never touches
+        // the sync machinery: on macOS the ambient login keychain may hold a
+        // real endpoint, which would otherwise fire the live debounce into an
+        // unstubbed client.
+        let coordinator = SyncCoordinator()
+        coordinator.disableAutomaticSync()
         try await withDependencies {
             $0.deckClient.fetchTree = {
                 counter.bump()
                 return sampleTree
             }
+            $0.syncCoordinator = coordinator
         } operation: {
             let store = CollectionStore()
             _ = try await store.tree()

@@ -157,7 +157,7 @@ struct BrowseFilterRailView: View {
             Spacer()
             if isActive(node) {
                 Image(systemName: "checkmark")
-                    .font(.caption)
+                    .amgiFont(.caption)
                     .foregroundStyle(palette.accent)
             }
         }

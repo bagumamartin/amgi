@@ -104,8 +104,13 @@ import AnkiServices
     /// start() now runs its backend chain off the main actor in an internal Task, so the
     /// assertion waits for that work to settle.
     @Test func startWithEmptyQueueFinishesSession() async throws {
+        // Queue-derived counts, not the preview client's (learningDueToday: 3):
+        // the session's refineRemainingLearning overwrites the learn count
+        // with whatever this returns.
+        var stats = StatsClient.previewValue
+        stats.learningDueToday = { _ in 0 }
         try await withDependencies {
-            $0.statsClient = .previewValue
+            $0.statsClient = stats
             $0.decksService.setCurrentDeck = { _ in }
             $0.schedulerService.getQueuedCards = { _ in
                 QueuedCardsResult(cards: [], newCount: 0, learningCount: 0, reviewCount: 0)
@@ -113,7 +118,7 @@ import AnkiServices
         } operation: {
             let s = ReviewSession(deckId: DeckID(42))
             s.start()
-            try await Task.sleep(for: .milliseconds(50))
+            await waitForSettled(s)
             #expect(s.isFinished,
                     "Session with empty queue should be finished after start()")
             #expect(s.remainingCounts == .zero)
@@ -204,7 +209,7 @@ import AnkiServices
         } operation: {
             let session = ReviewSession(deckId: DeckID(1))
             session.start()
-            try await Task.sleep(for: .milliseconds(50))
+            await waitForSettled(session)
             #expect(session.currentNote == stubNote)
             #expect(callCounter.value == 1, "getNote should be called exactly once per advance")
 
@@ -236,7 +241,7 @@ import AnkiServices
         } operation: {
             let session = ReviewSession(deckId: DeckID(1))
             session.start()
-            try await Task.sleep(for: .milliseconds(50))
+            await waitForSettled(session)
             let target = session.currentTemplateTarget
             #expect(target != nil)
             #expect(target?.notetypeId == NotetypeID(200))
@@ -264,7 +269,7 @@ import AnkiServices
         } operation: {
             let session = ReviewSession(deckId: DeckID(1))
             session.start()
-            try await Task.sleep(for: .milliseconds(50))
+            await waitForSettled(session)
 
             // Audio start
             session.updateAudioPlaying(true)
@@ -322,7 +327,7 @@ import AnkiServices
         } operation: {
             let session = ReviewSession(deckId: DeckID(1))
             session.start()
-            try await Task.sleep(for: .milliseconds(50))
+            await waitForSettled(session)
 
             let originalNoteId = session.currentNote?.id
             #expect(state.renderCallCount == 1)
@@ -368,12 +373,12 @@ import AnkiServices
         } operation: {
             let s = ReviewSession(deckId: DeckID(1))
             s.start()
-            try await Task.sleep(for: .milliseconds(50))
+            await waitForSettled(s)
             #expect(s.currentNote == note1)
 
             s.answer(rating: .good)
             // answer() advances once the backend answer + queue refetch settle.
-            try await Task.sleep(for: .milliseconds(700))
+            await waitForSettled(s)
 
             #expect(s.sessionStats.reviewed == 1)
             #expect(s.sessionStats.correct == 1, "Good counts as correct")
@@ -398,7 +403,6 @@ import AnkiServices
         let tracker = LiveReviewCounts()
 
         try await withDependencies {
-            $0.statsClient = .previewValue
             $0.decksService.setCurrentDeck = { _ in }
             $0.schedulerService.getQueuedCards = { _ in
                 state.answered
@@ -410,16 +414,22 @@ import AnkiServices
             $0.cardRenderingService.renderCard = { _ in
                 RenderedCard(frontHTML: "f", backHTML: "b", cardCSS: "")
             }
+            // The session's refineRemainingLearning overwrites the queue's
+            // learn count with this search result, so the stub must mirror
+            // the queue transition above — not the preview client's fixed 3.
+            var stats = StatsClient.previewValue
+            stats.learningDueToday = { _ in state.answered ? 1 : 0 }
+            $0.statsClient = stats
             $0.liveReviewCounts = tracker
         } operation: {
             let s = ReviewSession(deckId: DeckID(1))
             s.start()
-            try await Task.sleep(for: .milliseconds(50))
+            await waitForSettled(s)
             #expect(tracker.snapshot?.baseline == DeckCounts(newCount: 2, learnCount: 0, reviewCount: 0))
             #expect(tracker.snapshot?.live == DeckCounts(newCount: 2, learnCount: 0, reviewCount: 0))
 
             s.answer(rating: .good)
-            try await Task.sleep(for: .milliseconds(700))
+            await waitForSettled(s)
             #expect(tracker.snapshot?.baseline == DeckCounts(newCount: 2, learnCount: 0, reviewCount: 0),
                     "baseline stays frozen at session start")
             #expect(tracker.snapshot?.live == DeckCounts(newCount: 1, learnCount: 1, reviewCount: 0),
@@ -449,7 +459,7 @@ import AnkiServices
             let s = ReviewSession(deckId: DeckID(1))
             s.start()
             #expect(s.isAdvancing, "start() sets isAdvancing synchronously before its Task runs")
-            try await Task.sleep(for: .milliseconds(50))
+            await waitForSettled(s)
             #expect(!s.isAdvancing, "isAdvancing clears after the transition settles")
             #expect(!s.isFinished, "a non-empty queue should not finish")
         }
@@ -499,18 +509,18 @@ import AnkiServices
         } operation: {
             let s = ReviewSession(deckId: DeckID(1))
             s.start()
-            try await Task.sleep(for: .milliseconds(50))
+            await waitForSettled(s)
             #expect(s.currentNote == note1)
 
             s.answer(rating: .good)
-            try await Task.sleep(for: .milliseconds(700))
+            await waitForSettled(s)
             #expect(s.currentNote == note2, "answer should advance to card2")
             #expect(s.sessionStats.reviewed == 1)
             #expect(s.sessionStats.correct == 1)
             #expect(s.canUndo)
 
             s.undo()
-            try await Task.sleep(for: .milliseconds(100))
+            await waitForSettled(s)
 
             #expect(s.currentNote == note1, "undo should return to card1")
             #expect(s.sessionStats.reviewed == 0, "undo should roll back reviewed count")
@@ -579,29 +589,29 @@ import AnkiServices
         } operation: {
             let s = ReviewSession(deckId: DeckID(1))
             s.start()
-            try await Task.sleep(for: .milliseconds(50))
+            await waitForSettled(s)
             #expect(s.currentNote == note1)
 
             s.answer(rating: .good)
-            try await Task.sleep(for: .milliseconds(700))
+            await waitForSettled(s)
             #expect(s.currentNote == note2)
 
             s.answer(rating: .again)
-            try await Task.sleep(for: .milliseconds(700))
+            await waitForSettled(s)
             #expect(s.currentNote == note3)
             #expect(s.sessionStats.reviewed == 2)
             #expect(s.sessionStats.correct == 1)
             #expect(s.canUndo)
 
             s.undo()
-            try await Task.sleep(for: .milliseconds(100))
+            await waitForSettled(s)
             #expect(s.currentNote == note2, "first undo returns to card2")
             #expect(s.sessionStats.reviewed == 1)
             #expect(s.sessionStats.correct == 1)
             #expect(s.canUndo, "still has an earlier answer to undo")
 
             s.undo()
-            try await Task.sleep(for: .milliseconds(100))
+            await waitForSettled(s)
             #expect(s.currentNote == note1, "second undo returns to card1")
             #expect(s.sessionStats.reviewed == 0)
             #expect(s.sessionStats.correct == 0)
@@ -645,19 +655,31 @@ import AnkiServices
         } operation: {
             let s = ReviewSession(deckId: DeckID(1))
             s.start()
-            try await Task.sleep(for: .milliseconds(50))
+            await waitForSettled(s)
             s.answer(rating: .good)
-            try await Task.sleep(for: .milliseconds(700))
+            await waitForSettled(s)
             #expect(s.canUndo)
 
             s.undo()
-            try await Task.sleep(for: .milliseconds(100))
+            await waitForSettled(s)
 
             #expect(state.undos <= 3, "must not walk the whole engine stack")
             #expect(state.redos == state.undos, "failed undo must redo popped engine ops")
             #expect(s.canUndo, "session answer stack stays intact")
             #expect(s.sessionStats.reviewed == 1)
         }
+    }
+}
+
+/// Polls until the session's off-main transition settles. start()/answer()/
+/// undo() run their backend chain in an internal Task; a fixed sleep flakes
+/// under load, while isAdvancing is the exact in-flight signal (cleared by
+/// defer on every path, including failures).
+@MainActor
+private func waitForSettled(_ session: ReviewSession, timeout: Duration = .seconds(5)) async {
+    let deadline = ContinuousClock.now + timeout
+    while session.isAdvancing, ContinuousClock.now < deadline {
+        try? await Task.sleep(for: .milliseconds(10))
     }
 }
 

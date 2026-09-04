@@ -387,6 +387,17 @@ targets:
       base:
         BUNDLE_LOADER: $(TEST_HOST)
         TEST_HOST: $(BUILT_PRODUCTS_DIR)/AmgiApp.app/AmgiApp
+        # macOS apps nest the executable under Contents/MacOS; the iOS
+        # layout above leaves TEST_HOST pointing at a nonexistent path and
+        # `xcodebuild test -destination 'platform=macOS'` fails to launch.
+        # BUNDLE_LOADER follows TEST_HOST, so it needs no override.
+        "TEST_HOST[sdk=macosx*]": $(BUILT_PRODUCTS_DIR)/AmgiApp.app/Contents/MacOS/AmgiApp
+        # macOS frameworks live in Contents/Frameworks (sibling of MacOS,
+        # not a child), so the test bundle needs the ../-style runpaths.
+        "LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]":
+          - $(inherited)
+          - "@executable_path/../Frameworks"
+          - "@loader_path/../Frameworks"
         PRODUCT_BUNDLE_IDENTIFIER: com.bagumamartin.AmgiAppTests
         GENERATE_INFOPLIST_FILE: YES
         # Tests inherit @testable AmgiApp's transitive Cxx-mode import

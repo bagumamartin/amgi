@@ -14,20 +14,21 @@ struct CollectionBusyView: View {
             ProgressView()
                 .controlSize(.large)
             Text("Amgi is busy")
-                .font(.title2.weight(.semibold))
+                .amgiFont(.sectionHeading)
             Text(
                 "An AI assistant is using your collection right now. "
                     + "Amgi will open automatically when it's free — no action needed. "
                     + "You can also quit the assistant to free it immediately."
             )
-            .font(.callout)
+            .amgiFont(.body)
             .foregroundStyle(palette.textSecondary)
             .multilineTextAlignment(.center)
             .frame(maxWidth: 420)
 
             if let error = launch.openError {
                 Text(error)
-                    .font(.caption.monospaced())
+                    .amgiFont(.caption)
+                    .monospacedDigit()
                     .foregroundStyle(palette.textTertiary)
                     .lineLimit(3)
                     .truncationMode(.middle)

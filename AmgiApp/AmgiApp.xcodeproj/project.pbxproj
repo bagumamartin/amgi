@@ -1948,6 +1948,11 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -cxx-interoperability-mode=default";
 				PRODUCT_BUNDLE_IDENTIFIER = com.bagumamartin.AmgiAppTests;
 				SDKROOT = auto;
@@ -1958,6 +1963,7 @@
 				SWIFT_CXX_INTEROPERABILITY_MODE = default;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AmgiApp.app/AmgiApp";
+				"TEST_HOST[sdk=macosx*]" = "$(BUILT_PRODUCTS_DIR)/AmgiApp.app/Contents/MacOS/AmgiApp";
 			};
 			name = Debug;
 		};
@@ -2038,6 +2044,11 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -cxx-interoperability-mode=default";
 				PRODUCT_BUNDLE_IDENTIFIER = com.bagumamartin.AmgiAppTests;
 				SDKROOT = auto;
@@ -2048,6 +2059,7 @@
 				SWIFT_CXX_INTEROPERABILITY_MODE = default;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AmgiApp.app/AmgiApp";
+				"TEST_HOST[sdk=macosx*]" = "$(BUILT_PRODUCTS_DIR)/AmgiApp.app/Contents/MacOS/AmgiApp";
 			};
 			name = Release;
 		};

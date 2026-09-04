@@ -69,8 +69,8 @@ struct ExportPackagesSheet: View {
 
             if exportWholeCollection {
                 Text("Everything — all decks, scheduling and settings — as one .colpkg backup.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .amgiFont(.caption)
+                    .foregroundStyle(palette.textSecondary)
             } else {
                 Picker("Deck", selection: $selectedDeckID) {
                     ForEach(decks) { deck in
@@ -111,7 +111,7 @@ struct ExportPackagesSheet: View {
         } else if let failureMessage {
             Section {
                 Text(failureMessage)
-                    .font(.callout)
+                    .amgiFont(.body)
                     .foregroundStyle(palette.danger)
             }
         }
