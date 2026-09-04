@@ -55,6 +55,11 @@ struct StatsDashboardView: View {
         .scrollContentBackground(.hidden)
         .background(palette.surface)
         .navigationTitle("Statistics")
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                SyncToolbarButton()
+            }
+        }
         .task {
             await model.loadDecks()
             await reloadStats()

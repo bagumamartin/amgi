@@ -126,3 +126,18 @@
   app's project.yml; root `Package.swift` (AnkiBridge) is separate.
 - `DeckRowViewData` / `DeckDetailViewData` carry optional `iconName`;
   AmgiUI renders glyphs only through `DeckIconRendering.provider`.
+
+## Trailing chrome — Undo · Sync · ⋯ (2026-09)
+
+- **Undo is review-only and session-wired**: the review trailing group is
+  Undo · Sync · plain `ellipsis`. The glyph calls `ReviewSession.undo()`
+  (answer stack + queue restore), not `cardClient.undoLast()`. Overflow
+  no longer duplicates Undo. Other screens do not show a toolbar Undo.
+- **Sync is the ubiquitous tool-group glyph** (`SyncToolbarButton` posts
+  `.amgiPresentSync`). Review, Deck Detail, Browse, Stats, and Read all
+  carry it. Library keeps its existing Sync · Import cluster (plus New
+  Deck) rather than collapsing to the three-glyph pill.
+- **Overflow nested card ops are labeled "More actions"**: Suspend / Bury
+  / Forget / Note actions / Flag stay nested inside the review overflow,
+  but `CardContextMenu` takes an optional `title` so the submenu row is
+  not a bare ellipsis. Browse rows keep the icon-only trigger.
