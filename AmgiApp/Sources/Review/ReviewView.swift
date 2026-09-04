@@ -247,7 +247,14 @@ private struct ReviewContent: View {
         }
         #endif
         ToolbarItemGroup(placement: .topBarTrailing) {
-            EngineUndoButton()
+            Button {
+                session.undo()
+            } label: {
+                Image(systemName: "arrow.uturn.backward")
+            }
+            .disabled(!session.canUndo)
+            .accessibilityLabel(session.canUndo ? "Undo" : "Nothing to undo")
+            .help("Undo")
             SyncToolbarButton()
             cardActionsMenu
         }
@@ -332,20 +339,11 @@ private struct ReviewContent: View {
 
     // MARK: - Card actions
 
-    /// The single overflow menu that replaces the row of toolbar icons:
-    /// undo, edit note, look up, replay audio, and card/template options.
-    /// Individual items carry their own disabled state so undo stays
-    /// reachable even when there's no current note (e.g. finished screen).
+    /// Overflow for the less-used review actions. Undo lives on the toolbar
+    /// (session-wired, not the engine stack) so this menu starts at Edit Note.
     @ViewBuilder
     private var cardActionsMenu: some View {
         Menu {
-            Button {
-                session.undo()
-            } label: {
-                Label("Undo", systemImage: "arrow.uturn.backward")
-            }
-            .disabled(!session.canUndo)
-
             Button {
                 editingNote = session.currentNote
             } label: {
@@ -387,7 +385,12 @@ private struct ReviewContent: View {
 
             if showContextMenuButton {
                 if let cardId = session.currentCardId {
-                    CardContextMenu(cardId: cardId, noteId: session.currentNote?.id, includeUndo: false)
+                    CardContextMenu(
+                        cardId: cardId,
+                        noteId: session.currentNote?.id,
+                        includeUndo: false,
+                        title: "More actions"
+                    )
                 }
                 Button {
                     editingTemplate = session.currentTemplateTarget
@@ -401,7 +404,7 @@ private struct ReviewContent: View {
                 Image(systemName: "flag.fill")
                     .foregroundStyle(flagColor(for: session.currentFlag))
             } else {
-                Image(systemName: "ellipsis.circle")
+                Image(systemName: "ellipsis")
             }
         }
         .accessibilityLabel("Card options")

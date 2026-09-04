@@ -53,9 +53,9 @@ struct EngineUndoButton: View {
 
 // MARK: - Sync
 
-/// Standalone sync affordance for screens whose trailing slot carries only
-/// the ever-present sync (Read, Stats). Posts the app-wide `.amgiPresentSync`
-/// rail consumed by ContentView, so every concerned screen reaches the same
+/// Standalone sync affordance for screens whose trailing slot carries the
+/// ever-present sync glyph. Posts the app-wide `.amgiPresentSync` rail
+/// consumed by ContentView, so every concerned screen reaches the same
 /// preflight/sync sheet without new plumbing.
 struct SyncToolbarButton: View {
     var body: some View {

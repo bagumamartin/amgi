@@ -357,11 +357,14 @@ struct BrowseView: View {
     // MARK: - Toolbar
     //
     // Mode and sort live in the list column's own header bar, not here.
-    // Sync is deliberately absent: it belongs to Library and ⌘⇧S.
+    // Trailing cluster is Undo · Sync · ＋/Done · ⋯ — Browse takes over the
+    // window on Mac, so Library's sync glyph is not on screen.
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) {
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            EngineUndoButton()
+            SyncToolbarButton()
             if selectionState.isSelectMode {
                 Button("Done") {
                     selectionState.exitSelectMode()
@@ -375,8 +378,6 @@ struct BrowseView: View {
                 }
                 .accessibilityLabel("Add")
             }
-        }
-        ToolbarItemGroup(placement: .topBarTrailing) {
             Menu {
                 toolsSection
                 saveSearchSection
@@ -384,8 +385,6 @@ struct BrowseView: View {
                 Image(systemName: "ellipsis")
             }
             .accessibilityLabel("Browse tools")
-
-            EngineUndoButton()
         }
         if selectionState.showsBatchActions {
             selectionToolbar

@@ -220,7 +220,8 @@ struct DeckDetailView: View {
     private var toolbarContent: some ToolbarContent {
         // Contextual trailing chrome: Undo · Sync · ⋯ (plain glyphs, iOS 26
         // groups them into the glass capsule). Replaces the custom
-        // material-circle menu per the chrome design language.
+        // material-circle menu per the chrome design language. Undo here
+        // is the ENGINE stack (delete note, etc.), not ReviewSession.
         ToolbarItemGroup(placement: .topBarTrailing) {
             EngineUndoButton()
             SyncToolbarButton()

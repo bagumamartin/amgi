@@ -585,3 +585,22 @@ pressed button — upstream populates it from `RevlogEntry.ease_factor`. The
 pressed button is `button_chosen`. Any "last rating" logic must read
 `buttonChosen` (walking backwards past button-0 entries from manual
 reschedules), never `ease`.
+
+## Trailing chrome — Undo · Sync · ⋯ (2026-09)
+
+- **Review undo is session-wired**: the review trailing group is Undo ·
+  Sync · plain `ellipsis`. The glyph calls `ReviewSession.undo()` (answer
+  stack + queue restore), not `EngineUndoButton` / `cardClient.undoLast()`.
+  Overflow no longer duplicates Undo. `CardContextMenu` takes `title:`
+  "More actions" so the nested Suspend/Bury/Forget row is not a bare
+  ellipsis; Browse rows keep the icon-only trigger.
+- **Engine undo stays on collection screens**: Browse and Deck Detail keep
+  `EngineUndoButton` (engine stack mirror: delete notes, etc.). The
+  chrome-branch claim "undo is review-only" applied to a tree that did not
+  yet have `EngineUndoMonitor`.
+- **Sync is the ubiquitous tool-group glyph** (`SyncToolbarButton` posts
+  `.amgiPresentSync`). Review, Deck Detail, Browse, Stats, and Read all
+  carry it — Browse especially, because on Mac it takes over the window
+  and Library's sync cluster is not on screen. Library keeps its existing
+  Sync · Import cluster (plus New Deck) rather than collapsing to the
+  three-glyph pill.
