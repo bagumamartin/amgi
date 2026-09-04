@@ -33,6 +33,7 @@ enum BrowseFnv {
 /// matching how desktop itself stores them; writes follow the deck-icon
 /// precedent (fetch fresh → patch → write).
 @MainActor
+@Observable
 final class SavedSearchStore {
     /// Desktop-compatible key.
     static let configKey = "savedFilters"

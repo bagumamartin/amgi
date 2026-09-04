@@ -121,7 +121,7 @@ struct CardWebView {
         config.allowsInlineMediaPlayback = true
         #endif
 
-        let webView = WKWebView(frame: .zero, configuration: config)
+        let webView = CardHostWebView(frame: .zero, configuration: config)
         #if os(iOS)
         webView.isOpaque = false
         webView.backgroundColor = .clear
@@ -776,6 +776,31 @@ private extension CardWebView {
         return classes.joined(separator: " ")
     }
 }
+
+/// Card renderer that does not steal hardware-keyboard events from SwiftUI.
+///
+/// WKWebView becomes first responder on click/tap and then eats ⌘Z (its
+/// empty undo manager is a no-op) and iPad arrow keys (focus navigation).
+/// Cards aren't editable; lookup is JS-on-tap, so declining first-responder
+/// status keeps review shortcuts on the SwiftUI surface.
+#if os(iOS)
+private final class CardHostWebView: WKWebView {
+    override var canBecomeFirstResponder: Bool { false }
+}
+#elseif os(macOS)
+private final class CardHostWebView: WKWebView {
+    override var acceptsFirstResponder: Bool { false }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags.contains(.command),
+           event.charactersIgnoringModifiers?.lowercased() == "z" {
+            return false
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+}
+#endif
 
 // MARK: - Platform representable conformance
 

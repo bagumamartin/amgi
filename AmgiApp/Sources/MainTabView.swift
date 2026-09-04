@@ -60,6 +60,11 @@ struct MainTabView: View {
     /// by switching sections; BrowseView clears after consuming.
     @State private var browseRequest = BrowseLauncher.shared
 
+    /// Section to return to when Browse hands the macOS window back. Browse
+    /// replaces the root sidebar while it's active, so its own sidebar header
+    /// is the way out and it needs to know where "back" points.
+    @State private var previousSection: MainSection = .library
+
     private var sections: [MainSection] {
         MainSection.allCases.filter { section in
             if case .read = section { return showReaderTab }
@@ -85,29 +90,66 @@ struct MainTabView: View {
     var body: some View {
         Group {
             #if os(macOS)
-            NavigationSplitView {
-                List(selection: selectionBinding) {
-                    ForEach(sections) { section in
-                        Label(section.title, systemImage: section.systemImage)
-                            .tag(section)
+            // Browse TAKES OVER the window: it is itself a three-column
+            // NavigationSplitView, and nesting that inside this one produced
+            // four competing columns (the notes list collapsed to a sliver and
+            // toolbar items landed above the wrong pane). Its sidebar replaces
+            // this one, with a header row back to `previousSection`.
+            if selection == .browse {
+                BrowseView(exit: BrowseExit(
+                    title: previousSection.title,
+                    systemImage: previousSection.systemImage,
+                    action: { selectionBinding.wrappedValue = previousSection }
+                ))
+                .id(refreshID)
+            } else {
+                NavigationSplitView {
+                    List(selection: selectionBinding) {
+                        ForEach(sections) { section in
+                            Label(section.title, systemImage: section.systemImage)
+                                .tag(section)
+                        }
                     }
+                    .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 260)
+                } detail: {
+                    sectionContent(selection)
                 }
-                .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 260)
-            } detail: {
-                sectionContent(selection)
             }
             #else
             TabView(selection: selectionBinding) {
-                ForEach(sections) { section in
-                    Tab(section.title, systemImage: section.systemImage, value: section) {
-                        sectionContent(section)
+                Tab(MainSection.library.title, systemImage: MainSection.library.systemImage, value: MainSection.library) {
+                    tabContent(for: .library)
+                }
+                if showReaderTab {
+                    Tab(MainSection.read.title, systemImage: MainSection.read.systemImage, value: MainSection.read) {
+                        tabContent(for: .read)
                     }
+                }
+                Tab(MainSection.study.title, systemImage: MainSection.study.systemImage, value: MainSection.study) {
+                    tabContent(for: .study)
+                }
+                Tab(MainSection.stats.title, systemImage: MainSection.stats.systemImage, value: MainSection.stats) {
+                    tabContent(for: .stats)
+                }
+                Tab(value: MainSection.browse, role: .search) {
+                    tabContent(for: .browse)
+                } label: {
+                    Label(MainSection.browse.title, systemImage: MainSection.browse.systemImage)
+                        .fontWeight(.heavy)
+                        .symbolVariant(.fill)
                 }
             }
             // iPadOS HIG: adaptive sidebar/tab bar on regular width; iPhone
             // keeps the compact bottom tab bar.
             .tabViewStyle(.sidebarAdaptable)
             #endif
+        }
+        .onChange(of: selection) { oldValue, newValue in
+            // Catches every route into Browse — sidebar, ⌘1–5, deep links —
+            // so the sidebar header always points back where the user was.
+            if newValue == .browse, oldValue != .browse {
+                previousSection = oldValue
+            }
         }
         .onChange(of: browseRequest.requestID) {
             // A drill-in arrived from any root: surface Browse now; the
@@ -117,8 +159,7 @@ struct MainTabView: View {
     }
 
     @ViewBuilder
-    private func sectionContent(_ section: MainSection) -> some View {
-        switch section {
+    private func sectionContent(_ section: MainSection) -> some View {        switch section {
         case .library:
             NavigationStack {
                 DeckListView(onStartReview: { onSelectStudyDeck(DeckID(0)) })
@@ -143,12 +184,19 @@ struct MainTabView: View {
                     .accountMenu()
             }
         case .browse:
-            NavigationStack {
-                BrowseView()
-                    .id(refreshID)
-                    .accountMenu()
-            }
+            // No NavigationStack wrapper: BrowseView IS a NavigationSplitView
+            // and owns the stacks for its own columns (plus `.accountMenu()`
+            // inside the list column). Wrapping it here re-created the nesting
+            // that broke the layout. On macOS this case is unreachable — the
+            // window-takeover branch in `body` handles Browse.
+            BrowseView()
+                .id(refreshID)
         }
+    }
+
+    @ViewBuilder
+    private func tabContent(for section: MainSection) -> some View {
+        sectionContent(section)
     }
 
     @ToolbarContentBuilder

@@ -31,7 +31,7 @@ struct AnkiAppApp: App {
     @Shared(.appStorage(ReaderPreferences.Keys.showTab)) private var showReaderTab: Bool = true
     #if os(macOS)
     @Shared(.reviewShortcuts) private var reviewShortcuts: [String: ReviewShortcut] = [:]
-    @FocusedValue(\.reviewActions) private var reviewActions
+    @FocusedValue(ReviewActions.self) private var reviewActions
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     #endif
 

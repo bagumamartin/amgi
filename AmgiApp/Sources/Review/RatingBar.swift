@@ -100,8 +100,10 @@ struct RatingBar: View {
         .buttonStyle(.plain)
         #endif
         .disabled(isDisabled)
-        // Hardware-keyboard rating (Mac + iPad): bound per action in
-        // Settings → Shortcuts (defaults 1–4 map to Again–Easy).
+        // Fallback when the review surface isn't key-focused. Arrow-key
+        // bindings use mapped `.upArrow` equivalents (see ReviewShortcut).
+        // iPad still needs `.onKeyPress` — the focus engine swallows arrows
+        // before these shortcuts. Duplicate fires are no-ops (`isAdvancing`).
         .keyboardShortcut(binding.keyEquivalent, modifiers: binding.modifiers)
         .accessibilityLabel("\(label)\(showIntervals ? ", next in \(intervals[rating] ?? "")" : "")")
         #if os(macOS)

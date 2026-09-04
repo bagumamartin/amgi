@@ -608,6 +608,57 @@ import AnkiServices
             #expect(!s.canUndo, "session start reached")
         }
     }
+
+    /// If the engine card never matches the queued snapshot, undo must not
+    /// keep popping earlier answers. It redoes whatever it popped and
+    /// leaves the session stack intact.
+    @Test func undoFailureRestoresEngineStack() async throws {
+        let card1 = QueuedReviewCard.preview(cardId: CardID(1), noteId: NoteID(100), ord: 0)
+        let card2 = QueuedReviewCard.preview(cardId: CardID(2), noteId: NoteID(101), ord: 0)
+        let note1 = NoteRecord(id: NoteID(100), guid: "g1", mid: NotetypeID(200), mod: 0, flds: "", sfld: "", csum: 0)
+        let note2 = NoteRecord(id: NoteID(101), guid: "g2", mid: NotetypeID(200), mod: 0, flds: "", sfld: "", csum: 0)
+
+        final class State: @unchecked Sendable {
+            var answered = false
+            var undos = 0
+            var redos = 0
+        }
+        let state = State()
+
+        try await withDependencies {
+            $0.statsClient = .previewValue
+            $0.decksService.setCurrentDeck = { _ in }
+            $0.cardClient.undoLast = { state.undos += 1 }
+            $0.cardClient.redoLast = { state.redos += 1 }
+            $0.cardClient.getCard = { _ in answeredVariant(of: card1.card) }
+            $0.schedulerService.getQueuedCards = { _ in
+                if state.answered {
+                    return QueuedCardsResult(cards: [card2], newCount: 1, learningCount: 0, reviewCount: 0)
+                }
+                return QueuedCardsResult(cards: [card1, card2], newCount: 2, learningCount: 0, reviewCount: 0)
+            }
+            $0.schedulerService.answerReviewCard = { _, _, _, _ in state.answered = true }
+            $0.notesService.getNote = { id in id == NoteID(100) ? note1 : note2 }
+            $0.cardRenderingService.renderCard = { _ in
+                RenderedCard(frontHTML: "f", backHTML: "b", cardCSS: "")
+            }
+        } operation: {
+            let s = ReviewSession(deckId: DeckID(1))
+            s.start()
+            try await Task.sleep(for: .milliseconds(50))
+            s.answer(rating: .good)
+            try await Task.sleep(for: .milliseconds(700))
+            #expect(s.canUndo)
+
+            s.undo()
+            try await Task.sleep(for: .milliseconds(100))
+
+            #expect(state.undos <= 3, "must not walk the whole engine stack")
+            #expect(state.redos == state.undos, "failed undo must redo popped engine ops")
+            #expect(s.canUndo, "session answer stack stays intact")
+            #expect(s.sessionStats.reviewed == 1)
+        }
+    }
 }
 
 /// A `CardRecord` in a clearly post-answer scheduling state — the "answer not

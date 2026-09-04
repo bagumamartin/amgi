@@ -58,14 +58,6 @@ struct DeckListView: View {
             DeckDetailView(deck: deck)
         }
         .toolbar { toolbarContent }
-        .searchable(
-            text: $rootSearchQuery,
-            placement: .navigationBarDrawer(displayMode: .automatic),
-            prompt: "Search notes…"
-        )
-        .searchMinimizedIfAvailable()
-        .onChange(of: rootSearchQuery) { _, _ in performRootHandoff(immediate: false) }
-        .onSubmit(of: .search) { performRootHandoff(immediate: true) }
         .sheet(isPresented: $showExportSheet) {
             ExportPackagesSheet()
         }
@@ -97,9 +89,6 @@ struct DeckListView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        // Library is the documented four-glyph exception (Sync · Import live
-        // in MainTabView.libraryToolbar): search funnels via the native
-        // minimized field below — no dedicated browse button anywhere.
         ToolbarItem(placement: .topBarTrailing) {
             Button {
                 showExportSheet = true
@@ -115,22 +104,9 @@ struct DeckListView: View {
         }
     }
 
-    /// Live funnel into the Browse section (browse-redesign-spec §5.1 v2):
-    /// typing here hands the query off; Browse owns all results.
-    @State private var rootSearchQuery = ""
-    @State private var rootHandoff = RootSearchHandoff()
+    // Note search lives in the app's dedicated search surface (the native
+    // `.search` tab / macOS toolbar field) — Library itself needs no query.
     @State private var showExportSheet = false
-
-    private func performRootHandoff(immediate: Bool) {
-        let launch = { (query: String) in
-            BrowseLauncher.shared.launch(query: query)
-        }
-        if immediate {
-            rootHandoff.submit(rootSearchQuery, launch: launch)
-        } else {
-            rootHandoff.schedule(rootSearchQuery, launch: launch)
-        }
-    }
 }
 
 // MARK: - Preview

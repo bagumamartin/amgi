@@ -343,6 +343,87 @@
   headerAccessory, so its State enum moved to file scope (StudyLandingState)
   with typealias back-compat.
 
+## Browse structure v3 — one split view, search only in Browse (2026-09)
+
+- **Root cause of the "ugly, disorganised" Browse**: it was a 3-column
+  `NavigationSplitView` mounted INSIDE the root `NavigationSplitView`'s detail
+  column, with a `NavigationStack` wrapped around each of its own three
+  columns. Four nested columns in one window ⇒ the notes list collapsed to a
+  ~165pt empty sliver, toolbar items rendered above whichever column SwiftUI
+  chose (sort/emoji cluster landed over the deck tree; Notes/Cards + undo +
+  sync + ⋯ + ＋ + search piled up over the detail pane). **Rule: never nest a
+  NavigationSplitView inside another one.** Mail has exactly three columns and
+  so do we.
+- **macOS = window takeover**: `MainTabView` forks — `selection == .browse`
+  renders `BrowseView` directly instead of the root split view, so Browse's
+  own sidebar REPLACES Library/Read/Study/Stats. Way back = `BrowseExit`
+  (title + icon + action) rendered as a `.selectionDisabled()` header row at
+  the top of Browse's sidebar; `previousSection` is tracked in an
+  `.onChange(of: selection)` so ⌘1–5, sidebar clicks and deep links all feed
+  it. iOS keeps `Tab(role: .search)` and the split view collapses natively
+  (sources → list → detail); the manual `columnVisibility` poking is gone.
+- **Search lives ONLY in Browse** (supersedes the entry-point-v2 entry above):
+  deleted `NotesSearchFieldModifier`, `SearchSectionView`,
+  `RootSearchResultsView` and the already-dead `RootSearchHandoff` from
+  Shared/CollectionChrome.swift, plus the never-called
+  `TrailingChromeModifier`/`trailingChrome()`. Library/Study/Stats carry no
+  notes-search field at all. Read's book filter and the in-sheet pickers
+  (Change Deck, icon picker, notetype/template fields) stay — they filter a
+  local list, they are not collection search. Only ONE `.searchable` per
+  window now exists, so the NSToolbar double-searchable crash can't recur; it
+  is attached to the LIST column's stack (Mail's placement), not the split view.
+- **One selection model**: `BrowseSource { allDecks, deck, tag, saved }`
+  replaces the `parentDeck`/`activeDeck`/`activeTag` triple. Previously decks
+  used a `DeckID?` List binding while tags wrote `model.activeTag` directly
+  (so tags never highlighted) and saved searches just assigned `searchText`.
+  `buildQuery()` switches on the source; `.saved` injects its stored query
+  wrapped in parens. `activeDeck`/`activeTag` survive as computed accessors.
+- **Deck tree is collapsible**, default COLLAPSED (desktop Anki parity),
+  expansion persisted in `@AppStorage("browse.sidebar.expandedDecks")` as a
+  newline-joined name list. Rendered as a FLAT list of visible rows with
+  manual chevrons + depth padding rather than `DisclosureGroup`, so every row
+  stays a plain selectable `List` row (predictable native selection and
+  compact-width push). Orphaned subdecks attach to their nearest EXISTING
+  ancestor. A free-text query force-expands the tree so hits are reachable.
+- **Empty middle column fixed**: unscoped browse with no text used to compose
+  the empty query string and render a placeholder. `buildQuery()` now falls
+  back to `deck:*` (same fragment the semantic corpus build uses), and
+  `resolveResultDecks()` keys off the TYPED text rather than the composed
+  query so it doesn't sample 240 cards on every idle browse.
+- **Selection is platform-shaped**: macOS `List(selection: Set<Int64>)` with
+  ⌘/⇧-click — a lone click is a peek (publishes NO batch scope, or Find &
+  Replace would silently narrow from "all loaded results" to that one note),
+  >1 arms the batch bar via `BrowseSelectionState.showsBatchActions`. iOS uses
+  single-selection to drive the collapsed push, long-press for select mode.
+  Mode + sort + result count moved OUT of the toolbar into the list column's
+  own header bar (`.principal` was the reason the picker floated over the
+  wrong pane, and it was duplicated inside the sort menu).
+- **Cards mode now drives the inspector**: focus is held as whole records
+  (`focusedNote`/`focusedCard`) instead of ids into `noteRecords`/
+  `cardRecords`, because `performSearch` prunes those dicts to the current
+  result set — and the counterpart record is never in the active id space.
+- **Bugs found while refactoring**: (a) `runSemanticFallback` bound its
+  neighbor ids to a LOCAL `matches` that shadowed `ids`, so the fallback
+  re-hydrated the previous empty window and showed nothing; (b)
+  `SavedSearchStore` had `@ObservationIgnored` but no `@Observable`, and
+  nothing called `refresh()` at startup, so saved searches never appeared;
+  (c) `loadHistory()` was private and never called, so search suggestions
+  were empty on every fresh launch. All three fixed.
+- **DesignConformanceTests is RED on develop** (26 pre-existing offenders as
+  of 2026-09: BrowseInspector, BrowseSheets, BrowseFilterRailView,
+  RichNoteFieldEditor, DeckIconSection, RatingBar, MCPServerSettingsView, …).
+  It is a whole-tree scanner, so it fails for everyone's files, not just
+  yours — check the offender LIST, not the pass/fail. New files must be clean:
+  use `.amgiFont(.micro)` for 11–12pt glyphs, `AmgiRadius.small` for small
+  tiles, `Capsule()` instead of a raw `cornerRadius:` on skeleton bars, and
+  `palette.textSecondary` instead of `.secondary`.
+- **Verification note**: Xcode MCP was unavailable, so builds went through
+  `xcodebuild`. `-destination 'generic/platform=iOS Simulator'` FAILS at link
+  time — it builds arm64 + x86_64 and the Rust xcframework's simulator slice
+  is arm64-only; pass `ARCHS=arm64` or name a concrete simulator. macOS
+  `test` can't run at all: `TEST_HOST` in project.yml is the iOS bundle
+  layout (`AmgiApp.app/AmgiApp`, missing `Contents/MacOS`).
+
 ## RenderPreview spawns a REAL app instance (2026-08)
 
 - Calling MCP `RenderPreview` on this project boots the actual app binary
@@ -418,6 +499,21 @@ times per frame". Fix: `ReviewActions` is now a stable CLASS instance in
 `@State`, closures rebound once in `onAppear`; writing the same reference is
 a no-op for change detection. Rule: focused-value payloads must have stable
 identity across renders — never construct them inline in `body`.
+
+## Review undo + hardware shortcuts (fixed 2026-09)
+
+⌘Z on Mac went nil once WKWebView became first responder, so Edit → Undo
+died after one step or while the card was revealed. Xcode 26 removed
+`@FocusedSceneValue` / `FocusedSceneValues`; the replacement is an
+`@Observable` `ReviewActions` published with `.focusedSceneValue(reviewActions)`
+and read from commands with `@FocusedValue(ReviewActions.self)`. Card
+WKWebView declines first-responder / passes ⌘Z through. Session undo pops
+at most `extraEngineOpsAfter+1+2` engine ops and **redoes** them if the
+card didn't restore — the old 20-pop loop ate earlier answers. Space/ratings
+go through `.onKeyPress` which consumes `.repeat` so a held Space can't
+flash the deck (a tap on the back still repeats the last rating). iPad
+arrow-key ratings: recorded `U+F700` must map to `KeyEquivalent.upArrow`;
+the focus engine steals arrows from `.keyboardShortcut` on the rating buttons.
 
 ## Native card typography — uniform, no invented hierarchy (2026-08)
 

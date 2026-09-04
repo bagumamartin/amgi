@@ -30,6 +30,10 @@ private struct AnswerRecord {
     let timeSpent: Int
     let graduated: Bool
     let streakBefore: Int
+    /// Engine undo entries recorded *after* this answer (all-decks
+    /// `SetCurrentDeck` hops). Session undo pops these first, then the
+    /// AnswerCard — one user undo == one answered card.
+    let extraEngineOpsAfter: Int
     /// Wall-clock moment of the answer — feeds the agent-facing
     /// `ReviewSessionSnapshot.answered` timeline.
     let at: Date = .now
@@ -406,9 +410,11 @@ final class ReviewSession {
                 // deck at a time. Once that deck's queue is empty, advance
                 // to the next active top-level deck instead of ending the
                 // aggregate session.
+                var extraEngineOpsAfter = 0
                 while queue.cards.isEmpty, let nextDeckID = remainingAllDeckIDs.first {
                     remainingAllDeckIDs.removeFirst()
                     remainingAllDeckCounts.removeValue(forKey: nextDeckID)
+                    extraEngineOpsAfter += 1
                     queue = try await Task.detached {
                         try decks.setCurrentDeck(nextDeckID)
                         return try scheduler.getQueuedCards(200)
@@ -434,7 +440,8 @@ final class ReviewSession {
                     rating: rating,
                     timeSpent: Int(timeSpent),
                     graduated: graduated,
-                    streakBefore: correctStreak
+                    streakBefore: correctStreak,
+                    extraEngineOpsAfter: extraEngineOpsAfter
                 ))
                 lastRating = rating
                 answerPulse += 1
@@ -485,22 +492,31 @@ final class ReviewSession {
             defer { isAdvancing = false }
             do {
                 print("[ReviewSession] Undo: currentCard=\(String(describing: currentCardID)) target=\(undoneCardID) stack=\(answerStack.count)")
-                // The open deck can leave a `SetCurrentDeck` undo entry on top
-                // of the last answer (the session records one when it
-                // auto-switches to the next deck in an all-decks scope), so a
-                // single undo call may pop the wrong entry — the card is then
-                // NOT reverted and the queue looks unchanged ("blink without
-                // navigation"). Undo until the target card is back in its
-                // pre-answer state or the undo stack empties.
+                // One user undo must revert exactly this answer. Deck switches
+                // after the answer leave `SetCurrentDeck` entries on top of
+                // the engine stack; a flag/bury from the overflow menu can
+                // too. Pop those, then the AnswerCard. Cap is small on
+                // purpose: the previous loop (up to 20) ate earlier answers
+                // when `cardIsRestored` missed, which is why ⌘Z died after
+                // 1–4 steps. If we still haven't restored the card, redo
+                // everything we popped so the engine stack stays intact.
                 var current = try await cardClient.getCard(undoneCardID)
                 var undoCount = 0
-                while !cardIsRestored(current, to: originalCard) {
-                    guard undoCount < 20 else {
-                        throw ReviewUndoError.cardNotRestored(undoneCardID)
+                let undoBudget = record.extraEngineOpsAfter + 1 + 2
+                do {
+                    while !cardIsRestored(current, to: originalCard) {
+                        guard undoCount < undoBudget else {
+                            throw ReviewUndoError.cardNotRestored(undoneCardID)
+                        }
+                        try await cardClient.undoLast()
+                        undoCount += 1
+                        current = try await cardClient.getCard(undoneCardID)
                     }
-                    try await cardClient.undoLast()
-                    undoCount += 1
-                    current = try await cardClient.getCard(undoneCardID)
+                } catch {
+                    for _ in 0..<undoCount {
+                        try? await cardClient.redoLast()
+                    }
+                    throw error
                 }
                 // Re-fetch queue — the undone card is re-inserted at the front.
                 let queue = try await Task.detached {

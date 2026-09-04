@@ -77,17 +77,33 @@ final class BrowseModel {
     private(set) var windowEnd = 0
     var allDecks: [DeckInfo] = []
     var allTags: [String] = []
-    var parentDeck: DeckInfo?
-    var activeDeck: DeckInfo?
-    var activeTag: String?
+    /// The single sidebar selection — deck, tag, or saved search. Replaces the
+    /// old `parentDeck`/`activeDeck`/`activeTag` triple, which let the deck
+    /// list and the tag list disagree about what was active (tags never even
+    /// highlighted, because they bypassed the List selection binding).
+    var source: BrowseSource = .allDecks {
+        didSet { guard oldValue != source else { return }; scheduleSearch(immediate: true) }
+    }
     var isLoading = false
     var hasMorePages = false
     var notetypeNames: [NotetypeID: String] = [:]
     var mode: Mode = .notes {
         didSet { guard oldValue != mode else { return }; scheduleSearch(immediate: true) }
     }
-    var sortOrder: SortOrder = .createdDesc {
+    var sortOrder: SortOrder = .modifiedDesc {
         didSet { guard oldValue != sortOrder else { return }; scheduleSearch(immediate: true) }
+    }
+
+    /// Deck backing the current source, when it is a deck.
+    var activeDeck: DeckInfo? {
+        guard case .deck(let id) = source else { return nil }
+        return allDecks.first { $0.id == id }
+    }
+
+    /// Tag backing the current source, when it is a tag.
+    var activeTag: String? {
+        guard case .tag(let tag) = source else { return nil }
+        return tag
     }
 
     /// Undo/redo chrome state ("Undo Delete Notes"), refreshed after ops.
@@ -101,8 +117,16 @@ final class BrowseModel {
     private(set) var recentQueries: [String] = []
     /// Semantic fallback banner text; nil hides it.
     private(set) var semanticNotice: String?
-    /// Note currently driving the inspector detail pane.
-    var focusedNoteID: Int64?
+
+    /// Row driving the detail column. Held as whole records rather than ids
+    /// into `noteRecords`/`cardRecords`, because `performSearch` prunes those
+    /// dictionaries to the current result set — and in Cards mode the note (or
+    /// in Notes mode the card) is not in the result id space at all.
+    private(set) var focusedNote: NoteRecord?
+    private(set) var focusedCard: CardRecord?
+
+    var focusedNoteID: Int64? { focusedNote?.id.rawValue }
+    var focusedCardID: CardID? { focusedCard?.id }
 
     private static let historyKey = "browse.searchHistory"
     /// Query recorded for history when this committed run started.
@@ -126,23 +150,53 @@ final class BrowseModel {
         min(ids.count, windowEnd)
     }
 
-    var topLevelDecks: [DeckInfo] {
-        allDecks.filter { !$0.name.contains("::") }
-    }
+    func note(at id: Int64) -> NoteRecord? { noteRecords[id] }
+    func card(at id: Int64) -> CardRecord? { cardRecords[id] }
 
-    /// Direct children of the parent deck (shown as the second filter row).
-    var childDecks: [DeckInfo] {
-        guard let parent = parentDeck else { return [] }
-        let prefix = parent.name + "::"
-        return allDecks.filter { deck in
-            guard deck.name.hasPrefix(prefix) else { return false }
-            let remainder = deck.name.dropFirst(prefix.count)
-            return !remainder.contains("::")
+    // MARK: - Detail focus
+
+    /// Notes-mode row activation: the note is the subject, and its first card
+    /// supplies Preview rendering and the per-card Info facts.
+    func focus(noteID: Int64) async {
+        if let cached = noteRecords[noteID] {
+            focusedNote = cached
+        } else {
+            focusedNote = try? await noteClient.fetch(NoteID(noteID))
+        }
+        guard let cid = (try? await cardClient.searchIds("nid:\(noteID)", nil))?.first else {
+            focusedCard = nil
+            return
+        }
+        if let cached = cardRecords[cid.rawValue] {
+            focusedCard = cached
+        } else {
+            focusedCard = try? await cardClient.getCard(cid)
         }
     }
 
-    func note(at id: Int64) -> NoteRecord? { noteRecords[id] }
-    func card(at id: Int64) -> CardRecord? { cardRecords[id] }
+    /// Cards-mode row activation: the card is the subject, and its note backs
+    /// the Edit tab. Without this the detail column stayed empty in Cards mode.
+    func focus(cardID: Int64) async {
+        if let cached = cardRecords[cardID] {
+            focusedCard = cached
+        } else {
+            focusedCard = try? await cardClient.getCard(CardID(cardID))
+        }
+        guard let nid = focusedCard?.nid else {
+            focusedNote = nil
+            return
+        }
+        if let cached = noteRecords[nid.rawValue] {
+            focusedNote = cached
+        } else {
+            focusedNote = try? await noteClient.fetch(nid)
+        }
+    }
+
+    func clearFocus() {
+        focusedNote = nil
+        focusedCard = nil
+    }
 
     // MARK: - Search pipeline
 
@@ -154,16 +208,18 @@ final class BrowseModel {
                 try? await Task.sleep(for: .milliseconds(250))
                 if Task.isCancelled { return }
             }
-            // Commit boundary: only queries that actually execute get
-            // remembered (typing never spams history).
-            if let self {
-                let candidate = self.buildQuery().trimmingCharacters(in: .whitespaces)
-                guard !candidate.isEmpty, candidate != self.lastCommittedQuery else { return }
-                self.lastCommittedQuery = candidate
-                self.recordHistory(candidate)
-            }
             await self?.performSearch()
         }
+    }
+
+    /// History records EXPLICIT commits only — Return in the field or
+    /// picking a suggestion. Per-keystroke debounced runs are browsing,
+    /// not queries worth remembering.
+    func commitSearchHistory() {
+        let candidate = searchText.trimmingCharacters(in: .whitespaces)
+        guard !candidate.isEmpty, candidate != lastCommittedQuery else { return }
+        lastCommittedQuery = candidate
+        recordHistory(candidate)
     }
 
     func performSearch() async {
@@ -187,6 +243,7 @@ final class BrowseModel {
             windowEnd = min(ids.count, max(windowSize, windowEnd))
             hasMorePages = windowEnd < ids.count
             await hydrateWindow()
+            resolveResultDecks()
         } catch is CancellationError {
         } catch {
             ids = []
@@ -194,6 +251,58 @@ final class BrowseModel {
             cardRecords.removeAll()
             windowEnd = 0
             hasMorePages = false
+            resultDeckIDs = []
+        }
+    }
+
+    /// Deck ids whose cards match the current query — drives the macOS
+    /// source column's "decks with matching cards" filter. Notes carry no
+    /// deck, so this resolves dids from a bounded sample of matching cards
+    /// (batched off-main like hydration) and rolls them up to ancestors.
+    private(set) var resultDeckIDs: Set<Int64> = []
+    private var resultDeckTask: Task<Void, Never>?
+
+    private func resolveResultDecks() {
+        resultDeckTask?.cancel()
+        // Keyed off the TYPED text, not the composed query: the composed query
+        // is never empty now (an unscoped browse is "deck:*"), and sampling
+        // 240 cards to highlight "decks containing matches" is only meaningful
+        // while the user is actually searching for something.
+        let trimmed = searchText.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else {
+            resultDeckIDs = []
+            return
+        }
+        let sampleCap = 240
+        resultDeckTask = Task { [cardClient] in
+            guard let cardIds = try? await cardClient.searchIds(trimmed, nil) else { return }
+            var dids: Set<Int64> = []
+            for start in stride(from: 0, to: min(cardIds.count, sampleCap), by: 6) {
+                if Task.isCancelled { return }
+                let batch = cardIds[start..<min(start + 6, cardIds.count)]
+                await withTaskGroup(of: Int64?.self) { group in
+                    for cid in batch {
+                        group.addTask { (try? await cardClient.getCard(cid))?.did.rawValue }
+                    }
+                    for await did in group where did != nil {
+                        dids.insert(did!)
+                    }
+                }
+            }
+            guard !Task.isCancelled else { return }
+            let decks = await MainActor.run { self.allDecks }
+            // Roll each hit up to its ancestor chain ("A::B::C" → A, A::B).
+            let byName = Dictionary(uniqueKeysWithValues: decks.map { ($0.name, $0.id.rawValue) })
+            for deck in decks where dids.contains(deck.id.rawValue) {
+                var parts = deck.name.split(separator: "::").map(String.init)
+                parts.removeLast()
+                var ancestor = ""
+                for part in parts {
+                    ancestor = ancestor.isEmpty ? part : ancestor + "::" + part
+                    if let id = byName[ancestor] { dids.insert(id) }
+                }
+            }
+            await MainActor.run { self.resultDeckIDs = dids }
         }
     }
 
@@ -208,9 +317,20 @@ final class BrowseModel {
     func loadInitial() async {
         await loadDecks()
         allTags = ((try? await tagClient.getAllTags()) ?? []).sorted()
+        // Nothing loaded saved searches at startup, so the sidebar section and
+        // the tools menu stayed empty until the user saved or deleted one.
+        savedSearches.refresh()
+        // Same for history: `recentQueries` only ever grew in-session, so the
+        // search field offered no suggestions on a fresh launch.
+        loadHistory()
         if let pairs = try? notetypesService.getNotetypeNames() {
             notetypeNames = Dictionary(uniqueKeysWithValues: pairs.map { ($0.id, $0.name) })
         }
+        // The embedding corpus must build in the background for the
+        // semantic fallback ("Search meaning of…") to ever be offered —
+        // without this kickoff it was dead code and near-miss spellings
+        // ("Levelling" vs "leveling") dead-ended at zero results.
+        kickOffSemanticIndexBuild()
         await performSearch()
     }
 
@@ -230,29 +350,43 @@ final class BrowseModel {
         case .notes:
             let missing = Array(ids.prefix(windowEnd).filter { noteRecords[$0] == nil }
                 .prefix(hydrateChunkSize))
-            await withTaskGroup(of: Void.self) { group in
-                for nidRaw in missing {
-                    let nid = NoteID(nidRaw)
-                    group.addTask { [noteClient] in
-                        if let note = try? await noteClient.fetch(nid) ?? nil {
-                            await MainActor.run { self.noteRecords[nidRaw] = note }
-                        }
-                    }
+            await hydrateInBatches(missing) { [noteClient] nidRaw in
+                let nid = NoteID(nidRaw)
+                if let note = try? await noteClient.fetch(nid) ?? nil {
+                    await MainActor.run { self.noteRecords[nidRaw] = note }
                 }
             }
         case .cards:
             let missing = Array(ids.prefix(windowEnd).filter { cardRecords[$0] == nil }
                 .prefix(hydrateChunkSize))
-            await withTaskGroup(of: Void.self) { group in
-                for cidRaw in missing {
-                    let cid = CardID(cidRaw)
-                    group.addTask { [cardClient] in
-                        if let card = try? await cardClient.getCard(cid) {
-                            await MainActor.run { self.cardRecords[cidRaw] = card }
-                        }
-                    }
+            await hydrateInBatches(missing) { [cardClient] cidRaw in
+                let cid = CardID(cidRaw)
+                if let card = try? await cardClient.getCard(cid) {
+                    await MainActor.run { self.cardRecords[cidRaw] = card }
                 }
             }
+        }
+    }
+
+    /// Runs fetches through a small worker pool. Each RPC blocks an FFI
+    /// thread under the hood; dozens of concurrent calls saturate the Swift
+    /// cooperative pool and hydration never completes (Cards mode hung on
+    /// "Loading…" rows indefinitely). Batching keeps at most `batchSize`
+    /// engine calls in flight.
+    private func hydrateInBatches(
+        _ ids: [Int64], batchSize: Int = 6,
+        _ fetch: @escaping @Sendable (Int64) async -> Void
+    ) async {
+        var start = ids.startIndex
+        while start < ids.endIndex {
+            let end = min(ids.endIndex, start + batchSize)
+            let batch = ids[start..<end]
+            await withTaskGroup(of: Void.self) { group in
+                for idRaw in batch {
+                    group.addTask { await fetch(idRaw) }
+                }
+            }
+            start = end
         }
     }
 
@@ -482,16 +616,20 @@ final class BrowseModel {
     func runSemanticFallback() async {
         let trimmed = searchText.trimmingCharacters(in: .whitespaces)
         guard mode == .notes, !trimmed.isEmpty else { return }
-        guard let ids = await SemanticNoteIndex.shared.search(trimmed, topK: 50) else {
+        guard let matches = await SemanticNoteIndex.shared.search(trimmed, topK: 50) else {
             semanticNotice = "Semantic index still building…"
             return
         }
-        guard !ids.isEmpty else {
+        guard !matches.isEmpty else {
             semanticNotice = "No semantically similar notes found."
             return
         }
         noteRecords.removeAll()
         cardRecords.removeAll()
+        // The neighbor ids have to land in `ids` — a local binding shadowed it
+        // here, so the fallback used to re-hydrate the previous (empty) result
+        // window and silently show nothing.
+        ids = matches
         windowEnd = min(ids.count, windowSize)
         hasMorePages = false
         semanticNotice = "Meaning-based matches for “\(trimmed)”"
@@ -595,16 +733,29 @@ final class BrowseModel {
 
     func buildQuery() -> String {
         var parts: [String] = []
-        if let deck = activeDeck {
-            parts.append("deck:\"\(deck.name)\"")
-        }
-        if let tag = activeTag {
+        switch source {
+        case .allDecks:
+            break
+        case .deck(let id):
+            if let deck = allDecks.first(where: { $0.id == id }) {
+                parts.append("deck:\"\(deck.name)\"")
+            }
+        case .tag(let tag):
             parts.append("tag:\"\(tag)\"")
+        case .saved(let name):
+            if let query = savedSearches.searches.first(where: { $0.name == name })?.query {
+                parts.append("( \(query) )")
+            }
         }
         let trimmed = searchText.trimmingCharacters(in: .whitespaces)
         if !trimmed.isEmpty {
             parts.append(trimmed)
         }
+        // An unscoped browse with no text used to compose the empty string,
+        // which left the list column showing a placeholder instead of the
+        // collection. "deck:*" is the whole collection and is the same
+        // fragment the semantic corpus build already relies on.
+        guard !parts.isEmpty else { return "deck:*" }
         return parts.joined(separator: " ")
     }
 }

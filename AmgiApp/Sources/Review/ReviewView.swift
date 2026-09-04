@@ -155,174 +155,103 @@ private struct ReviewContent: View {
             // colour scheme.
             .background(autoMatchCardBackground ? session.cardChromeColor : palette.background)
             .environment(\.palette, contentPalette)
-            // A graduation (not just any answer) triggers a long continuous
-            // haptic — the Duolingo-style "got it right" feel.
-            .onChange(of: session.graduationPulse) { _, _ in
-                #if os(iOS)
-                GraduationHaptics.play()
-                #endif
-            }
-            .onChange(of: session.undoToastPulse) { _, _ in
-                showUndoToast = true
-            }
-            .task(id: session.undoToastPulse) {
-                guard session.undoToastPulse > 0 else { return }
-                try? await Task.sleep(for: .seconds(1.2))
-                showUndoToast = false
-            }
-            .overlay {
-                if showUndoToast {
-                    undoToast
-                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
-                }
-            }
+            .modifier(ReviewHardwareKeyModifier(
+                session: session,
+                reviewShortcuts: reviewShortcuts,
+                perform: performReviewShortcut
+            ))
+            .modifier(ReviewFeedbackModifier(
+                session: session,
+                showUndoToast: $showUndoToast,
+                toast: { undoToast }
+            ))
             #if os(iOS)
-            // Register the review shortcuts for hardware keyboards (iPad Magic
-            // Keyboard / iPhone Bluetooth keyboard). The on-screen actions live
-            // in the overflow Menu, whose buttons only materialize once the menu
-            // opens — so they never register their `.keyboardShortcut` equivalents.
-            // These zero-size buttons mirror the persisted bindings instead.
-            .overlay {
-                reviewKeyboardShortcuts
-                    .frame(width: 0, height: 0)
-                    .clipped()
-                    .accessibilityHidden(true)
-            }
+            .overlay { iOSShortcutOverlay }
             #endif
             #if os(macOS)
-            // The macOS menu bar targets whichever review window is focused.
-            // Do not install this closure-backed focused value on iPadOS: the
-            // scene observes it to rebuild commands while this view recreates
-            // it during rendering, which can cause a same-frame update loop
-            // and leave the review hierarchy temporarily unresponsive.
-            //
-            // `reviewActions` is a stable class instance (see `ReviewActions`);
-            // writing the same reference every render is a no-op for SwiftUI's
-            // change detection, which is what breaks the update loop.
-            .focusedSceneValue(\.reviewActions, reviewActions)
-            .onAppear {
-                reviewActions.undo = { session.undo() }
-                reviewActions.editNote = { editingNote = session.currentNote }
-                reviewActions.lookup = { lookupQuery = "" }
-                reviewActions.replayAudio = {
-                    if session.isAudioPlaying {
-                        session.bumpStopAudioRequest()
-                    } else {
-                        session.bumpReplayRequest()
-                    }
-                }
-            }
+            .modifier(ReviewSceneActionsModifier(
+                session: session,
+                reviewActions: reviewActions,
+                editingNote: $editingNote,
+                lookupQuery: $lookupQuery
+            ))
             #endif
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                #if !os(macOS)
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        onDismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                    }
-                    .accessibilityLabel("Close")
-                }
-                #endif
-                #if os(iOS)
-                // Title sits immediately right of the dismiss button, but as
-                // its OWN toolbar item with the shared glass background
-                // removed — grouping it with the X fuses both into one pill
-                // that's too small for the deck/subdeck combination and
-                // ellipsizes the title. Plain text keeps the X's circular
-                // glass intact.
-                if #available(iOS 26.0, *) {
-                    ToolbarItem(placement: .topBarLeading) {
-                        reviewTitleBlock
-                            // Breathing room from the X button's glass circle.
-                            .padding(.leading, 16)
-                            // Toolbar items propose a narrow width that
-                            // scales+ellipsizes the title; take the text's
-                            // ideal width instead (lineLimit(1) still caps
-                            // pathologically long names at the screen edge).
-                            .fixedSize(horizontal: true, vertical: false)
-                    }
-                    .sharedBackgroundVisibility(.hidden)
-                } else {
-                    ToolbarItem(placement: .topBarLeading) {
-                        reviewTitleBlock
-                            .padding(.leading, 32)
-                            .fixedSize(horizontal: true, vertical: false)
-                    }
-                }
-                #endif
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    EngineUndoButton()
-                    SyncToolbarButton()
-                    cardActionsMenu
-                }
-            }
+            .toolbar { reviewToolbar }
             #if os(macOS)
-            // macOS HIG: the deck name is the window title (no inline title
-            // bar) — left-leaning, plain, no principal-item glass pill.
-            // "Parent::Child" renders as a "Parent › Child" breadcrumb so
-            // the hierarchy reads without the engine's separator clutter.
-            .navigationTitle(navigationBreadcrumb)
-            .onExitCommand {
-                if !session.requiresTypedAnswerInput {
-                    dismiss()
-                }
-            }
+            .modifier(ReviewMacChromeModifier(
+                navigationBreadcrumb: navigationBreadcrumb,
+                requiresTypedAnswerInput: session.requiresTypedAnswerInput
+            ))
             #endif
             #if os(iOS)
-            .toolbarBackground(
-                autoMatchCardBackground ? session.cardChromeColor : Color.clear,
-                for: .navigationBar
-            )
-            .toolbarBackground(
-                autoMatchCardBackground ? .visible : .automatic,
-                for: .navigationBar
-            )
-            .toolbarColorScheme(
-                autoMatchCardBackground && cardChromeIsResolved
-                    ? (session.cardChromeIsDark ? .dark : .light)
-                    : colorScheme,
-                for: .navigationBar
-            )
+            .modifier(ReviewIOSChromeModifier(
+                autoMatchCardBackground: autoMatchCardBackground,
+                cardChromeColor: session.cardChromeColor,
+                cardChromeIsResolved: cardChromeIsResolved,
+                cardChromeIsDark: session.cardChromeIsDark,
+                colorScheme: colorScheme
+            ))
             #endif
-            .sheet(isPresented: $showRenderModeSheet) {
-                RenderModeSheet(
-                    explainer: renderModeExplainer,
-                    template: session.currentTemplateTarget,
-                    templateName: session.templateName,
-                    onChanged: { session.reresolveCurrentCard() }
-                )
-            }
-            .sheet(item: $editingNote) { note in
-                NavigationStack {
-                    NoteEditorView(note: note) {
-                        Task { await session.refreshAfterEdit() }
-                    }
-                }
-            }
-            .sheet(item: $editingTemplate) { target in
-                NavigationStack {
-                    TemplateEditorView(
-                        notetypeId: target.notetypeId,
-                        initialTemplateIndex: target.ordinal,
-                        mode: .currentCard,
-                        onSaved: { await session.refreshAfterEdit() }
-                    )
-                }
-            }
-            .sheet(item: Binding(
-                get: { lookupQuery.map(ReviewLookupQuery.init) },
-                set: { lookupQuery = $0?.text }
-            )) { wrapped in
-                LookupPopupView(initialQuery: wrapped.text) {
-                    lookupQuery = nil
-                }
-            }
+            .modifier(ReviewSheetsModifier(
+                session: session,
+                showRenderModeSheet: $showRenderModeSheet,
+                editingNote: $editingNote,
+                editingTemplate: $editingTemplate,
+                lookupQuery: $lookupQuery,
+                lookupSheetBinding: lookupSheetBinding,
+                renderModeExplainer: renderModeExplainer
+            ))
         }
     }
 
     // MARK: - Progress
+
+    @ToolbarContentBuilder
+    private var reviewToolbar: some ToolbarContent {
+        #if !os(macOS)
+        ToolbarItem(placement: .topBarLeading) {
+            Button {
+                onDismiss()
+            } label: {
+                Image(systemName: "xmark")
+            }
+            .accessibilityLabel("Close")
+        }
+        #endif
+        #if os(iOS)
+        // Title sits immediately right of the dismiss button, but as
+        // its OWN toolbar item with the shared glass background
+        // removed — grouping it with the X fuses both into one pill
+        // that's too small for the deck/subdeck combination and
+        // ellipsizes the title. Plain text keeps the X's circular
+        // glass intact.
+        if #available(iOS 26.0, *) {
+            ToolbarItem(placement: .topBarLeading) {
+                reviewTitleBlock
+                    // Breathing room from the X button's glass circle.
+                    .padding(.leading, 16)
+                    // Toolbar items propose a narrow width that
+                    // scales+ellipsizes the title; take the text's
+                    // ideal width instead (lineLimit(1) still caps
+                    // pathologically long names at the screen edge).
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+            .sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(placement: .topBarLeading) {
+                reviewTitleBlock
+                    .padding(.leading, 32)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+        }
+        #endif
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            EngineUndoButton()
+            SyncToolbarButton()
+            cardActionsMenu
+        }
+    }
 
     /// Brief centered confirmation shown for ~1.2s after an undo.
     private var undoToast: some View {
@@ -481,7 +410,25 @@ private struct ReviewContent: View {
         #endif
     }
 
+    private var lookupSheetBinding: Binding<ReviewLookupQuery?> {
+        Binding(
+            get: { lookupQuery.map(ReviewLookupQuery.init) },
+            set: { lookupQuery = $0?.text }
+        )
+    }
+
     // MARK: - Keyboard shortcuts (iOS)
+
+    #if os(iOS)
+    /// Zero-size overlay so Magic Keyboard shortcuts register even while
+    /// the overflow Menu's buttons are unmounted.
+    private var iOSShortcutOverlay: some View {
+        reviewKeyboardShortcuts
+            .frame(width: 0, height: 0)
+            .clipped()
+            .accessibilityHidden(true)
+    }
+    #endif
 
     /// Hidden buttons that register hardware-keyboard shortcuts on iOS/iPadOS.
     /// The on-screen actions live inside the overflow `Menu`, whose buttons are
@@ -512,11 +459,52 @@ private struct ReviewContent: View {
             }
             .keyboardShortcut(shortcut(.replayAudio).keyEquivalent, modifiers: shortcut(.replayAudio).modifiers)
             .disabled(session.currentNote == nil)
+
+            // Ratings live on RatingBar too, but iPad doesn't deliver
+            // `.keyboardShortcut` for arrow keys to those buttons (focus
+            // navigation eats them). Registering here with the mapped
+            // `.upArrow` equivalents is the hardware-keyboard path.
+            ForEach(Rating.allCases, id: \.self) { rating in
+                let action = ReviewShortcutAction.ratingAction(for: rating)
+                Button(action.title) { session.answer(rating: rating) }
+                    .keyboardShortcut(shortcut(action).keyEquivalent, modifiers: shortcut(action).modifiers)
+                    .disabled(!session.showAnswer || session.isAdvancing)
+            }
         }
     }
 
     private func shortcut(_ action: ReviewShortcutAction) -> ReviewShortcut {
         reviewShortcuts[action.rawValue] ?? action.defaultShortcut
+    }
+
+    private func performReviewShortcut(_ action: ReviewShortcutAction) {
+        switch action {
+        case .undo:
+            session.undo()
+        case .editNote:
+            editingNote = session.currentNote
+        case .lookup:
+            lookupQuery = ""
+        case .replayAudio:
+            if session.isAudioPlaying {
+                session.bumpStopAudioRequest()
+            } else {
+                session.bumpReplayRequest()
+            }
+        case .revealAnswer:
+            session.revealAnswer()
+        case .repeatLastRating:
+            guard !session.requiresTypedAnswerInput else { return }
+            session.answerWithLastRating()
+        case .rateAgain:
+            session.answer(rating: .again)
+        case .rateHard:
+            session.answer(rating: .hard)
+        case .rateGood:
+            session.answer(rating: .good)
+        case .rateEasy:
+            session.answer(rating: .easy)
+        }
     }
 
     private var renderModeExplainer: String {
@@ -589,6 +577,184 @@ private struct ReviewContent: View {
                 .padding()
             #endif
         }
+    }
+}
+
+/// Hardware keys land here even when a rating button isn't the first
+/// responder. `.repeat` of Space/arrows is consumed so a held key can't
+/// flash through the deck; ⌘Z still repeats.
+private struct ReviewHardwareKeyModifier: ViewModifier {
+    let session: ReviewSession
+    let reviewShortcuts: [String: ReviewShortcut]
+    let perform: (ReviewShortcutAction) -> Void
+    @FocusState private var reviewKeysActive: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .focusable()
+            .focusEffectDisabled()
+            .focused($reviewKeysActive)
+            .onAppear { reviewKeysActive = true }
+            .onChange(of: session.currentCardId) { _, _ in
+                if !session.requiresTypedAnswerInput || session.showAnswer {
+                    reviewKeysActive = true
+                }
+            }
+            .onKeyPress { press in
+                ReviewKeyDispatch.handle(
+                    press,
+                    bindings: reviewShortcuts,
+                    isTypedAnswerEditing: session.requiresTypedAnswerInput && !session.showAnswer,
+                    showAnswer: session.showAnswer,
+                    perform: perform
+                )
+            }
+    }
+}
+
+private struct ReviewFeedbackModifier<Toast: View>: ViewModifier {
+    let session: ReviewSession
+    @Binding var showUndoToast: Bool
+    @ViewBuilder var toast: () -> Toast
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: session.graduationPulse) { _, _ in
+                #if os(iOS)
+                GraduationHaptics.play()
+                #endif
+            }
+            .onChange(of: session.undoToastPulse) { _, _ in
+                showUndoToast = true
+            }
+            .task(id: session.undoToastPulse) {
+                guard session.undoToastPulse > 0 else { return }
+                try? await Task.sleep(for: .seconds(1.2))
+                showUndoToast = false
+            }
+            .overlay {
+                if showUndoToast {
+                    toast()
+                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                }
+            }
+    }
+}
+
+#if os(macOS)
+/// The macOS menu bar targets whichever review window is focused.
+/// `reviewActions` is a stable `@Observable` instance; writing the same
+/// reference every render is a no-op for SwiftUI's change detection.
+private struct ReviewSceneActionsModifier: ViewModifier {
+    let session: ReviewSession
+    let reviewActions: ReviewActions
+    @Binding var editingNote: NoteRecord?
+    @Binding var lookupQuery: String?
+
+    func body(content: Content) -> some View {
+        content
+            .focusedSceneValue(reviewActions)
+            .onAppear {
+                reviewActions.undo = { session.undo() }
+                reviewActions.editNote = { editingNote = session.currentNote }
+                reviewActions.lookup = { lookupQuery = "" }
+                reviewActions.replayAudio = {
+                    if session.isAudioPlaying {
+                        session.bumpStopAudioRequest()
+                    } else {
+                        session.bumpReplayRequest()
+                    }
+                }
+            }
+    }
+}
+
+private struct ReviewMacChromeModifier: ViewModifier {
+    let navigationBreadcrumb: String
+    let requiresTypedAnswerInput: Bool
+    @Environment(\.dismiss) private var dismiss
+
+    func body(content: Content) -> some View {
+        content
+            .navigationTitle(navigationBreadcrumb)
+            .onExitCommand {
+                if !requiresTypedAnswerInput {
+                    dismiss()
+                }
+            }
+    }
+}
+#endif
+
+#if os(iOS)
+private struct ReviewIOSChromeModifier: ViewModifier {
+    let autoMatchCardBackground: Bool
+    let cardChromeColor: Color
+    let cardChromeIsResolved: Bool
+    let cardChromeIsDark: Bool
+    let colorScheme: ColorScheme
+
+    func body(content: Content) -> some View {
+        content
+            .toolbarBackground(
+                autoMatchCardBackground ? cardChromeColor : Color.clear,
+                for: .navigationBar
+            )
+            .toolbarBackground(
+                autoMatchCardBackground ? .visible : .automatic,
+                for: .navigationBar
+            )
+            .toolbarColorScheme(
+                autoMatchCardBackground && cardChromeIsResolved
+                    ? (cardChromeIsDark ? .dark : .light)
+                    : colorScheme,
+                for: .navigationBar
+            )
+    }
+}
+#endif
+
+private struct ReviewSheetsModifier: ViewModifier {
+    let session: ReviewSession
+    @Binding var showRenderModeSheet: Bool
+    @Binding var editingNote: NoteRecord?
+    @Binding var editingTemplate: ReviewSession.TemplateTarget?
+    @Binding var lookupQuery: String?
+    var lookupSheetBinding: Binding<ReviewLookupQuery?>
+    let renderModeExplainer: String
+
+    func body(content: Content) -> some View {
+        content
+            .sheet(isPresented: $showRenderModeSheet) {
+                RenderModeSheet(
+                    explainer: renderModeExplainer,
+                    template: session.currentTemplateTarget,
+                    templateName: session.templateName,
+                    onChanged: { session.reresolveCurrentCard() }
+                )
+            }
+            .sheet(item: $editingNote) { note in
+                NavigationStack {
+                    NoteEditorView(note: note) {
+                        Task { await session.refreshAfterEdit() }
+                    }
+                }
+            }
+            .sheet(item: $editingTemplate) { target in
+                NavigationStack {
+                    TemplateEditorView(
+                        notetypeId: target.notetypeId,
+                        initialTemplateIndex: target.ordinal,
+                        mode: .currentCard,
+                        onSaved: { await session.refreshAfterEdit() }
+                    )
+                }
+            }
+            .sheet(item: lookupSheetBinding) { wrapped in
+                LookupPopupView(initialQuery: wrapped.text) {
+                    lookupQuery = nil
+                }
+            }
     }
 }
 
@@ -747,36 +913,13 @@ private struct ReviewCardArea: View {
 
             if session.showAnswer {
                 answerButtons
-                // Space repeats the card's PREVIOUS rating (Again for new
-                // cards) — the answer-side counterpart of the reveal
-                // shortcut below. Hidden zero-size button, same pattern as
-                // the iOS review keyboard shortcuts. Not installed while a
-                // typed-answer field is up: space must keep typing spaces.
-                if !session.requiresTypedAnswerInput {
-                    Button {
-                        session.answerWithLastRating()
-                    } label: {
-                        Text("Repeat Last Rating")
-                    }
-                    .keyboardShortcut(
-                        shortcut(.repeatLastRating).keyEquivalent,
-                        modifiers: shortcut(.repeatLastRating).modifiers
-                    )
-                    .frame(width: 0, height: 0)
-                    .opacity(0)
-                    .accessibilityHidden(true)
-                    .disabled(session.isAdvancing)
-                }
             } else if session.requiresTypedAnswerInput {
                 // No reveal shortcut while the typed-answer field is active —
-                // it would steal spaces from the user's input.
+                // it would steal spaces from the user's input. Space is
+                // dispatched from ReviewContent.onKeyPress instead.
                 revealButton
             } else {
                 revealButton
-                    .keyboardShortcut(
-                        shortcut(.revealAnswer).keyEquivalent,
-                        modifiers: shortcut(.revealAnswer).modifiers
-                    )
             }
         }
         #if os(macOS)

@@ -28,7 +28,9 @@ struct BrowseDetailTabs: View {
         case info = "Info"
     }
 
-    @State private var tab: Tab = .edit
+    // Clicking a row is a peek, not an edit session — Preview leads and
+    // Edit is one tap away (desktop-Anki parity for the default view).
+    @State private var tab: Tab = .preview
 
     var body: some View {
         VStack(spacing: 0) {
