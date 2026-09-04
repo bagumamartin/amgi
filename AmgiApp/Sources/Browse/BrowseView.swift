@@ -136,7 +136,8 @@ struct BrowseView: View {
             }
             .disabled(model.notes.isEmpty)
         }
-        ToolbarItem(placement: .topBarTrailing) {
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            SyncToolbarButton()
             if selectionState.isSelectMode {
                 Button("Done") {
                     selectionState.exitSelectMode()

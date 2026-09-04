@@ -58,7 +58,8 @@ struct ReaderLibraryView: View {
         .navigationTitle("Library")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                SyncToolbarButton()
                 Menu { plusMenu } label: {
                     Image(systemName: "plus")
                 }

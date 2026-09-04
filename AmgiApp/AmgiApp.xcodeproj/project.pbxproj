@@ -112,6 +112,7 @@
 		6510AAE691D538C1629A6D12 /* DeckDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C550C2CF61A0255A45E54490 /* DeckDetailView.swift */; };
 		652134A3080AAB2E8524794F /* AnkiKit in Frameworks */ = {isa = PBXBuildFile; productRef = D17643555D7431BE694A9400 /* AnkiKit */; };
 		6681AA1ED28535DEBBC2A627 /* CardContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DBE800CB36941130D213F56 /* CardContextMenu.swift */; };
+		C0C1EC7C0DE5A1E01C0C1E02 /* CollectionChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0C1EC7C0DE5A1E01C0C1E01 /* CollectionChrome.swift */; };
 		6794E01033A5C4DE1FF5DF75 /* AnkiBackedDictionaryConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0B23ED7B10EED378E3E4BE2 /* AnkiBackedDictionaryConfigStore.swift */; };
 		679B377C1C8B788E15361E76 /* LookupAudioSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED043E82A627D528B6F1CA0E /* LookupAudioSupport.swift */; };
 		67A095604A636B213AA9661B /* RenderModeSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 431515739A7B48EA43995E77 /* RenderModeSheet.swift */; };
@@ -330,6 +331,7 @@
 		1C56C9FAC900298876BBABC6 /* MediaCheckModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaCheckModel.swift; sourceTree = "<group>"; };
 		1CDB5889BB8BBF41384CF365 /* DeckDetailBanners.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckDetailBanners.swift; sourceTree = "<group>"; };
 		1DBE800CB36941130D213F56 /* CardContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardContextMenu.swift; sourceTree = "<group>"; };
+		C0C1EC7C0DE5A1E01C0C1E01 /* CollectionChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CollectionChrome.swift; sourceTree = "<group>"; };
 		1DCFB2EBF09D90E8F0D1B068 /* ReviewAudioSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewAudioSession.swift; sourceTree = "<group>"; };
 		1F01B084E8AEB14A0BAD24F3 /* DeckConfigView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckConfigView.swift; sourceTree = "<group>"; };
 		1F68A718A7212E7D8C1594C5 /* CardWebViewPrewarmer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardWebViewPrewarmer.swift; sourceTree = "<group>"; };
@@ -686,6 +688,7 @@
 			children = (
 				1DBE800CB36941130D213F56 /* CardContextMenu.swift */,
 				15473ED3DDE35CD29CFFE82D /* CardContextMenuModel.swift */,
+				C0C1EC7C0DE5A1E01C0C1E01 /* CollectionChrome.swift */,
 				0E5B1AA814518C2CC9323F81 /* CollectionStore.swift */,
 				8AE415E77C38CEDE53664590 /* DailyProgress.swift */,
 				563D97E28D0A34E270C7C744 /* DeckCountsView.swift */,
@@ -1341,6 +1344,7 @@
 				FAC37531F72B8508E8253A62 /* CardAssetScheme.swift in Sources */,
 				6681AA1ED28535DEBBC2A627 /* CardContextMenu.swift in Sources */,
 				A09304E71F26EC5055310A45 /* CardContextMenuModel.swift in Sources */,
+				C0C1EC7C0DE5A1E01C0C1E02 /* CollectionChrome.swift in Sources */,
 				FE8CE98F275F0B697E0A83C1 /* CardCountsChart.swift in Sources */,
 				1E1BF8ADFE7DAF00588543FE /* CardRenderingSettingsView.swift in Sources */,
 				2B3722F4A958BE92E88FC2C5 /* CardWebView.swift in Sources */,

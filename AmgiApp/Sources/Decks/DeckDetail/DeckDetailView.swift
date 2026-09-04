@@ -218,7 +218,8 @@ struct DeckDetailView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) {
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            SyncToolbarButton()
             Menu {
                 Button {
                     destination = .sheet(.addNote)
@@ -253,9 +254,6 @@ struct DeckDetailView: View {
                 .disabled(model.exportInProgress)
             } label: {
                 Image(systemName: "ellipsis")
-                    .font(.system(size: 16, weight: .semibold))
-                    .frame(width: 30, height: 30)
-                    .background(.regularMaterial, in: Circle())
             }
             .accessibilityLabel("More")
         }
