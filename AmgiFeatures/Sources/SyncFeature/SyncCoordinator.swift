@@ -1,6 +1,8 @@
 import Foundation
 import SwiftUI
+#if os(iOS)
 import UIKit
+#endif
 import AmgiAppCore
 import AmgiAppShared
 import AnkiClients
@@ -38,11 +40,14 @@ package final class SyncCoordinator {
     /// advisory — the in-flight FFI call still runs to completion, so the
     /// task handle has to stay put to keep the re-entry gate shut.
     @ObservationIgnored private var isCancelling = false
+    #if os(iOS)
     @ObservationIgnored private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
+    #endif
     @ObservationIgnored private var lifecycleObservers: [any NSObjectProtocol] = []
     /// How often `waitForMediaCompletion` re-reads the engine's media
     /// status. Injectable so tests don't pay the real interval.
     @ObservationIgnored private let mediaPollInterval: Duration
+    @ObservationIgnored private var automaticSyncDebounce: Task<Void, Never>?
 
     // Profile-scoped persisted state. Computed per access — the key embeds
     // the active profile id, and this coordinator is a singleton that
@@ -200,6 +205,19 @@ package final class SyncCoordinator {
         requiresLogin = false
     }
 
+    /// Debounced collection sync after an out-of-process helper mutation.
+    /// No-ops when no sync server is configured.
+    package func requestAutomaticSync(reason: String) {
+        guard KeychainHelper.loadEndpoint() != nil else { return }
+        automaticSyncDebounce?.cancel()
+        automaticSyncDebounce = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled, let self else { return }
+            appendLog("Automatic sync requested: \(reason)")
+            await startSync()
+        }
+    }
+
     /// Called after an in-app profile switch, once the scoping anchor has
     /// flipped: drop the old profile's transient state and re-derive from
     /// the new profile's persisted flags.
@@ -318,6 +336,7 @@ private extension SyncCoordinator {
     }
 
     func registerLifecycleObservers() {
+        #if os(iOS)
         let center = NotificationCenter.default
         lifecycleObservers.append(center.addObserver(
             forName: UIApplication.didEnterBackgroundNotification,
@@ -337,6 +356,7 @@ private extension SyncCoordinator {
                 self?.endBackgroundExecutionIfNeeded()
             }
         })
+        #endif
 
         if needsFullSyncFlag {
             state = .needsFullSync(SyncFullSyncRequirement(
@@ -347,6 +367,7 @@ private extension SyncCoordinator {
     }
 
     func beginBackgroundExecutionIfNeeded() {
+        #if os(iOS)
         let isSyncing: Bool
         switch state {
         case .syncing, .syncingMedia: isSyncing = true
@@ -361,13 +382,16 @@ private extension SyncCoordinator {
             }
         }
         appendLog("Backgrounded mid-sync — extending execution window")
+        #endif
     }
 
     func endBackgroundExecutionIfNeeded() {
+        #if os(iOS)
         guard backgroundTaskID != .invalid else { return }
         UIApplication.shared.endBackgroundTask(backgroundTaskID)
         backgroundTaskID = .invalid
         appendLog("Foreground resumed — released BG task")
+        #endif
     }
 }
 

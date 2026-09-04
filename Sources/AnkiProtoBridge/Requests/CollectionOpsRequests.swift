@@ -37,7 +37,7 @@ extension Request where Response == Void {
     /// undo (engine surfaces `undoEmpty`).
     public static var redoLastAction: Self {
         .empty(
-            serviceId: ServiceID.collectionOps,
+            serviceId: ServiceID.collection,
             methodId: CollectionOpsMethod.redo,
             decode: { _ in () }
         )
@@ -49,7 +49,7 @@ extension Request where Response == Void {
 extension Request where Response == UndoStatusInfo {
     public static var undoStatus: Self {
         .empty(
-            serviceId: ServiceID.collectionOps,
+            serviceId: ServiceID.collection,
             methodId: CollectionOpsMethod.getUndoStatus,
             decode: { bytes in
                 let proto = try Anki_Collection_UndoStatus(serializedBytes: bytes)

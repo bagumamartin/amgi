@@ -1,5 +1,6 @@
 // AmgiApp/Sources/Browse/BrowseListColumn.swift
 import SwiftUI
+import AmgiAppShared
 import AmgiUI
 import AnkiKit
 import AnkiClients

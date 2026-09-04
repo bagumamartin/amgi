@@ -50,7 +50,9 @@ public struct DeckSubdecksCard: View {
                 // equals the List's content, so nothing clips or scrolls.
                 .frame(height: rowHeight)
                 .listRowInsets(EdgeInsets())
+                #if !os(watchOS)
                 .listRowSeparator(.hidden)
+                #endif
                 .listRowBackground(Color.clear)
             }
         }

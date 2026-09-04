@@ -1,6 +1,7 @@
 // AmgiApp/Sources/Shared/BrowseLauncher.swift
 import SwiftUI
 import Observation
+package import Foundation
 
 /// In-process handoff for launching Browse from anywhere: Library drill-ins,
 /// deck-detail actions, deep links. MainTabView observes `requestID` and
@@ -10,8 +11,8 @@ import Observation
 /// single-shot, and meaningless across relaunches.
 @MainActor
 @Observable
-final class BrowseLauncher {
-    static let shared = BrowseLauncher()
+package final class BrowseLauncher {
+    package static let shared = BrowseLauncher()
 
     struct Request: Equatable {
         let query: String?
@@ -20,17 +21,17 @@ final class BrowseLauncher {
 
     private(set) var pending: Request?
     /// Observable counter MainTabView keys `.onChange` off.
-    private(set) var requestID: UUID?
+    package private(set) var requestID: UUID?
 
     /// Launches Browse, optionally seeded with a search string
     /// (e.g. `deck:"Name"` or a token-composed grammar fragment).
-    func launch(query: String? = nil) {
+    package func launch(query: String? = nil) {
         pending = Request(query: query)
         requestID = pending?.id
     }
 
     /// Consumed by BrowseView's onAppear/task; returns the seed exactly once.
-    func consume() -> String? {
+    package func consume() -> String? {
         guard let request = pending else { return nil }
         pending = nil
         return request.query

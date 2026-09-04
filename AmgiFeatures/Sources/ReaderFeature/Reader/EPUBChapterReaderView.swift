@@ -275,7 +275,7 @@ struct EPUBChapterReaderView: View {
     /// under a running view, so no identity is lost.
     @ViewBuilder
     private var bottomChromeBar: some View {
-        if #available(iOS 26, *) {
+        if #available(iOS 26, macOS 26, *) {
             GlassEffectContainer(spacing: 16) { bottomChromePills }
         } else {
             bottomChromePills

@@ -1,9 +1,10 @@
-import SwiftUI
+package import SwiftUI
 import AmgiTheme
-import AmgiAppCore
+package import AmgiAppCore
 import AnkiSync
 import CasePaths
 import SwiftUINavigation
+import AmgiUI
 
 /// Profile picker / manager. Each row is one `AmgiAccount`; the active
 /// row shows a checkmark, tapping any other switches immediately. Add
@@ -13,6 +14,10 @@ package struct AccountsSettingsView: View {
     /// flips the keychain anchor, so it stays in `AmgiAppApp.swift` and
     /// arrives here through `SettingsView`.
     let onSwitchProfile: (AmgiAccount) async -> Void
+
+    package init(onSwitchProfile: @escaping (AmgiAccount) async -> Void) {
+        self.onSwitchProfile = onSwitchProfile
+    }
 
     @State private var store = AccountStore.shared
     @State private var destination: Destination?
@@ -42,7 +47,7 @@ package struct AccountsSettingsView: View {
     // (palette background, elevated row surfaces, tinted tiles) is applied
     // to the List instead, so it reads like the rest of Settings without
     // losing swipe-to-delete.
-    var body: some View {
+    package var body: some View {
         List {
             profilesSection
             addSection

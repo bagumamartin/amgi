@@ -1,11 +1,11 @@
-import SwiftUI
-import Sharing
+package import SwiftUI
+package import Sharing
 import AnkiKit
 
 /// A review action that can be driven from the keyboard (and rebound in
 /// Settings → Shortcuts). The menu-bar "Card" menu and the review window both
 /// read the same persisted binding.
-enum ReviewShortcutAction: String, CaseIterable, Identifiable, Sendable {
+package enum ReviewShortcutAction: String, CaseIterable, Identifiable, Sendable {
     case undo
     case editNote
     case lookup
@@ -17,9 +17,9 @@ enum ReviewShortcutAction: String, CaseIterable, Identifiable, Sendable {
     case rateEasy
     case repeatLastRating
 
-    var id: String { rawValue }
+    package var id: String { rawValue }
 
-    var title: String {
+    package var title: String {
         switch self {
         case .undo: "Undo"
         case .editNote: "Edit Note"
@@ -34,7 +34,7 @@ enum ReviewShortcutAction: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    var systemImage: String {
+    package var systemImage: String {
         switch self {
         case .undo: "arrow.uturn.backward"
         case .editNote: "pencil"
@@ -49,7 +49,7 @@ enum ReviewShortcutAction: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    var defaultShortcut: ReviewShortcut {
+    package var defaultShortcut: ReviewShortcut {
         switch self {
         case .undo: ReviewShortcut(key: "z", modifiers: .command)
         case .editNote: ReviewShortcut(key: "e", modifiers: .command)
@@ -80,11 +80,11 @@ enum ReviewShortcutAction: String, CaseIterable, Identifiable, Sendable {
 /// A persisted key binding — a key character plus modifier flags, encoded as
 /// `EventModifiers.rawValue`. Stored as one Codable value under a single
 /// appStorage key (a dictionary of action → shortcut).
-struct ReviewShortcut: Equatable, Codable, Hashable, Sendable {
-    var key: String
-    var modifiersRaw: Int
+package struct ReviewShortcut: Equatable, Codable, Hashable, Sendable {
+    package var key: String
+    package var modifiersRaw: Int
 
-    init(key: String, modifiers: EventModifiers) {
+    package init(key: String, modifiers: EventModifiers) {
         self.key = key
         self.modifiersRaw = modifiers.rawValue
     }
@@ -140,7 +140,7 @@ struct ReviewShortcut: Equatable, Codable, Hashable, Sendable {
     }
 
     /// Human-readable form for tooltips and the settings row, e.g. "⌘Z".
-    var displayString: String {
+    package var displayString: String {
         var s = ""
         if modifiers.contains(.control) { s += "⌃" }
         if modifiers.contains(.option) { s += "⌥" }
@@ -165,7 +165,7 @@ struct ReviewShortcut: Equatable, Codable, Hashable, Sendable {
 }
 
 extension SharedReaderKey where Self == AppStorageKey<[String: ReviewShortcut]>.Default {
-    static var reviewShortcuts: Self {
+    package static var reviewShortcuts: Self {
         Self[.appStorage("reviewShortcuts"), default: [:]]
     }
 }

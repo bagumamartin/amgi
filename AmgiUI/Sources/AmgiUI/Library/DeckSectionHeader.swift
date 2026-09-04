@@ -1,3 +1,5 @@
+// iOS/macOS-only — `Menu` is unavailable on watchOS.
+#if !os(watchOS)
 public import SwiftUI
 import AmgiTheme
 
@@ -56,5 +58,29 @@ public struct DeckSectionHeader: View {
     DeckSectionHeader(title: "SUBDECKS", sortOrder: $sortOrder)
         .padding()
         .environment(\.palette, .vividLight)
+}
+#endif
+#endif  // !os(watchOS)
+
+#if os(watchOS)
+public import SwiftUI
+import AmgiTheme
+
+/// Title-only stand-in: `Menu` is unavailable on watchOS, and the watch
+/// never presents this header. Kept so sibling AmgiUI files still type-check.
+public struct DeckSectionHeader: View {
+    public let title: String
+    @Binding public var sortOrder: DeckSortOrder
+
+    public init(title: String, sortOrder: Binding<DeckSortOrder>) {
+        self.title = title
+        self._sortOrder = sortOrder
+    }
+
+    public var body: some View {
+        Text(title)
+            .amgiFont(.sectionHeading)
+            .textCase(nil)
+    }
 }
 #endif

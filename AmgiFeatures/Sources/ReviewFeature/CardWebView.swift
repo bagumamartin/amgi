@@ -1,13 +1,18 @@
 import AmgiAppCore
+import AmgiAppShared
 import OSLog
 import SwiftUI
 import WebKit
-import UIKit
 import AVFoundation
 import AmgiCardWeb
+#if os(iOS)
+import UIKit
+#else
+import AppKit
+#endif
 
 
-struct CardWebView: UIViewRepresentable {
+struct CardWebView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     let html: String
@@ -25,7 +30,7 @@ struct CardWebView: UIViewRepresentable {
     let contentAlignment: CardWebViewContentAlignment
     let bottomContentInset: CGFloat
     let onAudioStateChange: ((Bool) -> Void)?
-    let onCardBackgroundColorChange: ((UIColor, Bool) -> Void)?
+    let onCardBackgroundColorChange: ((PlatformColor, Bool) -> Void)?
     let onLookupRequested: ((String?, String?, CGPoint) -> Void)?
 
     init(
@@ -44,7 +49,7 @@ struct CardWebView: UIViewRepresentable {
         contentAlignment: CardWebViewContentAlignment = .center,
         bottomContentInset: CGFloat = 0,
         onAudioStateChange: ((Bool) -> Void)? = nil,
-        onCardBackgroundColorChange: ((UIColor, Bool) -> Void)? = nil,
+        onCardBackgroundColorChange: ((PlatformColor, Bool) -> Void)? = nil,
         onLookupRequested: ((String?, String?, CGPoint) -> Void)? = nil
     ) {
         self.html = html
@@ -66,6 +71,10 @@ struct CardWebView: UIViewRepresentable {
         self.onLookupRequested = onLookupRequested
     }
 
+    var body: some View {
+        CardWebViewPlatformHost(card: self)
+    }
+
     func makeCoordinator() -> CardWebViewCoordinator {
         CardWebViewCoordinator(
             onAudioStateChange: onAudioStateChange,
@@ -74,22 +83,17 @@ struct CardWebView: UIViewRepresentable {
         )
     }
 
-    func makeUIView(context: Context) -> WKWebView {
+    fileprivate func makeConfiguredWebView(coordinator: CardWebViewCoordinator) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.defaultWebpagePreferences.allowsContentJavaScript = true
         config.setURLSchemeHandler(CardAssetScheme(), forURLScheme: CardAssetPath.scheme)
-        config.userContentController.add(context.coordinator, name: "amgiAudioState")
-        config.userContentController.add(context.coordinator, name: "amgiOpenLink")
-        config.userContentController.add(context.coordinator, name: "amgiSpeakTts")
-        config.userContentController.add(context.coordinator, name: "amgiStopTts")
-        config.userContentController.add(context.coordinator, name: "amgiCardTheme")
-        config.userContentController.add(context.coordinator, name: "amgiLookupText")
+        config.userContentController.add(coordinator, name: "amgiAudioState")
+        config.userContentController.add(coordinator, name: "amgiOpenLink")
+        config.userContentController.add(coordinator, name: "amgiSpeakTts")
+        config.userContentController.add(coordinator, name: "amgiStopTts")
+        config.userContentController.add(coordinator, name: "amgiCardTheme")
+        config.userContentController.add(coordinator, name: "amgiLookupText")
 
-        // Tap-to-lookup. Mirrors ChapterWebView's handler: skip when
-        // there's an active selection, walk text nodes from the tap
-        // caret for ~32 chars, post to native. Only injected when the
-        // host wired `onLookupRequested` so cards still behave normally
-        // when lookup is off.
         if onLookupRequested != nil {
             config.userContentController.addUserScript(WKUserScript(
                 source: Self.tapLookupBootstrapJS,
@@ -98,20 +102,23 @@ struct CardWebView: UIViewRepresentable {
             ))
         }
 
-        // Enable media playback without user interaction
         config.mediaTypesRequiringUserActionForPlayback = []
+        #if os(iOS)
         config.allowsInlineMediaPlayback = true
+        #endif
 
         let webView = WKWebView(frame: .zero, configuration: config)
+        #if os(iOS)
         webView.isOpaque = false
         webView.backgroundColor = .clear
         webView.scrollView.backgroundColor = .clear
         webView.scrollView.showsVerticalScrollIndicator = false
-        webView.navigationDelegate = context.coordinator
+        #endif
+        webView.navigationDelegate = coordinator
         return webView
     }
 
-    static func dismantleUIView(_ webView: WKWebView, coordinator: CardWebViewCoordinator) {
+    fileprivate static func dismantleConfigured(_ webView: WKWebView, coordinator: CardWebViewCoordinator) {
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "amgiAudioState")
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "amgiOpenLink")
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "amgiSpeakTts")
@@ -121,7 +128,7 @@ struct CardWebView: UIViewRepresentable {
         coordinator.stopTTS()
     }
 
-    func updateUIView(_ webView: WKWebView, context: Context) {
+    fileprivate func applyUpdate(_ webView: WKWebView, coordinator: CardWebViewCoordinator) {
         let isDarkMode = colorScheme == .dark
         let alignTop = contentAlignment == .top
 
@@ -137,12 +144,16 @@ struct CardWebView: UIViewRepresentable {
         let contentSignature = "\(autoplayEnabled)|\(isAnswerSide)|\(lookupPopupEnabled)|\(replayMode.rawValue)|\(cardOrdinal)|\(alignTop)|\(showInlineAudioReplayButtons)|\(cardCSS.hashValue)|\(html.hashValue)|\(prefetchHTML?.hashValue ?? 0)"
 
         // Bookkeeping that has to track every render, expensive or not.
-        context.coordinator.openLinksExternally = openLinksExternally
-        context.coordinator.currentWebView = webView
+        coordinator.openLinksExternally = openLinksExternally
+        coordinator.currentWebView = webView
+        #if os(iOS)
         webView.overrideUserInterfaceStyle = isDarkMode ? .dark : .light
+        #else
+        webView.appearance = NSAppearance(named: isDarkMode ? .darkAqua : .aqua)
+        #endif
 
-        let pageChanged = context.coordinator.lastPageSignature != pageSignature
-        let contentChanged = context.coordinator.lastContentSignature != contentSignature
+        let pageChanged = coordinator.lastPageSignature != pageSignature
+        let contentChanged = coordinator.lastContentSignature != contentSignature
 
         if pageChanged || contentChanged {
             // Convert Anki [sound:filename.mp3] tags to <audio> HTML elements.
@@ -181,18 +192,18 @@ struct CardWebView: UIViewRepresentable {
             // any unrelated re-render — including the audio callback writing
             // `isAudioPlaying` back onto the session — cut off speech that was
             // still playing.
-            context.coordinator.stopTTS()
+            coordinator.stopTTS()
 
             if pageChanged {
-                context.coordinator.lastPageSignature = pageSignature
-                context.coordinator.lastContentSignature = contentSignature
-                context.coordinator.isPageLoaded = false
+                coordinator.lastPageSignature = pageSignature
+                coordinator.lastContentSignature = contentSignature
+                coordinator.isPageLoaded = false
                 let htmlClass = Self.htmlClasses(isDarkMode: isDarkMode)
                 let playIconHTML = Self.audioButtonIconHTML(systemName: "play.circle", alt: "Play", isDarkMode: isDarkMode)
                 let pauseIconHTML = Self.audioButtonIconHTML(systemName: "pause.circle", alt: "Pause", isDarkMode: isDarkMode)
                 let baseTag = CardAssetPath.mediaBaseTag()
                 // Stash the show-card call so we can run it once the page finishes loading.
-                context.coordinator.pendingUpdateScript = showCardScript
+                coordinator.pendingUpdateScript = showCardScript
 
                 let styledHTML = Self.buildFrameHTML(
                     htmlClass: htmlClass,
@@ -206,27 +217,27 @@ struct CardWebView: UIViewRepresentable {
                 // The CardAssetScheme handler processes amgi-asset:// URLs.
                 webView.loadHTMLString(styledHTML, baseURL: CardAssetPath.cardBaseURL)
             } else {
-                context.coordinator.lastContentSignature = contentSignature
-                if context.coordinator.isPageLoaded {
+                coordinator.lastContentSignature = contentSignature
+                if coordinator.isPageLoaded {
                     webView.evaluateJavaScript(showCardScript) { _, error in
                         // A JS exception in _showQuestion/_showAnswer renders
                         // a blank card; dropping the error left no diagnostic.
                         if let error { Log.review.error("showCard script failed: \(error)") }
                     }
                 } else {
-                    context.coordinator.pendingUpdateScript = showCardScript
+                    coordinator.pendingUpdateScript = showCardScript
                 }
             }
         }
-        if replayRequestID != context.coordinator.lastReplayRequestID {
-            context.coordinator.lastReplayRequestID = replayRequestID
+        if replayRequestID != coordinator.lastReplayRequestID {
+            coordinator.lastReplayRequestID = replayRequestID
             webView.evaluateJavaScript("window.amgiReplayAll && window.amgiReplayAll('" + replayMode.rawValue + "');") { _, error in
                 if let error { Log.review.error("replayAll script failed: \(error)") }
             }
         }
 
-        if stopAudioRequestID != context.coordinator.lastStopAudioRequestID {
-            context.coordinator.lastStopAudioRequestID = stopAudioRequestID
+        if stopAudioRequestID != coordinator.lastStopAudioRequestID {
+            coordinator.lastStopAudioRequestID = stopAudioRequestID
             webView.evaluateJavaScript("window.amgiStopAllAudio && window.amgiStopAllAudio();") { _, error in
                 if let error { Log.review.error("stopAllAudio script failed: \(error)") }
             }
@@ -237,10 +248,12 @@ struct CardWebView: UIViewRepresentable {
         // so we set it explicitly via DispatchQueue.main.async to override any WebKit-internal
         // layout pass that might run after updateUIView.
         let targetInset = bottomContentInset
+        #if os(iOS)
         DispatchQueue.main.async {
             webView.scrollView.contentInset.bottom = targetInset
             webView.scrollView.verticalScrollIndicatorInsets.bottom = targetInset
         }
+        #endif
     }
 
     // MARK: - Helpers
@@ -301,4 +314,57 @@ struct CardWebView: UIViewRepresentable {
       }
     }, true);
     """
+
+    /// Loads a blank page in a new WKWebView so WebKit's process pool is
+    /// already warm when the first real card appears. The prewarmed view is
+    /// discarded at adoption time unless `makeUIView` is later taught to
+    /// reuse it; warming the pool is the expensive part.
+    @MainActor
+    static func attachPrewarmedFrame(to coordinator: CardWebViewCoordinator) {
+        let webView = WKWebView()
+        coordinator.prewarmedWebView = webView
+        webView.loadHTMLString("<html><body></body></html>", baseURL: nil)
+    }
 }
+
+#if os(iOS)
+private struct CardWebViewPlatformHost: UIViewRepresentable {
+    let card: CardWebView
+
+    func makeCoordinator() -> CardWebViewCoordinator {
+        card.makeCoordinator()
+    }
+
+    func makeUIView(context: Context) -> WKWebView {
+        card.makeConfiguredWebView(coordinator: context.coordinator)
+    }
+
+    static func dismantleUIView(_ webView: WKWebView, coordinator: CardWebViewCoordinator) {
+        CardWebView.dismantleConfigured(webView, coordinator: coordinator)
+    }
+
+    func updateUIView(_ webView: WKWebView, context: Context) {
+        card.applyUpdate(webView, coordinator: context.coordinator)
+    }
+}
+#else
+private struct CardWebViewPlatformHost: NSViewRepresentable {
+    let card: CardWebView
+
+    func makeCoordinator() -> CardWebViewCoordinator {
+        card.makeCoordinator()
+    }
+
+    func makeNSView(context: Context) -> WKWebView {
+        card.makeConfiguredWebView(coordinator: context.coordinator)
+    }
+
+    static func dismantleNSView(_ nsView: WKWebView, coordinator: CardWebViewCoordinator) {
+        CardWebView.dismantleConfigured(nsView, coordinator: coordinator)
+    }
+
+    func updateNSView(_ nsView: WKWebView, context: Context) {
+        card.applyUpdate(nsView, coordinator: context.coordinator)
+    }
+}
+#endif

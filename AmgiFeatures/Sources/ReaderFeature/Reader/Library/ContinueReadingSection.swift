@@ -25,12 +25,16 @@ struct ContinueReadingSection: View {
                             if let book = bookForId(item.id) {
                                 NavigationLink {
                                     ReaderBookDetailView(book: book, progress: progress)
+                                        #if os(iOS)
                                         .navigationTransition(.zoom(sourceID: item.id, in: coverTransition))
+                                        #endif
                                 } label: {
                                     ContinueReadingCard(item: item)
                                 }
                                 .buttonStyle(.pressScale)
+                                #if os(iOS)
                                 .matchedTransitionSource(id: item.id, in: coverTransition)
+                                #endif
                             } else {
                                 ContinueReadingCard(item: item)
                             }

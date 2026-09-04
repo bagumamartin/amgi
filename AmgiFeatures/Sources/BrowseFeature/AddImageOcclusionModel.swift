@@ -116,7 +116,7 @@ final class AddImageOcclusionModel {
         }
     }
 
-    private static func jpegRepresentation(of image: PlatformImage) -> Data? {
+    nonisolated private static func jpegRepresentation(of image: PlatformImage) -> Data? {
         #if canImport(UIKit)
         return image.jpegData(compressionQuality: 0.92)
         #else

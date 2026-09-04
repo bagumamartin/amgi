@@ -1,11 +1,15 @@
 import AmgiAppCore
+import AmgiAppShared
 import AmgiIcons
 import AmgiReader
 import AmgiUI
 import AnkiBackend
 import AnkiClients
+import DecksFeature
 import Dependencies
 import Foundation
+import SettingsFeature
+import SwiftUI
 import SyncFeature
 
 /// The app's dependency bootstrap. Called once from the host's `App.init`.
@@ -26,6 +30,13 @@ public enum AmgiRoot {
         // target never registers one and keeps letter tiles.
         DeckIconRendering.provider = { iconName in
             AmgiIcons.DeckIconGlyph.image(for: iconName)
+        }
+        DeckIconLookup.refresh = { await DeckIconOverrides.refresh() }
+        DeckIconLookup.initialIcon = { deckId, name in
+            DeckIconOverrides.initialIcon(deckId: deckId, name: name)
+        }
+        DeckIconLookup.resolvedIcon = { deckId, name, fullName in
+            await DeckIconOverrides.resolvedIcon(deckId: deckId, name: name, fullName: fullName)
         }
 
         // Multi-profile bootstrap: migrate legacy single-collection layout
@@ -58,6 +69,11 @@ public enum AmgiRoot {
             }
         } catch {
             startupError = error.localizedDescription
+            return
         }
+
+        #if os(macOS)
+        MCPBridgeServer.start()
+        #endif
     }
 }

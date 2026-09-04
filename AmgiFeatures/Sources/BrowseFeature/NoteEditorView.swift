@@ -1,4 +1,5 @@
 package import SwiftUI
+import AmgiUI
 package import AnkiKit
 import AmgiTheme
 

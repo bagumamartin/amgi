@@ -1,5 +1,6 @@
 // AmgiApp/Sources/Browse/BrowseDeckTree.swift
 import SwiftUI
+import AmgiAppShared
 import AmgiUI
 import AnkiKit
 import AmgiTheme
@@ -134,12 +135,12 @@ enum BrowseDeckTree {
     @MainActor
     static func loadIconNames(for decks: [DeckInfo]) async -> [Int64: String] {
         guard !decks.isEmpty else { return [:] }
-        await DeckIconOverrides.refresh()
+        await DeckIconLookup.refresh?()
         var names: [Int64: String] = [:]
         for deck in decks {
             let leaf = leafName(deck.name)
-            if let icon = await DeckIconOverrides.resolvedIcon(
-                deckId: deck.id.rawValue, name: leaf, fullName: deck.name
+            if let icon = await DeckIconLookup.resolvedIcon?(
+                deck.id.rawValue, leaf, deck.name
             ) {
                 names[deck.id.rawValue] = icon
             }

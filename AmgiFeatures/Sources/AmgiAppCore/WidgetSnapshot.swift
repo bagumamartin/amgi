@@ -40,6 +40,11 @@ public struct WidgetSnapshot: Codable, Sendable {
     public var totalDue: Int { newCount + learnCount + reviewCount }
     /// Martin's widgets/progress bar name this "completed today"; same value as reviewedToday.
     public var completedToday: Int { reviewedToday }
+    /// `completed / (completed + remaining due)` — same formula as DailyProgressBar.
+    public var todayProgressFraction: Double {
+        let total = max(reviewedToday + totalDue, 1)
+        return min(1, Double(max(reviewedToday, 0)) / Double(total))
+    }
 
     /// Precomputed per-Anki-day due counts. While the app is closed the
     /// collection cannot change, so the future is fully known at write time;

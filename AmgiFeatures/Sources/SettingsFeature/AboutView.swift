@@ -1,4 +1,5 @@
 import SwiftUI
+import AmgiUI
 import AmgiTheme
 
 struct AboutView: View {

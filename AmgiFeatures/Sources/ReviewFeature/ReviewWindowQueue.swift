@@ -1,5 +1,9 @@
+#if os(macOS)
+package import SwiftUI
+import AmgiTheme
+#endif
 import Foundation
-import AnkiKit
+package import AnkiKit
 
 #if os(macOS)
 
@@ -12,19 +16,50 @@ import AnkiKit
 /// This is what lets several decks be reviewed concurrently — one window per
 /// request, unlike the previous single-instance `Window` scene.
 @MainActor
-final class ReviewWindowQueue {
-    static let shared = ReviewWindowQueue()
+package final class ReviewWindowQueue {
+    package static let shared = ReviewWindowQueue()
 
     private var pending: [DeckID] = []
     private init() {}
 
-    func enqueue(_ deckID: DeckID) {
+    package func enqueue(_ deckID: DeckID) {
         pending.append(deckID)
     }
 
-    func dequeue() -> DeckID? {
+    package func dequeue() -> DeckID? {
         guard !pending.isEmpty else { return nil }
         return pending.removeFirst()
+    }
+}
+
+/// Root content of a single review window. Each window claims its deck from
+/// `ReviewWindowQueue` on appear and holds it in its own `@State`, so several
+/// decks can be reviewed concurrently in separate windows.
+package struct ReviewWindowHost: View {
+    @State private var deckID: DeckID?
+
+    package init() {}
+
+    package var body: some View {
+        Group {
+            if let deckID {
+                ReviewView(deckId: deckID) { }
+            } else {
+                VStack(spacing: AmgiSpacing.md) {
+                    Image(systemName: "graduationcap")
+                        .font(.largeTitle)
+                        .foregroundStyle(.secondary)
+                    Text("No deck selected")
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .onAppear {
+            if deckID == nil {
+                deckID = ReviewWindowQueue.shared.dequeue()
+            }
+        }
     }
 }
 

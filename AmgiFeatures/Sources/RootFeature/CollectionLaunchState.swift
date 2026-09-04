@@ -1,3 +1,4 @@
+import AmgiAppCore
 import AnkiBackend
 import AnkiKit
 import Foundation
@@ -69,7 +70,6 @@ final class CollectionLaunchState {
                         mediaFolderPath: mediaPath,
                         mediaDbPath: mediaDbPath
                     )
-                    try? backend.checkDatabase()
                     return nil
                 } catch {
                     return error.localizedDescription

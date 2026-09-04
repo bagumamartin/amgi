@@ -1,5 +1,7 @@
 import SwiftUI
+import AmgiUI
 import Sharing
+import ReviewFeature
 
 /// Settings pane for rebinding the review keyboard shortcuts. Each action
 /// shows its current binding; clicking it arms a recorder that captures the

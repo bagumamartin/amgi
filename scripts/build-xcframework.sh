@@ -23,6 +23,7 @@ export DESCRIPTORS_BIN="$BRIDGE_DIR/target/anki_descriptors.bin"
 
 export IPHONEOS_DEPLOYMENT_TARGET="17.0"
 export WATCHOS_DEPLOYMENT_TARGET="11.0"
+export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-15.0}"
 
 # The crate is a cdylib, not a staticlib, and it ships as a *dynamic* framework.
 # That is load-bearing for SwiftUI previews: XCPreviewAgent JIT-links a package
@@ -39,7 +40,7 @@ export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-Wl,-install_name,@rpath/AnkiRustLi
 NIGHTLY="${NIGHTLY_TOOLCHAIN:-nightly}"
 
 echo "==> Using protoc: $PROTOC"
-echo "==> Deployment target: iOS $IPHONEOS_DEPLOYMENT_TARGET / watchOS $WATCHOS_DEPLOYMENT_TARGET"
+echo "==> Deployment target: iOS $IPHONEOS_DEPLOYMENT_TARGET / watchOS $WATCHOS_DEPLOYMENT_TARGET / macOS $MACOSX_DEPLOYMENT_TARGET"
 echo "==> Building for iOS device (aarch64-apple-ios)..."
 cargo build \
     --manifest-path "$BRIDGE_DIR/Cargo.toml" \
@@ -53,7 +54,7 @@ cargo build \
     --release
 
 echo "==> Building for watchOS simulator (aarch64-apple-watchos-sim, build-std)..."
-# ponytail: sim slice only. The watchOS *device* target is arm64_32-apple-watchos
+# Simulator slice only. The watchOS *device* target is arm64_32-apple-watchos
 # (ILP32); add it here the same way once a physical-watch build is actually needed.
 cargo "+$NIGHTLY" build \
     -Z build-std=std,panic_abort \
@@ -61,27 +62,54 @@ cargo "+$NIGHTLY" build \
     --target aarch64-apple-watchos-sim \
     --release
 
+echo "==> Building for macOS (aarch64-apple-darwin)..."
+# Native macOS app (personal/main). Arm64-only: this machine and every
+# Mac this product ships to is Apple silicon. Add x86_64-apple-darwin
+# and lipo if an Intel slice is actually needed.
+cargo build \
+    --manifest-path "$BRIDGE_DIR/Cargo.toml" \
+    --target aarch64-apple-darwin \
+    --release
+
 # Wrap one cdylib into AnkiRustLib.framework. $1 = rust triple, $2 = slice name,
-# $3 = CFBundleSupportedPlatforms entry, $4 = MinimumOSVersion.
+# $3 = CFBundleSupportedPlatforms entry, $4 = MinimumOSVersion,
+# $5 = "versioned" for macOS (Versions/A) or omit for iOS/watchOS shallow bundles.
 make_framework() {
     local triple="$1" slice="$2" platform="$3" minos="$4"
+    local versioned="${5:-}"
     local dylib="$BRIDGE_DIR/target/$triple/release/libanki_bridge_ios.dylib"
     [ -f "$dylib" ] || { echo "ERROR: dylib not found at $dylib"; exit 1; }
 
     local fw="$STAGE_DIR/$slice/AnkiRustLib.framework"
     rm -rf "$fw"
-    mkdir -p "$fw/Headers" "$fw/Modules"
-    cp "$dylib" "$fw/AnkiRustLib"
-    cp "$HEADER" "$fw/Headers/"
 
-    cat > "$fw/Modules/module.modulemap" <<'MODULEMAP'
+    local bin_dir headers_dir modules_dir plist_path
+    if [ "$versioned" = "versioned" ]; then
+        mkdir -p "$fw/Versions/A/Headers" "$fw/Versions/A/Modules" "$fw/Versions/A/Resources"
+        bin_dir="$fw/Versions/A"
+        headers_dir="$fw/Versions/A/Headers"
+        modules_dir="$fw/Versions/A/Modules"
+        plist_path="$fw/Versions/A/Resources/Info.plist"
+    else
+        mkdir -p "$fw/Headers" "$fw/Modules"
+        bin_dir="$fw"
+        headers_dir="$fw/Headers"
+        modules_dir="$fw/Modules"
+        plist_path="$fw/Info.plist"
+    fi
+
+    cp "$dylib" "$bin_dir/AnkiRustLib"
+    chmod +x "$bin_dir/AnkiRustLib"
+    cp "$HEADER" "$headers_dir/"
+
+    cat > "$modules_dir/module.modulemap" <<'MODULEMAP'
 framework module AnkiRustLib {
     header "anki_bridge.h"
     export *
 }
 MODULEMAP
 
-    cat > "$fw/Info.plist" <<PLIST
+    cat > "$plist_path" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -100,7 +128,15 @@ MODULEMAP
 </plist>
 PLIST
 
-    echo "==> $slice: $(du -h "$fw/AnkiRustLib" | cut -f1)"
+    if [ "$versioned" = "versioned" ]; then
+        ln -s A "$fw/Versions/Current"
+        ln -s Versions/Current/AnkiRustLib "$fw/AnkiRustLib"
+        ln -s Versions/Current/Headers "$fw/Headers"
+        ln -s Versions/Current/Modules "$fw/Modules"
+        ln -s Versions/Current/Resources "$fw/Resources"
+    fi
+
+    echo "==> $slice: $(du -h "$bin_dir/AnkiRustLib" | cut -f1)"
 }
 
 echo "==> Staging frameworks..."
@@ -108,6 +144,7 @@ rm -rf "$STAGE_DIR"
 make_framework aarch64-apple-ios            ios-device  iPhoneOS        "$IPHONEOS_DEPLOYMENT_TARGET"
 make_framework aarch64-apple-ios-sim        ios-sim     iPhoneSimulator "$IPHONEOS_DEPLOYMENT_TARGET"
 make_framework aarch64-apple-watchos-sim    watchos-sim WatchSimulator  "$WATCHOS_DEPLOYMENT_TARGET"
+make_framework aarch64-apple-darwin         macos       MacOSX          "$MACOSX_DEPLOYMENT_TARGET" versioned
 
 echo "==> Packaging XCFramework..."
 rm -rf "$OUTPUT_DIR"
@@ -115,6 +152,7 @@ xcodebuild -create-xcframework \
     -framework "$STAGE_DIR/ios-device/AnkiRustLib.framework" \
     -framework "$STAGE_DIR/ios-sim/AnkiRustLib.framework" \
     -framework "$STAGE_DIR/watchos-sim/AnkiRustLib.framework" \
+    -framework "$STAGE_DIR/macos/AnkiRustLib.framework" \
     -output "$OUTPUT_DIR"
 
 echo "==> Done! XCFramework at: $OUTPUT_DIR"

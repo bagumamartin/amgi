@@ -1,5 +1,6 @@
 import AmgiUI
 import AnkiKit
+import Foundation
 
 /// Review volume inferred from the synced collection (revlog via graphs).
 /// Not local open-counts — those cannot travel with Anki sync.

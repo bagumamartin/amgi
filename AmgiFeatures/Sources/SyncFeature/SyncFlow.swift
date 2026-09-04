@@ -38,6 +38,9 @@ private struct SyncFlowModifier: ViewModifier {
                 toast.handle(newState)
                 if case .success = newState { store.invalidateAll() }
             }
+            .onReceive(NotificationCenter.default.publisher(for: .amgiPresentSync)) { _ in
+                SyncAction(toast: toast)()
+            }
             .syncToastOverlay(toast.toast)
     }
 }

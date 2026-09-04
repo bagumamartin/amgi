@@ -20,10 +20,16 @@ enum BrowseSource: Hashable {
 
 /// Where Browse hands the window back on macOS. Browse replaces the root
 /// sidebar while it's active, so the way out lives in its own sidebar header.
-struct BrowseExit {
-    let title: String
-    let systemImage: String
-    let action: () -> Void
+package struct BrowseExit {
+    package let title: String
+    package let systemImage: String
+    package let action: () -> Void
+
+    package init(title: String, systemImage: String, action: @escaping () -> Void) {
+        self.title = title
+        self.systemImage = systemImage
+        self.action = action
+    }
 }
 
 /// Leading column: deck tree, tags, and saved searches — Mail's mailbox list.

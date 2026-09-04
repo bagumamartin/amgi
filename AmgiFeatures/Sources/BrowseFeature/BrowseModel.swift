@@ -1,4 +1,5 @@
 import AmgiAppCore
+import AmgiAppShared
 import AnkiBackend
 import AnkiProtoBridge
 import AnkiClients
@@ -6,6 +7,7 @@ import AnkiKit
 import AnkiServices
 import Dependencies
 import Foundation
+import os
 
 /// Data state + load/search/mutation logic for the Browse screen (spec §4.4,
 /// phase 2). The View owns navigation/sheets/toolbar; this model owns I/O.
@@ -358,7 +360,6 @@ final class BrowseModel {
         // ("Levelling" vs "leveling") dead-ended at zero results.
         kickOffSemanticIndexBuild()
         // Search itself is driven by BrowseView `.task(id: searchIdentity)`.
-    }
     }
 
     /// Row onAppear hook: extend the visible window toward the user.

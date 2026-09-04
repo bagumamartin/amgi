@@ -1,4 +1,5 @@
 public import SwiftUI
+import AmgiUI
 
 /// Destinations the account menu can push onto a root stack.
 public enum AccountMenuDestination: Hashable, Sendable {

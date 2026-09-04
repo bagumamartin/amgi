@@ -1,7 +1,9 @@
 package import SwiftUI
+import AmgiAppShared
 import AmgiUI
 import AnkiKit
 import AnkiClients
+import AnkiServices
 import Dependencies
 import AmgiTheme
 

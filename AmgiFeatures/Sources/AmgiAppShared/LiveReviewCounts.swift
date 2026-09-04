@@ -1,7 +1,7 @@
-import AnkiKit
-import Dependencies
-import Foundation
-import Observation
+public import AnkiKit
+public import Dependencies
+public import Foundation
+public import Observation
 
 /// One published snapshot of an active review session's queue counts.
 ///
@@ -31,7 +31,7 @@ public struct LiveReviewSnapshot: Equatable, Sendable {
 @Observable
 @MainActor
 public final class LiveReviewCounts {
-    private(set) var snapshot: LiveReviewSnapshot?
+    package private(set) var snapshot: LiveReviewSnapshot?
 
     public func publish(sessionID: UUID, baseline: DeckCounts, live: DeckCounts) {
         snapshot = LiveReviewSnapshot(sessionID: sessionID, baseline: baseline, live: live)

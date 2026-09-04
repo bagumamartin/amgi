@@ -2,9 +2,13 @@ import AmgiAppCore
 import OSLog
 import SwiftUI
 import WebKit
-import UIKit
 import AVFoundation
 import AmgiCardWeb
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 
 extension CardWebView {
     /// Builds the static HTML frame page (no card content). Card HTML is injected
@@ -238,23 +242,36 @@ extension CardWebView {
     }
 
     private static func makeAudioButtonIconHTML(systemName: String, alt: String, isDarkMode: Bool) -> String {
+        #if canImport(UIKit)
         let configuration = UIImage.SymbolConfiguration(pointSize: 24, weight: .regular, scale: .medium)
         let tint = isDarkMode ? UIColor.white : UIColor(red: 26 / 255, green: 26 / 255, blue: 26 / 255, alpha: 1)
         guard let baseImage = UIImage(systemName: systemName, withConfiguration: configuration) else {
             return alt
         }
-
         let image = baseImage.withTintColor(tint, renderingMode: .alwaysOriginal)
         let renderer = UIGraphicsImageRenderer(size: image.size)
         let rendered = renderer.image { _ in
             image.draw(at: .zero)
         }
-
         guard let data = rendered.pngData() else {
             return alt
         }
-
         return "<img class=\"amgi-inline-icon\" src=\"data:image/png;base64,\(data.base64EncodedString())\" alt=\"\(alt)\" draggable=\"false\" style=\"width:28px;height:28px;max-width:none;display:block;flex:none;\" />"
+        #elseif canImport(AppKit)
+        let config = NSImage.SymbolConfiguration(pointSize: 24, weight: .regular)
+        guard let image = NSImage(systemSymbolName: systemName, accessibilityDescription: alt)?
+            .withSymbolConfiguration(config) else {
+            return alt
+        }
+        guard let tiff = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiff),
+              let data = bitmap.representation(using: .png, properties: [:]) else {
+            return alt
+        }
+        return "<img class=\"amgi-inline-icon\" src=\"data:image/png;base64,\(data.base64EncodedString())\" alt=\"\(alt)\" draggable=\"false\" style=\"width:28px;height:28px;max-width:none;display:block;flex:none;\" />"
+        #else
+        return alt
+        #endif
     }
 
     static func jsStringLiteral(_ value: String) -> String {
@@ -285,6 +302,7 @@ extension CardWebView {
     static func htmlClasses(isDarkMode: Bool) -> String {
         var classes: [String] = []
 
+        #if os(iOS)
         switch UIDevice.current.userInterfaceIdiom {
         case .pad:
             classes.append("ios")
@@ -297,6 +315,9 @@ extension CardWebView {
         default:
             break
         }
+        #else
+        classes.append("mac")
+        #endif
 
         if isDarkMode {
             classes.append("nightMode")

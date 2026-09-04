@@ -54,7 +54,9 @@ package struct DeckListView: View {
         .navigationTitle("Library")
         .navigationDestination(item: $pendingDeck) { deck in
             DeckDetailView(deck: deck)
+                #if os(iOS)
                 .navigationTransition(.zoom(sourceID: deck.id.rawValue, in: deckTransition))
+                #endif
         }
         .toolbar { toolbarContent }
         .sheet(isPresented: $showCreateSheet) {
@@ -71,13 +73,11 @@ package struct DeckListView: View {
         // sync, import, review-end) re-runs the load; `.task` still cancels
         // on disappear.
         .task(id: store.generation) { await model.load() }
+        .accountMenu()
     }
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            ProfilePickerMenu(onSwitch: onSwitchProfile)
-        }
         ToolbarItem(placement: .topBarTrailing) {
             // `BrowseView` owns its own title and search field and expects to be
             // pushed, so a plain NavigationLink is the whole wiring — no route

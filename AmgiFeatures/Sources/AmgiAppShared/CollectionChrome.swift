@@ -1,9 +1,11 @@
 // AmgiApp/Sources/Shared/CollectionChrome.swift
-import SwiftUI
+package import SwiftUI
+import AmgiUI
 import AmgiTheme
 import AnkiKit
 import AnkiClients
 import Dependencies
+public import Foundation
 
 // MARK: - Engine undo monitor
 
@@ -33,12 +35,13 @@ final class EngineUndoMonitor {
     }
 }
 
-/// Reusable engine-undo glyph (chrome cluster + any bespoke placement).
-struct EngineUndoButton: View {
+package struct EngineUndoButton: View {
     @State private var monitor = EngineUndoMonitor()
     @Dependency(\.collectionStore) private var store
 
-    var body: some View {
+    package init() {}
+
+    package var body: some View {
         Button {
             Task { await monitor.undoNow() }
         } label: {
@@ -53,12 +56,21 @@ struct EngineUndoButton: View {
 
 // MARK: - Sync
 
+extension Notification.Name {
+    /// Posted by `SyncToolbarButton`. Observed by `.syncFlow()` so every
+    /// screen can fire the same preflight/sync sheet without importing
+    /// SyncFeature (AmgiAppShared cannot).
+    public static let amgiPresentSync = Notification.Name("amgiPresentSync")
+}
+
 /// Standalone sync affordance for screens whose trailing slot carries the
 /// ever-present sync glyph. Posts the app-wide `.amgiPresentSync` rail
-/// consumed by ContentView, so every concerned screen reaches the same
+/// consumed by `.syncFlow()`, so every concerned screen reaches the same
 /// preflight/sync sheet without new plumbing.
-struct SyncToolbarButton: View {
-    var body: some View {
+package struct SyncToolbarButton: View {
+    package init() {}
+
+    package var body: some View {
         Button {
             NotificationCenter.default.post(name: .amgiPresentSync, object: nil)
         } label: {
@@ -88,7 +100,7 @@ extension View {
     /// toolbar field (Mail / Anki Desktop parity). `searchToolbarBehavior`
     /// is documented for macOS 26; opting in is a one-line change later.
     @ViewBuilder
-    func searchMinimizedIfAvailable() -> some View {
+    package func searchMinimizedIfAvailable() -> some View {
         #if os(iOS)
         if #available(iOS 26.0, *) {
             self.searchToolbarBehavior(.minimize)
@@ -103,7 +115,7 @@ extension View {
     /// iOS 26 shrinks the tab bar on scroll, matching Music. No-op on
     /// earlier iOS and on macOS (which does not use this `TabView`).
     @ViewBuilder
-    func tabBarMinimizedOnScrollIfAvailable() -> some View {
+    package func tabBarMinimizedOnScrollIfAvailable() -> some View {
         #if os(iOS)
         if #available(iOS 26.0, *) {
             self.tabBarMinimizeBehavior(.onScrollDown)

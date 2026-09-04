@@ -7,6 +7,7 @@ import Dependencies
 import CasePaths
 import SwiftNavigation
 import SwiftUINavigation
+import AmgiUI
 
 /// Local `.colpkg` backups of the active profile's collection. Each backup
 /// is a timestamped copy stored under `Documents/Backups for <profile>/`.

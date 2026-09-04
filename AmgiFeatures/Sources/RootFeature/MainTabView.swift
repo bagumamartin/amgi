@@ -1,4 +1,5 @@
 import AmgiAppCore
+import AmgiAppShared
 import AnkiKit
 import BrowseFeature
 import DecksFeature
@@ -7,6 +8,7 @@ import SettingsFeature
 import Sharing
 import StatsFeature
 import SwiftUI
+import AmgiUI
 import SyncFeature
 
 /// The app's top-level sections. Shared by the iOS tab bar and the macOS

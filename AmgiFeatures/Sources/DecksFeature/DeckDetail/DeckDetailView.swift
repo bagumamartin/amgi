@@ -1,4 +1,5 @@
 import SwiftUI
+import AmgiAppCore
 import AmgiAppShared
 import AmgiTheme
 import AmgiUI
@@ -6,6 +7,7 @@ import AnkiKit
 import AnkiClients
 import Dependencies
 import BrowseFeature
+import ReviewFeature
 import Sharing
 
 /// Owns the `DeckDetailModel` (data state) and a single `Destination?`

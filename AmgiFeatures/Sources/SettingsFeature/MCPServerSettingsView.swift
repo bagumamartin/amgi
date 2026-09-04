@@ -1,6 +1,11 @@
 import AmgiTheme
+import AmgiUI
+import AmgiAppCore
 import AnkiKit
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 /// Agent access settings — deliberately free of implementation
 /// vocabulary. From the user's point of view there is no "helper",

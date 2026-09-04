@@ -1,6 +1,10 @@
 import AmgiTheme
 import SwiftUI
+#if canImport(UIKit)
 import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 
 // MARK: - Undo
 
@@ -69,14 +73,41 @@ extension ImageOcclusionWorkspaceModel {
     }
 
     func color(from hex: String?, fallback: Color) -> Color {
-        guard let hex, let color = UIColor(amgiHex: hex) else {
+        guard let hex else { return fallback }
+        var trimmed = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("#") { trimmed.removeFirst() }
+        guard let value = UInt64(trimmed, radix: 16) else { return fallback }
+        let r, g, b, a: Double
+        switch trimmed.count {
+        case 6:
+            r = Double((value >> 16) & 0xFF) / 255
+            g = Double((value >> 8) & 0xFF) / 255
+            b = Double(value & 0xFF) / 255
+            a = 1
+        case 8:
+            r = Double((value >> 24) & 0xFF) / 255
+            g = Double((value >> 16) & 0xFF) / 255
+            b = Double((value >> 8) & 0xFF) / 255
+            a = Double(value & 0xFF) / 255
+        default:
             return fallback
         }
-        return Color(uiColor: color)
+        return Color(red: r, green: g, blue: b, opacity: a)
     }
 
     func hexString(for color: Color) -> String {
+        #if canImport(UIKit)
         UIColor(color).amgiHexString(includeAlpha: true)
+        #elseif canImport(AppKit)
+        NSColor(color).usingColorSpace(.sRGB).map { ns in
+            func channel(_ value: CGFloat) -> Int { min(255, max(0, Int((value * 255).rounded()))) }
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 1
+            ns.getRed(&r, green: &g, blue: &b, alpha: &a)
+            return String(format: "%02X%02X%02X%02X", channel(r), channel(g), channel(b), channel(a))
+        } ?? "000000FF"
+        #else
+        "000000FF"
+        #endif
     }
 
     func normalizedBounds(for mask: IOMask) -> CGRect {
@@ -101,7 +132,12 @@ extension ImageOcclusionWorkspaceModel {
 
     func normalizedTextSize(text: String, scale: CGFloat, fontSize: CGFloat) -> CGSize {
         let resolvedSize = max(14, image.size.height * max(fontSize, 0.02) * max(scale, 1))
-        let attrs: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: resolvedSize, weight: .semibold)]
+        #if canImport(UIKit)
+        let font = UIFont.systemFont(ofSize: resolvedSize, weight: .semibold)
+        #else
+        let font = NSFont.systemFont(ofSize: resolvedSize, weight: .semibold)
+        #endif
+        let attrs: [NSAttributedString.Key: Any] = [.font: font]
         let textSize = (text as NSString).size(withAttributes: attrs)
         return CGSize(
             width: min(1, (textSize.width + 20) / max(image.size.width, 1)),

@@ -21,8 +21,8 @@ import AppKit
 /// filled by the first `applyCardUpdate`. A frame loaded under a stale
 /// appearance self-heals through the existing page-signature reload.
 @MainActor
-final class CardWebViewPrewarmer {
-    static let shared = CardWebViewPrewarmer()
+package final class CardWebViewPrewarmer {
+    package static let shared = CardWebViewPrewarmer()
 
     private var stored: CardWebViewCoordinator?
     private var isPrewarming = false
@@ -59,7 +59,7 @@ final class CardWebViewPrewarmer {
     /// Idempotent and cheap to call from any screen-appear path: the WKWebView
     /// object is created synchronously (trivial cost), while the expensive
     /// process spawns happen out-of-process and never block the main thread.
-    func prewarmIfNeeded() {
+    package func prewarmIfNeeded() {
         guard stored == nil, !isPrewarming else { return }
         isPrewarming = true
         defer { isPrewarming = false }

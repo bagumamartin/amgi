@@ -1,12 +1,11 @@
 import SwiftUI
-import UIKit
 import AmgiTheme
 import AmgiUI
 
 // MARK: - imageOcclusionPreviewHeight
 
 @MainActor
-func imageOcclusionPreviewHeight(for image: UIImage, width: CGFloat) -> CGFloat {
+func imageOcclusionPreviewHeight(for image: PlatformImage, width: CGFloat) -> CGFloat {
     let ratio = image.size.height / max(image.size.width, 1)
     let idealHeight = width * ratio
     return min(max(idealHeight, 180), 260)
@@ -16,7 +15,7 @@ func imageOcclusionPreviewHeight(for image: UIImage, width: CGFloat) -> CGFloat 
 
 struct ImageOcclusionMaskSummaryCard: View {
     @Environment(\.palette) private var palette
-    let image: UIImage
+    let image: PlatformImage
     let masks: [IOMask]
     let action: () -> Void
     @State private var canvasWidth: CGFloat = 0

@@ -1,3 +1,4 @@
+#if os(iOS)
 import AmgiReader
 import AmgiTheme
 import AmgiAppCore
@@ -266,3 +267,200 @@ extension ChapterWebView.Coordinator {
         }
     }
 }
+#endif
+
+#if os(macOS)
+import AmgiReader
+import AmgiTheme
+import AmgiAppCore
+import Sharing
+import SwiftUI
+import WebKit
+
+struct ChapterWebView: NSViewRepresentable {
+    let html: String
+    let initialProgress: Double?
+    @Binding var progress: Double
+    let onTapLookup: ((String) -> Void)?
+    let onSelectionForNote: ((String) -> Void)?
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(
+            progress: $progress,
+            onTapLookup: onTapLookup,
+            onSelectionForNote: onSelectionForNote
+        )
+    }
+
+    func makeNSView(context: Context) -> WKWebView {
+        let config = WKWebViewConfiguration()
+        let userContent = WKUserContentController()
+        userContent.add(context.coordinator, name: "amgiScroll")
+        userContent.addUserScript(WKUserScript(
+            source: Self.scrollScript,
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        ))
+        if onTapLookup != nil {
+            userContent.add(context.coordinator, name: "amgiLookup")
+            userContent.addUserScript(WKUserScript(
+                source: Self.tapScript,
+                injectionTime: .atDocumentEnd,
+                forMainFrameOnly: true
+            ))
+        }
+        config.userContentController = userContent
+
+        let webView = WKWebView(frame: .zero, configuration: config)
+        webView.navigationDelegate = context.coordinator
+        webView.setValue(false, forKey: "drawsBackground")
+        context.coordinator.attach(webView: webView)
+        return webView
+    }
+
+    func updateNSView(_ webView: WKWebView, context: Context) {
+        context.coordinator.pendingInitialProgress = initialProgress
+        guard !html.isEmpty else { return }
+        if context.coordinator.loadedHTML != html {
+            context.coordinator.loadedHTML = html
+            context.coordinator.didFinishLoad = false
+            context.coordinator.didApplyInitialProgress = false
+            webView.loadHTMLString(html, baseURL: nil)
+        } else {
+            context.coordinator.applyPendingInitialProgressIfLoaded()
+        }
+    }
+
+    static func dismantleNSView(_ nsView: WKWebView, coordinator: Coordinator) {
+        coordinator.detach()
+    }
+
+    private static let scrollScript = """
+        window.addEventListener('scroll', function() {
+          const usable = document.documentElement.scrollHeight - window.innerHeight;
+          const fraction = usable > 1 ? Math.min(Math.max(window.scrollY / usable, 0), 1) : 0;
+          window.webkit.messageHandlers.amgiScroll.postMessage(fraction);
+        }, {passive: true});
+        """
+
+    private static let tapScript = """
+        document.addEventListener('click', function(e) {
+          const sel = window.getSelection();
+          if (sel && sel.toString().length > 0) { return; }
+          const range = document.caretRangeFromPoint(e.clientX, e.clientY);
+          if (!range) { return; }
+          let phrase = '';
+          let node = range.startContainer;
+          let offset = range.startOffset;
+          while (node && phrase.length < 96) {
+            if (node.nodeType === Node.TEXT_NODE) {
+              const t = node.nodeValue || '';
+              phrase += t.substring(offset);
+              offset = 0;
+            }
+            if (node.firstChild) {
+              node = node.firstChild;
+            } else {
+              while (node && !node.nextSibling) { node = node.parentNode; }
+              node = node && node.nextSibling;
+            }
+          }
+          phrase = phrase.replace(/\\s+/g, ' ').trim();
+          if (phrase.length === 0) { return; }
+          if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+            try {
+              const seg = new Intl.Segmenter('und', { granularity: 'sentence' });
+              const first = seg.segment(phrase)[Symbol.iterator]().next();
+              if (first.value && first.value.segment) {
+                phrase = first.value.segment.trim();
+              }
+            } catch (err) {}
+          }
+          if (phrase.length > 0) {
+            window.webkit.messageHandlers.amgiLookup.postMessage(phrase);
+          }
+        }, true);
+        """
+
+    final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
+        var pendingInitialProgress: Double?
+        var loadedHTML: String?
+        var didFinishLoad = false
+        var didApplyInitialProgress = false
+        @Binding var progress: Double
+        let onTapLookup: ((String) -> Void)?
+        let onSelectionForNote: ((String) -> Void)?
+        private weak var webView: WKWebView?
+        private var selectionObserver: (any NSObjectProtocol)?
+
+        init(
+            progress: Binding<Double>,
+            onTapLookup: ((String) -> Void)?,
+            onSelectionForNote: ((String) -> Void)?
+        ) {
+            self._progress = progress
+            self.onTapLookup = onTapLookup
+            self.onSelectionForNote = onSelectionForNote
+        }
+
+        func attach(webView: WKWebView) {
+            self.webView = webView
+            selectionObserver = NotificationCenter.default.addObserver(
+                forName: .amgiReaderRequestSelection,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.fetchSelection() }
+            }
+        }
+
+        func detach() {
+            if let observer = selectionObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
+            selectionObserver = nil
+            webView = nil
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            didFinishLoad = true
+            applyPendingInitialProgressIfLoaded()
+        }
+
+        func applyPendingInitialProgressIfLoaded() {
+            guard didFinishLoad, !didApplyInitialProgress,
+                  let target = pendingInitialProgress else { return }
+            didApplyInitialProgress = true
+            pendingInitialProgress = nil
+            guard target > 0 else { return }
+            webView?.evaluateJavaScript(
+                "window.scrollTo(0, (document.documentElement.scrollHeight - window.innerHeight) * \(target));"
+            )
+        }
+
+        func userContentController(
+            _ userContentController: WKUserContentController,
+            didReceive message: WKScriptMessage
+        ) {
+            if message.name == "amgiScroll", let value = message.body as? Double {
+                progress = min(max(value, 0), 1)
+                return
+            }
+            guard message.name == "amgiLookup",
+                  let phrase = message.body as? String,
+                  !phrase.isEmpty else { return }
+            onTapLookup?(phrase)
+        }
+
+        func fetchSelection() {
+            guard let webView, let onSelectionForNote else { return }
+            webView.evaluateJavaScript("window.getSelection().toString()") { result, _ in
+                guard let text = result as? String else { return }
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return }
+                onSelectionForNote(trimmed)
+            }
+        }
+    }
+}
+#endif

@@ -119,6 +119,7 @@ struct ReviewContent: View {
                 noteId: session.currentNote?.id,
                 confirmDeleteNote: $confirmDeleteNote
             )
+            #if os(iOS)
             .toolbarBackground(
                 autoMatchCardBackground ? session.cardChromeColor : Color.clear,
                 for: .navigationBar
@@ -131,6 +132,7 @@ struct ReviewContent: View {
                 autoMatchCardBackground && session.cardChromeIsDark ? .dark : .light,
                 for: .navigationBar
             )
+            #endif
             .sheet(item: $destination.editNote) { note in
                 NavigationStack {
                     NoteEditorView(note: note) {

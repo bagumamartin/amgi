@@ -73,6 +73,7 @@ let package = Package(
     products: [
         .library(name: "AnkiKit", targets: ["AnkiKit"]),
         .library(name: "AnkiBackend", targets: ["AnkiBackend"]),
+        .library(name: "AnkiProtoBridge", targets: ["AnkiProtoBridge"]),
         .library(name: "AnkiServices", targets: ["AnkiServices"]),
         .library(name: "AnkiClients", targets: ["AnkiClients"]),
         .library(name: "AnkiSync", targets: ["AnkiSync"]),

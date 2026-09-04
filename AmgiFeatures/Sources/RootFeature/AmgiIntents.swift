@@ -3,6 +3,7 @@ import AnkiServices
 import AnkiKit
 import AppIntents
 import Foundation
+import SettingsFeature
 import SwiftUI
 
 // MARK: - Due count

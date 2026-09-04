@@ -472,7 +472,7 @@ private extension OcclusionCanvasNSView {
             let angle = angleRadians(for: mask)
             let attrs: [NSAttributedString.Key: Any] = [
                 .font: textFont(scale: scale, fontSize: fontSize, imgRect: imgRect),
-                .foregroundColor: IOColorHex.parse(mask.extras["fill"] ?? "") ?? NSColor.labelColor
+                .foregroundColor: NSColor(amgiHex: mask.extras["fill"] ?? "") ?? NSColor.labelColor
             ]
 
             ctx.saveGState()
@@ -537,7 +537,7 @@ private extension OcclusionCanvasNSView {
 
     func maskFillColor(for mask: IOMask) -> PlatformColor? {
         guard let fill = mask.extras["fill"] else { return nil }
-        guard let color = IOColorHex.parse(fill) else { return nil }
+        guard let color = NSColor(amgiHex: fill) else { return nil }
         return color.withAlphaComponent(maskOpacity)
     }
 
@@ -1446,6 +1446,30 @@ private final class IOCenteringClipView: NSClipView {
             bounds.origin.y = (docFrame.height - bounds.height) / 2
         }
         return bounds
+    }
+}
+
+private extension NSColor {
+    convenience init?(amgiHex hex: String) {
+        var trimmed = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("#") { trimmed.removeFirst() }
+        guard trimmed.count == 6 || trimmed.count == 8,
+              let value = UInt64(trimmed, radix: 16) else {
+            return nil
+        }
+        let red, green, blue, alpha: CGFloat
+        if trimmed.count == 8 {
+            red = CGFloat((value & 0xFF00_0000) >> 24) / 255
+            green = CGFloat((value & 0x00FF_0000) >> 16) / 255
+            blue = CGFloat((value & 0x0000_FF00) >> 8) / 255
+            alpha = CGFloat(value & 0x0000_00FF) / 255
+        } else {
+            red = CGFloat((value & 0xFF_0000) >> 16) / 255
+            green = CGFloat((value & 0x00_FF00) >> 8) / 255
+            blue = CGFloat(value & 0x00_00FF) / 255
+            alpha = 1
+        }
+        self.init(srgbRed: red, green: green, blue: blue, alpha: alpha)
     }
 }
 

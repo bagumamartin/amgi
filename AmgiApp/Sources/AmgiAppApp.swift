@@ -9,5 +9,5 @@ import RootFeature
 @main
 struct AnkiAppApp: App {
     init() { AmgiRoot.bootstrap() }
-    var body: some Scene { WindowGroup { RootView() } }
+    var body: some Scene { AmgiRoot.scenes }
 }

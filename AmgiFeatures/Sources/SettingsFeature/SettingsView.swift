@@ -41,7 +41,9 @@ package struct SettingsView: View {
             .padding(.bottom, AmgiSpacing.xl)
         }
         .background(palette.background)
+        #if os(iOS)
         .toolbarVisibility(.hidden, for: .navigationBar)
+        #endif
     }
 
     // MARK: - Title

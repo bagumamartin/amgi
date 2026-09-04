@@ -1,5 +1,7 @@
 import SwiftUI
+#if os(iOS)
 import UIKit
+#endif
 
 // MARK: - IOCanvasZoomCommand
 
@@ -8,6 +10,8 @@ enum IOCanvasZoomCommand {
     case zoomOut
     case fit
 }
+
+#if os(iOS)
 
 // MARK: - ZoomableOcclusionCanvasView
 
@@ -169,3 +173,4 @@ private extension ZoomableOcclusionCanvasContainer {
         canvasView.frame = frame
     }
 }
+#endif

@@ -69,9 +69,6 @@ final class EngineHolder: Sendable {
                     mediaFolderPath: paths.mediaFolderPath,
                     mediaDbPath: paths.mediaDbPath
                 )
-                // Best-effort integrity pass; individual calls surface
-                // any real problem.
-                try? backend.checkDatabase()
                 state.localBackend = backend
                 state.lastError = nil
                 return EngineCaller(kind: .local(backend))

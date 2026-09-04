@@ -1,4 +1,4 @@
-import AnkiKit
+package import AnkiKit
 import Dependencies
 import Foundation
 import Observation
@@ -9,19 +9,19 @@ import Observation
 /// the request until the scene activates and the host view consumes it.
 @MainActor
 @Observable
-final class IntentRouter {
-    static let shared = IntentRouter()
+package final class IntentRouter {
+    package static let shared = IntentRouter()
 
     /// Deck to drop straight into review for.
-    private(set) var pendingReviewDeckID: DeckID?
+    package private(set) var pendingReviewDeckID: DeckID?
 
     /// Hand off and clear. Called by the app host on scene activation.
-    func consumePendingReviewDeck() -> DeckID? {
+    package func consumePendingReviewDeck() -> DeckID? {
         defer { pendingReviewDeckID = nil }
         return pendingReviewDeckID
     }
 
-    func requestReview(deckID: DeckID?) {
+    package func requestReview(deckID: DeckID?) {
         pendingReviewDeckID = deckID ?? DeckID(0)  // 0 = "no specific deck"
     }
 }

@@ -1,5 +1,9 @@
 import SwiftUI
+#if canImport(UIKit)
 import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 import AmgiTheme
 import AmgiUI
 import SwiftUINavigation
@@ -47,7 +51,7 @@ struct ImageOcclusionWorkspaceView: View {
     @State private var zoomCommand: IOCanvasZoomCommand = .fit
     @State private var zoomCommandID = 0
 
-    init(title: String, image: UIImage, initialMasks: [IOMask], onSave: @escaping ([IOMask]) -> Void) {
+    init(title: String, image: PlatformImage, initialMasks: [IOMask], onSave: @escaping ([IOMask]) -> Void) {
         self.title = title
         self.onSave = onSave
         _model = State(initialValue: ImageOcclusionWorkspaceModel(image: image, initialMasks: initialMasks))
@@ -69,7 +73,9 @@ struct ImageOcclusionWorkspaceView: View {
 
             canvas
         }
+        #if os(iOS)
         .toolbarVisibility(.hidden, for: .tabBar)
+        #endif
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { workspaceToolbar }
@@ -526,7 +532,7 @@ private struct IOToolbarIcon: View {
     var body: some View {
         // Only the one caller that passes a fallback pays for the lookup;
         // probing `UIImage(systemName:)` for the rest just discards the result.
-        let resolvedSymbol = if let fallbackSystemImage, UIImage(systemName: systemImage) == nil {
+        let resolvedSymbol = if let fallbackSystemImage, !isSystemImageAvailable(systemImage) {
             fallbackSystemImage
         } else {
             systemImage
@@ -536,4 +542,14 @@ private struct IOToolbarIcon: View {
             .font(.system(size: 13, weight: .semibold))
             .amgiToolbarIconButton(size: 30)
     }
+}
+
+private func isSystemImageAvailable(_ name: String) -> Bool {
+    #if canImport(UIKit)
+    UIImage(systemName: name) != nil
+    #elseif canImport(AppKit)
+    NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil
+    #else
+    true
+    #endif
 }

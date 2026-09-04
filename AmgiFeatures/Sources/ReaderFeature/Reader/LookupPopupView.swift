@@ -7,6 +7,7 @@ import Dependencies
 import BrowseFeature
 import Sharing
 package import SwiftUI
+import AmgiUI
 
 /// Sheet that renders dictionary lookup results for a query. First-pass
 /// scope: plain-text glossaries, frequency strings, pitch positions, and

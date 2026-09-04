@@ -5,6 +5,12 @@ import AnkiClients
 import AnkiServices
 import Dependencies
 import AmgiTheme
+#if canImport(WebKit)
+import WebKit
+#endif
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// Trailing inspector for single selection (spec §5.8): Edit uses the
 /// existing rich editor pipeline, Preview renders the REAL card via the
@@ -119,13 +125,9 @@ struct CardPreviewPane: View {
 
     @ViewBuilder
     private func flipCard(_ rendered: Rendered) -> some View {
-        CardWebView(
+        BrowseCardPreview(
             html: showAnswer ? rendered.backHTML : rendered.frontHTML,
-            cardCSS: rendered.css,
-            autoplayEnabled: false,
-            isAnswerSide: showAnswer,
-            openLinksExternally: true,
-            lookupPopupEnabled: false
+            css: rendered.css
         )
         .frame(minHeight: 220)
         .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.hero))
@@ -254,3 +256,52 @@ struct CardInfoPane: View {
         ["None", "Red", "Orange", "Green", "Blue", "Pink", "Turquoise", "Purple"][Int(flag)]
     }
 }
+
+#if canImport(WebKit)
+import WebKit
+
+/// Inspector-only card preview. Review's `CardWebView` lives in ReviewFeature,
+/// which Browse cannot import (Review → Browse).
+#if os(iOS)
+private struct BrowseCardPreview: UIViewRepresentable {
+    let html: String
+    let css: String
+
+    func makeUIView(context: Context) -> WKWebView {
+        let view = WKWebView()
+        view.isOpaque = false
+        view.backgroundColor = .clear
+        view.scrollView.backgroundColor = .clear
+        return view
+    }
+
+    func updateUIView(_ webView: WKWebView, context: Context) {
+        webView.loadHTMLString(wrapped, baseURL: nil)
+    }
+
+    private var wrapped: String {
+        "<html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><style>\(css)</style></head><body>\(html)</body></html>"
+    }
+}
+#elseif os(macOS)
+private struct BrowseCardPreview: NSViewRepresentable {
+    let html: String
+    let css: String
+
+    func makeNSView(context: Context) -> WKWebView {
+        let view = WKWebView()
+        view.setValue(false, forKey: "drawsBackground")
+        return view
+    }
+
+    func updateNSView(_ webView: WKWebView, context: Context) {
+        webView.loadHTMLString(wrapped, baseURL: nil)
+    }
+
+    private var wrapped: String {
+        "<html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><style>\(css)</style></head><body>\(html)</body></html>"
+    }
+}
+#endif
+#endif
+

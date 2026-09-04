@@ -1,3 +1,4 @@
+#if os(iOS)
 import AmgiTheme
 import SwiftUI
 import UIKit
@@ -149,3 +150,4 @@ struct OcclusionCanvasView: UIViewRepresentable {
         }
     }
 }
+#endif

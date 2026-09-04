@@ -95,7 +95,7 @@ final class StudyLandingModel {
             // 5. Icons paint progressively: manual overrides are dictionary
             //    lookups, semantic suggestions are RPC-backed per row. Same
             //    paint-then-refine pattern as Library.
-            await DeckIconOverrides.refresh()
+            await DeckIconLookup.refresh?()
             var iconRows = deckRows
             await Self.attachIconNames(to: &iconRows)
             if case .loaded(let refreshedSummary, _, let refreshedRecs) = contentState {
@@ -186,7 +186,7 @@ final class StudyLandingModel {
                 .sorted { $0.counts.total > $1.counts.total }
                 .map { makeDeckRow(from: $0) },
             // Manual overrides + cached suggestions paint instantly.
-            iconName: DeckIconOverrides.initialIcon(deckId: node.id.rawValue, name: node.name)
+            iconName: DeckIconLookup.initialIcon?(node.id.rawValue, node.name)
         )
     }
 
@@ -196,9 +196,10 @@ final class StudyLandingModel {
     private static func attachIconNames(to rows: inout [StudyDeckRowData]) async {
         for index in rows.indices {
             let row = rows[index]
-            let iconName = await DeckIconOverrides.resolvedIcon(
-                deckId: row.id,
-                name: row.name
+            let iconName = await DeckIconLookup.resolvedIcon?(
+                row.id,
+                row.name,
+                row.name
             )
             var subdecks = row.subdecks
             await attachIconNames(to: &subdecks)

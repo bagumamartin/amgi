@@ -4,6 +4,7 @@ import AnkiClients
 package import AnkiKit
 import Dependencies
 import SwiftUINavigation
+import AmgiUI
 
 /// View for managing tags in the collection.
 /// When `targetNoteIDs` is non-empty the view acts as a "apply / remove tag"

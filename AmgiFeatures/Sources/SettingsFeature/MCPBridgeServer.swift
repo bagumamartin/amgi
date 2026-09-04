@@ -1,8 +1,11 @@
 #if os(macOS)
+import AmgiAppShared
 import AnkiBackend
 import AnkiKit
 import Dependencies
 import Foundation
+import ReviewFeature
+import SyncFeature
 
 /// Unix-socket bridge that lets amgi-mcp execute RPCs against THIS
 /// process's live engine while the app is running. This is what makes
@@ -20,7 +23,7 @@ import Foundation
 /// MainActor and hang the app at launch — learned the hard way.)
 /// The master switch in Settings → Agent is honored live: each new
 /// connection re-reads mcp.json and is refused when disabled.
-enum MCPBridgeServer {
+package enum MCPBridgeServer {
     /// Methods whose success should refresh the app's UI state. Mirrors
     /// the mutating tools in Sources/AmgiMCP/Tools (see the service
     /// index audit in memory/decisions.md).
@@ -47,7 +50,7 @@ enum MCPBridgeServer {
 
     /// Called once from App.init after prepareDependencies — on the main
     /// actor, where dependency resolution sees the opened backend.
-    static func start() {
+    package static func start() {
 
         @Dependency(\.ankiBackend) var backend
         @Dependency(\.collectionStore) var store
@@ -151,6 +154,8 @@ enum MCPBridgeServer {
                 if frame.mutates || Self.isMutating(frame) {
                     Task { @MainActor in
                         store.invalidateAll(origin: .helperMutation)
+                        @Dependency(\.syncCoordinator) var syncCoordinator
+                        syncCoordinator.requestAutomaticSync(reason: "Agent (MCP) collection change")
                     }
                 }
             } catch {

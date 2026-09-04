@@ -1,5 +1,9 @@
-import SwiftUI
+package import SwiftUI
 import AmgiTheme
+package import AmgiAppCore
+import BrowseFeature
+import TemplatesFeature
+import ReaderFeature
 
 #if os(macOS)
 
@@ -8,14 +12,19 @@ import AmgiTheme
 /// navigation rows. Each pane is an existing settings screen, shown in the
 /// detail column; pushes (e.g. template editor) happen inside a
 /// `NavigationStack` within the detail.
-struct SettingsWindowHost: View {
+package struct SettingsWindowHost: View {
+    package let onSwitchProfile: (AmgiAccount) async -> Void
     @State private var selection: SettingsItem? = .appearance
     @Environment(\.palette) private var palette
 
-    var body: some View {
+    package init(onSwitchProfile: @escaping (AmgiAccount) async -> Void) {
+        self.onSwitchProfile = onSwitchProfile
+    }
+
+    package var body: some View {
         NavigationSplitView {
             List(selection: $selection) {
-                ForEach(SettingsGroup.all) { group in
+                ForEach(SettingsSidebarGroup.all) { group in
                     Section(group.title) {
                         ForEach(group.items) { item in
                             Label(item.title, systemImage: item.systemImage)
@@ -42,7 +51,7 @@ struct SettingsWindowHost: View {
     private func detailView(for item: SettingsItem) -> some View {
         switch item {
         case .appearance: AppearanceSettingsView(manager: .shared)
-        case .profiles: AccountsSettingsView()
+        case .profiles: AccountsSettingsView(onSwitchProfile: onSwitchProfile)
         case .syncServer: SyncSettingsView()
         case .reviewBehavior: ReviewSettingsView()
         case .cardRendering: CardRenderingSettingsView()
@@ -130,22 +139,22 @@ private enum SettingsItem: String, CaseIterable, Identifiable {
 }
 
 /// Sidebar grouping for the Settings source list.
-private struct SettingsGroup: Identifiable {
+private struct SettingsSidebarGroup: Identifiable {
     let title: String
     let items: [SettingsItem]
 
     var id: String { title }
 
-    static let all: [SettingsGroup] = [
-        SettingsGroup(title: "Appearance", items: [.appearance]),
-        SettingsGroup(title: "Account", items: [.profiles, .syncServer]),
-        SettingsGroup(title: "Review", items: [.reviewBehavior, .cardRendering, .shortcuts]),
-        SettingsGroup(title: "Reader", items: [.readerDisplay, .dictionaries]),
-        SettingsGroup(title: "Tags", items: [.tags]),
-        SettingsGroup(title: "Maintenance", items: [.database, .backups, .emptyCards, .mediaCheck]),
-        SettingsGroup(title: "Card Templates", items: [.manageTemplates, .codeEditor]),
-        SettingsGroup(title: "Agent", items: [.agentMCP]),
-        SettingsGroup(title: "About", items: [.about]),
+    static let all: [SettingsSidebarGroup] = [
+        SettingsSidebarGroup(title: "Appearance", items: [.appearance]),
+        SettingsSidebarGroup(title: "Account", items: [.profiles, .syncServer]),
+        SettingsSidebarGroup(title: "Review", items: [.reviewBehavior, .cardRendering, .shortcuts]),
+        SettingsSidebarGroup(title: "Reader", items: [.readerDisplay, .dictionaries]),
+        SettingsSidebarGroup(title: "Tags", items: [.tags]),
+        SettingsSidebarGroup(title: "Maintenance", items: [.database, .backups, .emptyCards, .mediaCheck]),
+        SettingsSidebarGroup(title: "Card Templates", items: [.manageTemplates, .codeEditor]),
+        SettingsSidebarGroup(title: "Agent", items: [.agentMCP]),
+        SettingsSidebarGroup(title: "About", items: [.about]),
     ]
 }
 

@@ -16,21 +16,21 @@ import Observation
 /// freshly pulled blob (`col.conf` syncs last-write-wins at the blob level).
 @MainActor
 @Observable
-final class ProfileIconStore {
-    static let shared = ProfileIconStore()
+package final class ProfileIconStore {
+    package static let shared = ProfileIconStore()
     static let configKey = "amgi.profileIcons"
 
-    private(set) var icons: [String: String] = [:]
+    package private(set) var icons: [String: String] = [:]
 
     private init() {}
 
     /// Emoji for a profile, or nil ⇒ render the default glyph.
-    func icon(for profileID: String) -> String? {
+    package func icon(for profileID: String) -> String? {
         icons[profileID]
     }
 
     /// Re-pulls the blob into the mirror. One cheap RPC; call on screen load.
-    func refresh() async {
+    package func refresh() async {
         @Dependency(\.ankiBackend) var backend
         let stored: [String: String]? = try? backend.getConfigJSONValue(for: Self.configKey)
         icons = stored ?? [:]
@@ -38,7 +38,7 @@ final class ProfileIconStore {
 
     /// Persists an emoji (or clears it back to the default with `nil`) using
     /// fetch → patch → write against a freshly pulled blob.
-    func set(_ emoji: String?, for profileID: String) async {
+    package func set(_ emoji: String?, for profileID: String) async {
         @Dependency(\.ankiBackend) var backend
         let stored: [String: String]? = try? backend.getConfigJSONValue(for: Self.configKey)
         var updated = stored ?? [:]
@@ -57,7 +57,7 @@ final class ProfileIconStore {
 
     /// Accepts `text` only when it begins with an emoji-presentation
     /// character (skin-tone/ZWJ sequences collapse to their first grapheme).
-    static func sanitizedEmoji(from text: String) -> String? {
+    package static func sanitizedEmoji(from text: String) -> String? {
         guard let first = text.trimmingCharacters(in: .whitespacesAndNewlines).first,
               let scalar = first.unicodeScalars.first,
               scalar.properties.isEmoji

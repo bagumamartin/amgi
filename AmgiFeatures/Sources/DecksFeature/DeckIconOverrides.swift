@@ -30,7 +30,7 @@ import Foundation
 /// level — accepted as low-stakes for icons; the per-deck "first prevails"
 /// check inside the fetched blob keeps the common case correct.
 @MainActor
-enum DeckIconOverrides {
+package enum DeckIconOverrides {
     static let configKey = "amgi.deckIcons"
     static let autoConfigKey = "amgi.deckIconsAuto"
 
@@ -61,7 +61,7 @@ enum DeckIconOverrides {
     /// Synchronous best-effort icon for first paint: manual override, else
     /// a synced auto pick made for the current name. Never touches the
     /// model — refine passes fill in whatever this returns nil for.
-    static func initialIcon(deckId: Int64, name: String, fullName: String? = nil) -> String? {
+    package static func initialIcon(deckId: Int64, name: String, fullName: String? = nil) -> String? {
         if let manual = iconName(for: deckId) { return manual }
         guard !DeckIconRendering.hasLeadingEmoji(in: name) else { return nil }
         if let entry = autoMirror[deckId], entry.name == name {
@@ -72,7 +72,7 @@ enum DeckIconOverrides {
 
     /// Re-pulls both blobs from the collection config into the mirrors.
     /// Two cheap RPCs; safe to call on every screen load.
-    static func refresh() async {
+    package static func refresh() async {
         @Dependency(\.ankiBackend) var backend
         let manual: [Int64: String]? = try? backend.getConfigJSONValue(for: configKey)
         mirror = manual ?? [:]
@@ -137,7 +137,7 @@ enum DeckIconOverrides {
     /// manual override → synced auto pick (current name) → compute once and
     /// record (first-to-pick prevails across devices). Emoji-prefixed names
     /// keep the legacy tile unless manually overridden.
-    static func resolvedIcon(
+    package static func resolvedIcon(
         deckId: Int64,
         name: String,
         fullName: String? = nil

@@ -1,3 +1,4 @@
+#if os(iOS)
 import AmgiTheme
 import SwiftUI
 import UIKit
@@ -797,3 +798,4 @@ extension OcclusionCanvasUIView {
         )
     }
 }
+#endif

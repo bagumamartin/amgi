@@ -30,7 +30,6 @@ public final class CollectionStore {
     public nonisolated init() {}
 
     @ObservationIgnored @Dependency(\.deckClient) private var deckClient
-    @ObservationIgnored @Dependency(\.syncCoordinator) private var syncCoordinator
 
     @ObservationIgnored private var cachedTree: [DeckTreeNode]?
     @ObservationIgnored private var cachedGeneration = -1
@@ -62,27 +61,13 @@ public final class CollectionStore {
         return tree
     }
 
-    public func apply(_ changes: CollectionChanges, origin: CollectionChangeOrigin = .localUser) {
+    public func apply(_ changes: CollectionChanges, origin _: CollectionChangeOrigin = .localUser) {
         guard changes.affectsDeckTree else { return }
         generation += 1
-        if origin == .localUser {
-            syncCoordinator.requestAutomaticSync(reason: "Local collection change")
-        } else if origin == .helperMutation {
-            syncCoordinator.requestAutomaticSync(reason: "Agent (MCP) collection change")
-        }
     }
 
-    public func invalidateAll(origin: CollectionChangeOrigin = .refresh) {
+    public func invalidateAll(origin _: CollectionChangeOrigin = .refresh) {
         generation += 1
-        if origin == .localUser {
-            syncCoordinator.requestAutomaticSync(reason: "Local collection change")
-        } else if origin == .helperMutation {
-            syncCoordinator.requestAutomaticSync(reason: "Agent (MCP) collection change")
-        }
-    }
-
-    func markLocalMutation(reason: String) {
-        syncCoordinator.requestAutomaticSync(reason: reason)
     }
 }
 

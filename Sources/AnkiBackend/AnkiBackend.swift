@@ -222,6 +222,13 @@ public final class AnkiBackend: Sendable {
         }
     }
 
+    /// Bytes-in/bytes-out RPC for the in-process MCP bridge. The helper
+    /// already has a framed service/method/payload; this forwards it without
+    /// a typed `Request<R>`.
+    public func performRawCall(service: UInt32, method: UInt32, input: Data) throws -> Data {
+        try callRaw(service: service, method: method, input: input)
+    }
+
     // MARK: - Typed Request invocation (public — preferred entry point)
 
     public func invoke<R>(_ request: Request<R>) throws(BackendError) -> R {

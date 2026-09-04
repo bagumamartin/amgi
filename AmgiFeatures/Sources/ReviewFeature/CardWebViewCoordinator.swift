@@ -1,5 +1,6 @@
 import OSLog
 import AmgiAppCore
+import AmgiAppShared
 import Foundation
 import WebKit
 import SwiftUI

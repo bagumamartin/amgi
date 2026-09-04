@@ -71,7 +71,7 @@ final class DeckListModel {
                     totalDue: rows.reduce(0) { $0 + $1.counts.total },
                     deckCount: rows.count,
                     streak: carried?.hero.streak ?? 0,
-                    last14Days: carried?.hero.last14Days ?? Array(repeating: 0, count: 14)
+                    recentDayTotals: carried?.hero.recentDayTotals ?? Array(repeating: 0, count: HeroData.sparklineCapacity)
                 ),
                 heatmap: carried?.heatmap
             )
@@ -161,7 +161,7 @@ private extension DeckListModel {
                     totalDue: totalDue,
                     deckCount: deckCount,
                     streak: 0,
-                    last14Days: Array(repeating: 0, count: 14)
+                    recentDayTotals: Array(repeating: 0, count: HeroData.sparklineCapacity)
                 ),
                 HeatmapCardData.empty
             )
@@ -171,7 +171,7 @@ private extension DeckListModel {
             totalDue: totalDue,
             deckCount: deckCount,
             streak: StreakCalculator.streak(reviews: reviewCounts, window: graphDays),
-            last14Days: StreakCalculator.lastNDaysTotals(reviews: reviewCounts, days: 14)
+            recentDayTotals: StreakCalculator.lastNDaysTotals(reviews: reviewCounts, days: HeroData.sparklineCapacity)
         )
         return (hero, Self.buildHeatmap(reviews: reviewCounts))
     }

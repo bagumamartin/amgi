@@ -1,6 +1,10 @@
 import AmgiTheme
 import SwiftUI
+#if canImport(UIKit)
 import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 
 
 // MARK: - Supporting types
@@ -62,7 +66,7 @@ enum IOOcclusionMode: CaseIterable {
 @MainActor
 @Observable
 final class ImageOcclusionWorkspaceModel {
-    let image: UIImage
+    let image: PlatformImage
     let initialMasks: [IOMask]
 
     var masks: [IOMask]
@@ -76,7 +80,7 @@ final class ImageOcclusionWorkspaceModel {
 
     private var transformStartSnapshot: IOMaskSnapshot?
 
-    init(image: UIImage, initialMasks: [IOMask]) {
+    init(image: PlatformImage, initialMasks: [IOMask]) {
         self.image = image
         self.initialMasks = initialMasks
         self.masks = initialMasks

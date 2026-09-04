@@ -68,7 +68,7 @@ struct EPUBPageViewControllerHost: NSViewRepresentable {
         var host: EPUBPageViewControllerHost
         private(set) var currentChapterIndex: Int = -1
 
-        private var webView: ChapterWebView!
+        private var webView: EPUBPagingWebView!
         private var didFinishInitialLoad = false
         private var restoreFraction: Double?
         private var pageIndex = 0
@@ -113,7 +113,7 @@ struct EPUBPageViewControllerHost: NSViewRepresentable {
             configuration.userContentController = userContent
             configuration.suppressesIncrementalRendering = false
 
-            let webView = ChapterWebView(frame: .zero, configuration: configuration)
+            let webView = EPUBPagingWebView(frame: .zero, configuration: configuration)
             webView.pagingDelegate = self
             webView.navigationDelegate = self
             // The chapter document paints its own --reader-bg; match the
@@ -388,8 +388,8 @@ struct EPUBPageViewControllerHost: NSViewRepresentable {
 /// WKWebView that routes wheel events to the paging coordinator instead of
 /// letting WebKit free-scroll: page turns snap column-by-column through the
 /// injection JS.
-private final class ChapterWebView: WKWebView {
-    @MainActor weak var pagingDelegate: ChapterWebViewPaging?
+private final class EPUBPagingWebView: WKWebView {
+    @MainActor weak var pagingDelegate: EPUBPagingWebViewDelegate?
 
     override func scrollWheel(with event: NSEvent) {
         pagingDelegate?.webViewDidScroll(event)
@@ -397,11 +397,11 @@ private final class ChapterWebView: WKWebView {
 }
 
 @MainActor
-private protocol ChapterWebViewPaging: AnyObject {
+private protocol EPUBPagingWebViewDelegate: AnyObject {
     func webViewDidScroll(_ event: NSEvent)
 }
 
-extension EPUBPageViewControllerHost.Coordinator: ChapterWebViewPaging {}
+extension EPUBPageViewControllerHost.Coordinator: EPUBPagingWebViewDelegate {}
 
 // MARK: - Hex → NSColor
 

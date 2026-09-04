@@ -3,6 +3,8 @@ public import SwiftUI
 import AmgiAppCore
 #if canImport(UIKit)
 import UIKit
+#elseif canImport(AppKit)
+import AppKit
 #endif
 public import AmgiCardWeb
 import AnkiClients
@@ -330,6 +332,11 @@ public final class ReviewSession {
 #if canImport(UIKit)
     public func updateCardChrome(color: UIColor, isDark: Bool) {
         cardChromeColor = Color(uiColor: color)
+        cardChromeIsDark = isDark
+    }
+#elseif canImport(AppKit)
+    public func updateCardChrome(color: NSColor, isDark: Bool) {
+        cardChromeColor = Color(nsColor: color)
         cardChromeIsDark = isDark
     }
 #endif

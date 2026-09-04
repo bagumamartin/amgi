@@ -1,7 +1,7 @@
-import SwiftUI
+package import SwiftUI
 import AmgiTheme
-import AmgiAppCore
-import AmgiAppShared
+package import AmgiAppCore
+package import AmgiAppShared
 
 /// Compact toolbar menu: switch profile immediately, and open Settings /
 /// Manage Profiles on the enclosing stack via `.accountMenu()`.
@@ -16,7 +16,7 @@ package struct ProfilePickerMenu: View {
     @State private var iconStore = ProfileIconStore.shared
     @Environment(\.palette) private var palette
 
-    init(
+    package init(
         onSwitch: @escaping (AmgiAccount) async -> Void,
         open: Binding<AccountMenuDestination?>
     ) {
@@ -24,7 +24,7 @@ package struct ProfilePickerMenu: View {
         self._open = open
     }
 
-    var body: some View {
+    package var body: some View {
         Menu {
             Section {
                 ForEach(store.accounts) { account in

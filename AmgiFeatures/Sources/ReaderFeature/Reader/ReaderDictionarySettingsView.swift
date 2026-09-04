@@ -5,6 +5,7 @@ import AmgiAppCore
 import Dependencies
 import Sharing
 package import SwiftUI
+import AmgiUI
 import UniformTypeIdentifiers
 
 /// Dictionary library management surface. Lists term / frequency / pitch

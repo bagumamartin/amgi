@@ -85,6 +85,7 @@ let package = Package(
                 .product(name: "AnkiServices", package: "amgi"),
                 .product(name: "AmgiTheme", package: "AmgiUI"),
                 .product(name: "AmgiUI", package: "AmgiUI"),
+                .product(name: "AmgiIcons", package: "AmgiIcons"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
             ],
             swiftSettings: sharedSwiftSettings
