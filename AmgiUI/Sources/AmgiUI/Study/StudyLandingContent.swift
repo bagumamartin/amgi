@@ -4,16 +4,22 @@ import AmgiTheme
 /// Pure rendering surface for the Study landing screen. Owns no I/O.
 /// The container in the app target loads data and maps it to the
 /// single `State` value passed here.
-public struct StudyLandingContent: View {
-    public enum State: Equatable, Sendable {
-        case loading
-        case empty
-        case loaded(
-            summary: StudySummaryData,
-            decks: [StudyDeckRowData],
-            readingRecs: [StudyReadingRecData]
-        )
-    }
+/// Screen state for ``StudyLandingContent``. Lives at file scope because
+/// the content struct gained a generic header-accessory parameter —
+/// nested-type lookups through a generic type would demand inference.
+public enum StudyLandingState: Equatable, Sendable {
+    case loading
+    case empty
+    case loaded(
+        summary: StudySummaryData,
+        decks: [StudyDeckRowData],
+        readingRecs: [StudyReadingRecData]
+    )
+}
+
+public struct StudyLandingContent<HeaderAccessory: View>: View {
+    /// Back-compat spelling of ``StudyLandingState``.
+    public typealias State = StudyLandingState
 
     let state: State
     let onBeginSession: () -> Void
@@ -21,20 +27,42 @@ public struct StudyLandingContent: View {
     let onSelectBook: (String) -> Void
     let onRefresh: () async -> Void
 
+    /// Trailing slot beside the inline title — the app target injects the
+    /// account menu here on iOS where the navigation bar is hidden.
+    let headerAccessory: HeaderAccessory
+
     @Environment(\.palette) private var palette
+    @SwiftUI.State private var expandedIDs: Set<Int64> = []
 
     public init(
         state: State,
+        headerAccessory: HeaderAccessory,
         onBeginSession: @escaping () -> Void,
         onSelectDeck: @escaping (Int64) -> Void,
         onSelectBook: @escaping (String) -> Void,
         onRefresh: @escaping () async -> Void
     ) {
         self.state = state
+        self.headerAccessory = headerAccessory
         self.onBeginSession = onBeginSession
         self.onSelectDeck = onSelectDeck
         self.onSelectBook = onSelectBook
         self.onRefresh = onRefresh
+    }
+
+    /// Back-compat initializer for callers without a header accessory.
+    public init(
+        state: State,
+        onBeginSession: @escaping () -> Void,
+        onSelectDeck: @escaping (Int64) -> Void,
+        onSelectBook: @escaping (String) -> Void,
+        onRefresh: @escaping () async -> Void
+    ) where HeaderAccessory == EmptyView {
+        self.init(
+            state: state, headerAccessory: EmptyView(),
+            onBeginSession: onBeginSession, onSelectDeck: onSelectDeck,
+            onSelectBook: onSelectBook, onRefresh: onRefresh
+        )
     }
 
     public var body: some View {
@@ -81,6 +109,10 @@ public struct StudyLandingContent: View {
                 loadedBody(summary: summary, decks: decks, readingRecs: readingRecs)
                     .padding(.top, 8)
             }
+            // Readable column on wide layouts (Mac window, iPad regular
+            // width); no-op on iPhone where the screen is narrower.
+            .frame(maxWidth: StudyColumn.maxWidth)
+            .frame(maxWidth: .infinity)
             .padding(.horizontal)
             .padding(.bottom, 24)
         }
@@ -90,13 +122,17 @@ public struct StudyLandingContent: View {
     // MARK: - Inline header
 
     private func inlineHeader(summary: StudySummaryData) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(summary.todayLabel)
-                .amgiFont(.displayHero)
-                .foregroundStyle(palette.textPrimary)
-            Text(summary.subtitleLabel)
-                .amgiFont(.caption)
-                .foregroundStyle(palette.textSecondary)
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(summary.todayLabel)
+                    .amgiFont(.displayHero)
+                    .foregroundStyle(palette.textPrimary)
+                Text(summary.subtitleLabel)
+                    .amgiFont(.caption)
+                    .foregroundStyle(palette.textSecondary)
+            }
+            Spacer(minLength: 12)
+            headerAccessory
         }
         .padding(.top, 20)
         .padding(.bottom, 24)
@@ -122,15 +158,17 @@ public struct StudyLandingContent: View {
                     .bold()
             }
             .foregroundStyle(totalDue > 0 ? .white : palette.textSecondary)
-            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 28)
             .padding(.vertical, 14)
+            .frame(maxWidth: 420)
             .background(
                 totalDue > 0 ? palette.accent : palette.accentSoft,
-                in: RoundedRectangle(cornerRadius: AmgiRadius.control, style: .continuous)
+                in: Capsule()
             )
         }
         .buttonStyle(.pressScale)
         .disabled(totalDue == 0)
+        .frame(maxWidth: .infinity)
         .animation(AmgiMotion.standard, value: totalDue)
     }
 
@@ -156,23 +194,21 @@ public struct StudyLandingContent: View {
             VStack(alignment: .leading, spacing: 0) {
                 sectionHeader("Up Next")
                     .padding(.bottom, 4)
-                AmgiCard(
-                    background: .surfaceElevated,
-                    shadow: palette.shadows.sm,
-                    cornerRadius: AmgiRadius.inset,
-                    contentInsets: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0)
-                ) {
-                    VStack(spacing: 0) {
-                        ForEach(decks) { deck in
-                            StudyDeckRow(data: deck) { onSelectDeck(deck.id) }
-                                .padding(.horizontal, 12)
-                            if deck.id != decks.last?.id {
-                                Divider()
-                                    .padding(.leading, 64)
-                            }
-                        }
-                    }
+                VStack(spacing: 0) {
+                    StudyDeckListRows(
+                        decks: decks,
+                        expandedIDs: $expandedIDs,
+                        onSelectDeck: { onSelectDeck($0) }
+                    )
                 }
+                .background(
+                    palette.surfaceElevated,
+                    in: RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous)
+                        .strokeBorder(palette.border, lineWidth: 0.5)
+                )
             }
             .padding(.top, 20)
         }
@@ -206,6 +242,101 @@ public struct StudyLandingContent: View {
     }
 }
 
+// MARK: - Up Next deck list
+
+/// Recursive renderer for the Study "Up Next" deck list. Top-level decks are
+/// rendered at `depth == 0`; each expanded deck reveals its due subdecks
+/// beneath it (indented under the parent name). Hairline dividers separate
+/// sibling rows and match the Library deck-card look.
+private struct StudyDeckListRows: View {
+    let decks: [StudyDeckRowData]
+    let depth: Int
+    @Binding var expandedIDs: Set<Int64>
+    let onSelectDeck: (Int64) -> Void
+
+    @Environment(\.palette) private var palette
+
+    init(
+        decks: [StudyDeckRowData],
+        depth: Int = 0,
+        expandedIDs: Binding<Set<Int64>>,
+        onSelectDeck: @escaping (Int64) -> Void
+    ) {
+        self.decks = decks
+        self.depth = depth
+        self._expandedIDs = expandedIDs
+        self.onSelectDeck = onSelectDeck
+    }
+
+    var body: some View {
+        ForEach(Array(decks.enumerated()), id: \.element.id) { index, deck in
+            deckGroup(deck, isLastInLevel: index == decks.count - 1)
+        }
+    }
+
+    @ViewBuilder
+    private func deckGroup(_ deck: StudyDeckRowData, isLastInLevel: Bool) -> some View {
+        let isExpanded = expandedIDs.contains(deck.id)
+
+        StudyDeckRow(
+            data: deck,
+            depth: depth,
+            isExpanded: isExpanded,
+            onTap: { onSelectDeck(deck.id) },
+            onToggleExpand: { toggle(deck.id) }
+        )
+        .padding(.horizontal, 12)
+
+        if isExpanded && !deck.subdecks.isEmpty {
+            VStack(spacing: 0) {
+                divider
+                StudyDeckListRows(
+                    decks: deck.subdecks,
+                    depth: depth + 1,
+                    expandedIDs: $expandedIDs,
+                    onSelectDeck: onSelectDeck
+                )
+            }
+            .transition(.opacity)
+        }
+
+        if !isLastInLevel {
+            divider
+        }
+    }
+
+    private func toggle(_ id: Int64) {
+        withAnimation(.easeInOut(duration: 0.25)) {
+            if expandedIDs.contains(id) {
+                expandedIDs.remove(id)
+            } else {
+                expandedIDs.insert(id)
+            }
+        }
+    }
+
+    private var divider: some View {
+        Rectangle()
+            .fill(palette.border)
+            .frame(height: 0.5)
+            .padding(.leading, dividerLeading)
+    }
+
+    /// Aligns the hairline with the row name column. Top-level decks and their
+    /// direct subdecks both start their names 64pt in (12 padding + 40 tile +
+    /// 12 spacing); deeper nesting steps in an extra 20pt per level.
+    private var dividerLeading: CGFloat {
+        64 + CGFloat(max(0, depth - 1)) * 20
+    }
+}
+
+/// Study content column width, mirroring the Library column so both screens
+/// read comfortably on regular-width layouts without pinning the scroll
+/// indicator to the column edge.
+private enum StudyColumn {
+    static let maxWidth: CGFloat = 800
+}
+
 // MARK: - Previews
 
 #if DEBUG
@@ -217,12 +348,22 @@ private let busySummary = StudySummaryData(
     reviewCount: 13,
     todayLabel: "Today",
     subtitleLabel: "Wednesday · 3 decks due",
-    deckCount: 3
+    deckCount: 3,
+    reviewedToday: 38,
+    dueBaselineToday: 93
 )
 
 private let busyDecks: [StudyDeckRowData] = [
-    StudyDeckRowData(id: 1, name: "한국어 · Vocab Typing", totalDue: 25,
-                     newCount: 10, learnCount: 8, reviewCount: 7, isFiltered: false),
+    StudyDeckRowData(
+        id: 1, name: "한국어", totalDue: 25,
+        newCount: 10, learnCount: 8, reviewCount: 7, isFiltered: false,
+        subdecks: [
+            StudyDeckRowData(id: 11, name: "Vocab Typing", totalDue: 15,
+                             newCount: 6, learnCount: 5, reviewCount: 4, isFiltered: false),
+            StudyDeckRowData(id: 12, name: "Sentences", totalDue: 10,
+                             newCount: 4, learnCount: 3, reviewCount: 3, isFiltered: false),
+        ]
+    ),
     StudyDeckRowData(id: 2, name: "ComputerScience", totalDue: 17,
                      newCount: 8, learnCount: 5, reviewCount: 4, isFiltered: false),
     StudyDeckRowData(id: 3, name: "Français", totalDue: 13,

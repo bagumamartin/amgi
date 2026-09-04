@@ -71,6 +71,35 @@ package func normalScheduledSecs(_ normal: Anki_Scheduler_SchedulingState.Normal
     }
 }
 
+// MARK: - SchedulingState interval (day-aware)
+
+/// Extracts the next scheduled interval without collapsing review-day counts
+/// into a 24h-second approximation. The rollover-aware graduation check needs
+/// the raw day count for review states and raw seconds for sub-day states.
+package func scheduledInterval(_ state: Anki_Scheduler_SchedulingState) -> ScheduledInterval {
+    switch state.kind {
+    case .normal(let n): return normalScheduledInterval(n)
+    case .filtered(let f):
+        switch f.kind {
+        case .rescheduling(let r): return normalScheduledInterval(r.originalState)
+        case .preview(let p):      return .seconds(p.scheduledSecs)
+        case .none:                return .seconds(0)
+        }
+    case .none:
+        return .seconds(0)
+    }
+}
+
+package func normalScheduledInterval(_ normal: Anki_Scheduler_SchedulingState.Normal) -> ScheduledInterval {
+    switch normal.kind {
+    case .new: return .seconds(0)
+    case .learning(let s):  return .seconds(s.scheduledSecs)
+    case .review(let s):    return .days(s.scheduledDays)
+    case .relearning(let s): return .seconds(s.learning.scheduledSecs)
+    case .none: return .seconds(0)
+    }
+}
+
 // MARK: - Interval formatting
 
 package func formatInterval(_ secs: UInt32) -> String {

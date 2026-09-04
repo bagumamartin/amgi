@@ -6,6 +6,7 @@
 AmgiApp/memory/
 DerivedData/
 build/
+AnkiRust.xcframework/
 AnkiRustLib.xcframework/
 anki-bridge-rs/target/
 anki-upstream/target/
@@ -13,6 +14,7 @@ anki-upstream/target/
 .superpowers/
 /.agent-shell/
 .agents/
+.qwen/
 
 # Local design scratch (mockups, screenshots, JSX prototypes)
 design/
@@ -32,3 +34,11 @@ design/
 
 # xcode-build-benchmark artifacts (local measurement scratch)
 .build-benchmark/
+
+# Python publish artifacts + local helper logs
+python/dist/
+stderr*.log
+
+# CoreML model weights — 224MB, exceeds GitHub limit and public forks
+# reject LFS uploads. Fetch per AmgiIcons/README.md.
+AmgiIcons/Sources/AmgiIcons/Resources/MultilingualE5Small.mlmodelc/

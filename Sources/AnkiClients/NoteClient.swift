@@ -1,4 +1,5 @@
 public import AnkiKit
+public import AnkiProtoBridge
 public import Dependencies
 import DependenciesMacros
 
@@ -15,6 +16,18 @@ public struct NoteClient: Sendable {
     /// placeholders. Slower for large results but required when the
     /// caller reads `flds` immediately.
     public var searchAll: @Sendable (_ query: String, _ limit: Int?) async throws -> [NoteRecord]
+    /// Raw id search with engine-side ordering (browse-redesign-spec D3:
+    /// sorting never happens client-side over paged windows).
+    public var searchIds: @Sendable (_ query: String, _ order: SearchOrder?) async throws -> [NoteID]
+    /// Single-transaction batch delete — one engine undo entry.
+    public var deleteBatch: @Sendable (_ noteIds: [NoteID]) async throws -> Void
+    /// Validates/canonicalizes a query (BuildSearchString). Throws on
+    /// grammar errors so callers can surface them inline.
+    public var validateQuery: @Sendable (_ query: String) async throws -> String
+    /// Engine-canonical AND/OR composition of two parsable fragments.
+    public var composeQuery: @Sendable (_ existing: String, _ additional: String, _ joiner: SearchJoiner) async throws -> String
+    /// Bulk field/tag substitution across notes; returns changed count.
+    public var findAndReplace: @Sendable (_ noteIds: [NoteID], _ search: String, _ replacement: String, _ regex: Bool, _ matchCase: Bool, _ fieldName: String?) async throws -> Int
     public var save: @Sendable (_ note: NoteRecord) async throws -> Void
     public var delete: @Sendable (_ noteId: NoteID) async throws -> Void
 }

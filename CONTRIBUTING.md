@@ -30,10 +30,10 @@ Open a [GitHub Issue](https://github.com/antigluten/anki-ios/issues/new) with th
 git clone --recursive https://github.com/antigluten/anki-ios.git
 cd anki-ios
 
-# Rust targets for iOS
-rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios-simulator
+# Rust targets for iOS + macOS
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios-simulator aarch64-apple-darwin x86_64-apple-darwin
 
-# Build Rust XCFramework
+# Build Rust XCFramework (iOS + macOS slices; BUILD_WATCHOS=1 adds watchOS)
 ./scripts/build-xcframework.sh
 
 # Generate Swift protobuf types

@@ -31,9 +31,7 @@ public enum WidgetSnapshotStore {
         return try? decoder.decode(WidgetSnapshot.self, from: data)
     }
 
-    /// Deletes every snapshot file whose deckId is not in `keep`. Called after
-    /// each full write so the container is always an exact projection of the
-    /// active profile's decks — stale profiles and deleted decks both vanish.
+    /// Deletes every snapshot file whose deckId is not in `keep`.
     public static func removeSnapshots(notIn keep: Set<Int64>) {
         guard let container = container() else { return }
         let files = (try? FileManager.default.contentsOfDirectory(

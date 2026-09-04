@@ -73,9 +73,18 @@ private extension ReaderLibraryContent {
                 ImportBookCTA(action: onImport)
                 Color.clear.frame(height: 8)
             }
+            .frame(maxWidth: ReaderLibraryColumn.maxWidth)
+            .frame(maxWidth: .infinity)
             .padding(.top, 8)
         }
     }
+}
+
+/// Centered content column for the Reader Library, matching the
+/// Library/Study columns so the shelves stay readable on regular-width
+/// layouts instead of stretching full-width.
+private enum ReaderLibraryColumn {
+    static let maxWidth: CGFloat = 800
 }
 
 // MARK: - Preview

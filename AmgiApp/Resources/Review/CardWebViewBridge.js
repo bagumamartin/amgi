@@ -6,9 +6,12 @@
 __AMGI_BASE_TAG__
 <style>
     :root {
-        color-scheme: __AMGI_COLOR_SCHEME__;
+        /* Let WebKit follow the host app/system appearance dynamically. */
+        color-scheme: light dark;
         --amgi-default-card-bg: __AMGI_DEFAULT_CARD_BG__;
         --amgi-default-card-fg: __AMGI_TEXT_COLOR__;
+        --amgi-card-fg: __AMGI_TEXT_COLOR__;
+        --amgi-card-bg: __AMGI_DEFAULT_CARD_BG__;
     }
     html, body {
         background: transparent;
@@ -19,7 +22,7 @@ __AMGI_BASE_TAG__
     body {
         font-family: -apple-system, system-ui;
         font-size: 18px; line-height: 1.5;
-        color: var(--amgi-default-card-fg); background: var(--amgi-default-card-bg);
+        color: var(--amgi-card-fg); background: var(--amgi-card-bg);
         padding: 0 0 var(--amgi-body-padding-bottom, 16px);
         margin: 20px; min-height: calc(100vh - 40px); box-sizing: border-box; text-align: center;
         overflow-wrap: break-word;
@@ -371,20 +374,64 @@ function amgiCardLookupPayloadAt(x, y, scanLength) {
     };
 }
 
-document.addEventListener('click', function(event) {
-    var state = amgiCardState();
-    if (state.renderedAt && Date.now() - state.renderedAt < 300) return;
-    var payload = amgiCardLookupPayloadAt(event.clientX, event.clientY, 16);
-    if (!payload) return;
-    window.webkit.messageHandlers.amgiLookupText.postMessage(payload);
-}, false);
-
 function amgiSetCardCSS(cssText) {
     var style = document.getElementById('amgi-card-css');
     if (!style) return;
     var next = cssText || '';
     if (style.textContent === next) return;
     style.textContent = next;
+}
+
+// Some exported templates provide a light surface with explicit white text
+// (or the inverse). CSS-only fallback rules cannot know which surface an
+// element actually renders on, so repair only clear contrast failures after
+// the card DOM is present. Images, drawings, media, and form controls are
+// intentionally excluded.
+function amgiRepairThemeContrast() {
+    if (document.documentElement.getAttribute('data-bs-theme') !== 'dark') return;
+
+    function parseColor(value) {
+        var match = (value || '').match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/i);
+        if (!match) return null;
+        return {
+            r: parseInt(match[1], 10),
+            g: parseInt(match[2], 10),
+            b: parseInt(match[3], 10),
+            a: match[4] == null ? 1 : parseFloat(match[4]),
+        };
+    }
+
+    function luminance(color) {
+        if (!color) return 0;
+        return (0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b) / 255;
+    }
+
+    function visibleBackground(element) {
+        var current = element;
+        while (current && current !== document.documentElement) {
+            var background = parseColor(window.getComputedStyle(current).backgroundColor);
+            if (background && background.a > 0.04) return background;
+            current = current.parentElement;
+        }
+        return null;
+    }
+
+    var excluded = 'img, svg, canvas, video, audio, input, textarea, select, option, button';
+    document.querySelectorAll('#qa *').forEach(function(element) {
+        if (element.matches(excluded)) return;
+        var style = window.getComputedStyle(element);
+        var foreground = parseColor(style.color);
+        var background = visibleBackground(element);
+        if (!foreground || !background) return;
+
+        var foregroundLuminance = luminance(foreground);
+        var backgroundLuminance = luminance(background);
+        if (backgroundLuminance > 0.70 && foregroundLuminance > 0.82) {
+            element.style.setProperty('color', '#1a1a1a', 'important');
+        } else if (backgroundLuminance < 0.30 && foregroundLuminance < 0.24) {
+            element.style.setProperty('color', '#f5f5f5', 'important');
+        }
+    });
 }
 
 // ── Resource preloading ──────────────────────────────────────────────
@@ -472,6 +519,15 @@ async function amgiPreloadResources(html) {
 }
 
 // ===== MathJax loader =====
+function amgiDiag(event, detail) {
+    try {
+        window.webkit.messageHandlers.amgiDiag.postMessage({
+            event: event,
+            detail: detail || ''
+        });
+    } catch (e) {}
+}
+
 function amgiTrimMathJaxText(text) {
     return (text || '')
         .replace(/<br[ ]*\/?>/gi, '\n')
@@ -509,20 +565,24 @@ function amgiLoadMathJaxScript(kind, src) {
                 resolve();
             }, { once: true });
             existing.addEventListener('error', function() {
+                amgiDiag('mathjax-script-error', kind);
                 resolve();
             }, { once: true });
             return;
         }
 
+        var startedAt = Date.now();
         var script = document.createElement('script');
         script.src = src;
         script.async = false;
         script.setAttribute('data-amgi-mathjax', kind);
         script.addEventListener('load', function() {
             script.dataset.amgiLoaded = '1';
+            amgiDiag('mathjax-script-loaded', kind + ' in ' + (Date.now() - startedAt) + 'ms');
             resolve();
         }, { once: true });
         script.addEventListener('error', function() {
+            amgiDiag('mathjax-script-error', kind + ' after ' + (Date.now() - startedAt) + 'ms');
             resolve();
         }, { once: true });
         document.head.appendChild(script);
@@ -541,12 +601,14 @@ async function amgiWaitForMathJax(timeout) {
                 await mathJax.startup.promise;
             } catch (error) {
                 console.error('MathJax startup failed', error);
+                amgiDiag('mathjax-startup-failed', String(error));
                 return null;
             }
             return mathJax;
         }
         await new Promise(function(resolve) { window.setTimeout(resolve, 25); });
     }
+    amgiDiag('mathjax-wait-timeout', String(timeout || 0) + 'ms');
     return null;
 }
 
@@ -560,10 +622,20 @@ async function amgiEnsureMathJaxReady(timeout) {
         window.__amgiMathJaxLoadPromise = (async function() {
             await amgiLoadMathJaxScript('config', MATHJAX_CONFIG_SCRIPT_URL);
             await amgiLoadMathJaxScript('core', MATHJAX_CORE_SCRIPT_URL);
-            return await amgiWaitForMathJax(timeout || 1500);
+            var ready = await amgiWaitForMathJax(timeout || 4000);
+            if (!ready) {
+                // The load paths above RESOLVE on failure (script error,
+                // wait timeout) rather than throw — clear the sentinel so a
+                // later card retries instead of caching the failed result
+                // for the whole session.
+                window.__amgiMathJaxLoadPromise = null;
+                amgiDiag('mathjax-load-failed', 'sentinel reset');
+            }
+            return ready;
         })().catch(function(error) {
             console.error('MathJax load failed', error);
             window.__amgiMathJaxLoadPromise = null;
+            amgiDiag('mathjax-load-threw', String(error));
             return null;
         });
     }
@@ -1210,7 +1282,7 @@ async function amgiUpdateQA(html, state, onupdate, onshown) {
     var normalizedHTML = amgiNormalizeMathJaxMarkup(html || '');
     var needsMathJax = amgiContainsMathJaxMarkup(normalizedHTML);
     var preloadPromise = amgiPreloadResources(normalizedHTML);
-    var mathJaxPromise = needsMathJax ? amgiEnsureMathJaxReady(1500) : Promise.resolve(null);
+    var mathJaxPromise = needsMathJax ? amgiEnsureMathJaxReady(4000) : Promise.resolve(null);
 
     try {
         await preloadPromise;
@@ -1225,15 +1297,23 @@ async function amgiUpdateQA(html, state, onupdate, onshown) {
 
         await amgiRunHooks(window.onUpdateHook);
 
+        // Restore visibility BEFORE MathJax runs: typesetting happens in
+        // place below, so a slow or hung load degrades to briefly-visible
+        // raw TeX instead of a blank card stuck at opacity 0.
+        qa.style.transition = 'none';
+        qa.style.opacity = '1';
+
         if (needsMathJax) {
             try {
                 var mathJax = await mathJaxPromise;
                 if (mathJax) {
+                    var typesetStartedAt = Date.now();
                     if (typeof mathJax.typesetClear === 'function') {
                         mathJax.typesetClear();
                     }
                     await mathJax.typesetPromise([qa])
                         .catch(function(error) { console.error('MathJax failed', error); });
+                    amgiDiag('mathjax-typeset', (Date.now() - typesetStartedAt) + 'ms');
                 }
             } catch (error) {
                 console.error('MathJax unavailable', error);
@@ -1272,9 +1352,10 @@ async function amgiUpdateQA(html, state, onupdate, onshown) {
 
         amgiSetupImageOcclusion();
         await amgiRunHooks(window.onShownHook);
+        amgiRepairThemeContrast();
     } finally {
-        // Avoid a forced fade-in on every flip/next-card update; it reads
-        // as a content reload once MathJax and scripts are involved.
+        // Safety net: visibility is restored right after the DOM swap so a
+        // hung MathJax load can never blank the card.
         qa.style.transition = 'none';
         qa.style.opacity = '1';
         amgiScheduleCardThemeReport();
@@ -1323,7 +1404,7 @@ function _showQuestion(html, prefetchHTML, bodyclass, autoplay, replayMode, alig
                 );
                 var ph = amgiPrefetchHTMLValue();
                 if (amgiContainsMathJaxMarkup(html || '') || amgiContainsMathJaxMarkup(ph || '')) {
-                    void amgiEnsureMathJaxReady(1500);
+                    void amgiEnsureMathJaxReady(4000);
                 }
                 if (ph) amgiAllImagesLoaded().then(function() { return amgiPreloadResources(ph); });
             }
@@ -1364,6 +1445,15 @@ function _showAnswer(html, bodyclass, autoplay, replayMode, alignTop, bodyPaddin
 
 window._showQuestion = _showQuestion;
 window._showAnswer = _showAnswer;
+
+// Warm MathJax eagerly at frame-page load. The combined core is ~1.3 MB
+// served through the scheme handler; fetching + parsing it within a first-
+// flip budget is unreliable (a cold WebContent process makes it worse), and
+// one missed budget used to disable math for the whole session. The load is
+// local and happens once per page (pages persist across cards), so paying
+// it unconditionally at idle removes it from the reveal path entirely.
+window.setTimeout(function() { void amgiEnsureMathJaxReady(10000); }, 0);
+
 </script>
 </head>
 <body><div id="qa" class="card-frame"></div></body>

@@ -143,6 +143,126 @@ extension Request where Response == Void {
             decode: { _ in () }
         )
     }
+
+    /// Batch suspend/bury for Browse. Works on card ids or note ids —
+    /// the engine fans out to all cards of supplied notes.
+    public static func buryOrSuspendCards(
+        cardIds: [CardID],
+        noteIds: [NoteID] = [],
+        mode: SuspendBuryMode
+    ) -> Self {
+        let protoMode: Anki_Scheduler_BuryOrSuspendCardsRequest.Mode = switch mode {
+        case .suspend: .suspend
+        case .buryScheduled: .burySched
+        case .buryUser: .buryUser
+        }
+        return Self(
+            serviceId: ServiceID.scheduler,
+            methodId: SchedulerMethod.buryOrSuspendCards,
+            encode: {
+                var proto = Anki_Scheduler_BuryOrSuspendCardsRequest()
+                proto.cardIds = cardIds.map(\.rawValue)
+                proto.noteIds = noteIds.map(\.rawValue)
+                proto.mode = protoMode
+                return try proto.serializedData()
+            },
+            decode: { _ in () }
+        )
+    }
+
+    /// Suspend batch — convenience over `buryOrSuspendCards`.
+    public static func suspendCards(cardIds: [CardID], noteIds: [NoteID] = []) -> Self {
+        .buryOrSuspendCards(cardIds: cardIds, noteIds: noteIds, mode: .suspend)
+    }
+
+    /// Manual bury batch (hide until tomorrow).
+    public static func buryUserCards(cardIds: [CardID], noteIds: [NoteID] = []) -> Self {
+        .buryOrSuspendCards(cardIds: cardIds, noteIds: noteIds, mode: .buryUser)
+    }
+
+    /// Un-suspend/un-bury batch (`RestoreBuriedAndSuspendedCards`).
+    public static func restoreBuriedAndSuspendedCards(cardIds: [CardID]) -> Self {
+        Self(
+            serviceId: ServiceID.scheduler,
+            methodId: SchedulerMethod.restoreBuriedAndSuspended,
+            encode: {
+                var proto = Anki_Cards_CardIds()
+                proto.cids = cardIds.map(\.rawValue)
+                return try proto.serializedData()
+            },
+            decode: { _ in () }
+        )
+    }
+
+    /// Sets due dates on cards from an interval expression understood
+    /// by the engine ("0", "3-7", "2026-09-01"). `configKey` selects
+    /// which user preference remembers the last value; browsers pass
+    /// `.setDueBrowser`.
+    public static func setDueDate(cardIds: [CardID], daysExpression: String) -> Self {
+        Self(
+            serviceId: ServiceID.scheduler,
+            methodId: SchedulerMethod.setDueDate,
+            encode: {
+                var proto = Anki_Scheduler_SetDueDateRequest()
+                proto.cardIds = cardIds.map(\.rawValue)
+                proto.days = daysExpression
+                var key = Anki_Config_OptionalStringConfigKey()
+                key.key = .setDueBrowser
+                proto.configKey = key
+                return try proto.serializedData()
+            },
+            decode: { _ in () }
+        )
+    }
+
+    /// Grades cards *now* without putting them in a study queue
+    /// (Browse "Grade Now"). Rating applies immediately and updates
+    /// revlog/scheduling.
+    public static func gradeNow(cardIds: [CardID], rating: Rating) -> Self {
+        Self(
+            serviceId: ServiceID.scheduler,
+            methodId: SchedulerMethod.gradeNow,
+            encode: {
+                var proto = Anki_Scheduler_GradeNowRequest()
+                proto.cardIds = cardIds.map(\.rawValue)
+                proto.rating = protoRating(rating)
+                return try proto.serializedData()
+            },
+            decode: { _ in () }
+        )
+    }
+}
+
+// MARK: - reposition new cards
+
+extension Request where Response == Int {
+    /// Repositions new cards into the queue starting at `startingFrom`,
+    /// stepping by `stepSize`. Optionally randomizes order or shifts
+    /// existing positions. Returns count of changed cards.
+    public static func sortCards(
+        cardIds: [CardID],
+        startingFrom: UInt32,
+        stepSize: UInt32,
+        randomize: Bool,
+        shiftExisting: Bool
+    ) -> Self {
+        Self(
+            serviceId: ServiceID.scheduler,
+            methodId: SchedulerMethod.sortCards,
+            encode: {
+                var proto = Anki_Scheduler_SortCardsRequest()
+                proto.cardIds = cardIds.map(\.rawValue)
+                proto.startingFrom = startingFrom
+                proto.stepSize = stepSize
+                proto.randomize = randomize
+                proto.shiftExisting = shiftExisting
+                return try proto.serializedData()
+            },
+            decode: { bytes in
+                Int(try Anki_Collection_OpChangesWithCount(serializedBytes: bytes).count)
+            }
+        )
+    }
 }
 
 // MARK: - rebuildFilteredDeck
@@ -194,6 +314,12 @@ extension Request where Response == QueuedCardsResult {
                         good:    SchedulingStateToken(try queued.states.good.serializedData()),
                         easy:    SchedulingStateToken(try queued.states.easy.serializedData())
                     )
+                    let scheduled: [Rating: ScheduledInterval] = [
+                        .again: scheduledInterval(queued.states.again),
+                        .hard:  scheduledInterval(queued.states.hard),
+                        .good:  scheduledInterval(queued.states.good),
+                        .easy:  scheduledInterval(queued.states.easy),
+                    ]
                     let intervals: [Rating: String] = [
                         .again: formatInterval(scheduledSecs(queued.states.again)),
                         .hard:  formatInterval(scheduledSecs(queued.states.hard)),
@@ -203,7 +329,8 @@ extension Request where Response == QueuedCardsResult {
                     cards.append(QueuedReviewCard(
                         card: CardRecord(queued.card),
                         states: states,
-                        nextIntervals: intervals
+                        nextIntervals: intervals,
+                        nextScheduled: scheduled
                     ))
                 }
                 return QueuedCardsResult(

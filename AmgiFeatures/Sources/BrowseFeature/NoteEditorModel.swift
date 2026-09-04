@@ -59,7 +59,9 @@ final class NoteEditorModel {
 
         let newFlds = fieldValues.joined(separator: "\u{1f}")
         let newSfld = fieldValues.first ?? ""
-        let newCsum = Int64(newSfld.hashValue & 0xFFFFFFFF)
+        // Anki's field checksum is FNV-1a over UTF-8 (NOT Swift's hash) —
+        // hashValue produced values the engine's dupe search never sees.
+        let newCsum = Int64(bitPattern: BrowseFnv.fnv1a(newSfld) & 0xFFFF_FFFF)
 
         var updatedNote = note
         updatedNote.flds = newFlds

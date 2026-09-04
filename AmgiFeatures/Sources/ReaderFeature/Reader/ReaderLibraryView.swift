@@ -73,7 +73,8 @@ package struct ReaderLibraryView: View {
         .navigationTitle("Library")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                SyncToolbarButton()
                 Menu { plusMenu } label: {
                     Image(systemName: "plus")
                 }
@@ -85,6 +86,8 @@ package struct ReaderLibraryView: View {
             placement: .navigationBarDrawer(displayMode: .automatic),
             prompt: "Search books"
         )
+        // Books-scoped native search (spec §5.1 v2): no Browse involvement.
+        .searchMinimizedIfAvailable()
         .onChange(of: searchText) { _, _ in model.rebuildViewData(searchText: searchText, sortMode: sortMode) }
         .onChange(of: sortModeRaw) { _, _ in model.rebuildViewData(searchText: searchText, sortMode: sortMode) }
         .onChange(of: deckName) { _, _ in model.startReload(searchText: searchText, sortMode: sortMode) }

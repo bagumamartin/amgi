@@ -4,7 +4,48 @@ import Dependencies
 import Sharing
 import AnkiKit
 import AnkiClients
+import AnkiSync
 @testable import SyncFeature
+
+/// startSync refuses to run without a configured sync server (.noServer),
+/// so every test that exercises the sync path stages a dummy endpoint first
+/// and restores the ambient keychain afterwards. The snapshot/restore matters
+/// on macOS, where tests share the login keychain with the real app: without
+/// it a test run would depend on — or delete — the user's real credentials.
+/// Uses an invalid host so a stubbed client can never reach the network.
+private struct CredentialSnapshot: Sendable {
+    let endpoint: String?
+    let hostKey: String?
+    let username: String?
+}
+
+private func stageTestEndpoint() -> CredentialSnapshot {
+    let snapshot = CredentialSnapshot(
+        endpoint: KeychainHelper.loadEndpoint(),
+        hostKey: KeychainHelper.loadHostKey(),
+        username: KeychainHelper.loadUsername()
+    )
+    try? KeychainHelper.saveEndpoint("https://test.invalid")
+    return snapshot
+}
+
+private func restoreCredentials(_ snapshot: CredentialSnapshot) {
+    if let endpoint = snapshot.endpoint {
+        try? KeychainHelper.saveEndpoint(endpoint)
+    } else {
+        KeychainHelper.deleteEndpoint()
+    }
+    if let hostKey = snapshot.hostKey {
+        try? KeychainHelper.saveHostKey(hostKey)
+    } else {
+        KeychainHelper.deleteHostKey()
+    }
+    if let username = snapshot.username {
+        try? KeychainHelper.saveUsername(username)
+    } else {
+        KeychainHelper.deleteUsername()
+    }
+}
 
 @Suite("SyncCoordinator state machine")
 struct SyncCoordinatorTests {
@@ -23,6 +64,8 @@ struct SyncCoordinatorTests {
             ),
             MediaSyncStatus(active: false, progress: nil),
         ])
+        let credentials = stageTestEndpoint()
+        defer { restoreCredentials(credentials) }
         try await withDependencies {
             $0.appStorageKeyFormatWarningEnabled = false
             $0.syncClient.sync = { summary }
@@ -101,6 +144,8 @@ struct SyncCoordinatorTests {
 
     @Test @MainActor
     func startSyncErrorTransitions() async throws {
+        let credentials = stageTestEndpoint()
+        defer { restoreCredentials(credentials) }
         try await withDependencies {
             $0.appStorageKeyFormatWarningEnabled = false
             $0.syncClient.sync = {
@@ -121,6 +166,8 @@ struct SyncCoordinatorTests {
 
     @Test @MainActor
     func needsFullSyncRequiresUserChoice() async throws {
+        let credentials = stageTestEndpoint()
+        defer { restoreCredentials(credentials) }
         try await withDependencies {
             $0.appStorageKeyFormatWarningEnabled = false
             $0.syncClient.sync = { throw SyncError.fullSyncRequired }
@@ -137,6 +184,8 @@ struct SyncCoordinatorTests {
 
     @Test @MainActor
     func confirmFullSyncUpload() async throws {
+        let credentials = stageTestEndpoint()
+        defer { restoreCredentials(credentials) }
         try await withDependencies {
             $0.appStorageKeyFormatWarningEnabled = false
             $0.syncClient.sync = { throw SyncError.fullSyncRequired }
@@ -172,6 +221,10 @@ struct SyncCoordinatorTests {
 
     @Test @MainActor
     func signOutClearsStateAndCancelsActive() async throws {
+        // Staged so startSync enters the real .syncing path (and can be
+        // cancelled); signOut deletes it on the way to .noServer.
+        let credentials = stageTestEndpoint()
+        defer { restoreCredentials(credentials) }
         try await withDependencies {
             $0.appStorageKeyFormatWarningEnabled = false
             $0.syncClient.sync = {
@@ -191,6 +244,8 @@ struct SyncCoordinatorTests {
 
     @Test @MainActor
     func cancelMidSync() async throws {
+        let credentials = stageTestEndpoint()
+        defer { restoreCredentials(credentials) }
         try await withDependencies {
             $0.appStorageKeyFormatWarningEnabled = false
             $0.syncClient.sync = {

@@ -8,7 +8,7 @@ import SwiftUINavigation
 /// Profile picker / manager. Each row is one `AmgiAccount`; the active
 /// row shows a checkmark, tapping any other switches immediately. Add
 /// via `+`, swipe to delete (with optional "delete files" prompt).
-struct AccountsSettingsView: View {
+package struct AccountsSettingsView: View {
     /// Composition-root work: closes/reopens the collection, cancels sync and
     /// flips the keychain anchor, so it stays in `AmgiAppApp.swift` and
     /// arrives here through `SettingsView`.

@@ -51,9 +51,16 @@ extension CardClient: DependencyKey {
                 }
                 return cards
             },
+            getCard: { cardId in
+                try await backend.invoke(.getCard(id: cardId))
+            },
+            save: { card in
+                try await backend.invoke(.updateCards(cards: [card]))
+            },
             answer: { cardId, rating, timeSpent in
                 try await backendOffload { try scheduler.answerCard(cardId, rating, timeSpent) }
             },
+            undo: { _ in },
             suspend: { cardId in
                 try await backend.invoke(.suspendCards(cardIds: [cardId]))
             },
@@ -69,6 +76,12 @@ extension CardClient: DependencyKey {
             undoLast: {
                 try await backend.invoke(.undoLastAction)
             },
+            redoLast: {
+                try await backend.invoke(.redoLastAction)
+            },
+            undoStatus: {
+                try await backend.invoke(.undoStatus)
+            },
             getCardFlags: { cardId in
                 let card = try await backend.invoke(.getCard(id: cardId))
                 return UInt32(card.flags) & 0b111
@@ -79,6 +92,47 @@ extension CardClient: DependencyKey {
             removeCards: { cardIds in
                 try await backend.invoke(.removeCards(cardIds: cardIds))
                 logger.info("Removed \(cardIds.count) cards")
+            },
+            searchIds: { query, order in
+                try await backend.invoke(.searchCardIds(query: query, order: order))
+            },
+            suspendCards: { cardIds, noteIds in
+                try await backend.invoke(.suspendCards(cardIds: cardIds, noteIds: noteIds))
+                logger.info("Suspended \(cardIds.count) cards / \(noteIds.count) notes")
+            },
+            restoreBuriedAndSuspended: { cardIds in
+                try await backend.invoke(.restoreBuriedAndSuspendedCards(cardIds: cardIds))
+                logger.info("Restored \(cardIds.count) buried/suspended cards")
+            },
+            buryUserCards: { cardIds, noteIds in
+                try await backend.invoke(.buryUserCards(cardIds: cardIds, noteIds: noteIds))
+                logger.info("Buried \(cardIds.count) cards / \(noteIds.count) notes")
+            },
+            setDueDate: { cardIds, daysExpression in
+                try await backend.invoke(.setDueDate(cardIds: cardIds, daysExpression: daysExpression))
+                logger.info("Set due date '\(daysExpression)' on \(cardIds.count) cards")
+            },
+            gradeNow: { cardIds, rating in
+                try await backend.invoke(.gradeNow(cardIds: cardIds, rating: rating))
+                logger.info("Grade now \(rating) on \(cardIds.count) cards")
+            },
+            repositionCards: { cardIds, startingFrom, stepSize, randomize, shiftExisting in
+                let count = try await backend.invoke(
+                    .sortCards(
+                        cardIds: cardIds,
+                        startingFrom: startingFrom,
+                        stepSize: stepSize,
+                        randomize: randomize,
+                        shiftExisting: shiftExisting
+                    )
+                )
+                logger.info("Repositioned \(count) cards")
+                return count
+            },
+            changeDeck: { cardIds, deckId in
+                let count = try await backend.invoke(.setDeck(cardIds: cardIds, deckId: deckId))
+                logger.info("Moved \(count) cards to deck \(deckId)")
+                return count
             }
         )
     }()

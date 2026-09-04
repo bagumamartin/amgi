@@ -1,4 +1,9 @@
 public import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 import AmgiTheme
 
 /// A book recommendation tile in the Study "Reading recommendations" strip.
@@ -45,24 +50,47 @@ public struct StudyReadingRec: View {
 
     @ViewBuilder
     private var coverImage: some View {
+        #if canImport(UIKit)
         // Downsampled off the main thread — the source cover is far larger
         // than the tile it's drawn into.
         DownsampledImage(
             url: data.coverImagePath.map { URL(fileURLWithPath: $0) },
             maxPixelSize: AmgiImagePixelSize.cover
         ) { image in
-            image
-                .resizable()
-                .scaledToFill()
-                .frame(width: cardWidth, height: cardHeight)
-                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .stroke(colorScheme == .dark ? .white.opacity(0.1) : .black.opacity(0.1), lineWidth: 1)
-                )
+            cover(image)
         } placeholder: {
             EmptyView()
         }
+        #else
+        if let path = data.coverImagePath,
+           let image = loadCoverImage(at: path) {
+            cover(image)
+        }
+        #endif
+    }
+
+    private func cover(_ image: Image) -> some View {
+        image
+            .resizable()
+            .scaledToFill()
+            .frame(width: cardWidth, height: cardHeight)
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(colorScheme == .dark ? .white.opacity(0.1) : .black.opacity(0.1), lineWidth: 1)
+            )
+    }
+
+    private func loadCoverImage(at path: String) -> Image? {
+        #if canImport(UIKit)
+        guard let uiImage = UIImage(contentsOfFile: path) else { return nil }
+        return Image(uiImage: uiImage)
+        #elseif canImport(AppKit)
+        guard let nsImage = NSImage(contentsOfFile: path) else { return nil }
+        return Image(nsImage: nsImage)
+        #else
+        return nil
+        #endif
     }
 
     private var textOverlay: some View {

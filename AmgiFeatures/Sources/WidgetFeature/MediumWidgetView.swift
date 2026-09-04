@@ -11,8 +11,8 @@ struct MediumWidgetView: View {
 
     var body: some View {
         HStack(spacing: 16) {
-            // Left: streak + hero + deck name
-            VStack(alignment: .leading, spacing: 0) {
+            // Left: streak + due ring (mirrors the small widget)
+            VStack(spacing: 0) {
                 HStack(spacing: 4) {
                     Text("🔥")
                         .font(.system(size: 16))
@@ -23,28 +23,13 @@ struct MediumWidgetView: View {
                         .font(.system(size: 11))
                         .foregroundStyle(palette.textTertiary)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-                Spacer()
+                Spacer(minLength: 6)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("\(snapshot.totalDue)")
-                        .font(.system(size: 50, weight: .bold))
-                        .foregroundStyle(palette.textPrimary)
-                        .minimumScaleFactor(0.6)
-                        .lineLimit(1)
-                        .kerning(-2)
-                    Text("cards due")
-                        .font(.system(size: 11))
-                        .foregroundStyle(palette.textSecondary)
-                }
+                SmallDueRing(snapshot: snapshot)
 
-                Spacer()
-
-                Text(snapshot.deckName)
-                    .font(.system(size: 10))
-                    .foregroundStyle(palette.textTertiary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                Spacer(minLength: 4)
             }
             .frame(maxHeight: .infinity)
 
@@ -55,9 +40,11 @@ struct MediumWidgetView: View {
 
             // Right: category breakdown + done today
             VStack(alignment: .leading, spacing: 9) {
-                countRow(dot: .blue, label: "New", count: snapshot.newCount)
-                countRow(dot: .orange, label: "Learn", count: snapshot.learnCount)
-                countRow(dot: .green, label: "Review", count: snapshot.reviewCount)
+                // Category dots ride the theme's card-state hues so the
+                // widget matches the in-app badges, rings, and rating row.
+                countRow(dot: palette.cardStateNew, label: "New", count: snapshot.newCount)
+                countRow(dot: palette.cardStateLearning, label: "Learn", count: snapshot.learnCount)
+                countRow(dot: palette.cardStateReview, label: "Review", count: snapshot.reviewCount)
 
                 Rectangle()
                     .fill(.separator)
@@ -67,17 +54,18 @@ struct MediumWidgetView: View {
                     Text("Done today")
                         .font(.system(size: 11))
                         .foregroundStyle(palette.textTertiary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    Text("\(snapshot.reviewedToday)")
+                    Spacer()
+                    Text("\(snapshot.completedToday)")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(palette.textSecondary)
                 }
             }
             .frame(minWidth: 108)
         }
-        .padding(18)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 7)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .widgetURL(URL(string: "amgi://review?deckId=\(snapshot.deckId)"))
+        .widgetURL(URL(string: "amgi://study"))
     }
 
 }

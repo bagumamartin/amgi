@@ -1,6 +1,7 @@
 import SwiftUI
 import AmgiAppShared
 import AnkiKit
+import AmgiIcons
 import AnkiClients
 import Dependencies
 
@@ -14,6 +15,8 @@ struct CreateDeckSheet: View {
     @Dependency(\.deckClient) var deckClient
     @Dependency(\.collectionStore) var store
     @State private var name = ""
+    @State private var selectedIconName: String?
+    @State private var iconManuallySet = false
     @State private var isSaving = false
     @State private var errorMessage: String?
     @Environment(\.dismiss) private var dismiss
@@ -22,20 +25,34 @@ struct CreateDeckSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("Deck name, use :: for subdecks", text: $name)
+                    TextField("Name", text: $name, prompt: Text("Use :: for subdecks"))
                         .autocorrectionDisabled()
                 }
+                Section("Icon") {
+                    DeckIconSection(
+                        selectedIconName: $selectedIconName,
+                        iconManuallySet: $iconManuallySet,
+                        deckName: name
+                    )
+                }
             }
+            #if os(macOS)
+            .formStyle(.grouped)
+            .frame(minWidth: 340, idealWidth: 400, maxWidth: 520)
+            .presentationSizing(.fitted)
+            #endif
             .navigationTitle("New Deck")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .keyboardShortcut(.cancelAction)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Create") {
                         Task { await create() }
                     }
+                    .keyboardShortcut(.defaultAction)
                     .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || isSaving)
                 }
             }
@@ -58,6 +75,11 @@ private extension CreateDeckSheet {
         isSaving = true
         do {
             let creation = try await deckClient.create(name.trimmingCharacters(in: .whitespaces))
+            // Only manual picks persist; non-picked decks keep auto-following
+            // their name at render time. col.conf write → rides collection sync.
+            if iconManuallySet, let iconName = selectedIconName {
+                await DeckIconOverrides.set(iconName, for: creation.id.rawValue)
+            }
             store.apply(creation.changes)
             onDone()
         } catch {

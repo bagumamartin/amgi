@@ -126,11 +126,15 @@ package struct ReaderDictionarySettingsView: View {
         }
         .navigationTitle("Dictionaries")
         .navigationBarTitleDisplayMode(.inline)
+        // EditButton (list edit mode) is iOS-only; on macOS the Delete key
+        // handles row removal via the List's onDelete.
+        #if os(iOS)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 EditButton()
             }
         }
+        #endif
         .fileImporter(
             isPresented: $showImporter,
             allowedContentTypes: [Self.zipType],

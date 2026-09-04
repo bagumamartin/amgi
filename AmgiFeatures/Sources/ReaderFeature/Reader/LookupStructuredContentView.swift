@@ -4,7 +4,10 @@ import AmgiReaderDictionary
 import Dependencies
 import OSLog
 import SwiftUI
-import WebKit
+@preconcurrency import WebKit
+#if canImport(AppKit)
+import AppKit
+#endif
 
 /// Renders Yomitan-format structured glossaries via a self-sizing
 /// WKWebView that hosts the bundled `popup.js` renderer. The web layer
@@ -12,7 +15,10 @@ import WebKit
 /// dictionary-bundled images) — this Swift wrapper just feeds it the
 /// glossary JSON, mediates tap-to-lookup, and resolves `image://` media
 /// URLs back to `dictionaryLookupClient.mediaFile`.
-struct LookupStructuredContentView: UIViewRepresentable {
+///
+/// The representable conformance is platform-specific and lives in the
+/// extensions at the bottom of this file; the struct body is shared.
+struct LookupStructuredContentView {
     let dictionary: String
     let glossaries: [DictionaryLookupGlossary]
     let dictionaryStyle: String
@@ -20,46 +26,55 @@ struct LookupStructuredContentView: UIViewRepresentable {
 
     @Dependency(\.dictionaryLookupClient) var dictionaryLookupClient
 
+    @MainActor
     func makeCoordinator() -> Coordinator {
-        Coordinator(
+        let mediaClient = dictionaryLookupClient
+        return Coordinator(
             dictionary: dictionary,
             glossaries: glossaries,
             dictionaryStyle: dictionaryStyle,
             onLookupRequested: onLookupRequested,
             loadMediaData: { dict, mediaPath in
-                try await dictionaryLookupClient.mediaFile(dict, mediaPath)
+                try await mediaClient.mediaFile(dict, mediaPath)
             }
         )
     }
 
-    func makeUIView(context: Context) -> WKWebView {
+    @MainActor
+    fileprivate func makeConfiguredWebView(coordinator: Coordinator) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
-        configuration.setURLSchemeHandler(context.coordinator, forURLScheme: "image")
-        configuration.userContentController.add(context.coordinator, name: "openLink")
-        configuration.userContentController.add(context.coordinator, name: "lookupText")
-        configuration.userContentController.add(context.coordinator, name: "contentHeight")
+        configuration.setURLSchemeHandler(coordinator, forURLScheme: "image")
+        configuration.userContentController.add(coordinator, name: "openLink")
+        configuration.userContentController.add(coordinator, name: "lookupText")
+        configuration.userContentController.add(coordinator, name: "contentHeight")
 
         let webView = SizingWebView(frame: .zero, configuration: configuration)
+        #if os(iOS)
         webView.isOpaque = false
         webView.backgroundColor = .clear
         webView.scrollView.isScrollEnabled = false
         webView.scrollView.backgroundColor = .clear
-        webView.navigationDelegate = context.coordinator
-        context.coordinator.webView = webView
-        webView.loadHTMLString(context.coordinator.html, baseURL: nil)
+        #else
+        webView.underPageBackgroundColor = .clear
+        #endif
+        webView.navigationDelegate = coordinator
+        coordinator.webView = webView
+        webView.loadHTMLString(coordinator.html, baseURL: nil)
         return webView
     }
 
-    func updateUIView(_ webView: WKWebView, context: Context) {
-        context.coordinator.update(
+    @MainActor
+    fileprivate func applyUpdate(coordinator: Coordinator) {
+        coordinator.update(
             dictionary: dictionary,
             glossaries: glossaries,
             dictionaryStyle: dictionaryStyle
         )
     }
 
-    static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
+    @MainActor
+    fileprivate static func tearDownWebView(_ webView: WKWebView, coordinator: Coordinator) {
         coordinator.cancelAllSchemeTasks()
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "openLink")
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "lookupText")
@@ -171,7 +186,11 @@ struct LookupStructuredContentView: UIViewRepresentable {
             case "openLink":
                 guard let urlString = message.body as? String,
                       let url = URL(string: urlString) else { return }
+                #if canImport(UIKit)
                 UIApplication.shared.open(url)
+                #elseif canImport(AppKit)
+                NSWorkspace.shared.open(url)
+                #endif
             default:
                 return
             }
@@ -230,6 +249,38 @@ struct LookupStructuredContentView: UIViewRepresentable {
         }
     }
 }
+
+// MARK: - Platform representable conformance
+
+#if os(iOS)
+extension LookupStructuredContentView: UIViewRepresentable {
+    func makeUIView(context: Context) -> WKWebView {
+        makeConfiguredWebView(coordinator: context.coordinator)
+    }
+
+    func updateUIView(_ webView: WKWebView, context: Context) {
+        applyUpdate(coordinator: context.coordinator)
+    }
+
+    static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
+        tearDownWebView(webView, coordinator: coordinator)
+    }
+}
+#else
+extension LookupStructuredContentView: NSViewRepresentable {
+    func makeNSView(context: Context) -> WKWebView {
+        makeConfiguredWebView(coordinator: context.coordinator)
+    }
+
+    func updateNSView(_ webView: WKWebView, context: Context) {
+        applyUpdate(coordinator: context.coordinator)
+    }
+
+    static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
+        tearDownWebView(webView, coordinator: coordinator)
+    }
+}
+#endif
 
 private extension LookupStructuredContentView.Coordinator {
     func updateContentHeight(for webView: WKWebView) {
@@ -356,6 +407,8 @@ private extension LookupStructuredContentView.Coordinator {
 /// so we poll content height after navigation and republish as
 /// `intrinsicContentSize` — SwiftUI's layout then sizes the View to
 /// match without forcing the user to scroll a nested scroll view.
+/// `intrinsicContentSize` / `noIntrinsicMetric` exist on both UIView and
+/// NSView, so the class is platform-neutral.
 private final class SizingWebView: WKWebView {
     private var contentHeight: CGFloat = 44 {
         didSet { invalidateIntrinsicContentSize() }
@@ -368,7 +421,11 @@ private final class SizingWebView: WKWebView {
     }
 
     override var intrinsicContentSize: CGSize {
+        #if canImport(UIKit)
         CGSize(width: UIView.noIntrinsicMetric, height: max(44, contentHeight))
+        #else
+        CGSize(width: NSView.noIntrinsicMetric, height: max(44, contentHeight))
+        #endif
     }
 }
 

@@ -1,113 +1,421 @@
 package import SwiftUI
-import AmgiAppShared
+import AmgiUI
 import AnkiKit
+import AnkiClients
+import Dependencies
 import AmgiTheme
-import SwiftUINavigation
 
-enum BrowseSortOrder: String, CaseIterable, Sendable {
-    case dateDesc = "Date (newest)"
-    case titleAsc = "Title (A→Z)"
-    case templateAsc = "Type (A→Z)"
-}
-
-/// Browse container: owns navigation, sheets, selection, and the toolbar,
-/// and drives a `BrowseModel` for load/search/paging + note mutations.
-/// Rendering is delegated to `BrowseContent`; the model owns all I/O so the
-/// View is thin presentation wiring with no direct engine access.
+/// Browse container. Regular width (Mac / iPad) is ONE three-column
+/// `NavigationSplitView` — sources, list, detail. Compact width (iPhone)
+/// is a `NavigationStack` rooted on `BrowseLandingView`, which is what
+/// lets `Tab(role: .search)` morph the tab-bar circle into a search pill.
+///
+/// It used to be mounted inside another `NavigationSplitView` (the root
+/// sidebar) with a `NavigationStack` around each of its own columns. Four
+/// nested columns in one window collapsed the list to a sliver and scattered
+/// toolbar items above the wrong panes, so on macOS Browse now takes the
+/// window over and `exit` is the way back.
+///
+/// Rendering is delegated to `BrowseSourceColumn` / `BrowseLandingView` /
+/// `BrowseListColumn` / `BrowseDetailTabs`; the model owns all I/O.
 package struct BrowseView: View {
     @State private var model: BrowseModel
     @State private var selectionState = BrowseSelectionState()
-    @State private var destination: BrowseDestination?
+    @State private var showAddNote = false
+    @State private var showAddImageOcclusion = false
+    @State private var showTagSheet = false
+    @State private var showDeleteConfirm = false
+    @State private var pendingSwipeDelete: NoteRecord?
 
-    package init() {
-        _model = State(initialValue: BrowseModel())
+    // Power tools + batch destinations
+    enum Sheet: Int, Hashable {
+        case filterRail, findDuplicates, findReplace, changeDeck, setDueDate, reposition
+
+        var id: Int { rawValue }
+    }
+    @State private var activeSheet: Sheet?
+    @State private var notetypeFieldNames: [String] = []
+    @State private var showSaveSearchPrompt = false
+    @State private var saveSearchName = ""
+    #if os(iOS)
+    /// Compact push stack: landing → scoped list → note detail.
+    @State private var path: [BrowseRoute] = []
+    #endif
+
+    @Dependency(\.notetypesService) private var notetypesService
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.palette) private var palette
+
+    /// Present only on macOS, where Browse replaces the root sidebar.
+    private let exit: BrowseExit?
+
+    private var savedSearchStore: SavedSearchStore { model.savedSearches }
+
+    package init(exit: BrowseExit? = nil) {
+        self.init(model: BrowseModel(), exit: exit)
     }
 
-    /// Seeded init for previews and tests — `BrowseModel` stays package-internal
-    /// so the target's public surface is the four entry views, nothing more.
-    init(model: BrowseModel) {
+    init(model: BrowseModel, exit: BrowseExit? = nil) {
         _model = State(initialValue: model)
+        self.exit = exit
     }
 
-    // The body is split into small layered computed views: a single chained
-    // expression here blows past the Swift type-checker's time budget, so each
-    // layer applies only a few modifiers.
     package var body: some View {
-        @Bindable var model = model
-        decoratedContent
-            .searchable(text: $model.searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search notes...")
-            .task { await model.loadInitial() }
-            // Keyed on the assembled query so text, deck, and tag changes all
-            // restart one search — SwiftUI cancels the previous run, which is
-            // what debounces the typing and keeps a stale result from landing.
-            .task(id: model.searchQuery) { await model.performSearch() }
+        dialogChrome
+            .task { await appear() }
+            // Identity includes text, source, mode, and sort. SwiftUI cancels
+            // the previous run on change *and* when leaving Search, so a
+            // stale result cannot land after the user has typed further or
+            // switched tabs.
+            .task(id: model.searchIdentity) {
+                await model.performSearch(debounce: .milliseconds(250))
+            }
     }
 
-    private var decoratedContent: some View {
-        dialogContent
-            .navigationTitle("Browse")
+    @ViewBuilder
+    private var layout: some View {
+        #if os(macOS)
+        splitLayout
+        #else
+        if horizontalSizeClass == .compact {
+            compactLayout
+        } else {
+            splitLayout
+        }
+        #endif
+    }
+
+    // MARK: - Split (Mac / iPad)
+
+    private var splitLayout: some View {
+        NavigationSplitView {
+            BrowseSourceColumn(model: model, exit: exit)
+                .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 360)
+        } content: {
+            listPane
+                .navigationSplitViewColumnWidth(min: 300, ideal: 400)
+        } detail: {
+            detailPane
+        }
+        .navigationSplitViewStyle(.balanced)
+    }
+
+    // MARK: - Compact (iPhone)
+
+    /// Search-tab morph requires this stack to be the tab's root, with
+    /// `.searchable` and no `placement:` — iOS 26 then hoists the field into
+    /// the tab bar. `searchToolbarBehavior(.minimize)` is a no-op here.
+    #if os(iOS)
+    private var compactLayout: some View {
+        NavigationStack(path: $path) {
+            BrowseLandingView(
+                model: model,
+                selectionState: $selectionState,
+                onSwipeDelete: { pendingSwipeDelete = $0 },
+                onSelect: { source in
+                    model.source = source
+                    path.append(.source(source))
+                },
+                onOpenDetail: openDetail
+            )
+            .navigationTitle("Search")
+            .navigationBarTitleDisplayMode(.large)
+            .accountMenu()
+            .toolbar { toolbarContent }
+            .navigationDestination(for: BrowseRoute.self) { route in
+                compactDestination(route)
+            }
+        }
+        .searchable(text: $model.searchText, prompt: "Search notes and cards")
+        .onSubmit(of: .search) { model.commitSearchHistory() }
+        .toolbarBackground(.visible, for: .bottomBar)
+        .toolbarBackground(.ultraThinMaterial, for: .bottomBar)
+    }
+
+    @ViewBuilder
+    private func compactDestination(_ route: BrowseRoute) -> some View {
+        switch route {
+        case .source(let source):
+            BrowseListColumn(
+                model: model,
+                selectionState: $selectionState,
+                onSwipeDelete: { pendingSwipeDelete = $0 },
+                onOpenDetail: openDetail
+            )
+            .navigationTitle(sourceTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
+            .onDisappear {
+                // Popping back to landing unscopes the query. Pushing detail
+                // on top of this source must NOT reset — the source is still
+                // in the path.
+                if !path.contains(.source(source)), model.source == source {
+                    model.source = .allDecks
+                }
+            }
+        case .detail:
+            compactDetail
+        }
     }
 
-    private var dialogContent: some View {
-        sheetContent
+    @ViewBuilder
+    private var compactDetail: some View {
+        if model.focusedNote != nil || model.focusedCard != nil {
+            BrowseDetailTabs(
+                note: model.focusedNote,
+                notetypeName: model.focusedNote.flatMap { model.notetypeNames[$0.mid] },
+                infoCard: model.focusedCard,
+                firstCardID: model.focusedCardID,
+                onSaved: { Task { await model.performSearch() } }
+            )
+            .id(model.focusedNote?.id ?? NoteID(0))
+            .navigationTitle("Details")
+            .navigationBarTitleDisplayMode(.inline)
+        } else {
+            ContentUnavailableView(
+                "No Selection",
+                systemImage: "doc.text.magnifyingglass",
+                description: Text("Select a \(rowNoun) to view its details.")
+            )
+        }
+    }
+
+    private func openDetail() {
+        if path.last != .detail {
+            path.append(.detail)
+        }
+    }
+    #endif
+
+    // MARK: - Columns
+
+    /// The list column owns the search field and the toolbar, so both sit
+    /// above the list they act on (Mail's arrangement). Split-view only —
+    /// compact attaches `.searchable` to its own stack.
+    private var listPane: some View {
+        NavigationStack {
+            BrowseListColumn(
+                model: model,
+                selectionState: $selectionState,
+                onSwipeDelete: { pendingSwipeDelete = $0 }
+            )
+                .navigationTitle(sourceTitle)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar { toolbarContent }
+                .accountMenu()
+                .searchable(
+                    text: $model.searchText,
+                    placement: searchPlacement,
+                    prompt: searchPrompt
+                )
+                .searchMinimizedIfAvailable()
+                .onSubmit(of: .search) { model.commitSearchHistory() }
+                .searchSuggestions {
+                    ForEach(model.recentQueries.prefix(8), id: \.self) { query in
+                        Button {
+                            model.searchText = query
+                            model.commitSearchHistory()
+                        } label: {
+                            Label(query, systemImage: "clock.arrow.circlepath")
+                        }
+                        .searchCompletion(query)
+                    }
+                }
+                #if os(iOS)
+                .toolbarBackground(.visible, for: .bottomBar)
+                .toolbarBackground(.ultraThinMaterial, for: .bottomBar)
+                #endif
+        }
+    }
+
+    private var detailPane: some View {
+        NavigationStack {
+            if model.focusedNote != nil || model.focusedCard != nil {
+                BrowseDetailTabs(
+                    note: model.focusedNote,
+                    notetypeName: model.focusedNote.flatMap { model.notetypeNames[$0.mid] },
+                    infoCard: model.focusedCard,
+                    firstCardID: model.focusedCardID,
+                    onSaved: { Task { await model.performSearch() } }
+                )
+                .id(model.focusedNote?.id ?? NoteID(0))
+                .navigationTitle("Details")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            model.clearFocus()
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(palette.textSecondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Close")
+                        .accessibilityLabel("Close details")
+                    }
+                }
+            } else {
+                ContentUnavailableView(
+                    "No Selection",
+                    systemImage: "doc.text.magnifyingglass",
+                    description: Text("Select a \(rowNoun) to view its details.")
+                )
+            }
+        }
+    }
+
+    // MARK: - Titles & search chrome
+
+    private var rowNoun: String {
+        model.mode == .notes ? "note" : "card"
+    }
+
+    /// Names what the list is scoped to, mirroring the sidebar selection.
+    private var sourceTitle: String {
+        switch model.source {
+        case .allDecks:
+            return "All Decks"
+        case .deck(let id):
+            guard let deck = model.allDecks.first(where: { $0.id == id }) else { return "Browse" }
+            return deck.name.split(separator: "::").last.map(String.init) ?? deck.name
+        case .tag(let tag):
+            return tag
+        case .saved(let name):
+            return name
+        }
+    }
+
+    private var searchPlacement: SearchFieldPlacement {
+        #if os(macOS)
+        return .toolbar
+        #else
+        return horizontalSizeClass == .compact
+            ? .toolbar
+            : .navigationBarDrawer(displayMode: .always)
+        #endif
+    }
+
+    private var searchPrompt: String {
+        switch model.source {
+        case .allDecks: "Search all \(rowNoun)s…"
+        case .deck, .tag, .saved: "Search in \(sourceTitle)…"
+        }
+    }
+
+    // MARK: - Loading
+
+    private func appear() async {
+        await model.loadDecks()
+        // Drill-in from a deck detail screen or an amgi://browse deep link.
+        if let seed = BrowseLauncher.shared.consume(), !seed.isEmpty {
+            if seed.hasPrefix("deck:"), let name = seed.dropFirst(5).trimmedQuoted,
+               let deck = model.allDecks.first(where: { $0.name == name }) {
+                model.source = .deck(deck.id)
+            } else {
+                model.searchText = seed
+            }
+        }
+        await model.loadInitial()
+        await model.refreshUndoStatus()
+        await refreshNotetypeFields()
+        #if os(iOS)
+        // Compact landing does not observe `model.source` by itself — a
+        // scoped seed has to push the list, otherwise the user lands on
+        // the idle tree with the query silently scoped underneath.
+        if horizontalSizeClass == .compact, model.source != .allDecks {
+            path = [.source(model.source)]
+        }
+        #endif
+    }
+
+    /// Field names of the most common notetype among current results —
+    /// feeds Find&Replace and the duplicates field picker.
+    private func refreshNotetypeFields() async {
+        guard let anyNote = model.ids.first(where: { model.note(at: $0) != nil })
+            .flatMap({ model.note(at: $0) }) else {
+            notetypeFieldNames = []
+            return
+        }
+        if let names = try? notetypesService.getNotetype(anyNote.mid).fieldNames,
+           !names.isEmpty {
+            notetypeFieldNames = names
+        }
+    }
+
+    // MARK: - Dialogs & sheets
+    //
+    // Layered into small computed views on purpose: one chained expression
+    // blows past the Swift type-checker's time budget. These wrap `layout`
+    // so both the compact stack and the split view share one presentation
+    // host — landing, pushed list, and iPad list all raise the same sheets.
+
+    private var dialogChrome: some View {
+        sheetChrome
             .confirmationDialog(
                 "Delete this note?",
-                isPresented: Binding($destination.deleteNote),
+                isPresented: Binding(
+                    get: { pendingSwipeDelete != nil },
+                    set: { if !$0 { pendingSwipeDelete = nil } }
+                ),
                 presenting: pendingSwipeDelete
             ) { note in
                 Button("Delete", role: .destructive) {
-                    Task { await model.delete(note.id) }
+                    Task {
+                        await model.delete(note.id)
+                        pendingSwipeDelete = nil
+                    }
                 }
-                Button("Cancel", role: .cancel) {}
+                Button("Cancel", role: .cancel) {
+                    pendingSwipeDelete = nil
+                }
             } message: { _ in
-                Text("This action cannot be undone.")
+                Text("You can undo this from the toolbar.")
             }
             .confirmationDialog(
                 "Delete \(selectionState.count) note\(selectionState.count == 1 ? "" : "s")?",
-                isPresented: $destination.deleteSelected
+                isPresented: $showDeleteConfirm
             ) {
                 Button("Delete", role: .destructive) {
                     deleteSelected()
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("This action cannot be undone.")
+                Text("One undo entry is created; you can restore from the toolbar.")
+            }
+            .alert("Save current search", isPresented: $showSaveSearchPrompt) {
+                TextField("Name", text: $saveSearchName)
+                Button("Save") {
+                    model.saveCurrentQuery(as: saveSearchName)
+                    saveSearchName = ""
+                }
+                Button("Cancel", role: .cancel) { saveSearchName = "" }
+            } message: {
+                Text("Saved searches sync to every device via your collection config — desktop Anki sees them too.")
+            }
+            .alert(
+                "Couldn't finish that",
+                isPresented: Binding(
+                    get: { model.errorMessage != nil },
+                    set: { if !$0 { model.errorMessage = nil } }
+                )
+            ) {
+                Button("OK", role: .cancel) { model.errorMessage = nil }
+            } message: {
+                Text(model.errorMessage ?? "")
             }
     }
 
-    private var pendingSwipeDelete: NoteRecord? {
-        if case .deleteNote(let note) = destination { return note }
-        return nil
-    }
-
-    private var sheetContent: some View {
-        BrowseContent(
-            model: model,
-            selectionState: $selectionState,
-            onSwipeDelete: { destination = .deleteNote($0) }
-        )
-        .sheet(isPresented: $destination.addNote) {
+    private var sheetChrome: some View {
+        layout
+        .sheet(isPresented: $showAddNote) {
             AddNoteView {
                 Task { await model.performSearch() }
             }
         }
-        .sheet(isPresented: $destination.addImageOcclusion) {
+        .sheet(isPresented: $showAddImageOcclusion) {
             AddImageOcclusionNoteView { Task { await model.performSearch() } }
         }
-        .alert(
-            "Some changes didn't apply",
-            isPresented: Binding(
-                get: { model.errorMessage != nil },
-                set: { if !$0 { model.errorMessage = nil } }
-            )
-        ) {
-            Button("OK", role: .cancel) { model.errorMessage = nil }
-        } message: {
-            Text(model.errorMessage ?? "")
-        }
-        .sheet(isPresented: $destination.batchTag) {
+        .sheet(isPresented: $showTagSheet) {
             BatchTagSheet(noteIDs: selectionState.selectedNoteIDs) {
                 Task {
                     selectionState.exitSelectMode()
@@ -115,99 +423,271 @@ package struct BrowseView: View {
                 }
             }
         }
+        .sheet(item: Binding<Sheet?>(
+            get: { activeSheet },
+            set: { activeSheet = $0 }
+        )) { sheet in
+            sheetBody(sheet)
+        }
+    }
+
+    @ViewBuilder
+    private func sheetBody(_ sheet: Sheet) -> some View {
+        switch sheet {
+        case .filterRail:
+            BrowseFilterRailView(
+                model: model,
+                savedSearches: savedSearchStore.searches,
+                onDeleteSaved: { savedSearchStore.delete(name: $0); savedSearchStore.refresh() },
+                onSaveCurrent: { name in model.saveCurrentQuery(as: name) }
+            )
+            .presentationDetents([.medium, .large])
+        case .findDuplicates:
+            FindDuplicatesView(
+                notetypeFields: notetypeFieldNames,
+                runExactScan: { field, text in
+                    await model.exactDuplicateGroups(field: field, searchText: text)
+                },
+                runNearScan: {
+                    model.nearDuplicateGroupsInScope()
+                },
+                openGroup: { ids in openDuplicateGroup(ids.map { NoteID($0) }) }
+            )
+        case .findReplace:
+            FindReplaceSheet(
+                fieldNames: notetypeFieldNames,
+                selectionCount: selectionState.count,
+                onApply: { search, replacement, regex, matchCase, fieldName in
+                    await model.findAndReplace(
+                        search: search, replacement: replacement, regex: regex,
+                        matchCase: matchCase, fieldName: fieldName,
+                        scopeNoteIds: Array(selectionState.selectedNoteIDs)
+                    )
+                }
+            )
+        case .changeDeck:
+            ChangeDeckSheet(decks: model.allDecks) { deckId in
+                let ids = selectionState.selectedNoteIDs
+                selectionState.exitSelectMode()
+                Task { await model.changeDeckSelected(ids, deckId: deckId) }
+            }
+        case .setDueDate:
+            SetDueDateSheet { expression in
+                let ids = selectionState.selectedNoteIDs
+                selectionState.exitSelectMode()
+                Task { await model.setDueDateSelected(ids, expression: expression) }
+            }
+        case .reposition:
+            RepositionSheet { start, step, randomize, shift in
+                let ids = selectionState.selectedNoteIDs
+                selectionState.exitSelectMode()
+                Task {
+                    await model.repositionSelectedNotes(
+                        ids, start: start, step: step, randomize: randomize, shift: shift
+                    )
+                }
+            }
+        }
+    }
+
+    private func openDuplicateGroup(_ noteIds: [NoteID]) {
+        let fragment = "nid:(\(noteIds.map { String($0.rawValue) }.joined(separator: " ")))"
+        model.searchText = fragment
+        activeSheet = nil
     }
 
     // MARK: - Toolbar
+    //
+    // Mode and sort live in the list column's own header bar, not here.
+    // Trailing cluster is Undo · Sync · ＋/Done · ⋯ — Browse takes over the
+    // window on Mac, so Library's sync glyph is not on screen.
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            Menu {
-                Button("Add Note") { destination = .addNote }
-                Button("Add Image Occlusion") { destination = .addImageOcclusion }
-            } label: {
-                Image(systemName: "plus")
-            }
-        }
-        ToolbarItem(placement: .topBarLeading) {
-            Menu {
-                ForEach(BrowseSortOrder.allCases, id: \.self) { order in
-                    Button {
-                        model.sortOrder = order
-                    } label: {
-                        if model.sortOrder == order {
-                            Label(order.rawValue, systemImage: "checkmark")
-                        } else {
-                            Text(order.rawValue)
-                        }
-                    }
-                }
-            } label: {
-                Image(systemName: "arrow.up.arrow.down")
-            }
-            .disabled(model.notes.isEmpty)
-        }
-        ToolbarItem(placement: .topBarTrailing) {
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            EngineUndoButton()
+            SyncToolbarButton()
             if selectionState.isSelectMode {
                 Button("Done") {
                     selectionState.exitSelectMode()
                 }
-            } else if !model.notes.isEmpty {
-                Button("Edit") {
-                    selectionState.enterSelectMode()
+            } else {
+                Menu {
+                    Button("Add Note") { showAddNote = true }
+                    Button("Add Image Occlusion") { showAddImageOcclusion = true }
+                } label: {
+                    Image(systemName: "plus")
                 }
+                .accessibilityLabel("Add")
             }
+            Menu {
+                toolsSection
+                saveSearchSection
+            } label: {
+                Image(systemName: "ellipsis")
+            }
+            .accessibilityLabel("Browse tools")
         }
-        if selectionState.isSelectMode {
+        if selectionState.showsBatchActions {
             selectionToolbar
         }
     }
 
-    @ToolbarContentBuilder
+    @ViewBuilder
+    private var toolsSection: some View {
+        Button {
+            activeSheet = .filterRail
+        } label: {
+            Label("Filter Rail…", systemImage: "line.3.horizontal.decrease.circle")
+        }
+        Button {
+            Task { await refreshNotetypeFields() }
+            activeSheet = .findDuplicates
+        } label: {
+            Label("Find Duplicates…", systemImage: "square.on.square.dashed")
+        }
+        Button {
+            Task { await refreshNotetypeFields() }
+            activeSheet = .findReplace
+        } label: {
+            Label("Find & Replace…", systemImage: "arrow.2.squarepath")
+        }
+    }
+
+    @ViewBuilder
+    private var saveSearchSection: some View {
+        Section("Saved searches") {
+            ForEach(model.savedSearches.searches) { saved in
+                Button {
+                    model.source = .saved(saved.name)
+                } label: {
+                    Label(saved.name, systemImage: "heart")
+                }
+            }
+            if !model.searchText.trimmingCharacters(in: .whitespaces).isEmpty {
+                Button("Save current search…") {
+                    saveSearchName = ""
+                    showSaveSearchPrompt = true
+                }
+            }
+        }
+    }
+
     private var selectionToolbar: some ToolbarContent {
-        ToolbarItem(placement: .bottomBar) {
+        ToolbarItemGroup(placement: .bottomBar) {
             Button {
                 suspendSelected()
             } label: {
                 Label("Suspend", systemImage: "pause.circle")
             }
             .disabled(selectionState.isEmpty)
-        }
-        ToolbarItem(placement: .bottomBar) { Spacer() }
-        ToolbarItem(placement: .bottomBar) {
-            Menu {
-                Button { applyFlag(1) } label: { Label("Red flag",       systemImage: "flag.fill") }
-                Button { applyFlag(2) } label: { Label("Orange flag",    systemImage: "flag.fill") }
-                Button { applyFlag(3) } label: { Label("Green flag",     systemImage: "flag.fill") }
-                Button { applyFlag(4) } label: { Label("Blue flag",      systemImage: "flag.fill") }
-                Button { applyFlag(5) } label: { Label("Pink flag",      systemImage: "flag.fill") }
-                Button { applyFlag(6) } label: { Label("Turquoise flag", systemImage: "flag.fill") }
-                Button { applyFlag(7) } label: { Label("Purple flag",    systemImage: "flag.fill") }
-                Divider()
-                Button { applyFlag(0) } label: { Label("Clear flag",     systemImage: "flag.slash") }
-            } label: {
-                Label("Flag", systemImage: "flag")
-            }
-            .disabled(selectionState.isEmpty)
-        }
-        ToolbarItem(placement: .bottomBar) { Spacer() }
-        ToolbarItem(placement: .bottomBar) {
+
+            flagMenu
+
+            markButton
+
             Button {
-                destination = .batchTag
+                showTagSheet = true
             } label: {
                 Label("Tags", systemImage: "tag")
             }
             .disabled(selectionState.isEmpty)
-        }
-        ToolbarItem(placement: .bottomBar) { Spacer() }
-        ToolbarItem(placement: .bottomBar) {
+
+            schedulingMenu
+
             Button(role: .destructive) {
-                destination = .deleteSelected
+                showDeleteConfirm = true
             } label: {
                 Label("Delete", systemImage: "trash")
             }
             .disabled(selectionState.isEmpty)
         }
+    }
+
+    /// Flags rendered with their semantic hues (Anki's seven brand colors —
+    /// constants on purpose; card states stay palette-driven).
+    private var flagMenu: some View {
+        Menu {
+            flagButton(value: 1, label: "Red", color: Color(hexBrowseFlag: 0xFF3B30))
+            flagButton(value: 2, label: "Orange", color: Color(hexBrowseFlag: 0xFF9500))
+            flagButton(value: 3, label: "Green", color: Color(hexBrowseFlag: 0x34C759))
+            flagButton(value: 4, label: "Blue", color: Color(hexBrowseFlag: 0x007AFF))
+            flagButton(value: 5, label: "Pink", color: Color(hexBrowseFlag: 0xFF2D55))
+            flagButton(value: 6, label: "Turquoise", color: Color(hexBrowseFlag: 0x32ADE6))
+            flagButton(value: 7, label: "Purple", color: Color(hexBrowseFlag: 0xAF52DE))
+            Divider()
+            Button {
+                applyFlag(0)
+            } label: {
+                Label("Clear flag", systemImage: "flag.slash")
+            }
+        } label: {
+            Label("Flag", systemImage: "flag")
+        }
+        .disabled(selectionState.isEmpty)
+    }
+
+    private func flagButton(value: UInt32, label: String, color: Color) -> some View {
+        Button {
+            applyFlag(value)
+        } label: {
+            HStack {
+                Image(systemName: "flag.fill").foregroundStyle(color)
+                Text(label)
+            }
+        }
+    }
+
+    private var markButton: some View {
+        Button {
+            let ids = selectionState.selectedNoteIDs
+            Task { await model.toggleMarkSelected(ids) }
+        } label: {
+            Label("Mark", systemImage: "star")
+        }
+        .disabled(selectionState.isEmpty)
+    }
+
+    /// Change deck / due date / grade-now / reposition / bury — desktop's
+    /// Cards menu, consolidated for touch.
+    private var schedulingMenu: some View {
+        Menu {
+            Button {
+                activeSheet = .changeDeck
+            } label: { Label("Change Deck…", systemImage: "rectangle.stack") }
+
+            Menu("Grade Now…") {
+                ForEach([(Rating.again, "Again"), (.hard, "Hard"), (.good, "Good"), (.easy, "Easy")],
+                        id: \.1) { rating, label in
+                    Button(label) { applyGradeNow(rating) }
+                }
+            }
+
+            Button {
+                activeSheet = .setDueDate
+            } label: { Label("Set Due Date…", systemImage: "calendar") }
+
+            Button {
+                activeSheet = .reposition
+            } label: { Label("Reposition New Cards…", systemImage: "list.number") }
+
+            Divider()
+            Button {
+                let ids = selectionState.selectedNoteIDs
+                selectionState.exitSelectMode()
+                Task { await model.burySelected(ids) }
+            } label: { Label("Bury Until Tomorrow", systemImage: "archivebox") }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+        }
+        .disabled(selectionState.isEmpty)
+        .accessibilityLabel("Scheduling actions")
+    }
+
+    private func applyGradeNow(_ rating: Rating) {
+        let ids = selectionState.selectedNoteIDs
+        selectionState.exitSelectMode()
+        Task { await model.gradeNowSelectedNotes(ids, rating: rating) }
     }
 
     // MARK: - Selection actions
@@ -233,329 +713,71 @@ package struct BrowseView: View {
     }
 }
 
-// MARK: - BrowseContent
-
-/// Pure rendering for the Browse screen: the note list (with select-mode,
-/// swipe-to-delete, and paging hooks) plus the deck/tag filter bar. Reads
-/// state from the model and drives mutations through it, but owns no I/O of
-/// its own — so it renders in a `#Preview` from a seeded model.
-struct BrowseContent: View {
-    @Environment(\.palette) private var palette
-    @Bindable var model: BrowseModel
-    @Binding var selectionState: BrowseSelectionState
-    let onSwipeDelete: (NoteRecord) -> Void
-
-    var body: some View {
-        statefulContent
-            .safeAreaInset(edge: .top) {
-                if !model.allDecks.isEmpty || !model.allTags.isEmpty {
-                    filterBar
-                }
-            }
-    }
-
-    @ViewBuilder
-    private var statefulContent: some View {
-        if model.notes.isEmpty && !model.isLoading && model.searchText.isEmpty && model.activeDeck == nil {
-            ContentUnavailableView(
-                "Browse Notes",
-                systemImage: "magnifyingglass",
-                description: Text("Search by content, tags, or filter by deck.")
-            )
-        } else if model.notes.isEmpty && !model.isLoading && model.searchFailed {
-            ContentUnavailableView(
-                "Search Failed",
-                systemImage: "exclamationmark.triangle",
-                description: Text("The collection couldn't be searched. Pull to try again.")
-            )
-        } else if model.notes.isEmpty && !model.isLoading {
-            ContentUnavailableView.search(text: model.searchText)
-        } else {
-            noteList
-        }
-    }
-
-    // MARK: - Note List
-
-    private var noteList: some View {
-        List {
-            ForEach(model.sortedNotes, id: \.id) { note in
-                noteRow(note)
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        Button(role: .destructive) {
-                            onSwipeDelete(note)
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                    }
-            }
-
-            if model.isLoading {
-                ProgressView()
-                    .frame(maxWidth: .infinity)
-            }
-        }
-        .navigationDestination(for: NoteRecord.self) { note in
-            // If tapped a stub, fetch full details first.
-            NoteEditingDestinationView(note: model.resolved(note)) {
-                Task { await model.performSearch() }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func noteRow(_ note: NoteRecord) -> some View {
-        HStack {
-            if selectionState.isSelectMode {
-                // A `Button`, not `.onTapGesture` — VoiceOver announces a
-                // tap gesture on a plain row as static text, so the row
-                // reads as unactionable and selection can't be reached at
-                // all with the screen reader on.
-                Button {
-                    selectionState.toggle(note.id)
-                } label: {
-                    HStack {
-                        Image(systemName: selectionState.contains(note.id) ? "checkmark.circle.fill" : "circle")
-                            .foregroundStyle(selectionState.contains(note.id) ? palette.accent : palette.textSecondary)
-                            .accessibilityHidden(true)   // the .isSelected trait already says this
-                        NoteRowView(note: note, notetypeName: model.notetypeNames[note.mid])
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.pressScale)
-                .accessibilityAddTraits(selectionState.contains(note.id) ? .isSelected : [])
-                .onAppear { onRowAppear(note) }
-            } else {
-                HStack {
-                    NavigationLink(value: note) {
-                        NoteRowView(note: note, notetypeName: model.notetypeNames[note.mid])
-                            .onAppear { onRowAppear(note) }
-                    }
-                    NoteContextMenuButton(model: model, noteId: note.id) {
-                        Task { await model.performSearch() }
-                    }
-                }
-                .contentShape(Rectangle())
-                .onLongPressGesture(minimumDuration: 0.5) {
-                    selectionState.enterSelectMode(preselect: note.id)
-                }
-                // The long press is the only way into select mode, and it's
-                // not a gesture VoiceOver can perform — expose it as a named
-                // action in the rotor as well.
-                .accessibilityAction(named: "Select") {
-                    selectionState.enterSelectMode(preselect: note.id)
-                }
-            }
-        }
-    }
-
-    /// Lazy-load stub notes when they scroll on screen, and page in the next
-    /// batch as the last row appears.
-    private func onRowAppear(_ note: NoteRecord) {
-        if note.sfld == "Loading..." {
-            Task { await model.fetchNoteDetails(id: note.id) }
-        }
-        if note.id == model.notes.last?.id {
-            Task { await model.loadNextPage() }
-        }
-    }
-
-    // MARK: - Filter Bar
-
-    private var filterBar: some View {
-        VStack(spacing: 0) {
-            if !model.allDecks.isEmpty {
-                deckFilterBar
-            }
-            if !model.allTags.isEmpty {
-                tagChipRow
-            }
-        }
-        .background(.bar)
-    }
-
-    private var tagChipRow: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                chipButton(label: "All", isSelected: model.activeTag == nil) {
-                    model.activeTag = nil
-                }
-                ForEach(model.allTags, id: \.self) { tag in
-                    chipButton(label: tag, isSelected: model.activeTag == tag) {
-                        model.activeTag = (model.activeTag == tag) ? nil : tag
-                    }
-                }
-            }
-            .padding(.horizontal)
-            .padding(.vertical, 8)
-        }
-    }
-
-    private var deckFilterBar: some View {
-        VStack(spacing: 0) {
-            // Top-level deck chips
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    chipButton(label: "All", isSelected: model.activeDeck == nil) {
-                        model.parentDeck = nil
-                        model.activeDeck = nil
-                    }
-                    ForEach(model.topLevelDecks) { deck in
-                        chipButton(
-                            label: deck.name,
-                            isSelected: model.parentDeck?.id == deck.id && model.activeDeck?.id == deck.id
-                        ) {
-                            model.parentDeck = deck
-                            model.activeDeck = deck
-                        }
-                    }
-                }
-                .padding(.horizontal)
-                .padding(.vertical, 8)
-            }
-
-            // Subdeck row — stays visible as long as a parent with children is selected
-            if !model.childDecks.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        // "All" chip = parent deck (includes subdecks)
-                        chipButton(
-                            label: "All",
-                            isSelected: model.activeDeck?.id == model.parentDeck?.id,
-                            small: true
-                        ) {
-                            model.activeDeck = model.parentDeck
-                        }
-                        ForEach(model.childDecks) { child in
-                            chipButton(
-                                label: shortName(child.name),
-                                isSelected: model.activeDeck?.id == child.id,
-                                small: true
-                            ) {
-                                model.activeDeck = child
-                            }
-                        }
-                    }
-                    .padding(.horizontal)
-                    .padding(.bottom, 8)
-                }
-            }
-        }
+private extension Substring {
+    /// Unwraps a quoted fragment like `"A::B"` → A::B.
+    var trimmedQuoted: String? {
+        let s = trimmingCharacters(in: CharacterSet(charactersIn: "\" "))
+        return s.isEmpty ? nil : s
     }
 }
 
-private extension BrowseContent {
-    func chipButton(
-        label: String,
-        isSelected: Bool,
-        small: Bool = false,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Text(label)
-                .amgiFont(small ? .caption : .body)
-                .padding(.horizontal, small ? 10 : 12)
-                .padding(.vertical, small ? 4 : 6)
-                .background(isSelected ? palette.accent : palette.surface)
-                .foregroundStyle(isSelected ? .white : palette.textPrimary)
-                .clipShape(Capsule())
-        }
-        .buttonStyle(.pressScale)
-    }
+// MARK: - Hex helper
 
-    func shortName(_ fullName: String) -> String {
-        String(fullName.split(separator: "::").last ?? Substring(fullName))
-    }
-}
-
-// MARK: - NoteContextMenuButton
-
-/// Resolves the first cardId for a note lazily on first appear, then shows
-/// CardContextMenu.
-///
-/// The resolved ID is held in local `@State` while the model keeps the shared
-/// cache behind `firstCardID(for:)` — so scrolling a row out and back still
-/// doesn't re-issue the backend lookup, but one row resolving no longer
-/// invalidates every other row's menu button.
-@MainActor
-struct NoteContextMenuButton: View {
-    let model: BrowseModel
-    let noteId: NoteID
-    var onSuccess: (() -> Void)?
-
-    @State private var cardId: CardID?
-
-    var body: some View {
-        Group {
-            if let cardId {
-                CardContextMenu(
-                    cardId: cardId,
-                    noteId: noteId,
-                    onSuccess: onSuccess
-                )
-            } else {
-                Image(systemName: "ellipsis.circle")
-                    .amgiFont(.bodyEmphasis)
-                    .foregroundStyle(.tertiary)
-            }
-        }
-        .task(id: noteId) {
-            cardId = await model.firstCardID(for: noteId)
-        }
-    }
-}
-
-// MARK: - NoteRowView
-
-struct NoteRowView: View {
-    @Environment(\.palette) private var palette
-    let note: NoteRecord
-    let notetypeName: String?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(note.sfld)
-                .amgiFont(.body)
-                .lineLimit(1)
-            if let subtitle = composeNoteSubtitle(notetypeName: notetypeName, tags: note.tags) {
-                Text(subtitle)
-                    .amgiFont(.caption)
-                    .foregroundStyle(palette.textSecondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-        }
-        .padding(.vertical, 2)
+private extension Color {
+    init(hexBrowseFlag hex: UInt32) {
+        self.init(.sRGB,
+                  red: Double((hex >> 16) & 0xFF) / 255,
+                  green: Double((hex >> 8) & 0xFF) / 255,
+                  blue: Double(hex & 0xFF) / 255,
+                  opacity: 1)
     }
 }
 
 // MARK: - Preview
 
 #if DEBUG
-#Preview {
-    // Seed the model directly: BrowseContent has no `.task`, so the sample
-    // notes aren't overwritten by a load, and no live backend is touched.
+@MainActor
+private func previewBrowseModel() -> BrowseModel {
     let model = BrowseModel()
-    model.notes = [
-        NoteRecord(id: NoteID(1), guid: "g1", mid: NotetypeID(1), mod: 1_700_000_300,
-                   tags: "vocab", flds: "", sfld: "안녕하세요 — hello", csum: 0),
-        NoteRecord(id: NoteID(2), guid: "g2", mid: NotetypeID(1), mod: 1_700_000_200,
-                   tags: "marked grammar", flds: "", sfld: "Bonjour le monde", csum: 0),
-        NoteRecord(id: NoteID(3), guid: "g3", mid: NotetypeID(2), mod: 1_700_000_100,
-                   flds: "", sfld: "The quick brown fox jumps over the lazy dog", csum: 0),
+    let seeded: [(Int64, String, String)] = [
+        (1, "vocab", "안녕하세요 — hello"),
+        (2, "marked grammar", "Bonjour le monde"),
+        (3, "", "The quick brown fox jumps over the lazy dog"),
     ]
-    model.allNotes = model.notes
-    model.hasMorePages = false
-    model.notetypeNames = [NotetypeID(1): "Basic", NotetypeID(2): "Cloze"]
+    let mods: [Int64: Int64] = [1: 1_700_000_300, 2: 1_700_000_200, 3: 1_700_000_100]
+    var records: [Int64: NoteRecord] = [:]
+    var ids: [Int64] = []
+    for seed in seeded {
+        let (id, tags, text) = seed
+        records[id] = NoteRecord(
+            id: NoteID(id), guid: "g\(id)", mid: NotetypeID(1), mod: mods[id] ?? 0,
+            tags: tags, flds: "", sfld: text, csum: 0
+        )
+        ids.append(id)
+    }
+    model.seedPreview(ids: ids, records: records)
     model.allTags = ["vocab", "grammar", "marked"]
-    return NavigationStack {
-        BrowseContent(
-            model: model,
+    return model
+}
+
+#Preview("Browse list") {
+    NavigationStack {
+        BrowseListColumn(
+            model: previewBrowseModel(),
             selectionState: .constant(BrowseSelectionState()),
             onSwipeDelete: { _ in }
         )
-        .navigationTitle("Browse")
+        .navigationTitle("All Decks")
         .navigationBarTitleDisplayMode(.inline)
     }
 }
 #endif
+
+extension BrowseView.Sheet: Identifiable {}
+
+/// Compact NavigationStack destinations. Split view never uses this —
+/// its columns are always on screen.
+enum BrowseRoute: Hashable {
+    case source(BrowseSource)
+    case detail
+}

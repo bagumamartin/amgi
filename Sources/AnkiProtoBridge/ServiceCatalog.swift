@@ -19,6 +19,8 @@ enum ServiceID {
     static let media: UInt32 = 41
     static let stats: UInt32 = 43
     static let tags: UInt32 = 45
+    /// Amgi-only aux service in anki-bridge-rs (not an engine service).
+    static let aux: UInt32 = 200
 }
 
 /// Collection methods delegated onto BackendCollectionService (3).
@@ -29,12 +31,15 @@ enum CollectionOpsMethod {
     static let checkDatabase: UInt32 = 6
     static let getUndoStatus: UInt32 = 7
     static let undo: UInt32 = 8
+    static let redo: UInt32 = 9
 }
 
 /// BackendCardsService (5).
 enum CardsMethod {
     static let getCard: UInt32 = 0
+    static let updateCards: UInt32 = 1
     static let removeCards: UInt32 = 2
+    static let setDeck: UInt32 = 3
     static let setFlag: UInt32 = 4
 }
 
@@ -62,6 +67,10 @@ enum SchedulerMethod {
     static let emptyFilteredDeck: UInt32 = 15
     static let rebuildFilteredDeck: UInt32 = 16
     static let scheduleCardsAsNew: UInt32 = 17
+    static let restoreBuriedAndSuspended: UInt32 = 12
+    static let setDueDate: UInt32 = 19
+    static let gradeNow: UInt32 = 20
+    static let sortCards: UInt32 = 21
     static let computeFsrsParams: UInt32 = 30
     static let simulateFsrsReview: UInt32 = 33
     static let simulateFsrsWorkload: UInt32 = 34
@@ -106,8 +115,28 @@ enum NotesMethod {
 }
 
 enum SearchMethod {
+    /// search.proto's backend block is empty, so ids are declaration order.
+    static let buildSearchString: UInt32 = 0
     static let searchCards: UInt32 = 1
     static let searchNotes: UInt32 = 2
+    static let joinSearchNodes: UInt32 = 3
+    static let replaceSearchNode: UInt32 = 4
+    static let findAndReplace: UInt32 = 5
+    static let allBrowserColumns: UInt32 = 6
+    static let browserRowForId: UInt32 = 7
+    static let setActiveBrowserColumns: UInt32 = 8
+}
+
+/// Aux methods (JSON wire format, not protobuf).
+enum AuxMethod {
+    static let findDupesExact: UInt32 = 0
+}
+
+/// BackendConfigService (9).
+enum ConfigMethod {
+    static let getConfigJson: UInt32 = 0
+    static let setConfigJsonNoUndo: UInt32 = 2
+    static let removeConfig: UInt32 = 3
 }
 
 /// BackendSyncService (1). syncMedia=0, abortMediaSync=1,

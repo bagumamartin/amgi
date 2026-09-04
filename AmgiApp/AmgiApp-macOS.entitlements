@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<!-- Team-prefixed (via $(APP_GROUP_IDENTIFIER) sdk=macosx* override):
+		     widget snapshots + shared defaults (AppGroup.identifier). -->
+		<string>$(APP_GROUP_IDENTIFIER)</string>
+		<!-- Unprefixed: canonical collection root
+		     (CollectionLayout.macGroupAnkiCollectionRoot) shared with the
+		     unsandboxed amgi-mcp helper. Both groups must stay listed. -->
+		<string>group.com.bagumamartin.AmgiApp</string>
+	</array>
+	<key>com.apple.security.files.user-selected.read-only</key>
+	<true/>
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<!-- Localhost agent bridge (unix socket + 127.0.0.1 MCP endpoint). -->
+	<key>com.apple.security.network.server</key>
+	<true/>
+</dict>
+</plist>

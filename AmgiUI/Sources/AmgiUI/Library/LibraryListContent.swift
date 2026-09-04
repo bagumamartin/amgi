@@ -22,37 +22,46 @@ public struct LibraryListContent: View {
     }
 
     let state: State
+    @Binding var sortOrder: DeckSortOrder
     let onRefresh: () async -> Void
     let onStartReview: () -> Void
     let onTapDeck: (DeckRowViewData) -> Void
     let onDeleteDeck: (Int64) async -> Void
     let onRenameDeck: (DeckRowViewData) -> Void
     let onCreateDeck: () -> Void
+    let onChangeIconDeck: (DeckRowViewData) -> Void
     /// Namespace the container's deck-detail push zooms from. Optional
     /// because the row rendering is useful in previews and tests that have
     /// no navigation stack to anchor to.
     let deckTransition: Namespace.ID?
 
+    // Nested `State` enum shadows SwiftUI's `@State`; qualify the wrapper.
+    @SwiftUI.State private var deleteTarget: DeckRowViewData?
     @Environment(\.palette) private var palette
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     public init(
         state: State,
+        sortOrder: Binding<DeckSortOrder> = .constant(.mostUsed),
         onRefresh: @escaping () async -> Void,
         onStartReview: @escaping () -> Void,
         onTapDeck: @escaping (DeckRowViewData) -> Void,
         onDeleteDeck: @escaping (Int64) async -> Void,
         onRenameDeck: @escaping (DeckRowViewData) -> Void,
         onCreateDeck: @escaping () -> Void,
+        onChangeIconDeck: @escaping (DeckRowViewData) -> Void = { _ in },
         deckTransition: Namespace.ID? = nil
     ) {
-        self.deckTransition = deckTransition
         self.state = state
+        self._sortOrder = sortOrder
         self.onRefresh = onRefresh
         self.onStartReview = onStartReview
         self.onTapDeck = onTapDeck
         self.onDeleteDeck = onDeleteDeck
         self.onRenameDeck = onRenameDeck
         self.onCreateDeck = onCreateDeck
+        self.onChangeIconDeck = onChangeIconDeck
+        self.deckTransition = deckTransition
     }
 
     public var body: some View {
@@ -79,11 +88,55 @@ public struct LibraryListContent: View {
             }
         case .loaded(let rows, let hero, let heatmap):
             loadedList(rows: rows, hero: hero, heatmap: heatmap)
+                .alert(
+                    "Delete \"\(deleteTarget?.name ?? "")\"?",
+                    isPresented: Binding(
+                        get: { deleteTarget != nil },
+                        set: { if !$0 { deleteTarget = nil } }
+                    )
+                ) {
+                    Button("Delete", role: .destructive) {
+                        guard let target = deleteTarget else { return }
+                        deleteTarget = nil
+                        Task { await onDeleteDeck(target.id) }
+                    }
+                    Button("Cancel", role: .cancel) { deleteTarget = nil }
+                } message: {
+                    Text("This will permanently delete the deck and all its cards.")
+                }
         }
     }
 
     @ViewBuilder
     private func loadedList(rows: [DeckRowViewData], hero: HeroData, heatmap: HeatmapCardData?) -> some View {
+        #if os(iOS)
+        GeometryReader { proxy in
+            let inset = LibraryColumn.inset(for: proxy.size.width)
+            if inset > 0 {
+                deckList(rows: rows, hero: hero, heatmap: heatmap)
+                    // Inset the List *content* (not the List frame) so the
+                    // scroll indicator stays at the screen edge while the rows
+                    // stay centered on regular-width layouts. Compact widths skip
+                    // this so the insetGrouped style keeps its native margins.
+                    .contentMargins(.horizontal, inset, for: .scrollContent)
+            } else {
+                deckList(rows: rows, hero: hero, heatmap: heatmap)
+            }
+        }
+        #else
+        // `List` doesn't honor `contentMargins` on macOS, and swipe actions are
+        // touch-only — use a full-bleed ScrollView with a centered column so the
+        // scroll indicator stays at the window edge.
+        scrollList(rows: rows, hero: hero, heatmap: heatmap)
+        #endif
+    }
+
+    private var heatmapInitialDays: Int {
+        horizontalSizeClass == .regular ? 365 : 180
+    }
+
+    #if os(iOS)
+    private func deckList(rows: [DeckRowViewData], hero: HeroData, heatmap: HeatmapCardData?) -> some View {
         List {
             Section {
                 LibraryHeroCard(
@@ -99,13 +152,14 @@ public struct LibraryListContent: View {
                     .listRowSeparator(.hidden)
             }
 
-            Section("Decks") {
-                ForEach(rows) { row in
+            Section {
+                ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                     DeckListRowView(
                         data: row,
                         onTap: { onTapDeck(row) },
-                        onDelete: { Task { await onDeleteDeck(row.id) } },
-                        onRename: { onRenameDeck(row) }
+                        onRequestDelete: { deleteTarget = row },
+                        onRename: { onRenameDeck(row) },
+                        onChangeIcon: { onChangeIconDeck(row) }
                     )
                     // One modifier, not four. Chained inline, the ForEach
                     // element type is a four-deep ModifiedContent nest, and
@@ -113,41 +167,139 @@ public struct LibraryListContent: View {
                     .modifier(DeckRowChrome(
                         rowID: row.id,
                         namespace: deckTransition,
-                        background: palette.surfaceElevated,
-                        separator: palette.separator
+                        isFirst: index == 0,
+                        isLast: index == rows.count - 1,
+                        surface: palette.surfaceElevated,
+                        border: palette.border
                     ))
                 }
+            } header: {
+                DeckSectionHeader(title: "Decks", sortOrder: $sortOrder)
             }
 
             Section {
-                ActivityHeatmapCard(data: heatmap ?? .empty)
+                ActivityHeatmapCard(data: heatmap ?? .empty, initialDays: heatmapInitialDays)
                     .redacted(reason: heatmap == nil ? .placeholder : [])
                     .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
             }
         }
-        .libraryListStyle()
+        .listStyle(.insetGrouped)
+        .environment(\.defaultMinListRowHeight, 0)
+        .scrollClipDisabled()
         .scrollContentBackground(.hidden)
         .refreshable { await onRefresh() }
     }
+    #endif
+
+    #if os(macOS)
+    private func scrollList(rows: [DeckRowViewData], hero: HeroData, heatmap: HeatmapCardData?) -> some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 18) {
+                LibraryHeroCard(
+                    data: hero,
+                    activityPending: heatmap == nil,
+                    onStartReview: onStartReview
+                )
+
+                VStack(alignment: .leading, spacing: 6) {
+                    DeckSectionHeader(title: "Decks", sortOrder: $sortOrder)
+                    deckRowsCard(rows: rows)
+                }
+
+                ActivityHeatmapCard(data: heatmap ?? .empty, initialDays: heatmapInitialDays)
+                    .redacted(reason: heatmap == nil ? .placeholder : [])
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 6)
+            .padding(.bottom, 32)
+            .frame(maxWidth: LibraryColumn.maxWidth)
+            .frame(maxWidth: .infinity)
+        }
+        .background(palette.background.ignoresSafeArea())
+        .refreshable { await onRefresh() }
+    }
+
+    private func deckRowsCard(rows: [DeckRowViewData]) -> some View {
+        VStack(spacing: 0) {
+            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                DeckListRowView(
+                    data: row,
+                    onTap: { onTapDeck(row) },
+                    onRequestDelete: { deleteTarget = row },
+                    onRename: { onRenameDeck(row) },
+                    onChangeIcon: { onChangeIconDeck(row) }
+                )
+                .padding(.horizontal, 12)
+                .overlay(alignment: .bottom) {
+                    if index < rows.count - 1 {
+                        Rectangle()
+                            .fill(palette.border)
+                            .frame(height: 0.5)
+                            .padding(.leading, 64)
+                    }
+                }
+            }
+        }
+        .background(
+            palette.surfaceElevated,
+            in: RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous)
+                .strokeBorder(palette.border, lineWidth: 0.5)
+        )
+    }
+    #endif
 }
 
 /// Every per-row list modifier in one place, including anchoring the row as
 /// the zoom source for the detail push when the container supplied a
-/// namespace to anchor into.
+/// namespace to anchor into. The grouped-card stroke is folded in so the
+/// ForEach element type stays a single ModifiedContent nest.
 private struct DeckRowChrome: ViewModifier {
     let rowID: Int64
     let namespace: Namespace.ID?
-    let background: Color
-    let separator: Color
+    let isFirst: Bool
+    let isLast: Bool
+    let surface: Color
+    let border: Color
 
     func body(content: Content) -> some View {
         content
             .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
-            .listRowBackground(background)
-            .listRowSeparatorTint(separator)
+            .listRowBackground(deckCardBackground)
+            .listRowSeparator(.hidden)
             .modifier(DeckTransitionSource(id: rowID, namespace: namespace))
+    }
+
+    @ViewBuilder
+    private var deckCardBackground: some View {
+        let r = AmgiRadius.inset
+        ZStack {
+            UnevenRoundedRectangle(
+                cornerRadii: RectangleCornerRadii(
+                    topLeading: isFirst ? r : 0,
+                    bottomLeading: isLast ? r : 0,
+                    bottomTrailing: isLast ? r : 0,
+                    topTrailing: isFirst ? r : 0
+                ),
+                style: .continuous
+            )
+            .fill(surface)
+
+            DeckCardStrokeShape(isFirst: isFirst, isLast: isLast, cornerRadius: r)
+                .stroke(border, lineWidth: 0.5)
+        }
+        .overlay(alignment: .bottom) {
+            if !isLast {
+                Rectangle()
+                    .fill(border)
+                    .frame(height: 0.5)
+                    .padding(.leading, 68)
+            }
+        }
     }
 }
 
@@ -157,10 +309,80 @@ private struct DeckTransitionSource: ViewModifier {
 
     func body(content: Content) -> some View {
         if let namespace {
+            #if os(iOS)
             content.matchedTransitionSource(id: id, in: namespace)
+            #else
+            content
+            #endif
         } else {
             content
         }
+    }
+}
+
+/// Outer-boundary stroke for the Library deck card, split per row so the
+/// rounded top/bottom corners land on the first/last row and the left/right
+/// edges stay continuous across the middle rows.
+private struct DeckCardStrokeShape: Shape {
+    let isFirst: Bool
+    let isLast: Bool
+    let cornerRadius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let rect = rect.insetBy(dx: 0.25, dy: 0.25)
+        let r = cornerRadius
+        let minX = rect.minX
+        let maxX = rect.maxX
+        let minY = rect.minY
+        let maxY = rect.maxY
+        var path = Path()
+
+        if isFirst {
+            path.move(to: CGPoint(x: minX, y: maxY))
+            path.addLine(to: CGPoint(x: minX, y: minY + r))
+            path.addArc(
+                center: CGPoint(x: minX + r, y: minY + r),
+                radius: r,
+                startAngle: .degrees(180),
+                endAngle: .degrees(270),
+                clockwise: false
+            )
+            path.addLine(to: CGPoint(x: maxX - r, y: minY))
+            path.addArc(
+                center: CGPoint(x: maxX - r, y: minY + r),
+                radius: r,
+                startAngle: .degrees(-90),
+                endAngle: .degrees(0),
+                clockwise: false
+            )
+            path.addLine(to: CGPoint(x: maxX, y: maxY))
+        } else if isLast {
+            path.move(to: CGPoint(x: maxX, y: minY))
+            path.addLine(to: CGPoint(x: maxX, y: maxY - r))
+            path.addArc(
+                center: CGPoint(x: maxX - r, y: maxY - r),
+                radius: r,
+                startAngle: .degrees(0),
+                endAngle: .degrees(90),
+                clockwise: false
+            )
+            path.addLine(to: CGPoint(x: minX + r, y: maxY))
+            path.addArc(
+                center: CGPoint(x: minX + r, y: maxY - r),
+                radius: r,
+                startAngle: .degrees(90),
+                endAngle: .degrees(180),
+                clockwise: false
+            )
+            path.addLine(to: CGPoint(x: minX, y: minY))
+        } else {
+            path.move(to: CGPoint(x: minX, y: minY))
+            path.addLine(to: CGPoint(x: minX, y: maxY))
+            path.move(to: CGPoint(x: maxX, y: minY))
+            path.addLine(to: CGPoint(x: maxX, y: maxY))
+        }
+
+        return path
     }
 }
 
@@ -178,22 +400,26 @@ private struct DeckTransitionSource: ViewModifier {
 /// invalidate normally — `EquatableView` does not suppress those.
 extension LibraryListContent: Equatable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.state == rhs.state && lhs.deckTransition == rhs.deckTransition
+        lhs.state == rhs.state
+            && lhs.deckTransition == rhs.deckTransition
+            && lhs.sortOrder == rhs.sortOrder
     }
 }
 
-private extension View {
-    /// `insetGrouped` is iOS-only. On macOS (preview-only target),
-    /// fall back to the platform default.
-    @ViewBuilder
-    func libraryListStyle() -> some View {
-        #if os(iOS)
-        self.listStyle(.insetGrouped)
-        #else
-        self
-        #endif
+/// Shared Library content column width. Hero, decks, and activity all
+/// align to this centered column so they stay readable on regular-width
+/// layouts without pinning the scroll indicator to the column edge.
+private enum LibraryColumn {
+    static let maxWidth: CGFloat = 800
+
+    /// Horizontal margin that centers the column when the detail pane is
+    /// wider than `maxWidth`. Compact widths return 0, leaving the
+    /// insetGrouped style's native margins untouched.
+    static func inset(for width: CGFloat) -> CGFloat {
+        max(0, (width - maxWidth) / 2)
     }
 }
+
 
 // MARK: - Previews
 
@@ -229,7 +455,7 @@ private extension DeckRowViewData {
 private extension HeroData {
     static let samplePopulated = HeroData(
         totalDue: 680, deckCount: 7, streak: 36,
-        last14Days: [3, 5, 2, 7, 6, 9, 4, 8, 6, 5, 7, 3, 8, 5]
+        recentDayTotals: HeroData.sampleDayTotals()
     )
 }
 
@@ -241,6 +467,7 @@ private extension HeroData {
                 hero: .samplePopulated,
                 heatmap: .dense
             ),
+            sortOrder: .constant(.mostUsed),
             onRefresh: {}, onStartReview: {},
             onTapDeck: { _ in }, onDeleteDeck: { _ in }, onRenameDeck: { _ in }, onCreateDeck: {}
         )
@@ -261,6 +488,7 @@ private extension HeroData {
                 hero: .samplePopulated,
                 heatmap: .dense
             ),
+            sortOrder: .constant(.mostUsed),
             onRefresh: {}, onStartReview: {},
             onTapDeck: { _ in }, onDeleteDeck: { _ in }, onRenameDeck: { _ in }, onCreateDeck: {}
         )
@@ -275,9 +503,10 @@ private extension HeroData {
             state: .loaded(
                 rows: [.sampleEspanol],
                 hero: HeroData(totalDue: 0, deckCount: 1, streak: 12,
-                               last14Days: Array(repeating: 0, count: 14)),
+                               recentDayTotals: Array(repeating: 0, count: HeroData.sparklineCapacity)),
                 heatmap: .sparse
             ),
+            sortOrder: .constant(.mostUsed),
             onRefresh: {}, onStartReview: {},
             onTapDeck: { _ in }, onDeleteDeck: { _ in }, onRenameDeck: { _ in }, onCreateDeck: {}
         )
@@ -290,6 +519,7 @@ private extension HeroData {
     NavigationStack {
         LibraryListContent(
             state: .loading,
+            sortOrder: .constant(.mostUsed),
             onRefresh: {}, onStartReview: {},
             onTapDeck: { _ in }, onDeleteDeck: { _ in }, onRenameDeck: { _ in }, onCreateDeck: {}
         )
@@ -302,6 +532,7 @@ private extension HeroData {
     NavigationStack {
         LibraryListContent(
             state: .empty,
+            sortOrder: .constant(.mostUsed),
             onRefresh: {}, onStartReview: {},
             onTapDeck: { _ in }, onDeleteDeck: { _ in }, onRenameDeck: { _ in }, onCreateDeck: {}
         )

@@ -40,6 +40,8 @@ final class DeckListModel {
             carried = nil
         }
 
+        await DeckIconOverrides.refresh()
+
         do {
             // Separates engine wait from Swift assembly. Phase one measured
             // 145 ms in-app but only 0.44 ms against stubbed clients
@@ -53,7 +55,15 @@ final class DeckListModel {
                 return
             }
             let rows = tree.map(DeckListRow.init(node:))
-            let viewRows = rows.map(\.viewData)
+            var viewRows = rows.map(\.viewData)
+            for index in viewRows.indices {
+                let row = rows[index]
+                viewRows[index].iconName = DeckIconOverrides.initialIcon(
+                    deckId: row.id.rawValue,
+                    name: row.name,
+                    fullName: row.fullName
+                )
+            }
 
             state = .loaded(
                 rows: viewRows,
@@ -75,11 +85,33 @@ final class DeckListModel {
             }
             guard !Task.isCancelled else { return }
             state = .loaded(rows: viewRows, hero: hero, heatmap: heatmap)
+            Task { await refineRowIcons() }
         } catch {
             Log.decks.error("Error loading decks: \(error)")
             // NOT .empty — that is the genuine no-decks state, and rendering a
             // failure as it told users with a full collection they had none.
             state = .failed(error.localizedDescription)
+        }
+    }
+
+    /// Semantic suggestions stream in per row after first paint.
+    func refineRowIcons() async {
+        guard case .loaded(let rows, let hero, let heatmap) = state else { return }
+        var updated = rows
+        var changed = false
+        for index in updated.indices {
+            let row = updated[index]
+            let resolved = await DeckIconOverrides.resolvedIcon(
+                deckId: row.id,
+                name: row.name,
+                fullName: row.fullName
+            )
+            guard resolved != row.iconName else { continue }
+            updated[index] = row.updatingIconName(resolved)
+            changed = true
+        }
+        if changed {
+            state = .loaded(rows: updated, hero: hero, heatmap: heatmap)
         }
     }
 

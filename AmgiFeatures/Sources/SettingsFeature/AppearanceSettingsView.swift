@@ -53,19 +53,35 @@ struct AppearanceSettingsView: View {
     @ViewBuilder
     private var themePickerRow: some View {
         let themes = ThemeRegistry.shared.allThemes()
-        VStack(spacing: AmgiSpacing.md) {
-            ForEach(themes, id: \.id) { data in
-                let id = ThemeID(rawValue: data.id)
-                ThemeCard(
-                    themeID: id,
-                    label: data.displayName,
-                    isSelected: manager.themeID == id
-                ) {
-                    manager.themeID = id
-                }
-            }
+        #if os(macOS)
+        // Wide layouts get a compact adaptive grid instead of full-width
+        // stacked cards.
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 240), spacing: AmgiSpacing.md)], spacing: AmgiSpacing.md) {
+            themeCards(themes)
         }
         .padding(.horizontal, AmgiSpacing.lg)
+        .padding(.vertical, AmgiSpacing.xs)
+        #else
+        VStack(spacing: AmgiSpacing.md) {
+            themeCards(themes)
+        }
+        .padding(.horizontal, AmgiSpacing.lg)
+        .padding(.vertical, AmgiSpacing.xs)
+        #endif
+    }
+
+    @ViewBuilder
+    private func themeCards(_ themes: [PaletteData]) -> some View {
+        ForEach(themes, id: \.id) { data in
+            let id = ThemeID(rawValue: data.id)
+            ThemeCard(
+                themeID: id,
+                label: data.displayName,
+                isSelected: manager.themeID == id
+            ) {
+                manager.themeID = id
+            }
+        }
     }
 }
 

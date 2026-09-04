@@ -128,23 +128,16 @@ public final class AccountStore {
 
     // MARK: - Filesystem helpers
 
-    /// Parent of every profile directory.
-    ///
-    /// Before multi-profile support this *was* the collection directory, so
-    /// anything reaching for it directly is either doing legacy migration or
-    /// operating on all profiles at once. Per-profile work wants
-    /// `profileDirectory(for:)`.
+    /// Parent of every profile directory (canonical via `CollectionLayout`
+    /// so the app, watch, and amgi-mcp helper agree).
     public static var collectionRoot: URL {
-        let appSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory, in: .userDomainMask
-        ).first ?? URL.applicationSupportDirectory
-        return appSupport.appendingPathComponent("AnkiCollection", isDirectory: true)
+        CollectionLayout.rootDirectory()
     }
 
     /// Per-profile collection directory. Files inside follow Anki's
     /// layout: `collection.anki2`, `media/`, `media.db`.
     public static func profileDirectory(for id: String) -> URL {
-        collectionRoot.appendingPathComponent(id, isDirectory: true)
+        CollectionLayout.profileDirectory(for: id)
     }
 
     /// One-time migration on first multi-profile launch: if there's a

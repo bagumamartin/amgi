@@ -1,5 +1,6 @@
 import AnkiBackend
 import AnkiKit
+import AnkiProtoBridge
 import AnkiServices
 public import Dependencies
 import DependenciesMacros
@@ -7,6 +8,7 @@ import DependenciesMacros
 extension NoteClient: DependencyKey {
     public static let liveValue: Self = {
         @Dependency(\.notesService) var notes
+        @Dependency(\.ankiBackend) var backend
 
         return Self(
             fetch: { noteId in
@@ -53,6 +55,41 @@ extension NoteClient: DependencyKey {
                         }
                     }
                     return results
+                }
+            },
+            searchIds: { query, order in
+                try await backendOffload {
+                    try backend.invoke(.searchNoteIds(query: query, order: order))
+                }
+            },
+            deleteBatch: { noteIds in
+                guard !noteIds.isEmpty else { return }
+                try await backendOffload {
+                    _ = try backend.invoke(.removeNotes(noteIds: noteIds))
+                }
+            },
+            validateQuery: { query in
+                try await backendOffload {
+                    try backend.invoke(.buildSearchString(query: query))
+                }
+            },
+            composeQuery: { existing, additional, joiner in
+                try await backendOffload {
+                    try backend.invoke(
+                        .joinSearchNodes(existing: existing, additional: additional, joiner: joiner)
+                    )
+                }
+            },
+            findAndReplace: { noteIds, search, replacement, regex, matchCase, fieldName in
+                try await backendOffload {
+                    try backend.invoke(.findAndReplace(
+                        noteIds: noteIds,
+                        search: search,
+                        replacement: replacement,
+                        isRegex: regex,
+                        matchCase: matchCase,
+                        fieldName: fieldName
+                    ))
                 }
             },
             save: { note in

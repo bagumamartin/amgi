@@ -31,9 +31,18 @@ final class CardAssetScheme: NSObject, WKURLSchemeHandler {
         // For 'card' host, we don't serve files—the baseURL is just for relative URL resolution.
         // This is a no-op for card host; links will be handled by JavaScript handlers.
         guard let fileURL = CardAssetPath.resolve(url: url, mediaRoot: mediaRoot, bundleRoot: bundleRoot) else {
+            if url.host?.lowercased() == "assets" {
+                // Diagnostic: an unresolvable mathjax asset would silently
+                // disable math rendering for the session.
+                print("[CardAssetScheme] unresolvable asset request: \(url.absoluteString)")
+            }
             // Not a resolvable asset path (e.g., 'card' host). Respond with 204 (No Content).
             respond(to: urlSchemeTask, url: url, statusCode: 204, mimeType: "text/plain", data: Data())
             return
+        }
+
+        if url.host?.lowercased() == "assets" {
+            print("[CardAssetScheme] serving asset: \(url.path)")
         }
 
         // WKURLSchemeHandler callbacks arrive on the main thread, so reading

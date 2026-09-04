@@ -28,13 +28,8 @@ public final class ThemeManager {
         // First-upgrade backfill: read the legacy "theme.selection" key when
         // the new "theme.id" key isn't present yet. The didSet on themeID
         // will write the new key on the next change, so this only fires once.
-        let storedRaw = defaults.string(forKey: Keys.themeID)
-            ?? defaults.string(forKey: Keys.legacyTheme)
-        let stored = storedRaw.map(ThemeID.init(rawValue:))
-        let storedAppearance = defaults.string(forKey: Keys.appearance).flatMap(Appearance.init(rawValue:))
-        // Unknown IDs are fine — registry.palette(id:scheme:) falls back to Minimal.
-        self.themeID = stored ?? .minimal
-        self.appearance = storedAppearance ?? .system
+        self.themeID = Self.storedThemeID(in: defaults) ?? .minimal
+        self.appearance = Self.storedAppearance(in: defaults) ?? .system
     }
 
     public func palette(for systemScheme: ColorScheme) -> Palette {
@@ -45,6 +40,33 @@ public final class ThemeManager {
         case .dark: resolved = .dark
         }
         return registry.palette(id: themeID, scheme: resolved)
+    }
+
+    /// Re-reads theme + appearance from defaults. Widget extensions and
+    /// other long-lived out-of-process readers must call this per timeline
+    /// reload — a widget process can serve several reloads, and the cached
+    /// `themeID` would otherwise keep a theme the user changed in the app.
+    public func refreshFromDefaults() {
+        themeID = Self.storedThemeID(in: defaults) ?? themeID
+        appearance = Self.storedAppearance(in: defaults) ?? appearance
+    }
+
+    private static func storedThemeID(in defaults: UserDefaults) -> ThemeID? {
+        let storedRaw = defaults.string(forKey: Keys.themeID)
+            ?? defaults.string(forKey: Keys.legacyTheme)
+        return storedRaw.flatMap(ThemeID.init(rawValue:))
+    }
+
+    private static func storedAppearance(in defaults: UserDefaults) -> Appearance? {
+        defaults.string(forKey: Keys.appearance).flatMap(Appearance.init(rawValue:))
+    }
+
+    /// Resolve the active theme for an *explicit* scheme, ignoring the user's
+    /// appearance override. Used by surfaces that must match a specific
+    /// light/dark background (like the review chrome adopting a card's own
+    /// background colour) rather than the system appearance.
+    public func palette(forExplicitScheme scheme: ColorScheme) -> Palette {
+        registry.palette(id: themeID, scheme: scheme)
     }
 
     private enum Keys {

@@ -101,7 +101,11 @@ package struct TagsView: View {
         }
         .scrollContentBackground(.hidden)
         .background(palette.background)
+        #if os(iOS)
         .listStyle(.insetGrouped)
+        #else
+        .listStyle(.inset)
+        #endif
     }
 
     /// Every modal the screen can show, read off the single `destination`.

@@ -10,6 +10,7 @@ package struct NoteEditorView: View {
     let onSave: () -> Void
 
     @State private var showSavedConfirmation = false
+    @Environment(\.dismiss) private var dismiss
 
     package init(note: NoteRecord, onSave: @escaping () -> Void) {
         _model = State(initialValue: NoteEditorModel(note: note))
@@ -21,6 +22,10 @@ package struct NoteEditorView: View {
             .navigationTitle("Edit Note")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .keyboardShortcut(.cancelAction)
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         Task {
@@ -37,6 +42,7 @@ package struct NoteEditorView: View {
                     // second tap during the 1.5s toast would re-save and re-fire
                     // onSave (the pre-extraction save() held isSaving across the
                     // toast).
+                    .keyboardShortcut(.defaultAction)
                     .disabled(model.isSaving || showSavedConfirmation)
                 }
             }
@@ -84,11 +90,16 @@ struct NoteEditorContent: View {
             }
 
             Section("Tags") {
-                TextField("Tags (space-separated)", text: $model.tags)
+                TextField("Tags", text: $model.tags, prompt: Text("space-separated"))
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
             }
         }
+        #if os(macOS)
+        .formStyle(.grouped)
+        .frame(minWidth: 360, idealWidth: 460, maxWidth: 640)
+        .presentationSizing(.fitted)
+        #endif
     }
 }
 

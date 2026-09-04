@@ -180,7 +180,7 @@ struct EmptyCardsContent: View {
                             Text("Note id: \(entry.id.rawValue)")
                                 .amgiFont(.body, .monospacedDigits)
                                 .foregroundStyle(palette.textPrimary)
-                            Text("\(entry.emptyCards) of \(entry.totalCards) cards empty")
+                            Text(verbatim: "\(entry.emptyCards) of \(entry.totalCards) cards empty")
                                 .amgiFont(.caption)
                                 .foregroundStyle(palette.textSecondary)
                             Text("Deck: \(entry.deckName)")

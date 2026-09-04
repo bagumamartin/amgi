@@ -41,14 +41,21 @@ struct ServerSetupSheet: View {
                     Button("Save") {
                         save()
                     }
+                    .keyboardShortcut(.defaultAction)
                     .disabled(serverURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
+            #if os(macOS)
+            .formStyle(.grouped)
+            .frame(minWidth: 360, idealWidth: 420, maxWidth: 540)
+            .presentationSizing(.fitted)
+            #endif
             .navigationTitle("Server Setup")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { isPresented = false }
+                        .keyboardShortcut(.cancelAction)
                 }
             }
         }

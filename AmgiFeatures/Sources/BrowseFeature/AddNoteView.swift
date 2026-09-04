@@ -28,6 +28,7 @@ package struct AddNoteView: View {
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Cancel") { dismiss() }
+                            .keyboardShortcut(.cancelAction)
                     }
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Add") {
@@ -38,6 +39,7 @@ package struct AddNoteView: View {
                                 }
                             }
                         }
+                        .keyboardShortcut(.defaultAction)
                         .disabled(model.isSaving || model.fieldValues.allSatisfy(\.isEmpty))
                     }
                 }
@@ -88,7 +90,7 @@ struct AddNoteContent: View {
             }
 
             Section("Tags") {
-                TextField("Tags (space-separated)", text: $model.tags)
+                TextField("Tags", text: $model.tags, prompt: Text("space-separated"))
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
             }
@@ -101,6 +103,11 @@ struct AddNoteContent: View {
                 }
             }
         }
+        #if os(macOS)
+        .formStyle(.grouped)
+        .frame(minWidth: 360, idealWidth: 460, maxWidth: 640)
+        .presentationSizing(.fitted)
+        #endif
     }
 }
 

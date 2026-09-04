@@ -8,6 +8,11 @@ struct BrowseSelectionState: Equatable, Sendable {
     var isEmpty: Bool { selectedNoteIDs.isEmpty }
     var count: Int { selectedNoteIDs.count }
 
+    /// Whether the batch action bar should be showing. macOS arms it purely
+    /// from a multi-row `List` selection — there is no explicit mode to enter,
+    /// so there is no Done button either. iOS long-presses into `isSelectMode`.
+    var showsBatchActions: Bool { isSelectMode || selectedNoteIDs.count > 1 }
+
     mutating func enterSelectMode(preselect: NoteID? = nil) {
         isSelectMode = true
         selectedNoteIDs = preselect.map { [$0] } ?? []

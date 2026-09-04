@@ -1,5 +1,7 @@
 import AmgiAppCore
+import AmgiIcons
 import AmgiReader
+import AmgiUI
 import AnkiBackend
 import AnkiClients
 import Dependencies
@@ -20,6 +22,12 @@ public enum AmgiRoot {
 
     @MainActor
     private static func bootstrapBody() {
+        // Deck tiles render Phosphor glyphs through this bridge; the watch
+        // target never registers one and keeps letter tiles.
+        DeckIconRendering.provider = { iconName in
+            AmgiIcons.DeckIconGlyph.image(for: iconName)
+        }
+
         // Multi-profile bootstrap: migrate legacy single-collection layout
         // into the default profile, then open the selected profile's
         // collection.

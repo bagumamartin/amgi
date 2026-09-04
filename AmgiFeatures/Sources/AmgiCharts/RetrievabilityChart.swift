@@ -176,7 +176,10 @@ private extension RetrievabilityChart {
         proxy: ChartProxy,
         geometry: GeometryProxy
     ) {
-        guard let plotFrameAnchor = proxy.plotFrame else { return }
+        guard let plotFrameAnchor = proxy.plotFrame else {
+            selectedBucketStart = nil
+            return
+        }
         let plotFrame = geometry[plotFrameAnchor]
         let plotX = value.location.x - plotFrame.origin.x
         guard plotX >= 0,

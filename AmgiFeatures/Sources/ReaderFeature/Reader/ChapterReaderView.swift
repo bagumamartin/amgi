@@ -412,7 +412,9 @@ struct ChapterRenderInputs: Equatable, Sendable {
 
 /// Wrapper so an empty-string query is still presentable via .sheet(item:);
 /// `.sheet(item:)` requires `Identifiable` and treats nil as "dismissed".
+/// The id is the query text — a fresh `UUID()` here would change identity on
+/// every body re-evaluation and make the sheet dismiss/re-present endlessly.
 private struct LookupQuery: Identifiable {
-    let id = UUID()
+    var id: String { text }
     let text: String
 }

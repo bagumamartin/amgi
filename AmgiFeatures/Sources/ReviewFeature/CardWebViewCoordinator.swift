@@ -2,11 +2,15 @@ import OSLog
 import AmgiAppCore
 import Foundation
 import WebKit
-import UIKit
 import SwiftUI
 import AVFoundation
-import SafariServices
 import AmgiCardWeb
+#if canImport(UIKit)
+import UIKit
+import SafariServices
+#elseif canImport(AppKit)
+import AppKit
+#endif
 
 // MARK: - CardWebViewCoordinator
 
@@ -33,11 +37,35 @@ final class CardWebViewCoordinator: NSObject, WKNavigationDelegate, WKScriptMess
     var openLinksExternally: Bool = true
     weak var currentWebView: WKWebView?
 
-    // MARK: Callbacks (injected by makeCoordinator)
+    // MARK: Callbacks (injected by makeCoordinator, refreshed per update)
 
-    private let onAudioStateChange: ((Bool) -> Void)?
-    private let onCardBackgroundColorChange: ((UIColor, Bool) -> Void)?
-    private let onLookupRequested: ((String?, String?, CGPoint) -> Void)?
+    // Vars, not lets: a coordinator can come from the prewarm pool with nil
+    // callbacks and receive the real ones on the first applyCardUpdate.
+    private var onAudioStateChange: ((Bool) -> Void)?
+    private var onCardBackgroundColorChange: ((PlatformColor, Bool) -> Void)?
+    private var onLookupRequested: ((String?, String?, CGPoint) -> Void)?
+    private var onQuestionCanvasTap: (() -> Void)?
+
+    /// Set only when this coordinator came from the prewarm pool; the
+    /// representable's makeUIView adopts the paired webview instead of
+    /// building a fresh one. Nil for coordinators created inline. Strong on
+    /// purpose: nothing else retains the webview before adoption, and the
+    /// resulting handler→coordinator→webview cycle is broken exactly where
+    /// the existing teardown contract already breaks it (dismantle removes
+    /// the script handlers). The prewarmer nils this on eviction.
+    var prewarmedWebView: WKWebView?
+
+    func refreshCallbacks(
+        onAudioStateChange: ((Bool) -> Void)?,
+        onCardBackgroundColorChange: ((PlatformColor, Bool) -> Void)?,
+        onLookupRequested: ((String?, String?, CGPoint) -> Void)?,
+        onQuestionCanvasTap: (() -> Void)?
+    ) {
+        self.onAudioStateChange = onAudioStateChange
+        self.onCardBackgroundColorChange = onCardBackgroundColorChange
+        self.onLookupRequested = onLookupRequested
+        self.onQuestionCanvasTap = onQuestionCanvasTap
+    }
 
     // MARK: Private state
 
@@ -48,12 +76,14 @@ final class CardWebViewCoordinator: NSObject, WKNavigationDelegate, WKScriptMess
 
     init(
         onAudioStateChange: ((Bool) -> Void)? = nil,
-        onCardBackgroundColorChange: ((UIColor, Bool) -> Void)? = nil,
-        onLookupRequested: ((String?, String?, CGPoint) -> Void)? = nil
+        onCardBackgroundColorChange: ((PlatformColor, Bool) -> Void)? = nil,
+        onLookupRequested: ((String?, String?, CGPoint) -> Void)? = nil,
+        onQuestionCanvasTap: (() -> Void)? = nil
     ) {
         self.onAudioStateChange = onAudioStateChange
         self.onCardBackgroundColorChange = onCardBackgroundColorChange
         self.onLookupRequested = onLookupRequested
+        self.onQuestionCanvasTap = onQuestionCanvasTap
         super.init()
         speechSynthesizer.delegate = self
     }
@@ -81,6 +111,14 @@ final class CardWebViewCoordinator: NSObject, WKNavigationDelegate, WKScriptMess
         }
 
 
+        if message.name == "amgiDiag" {
+            guard let body = message.body as? [String: Any] else { return }
+            let event = body["event"] as? String ?? "?"
+            let detail = body["detail"] as? String ?? ""
+            print("[CardWebView][diag] \(event) \(detail)")
+            return
+        }
+
         if message.name == "amgiCardTheme" {
             guard let body = message.body as? [String: Any] else { return }
             let colorString = body["backgroundColor"] as? String ?? ""
@@ -101,6 +139,11 @@ final class CardWebViewCoordinator: NSObject, WKNavigationDelegate, WKScriptMess
             let x = (body["x"] as? NSNumber).map { CGFloat(truncating: $0) } ?? 0
             let y = (body["y"] as? NSNumber).map { CGFloat(truncating: $0) } ?? 0
             onLookupRequested?(text, sentence, CGPoint(x: x, y: y))
+            return
+        }
+
+        if message.name == "amgiRevealAnswer" {
+            onQuestionCanvasTap?()
             return
         }
 
@@ -139,7 +182,10 @@ final class CardWebViewCoordinator: NSObject, WKNavigationDelegate, WKScriptMess
     // MARK: - TTS
 
     func stopTTS() {
-        guard speechSynthesizer.isSpeaking else { return }
+        // Don't probe `isSpeaking` on the main thread — the synthesizer's
+        // engine runs on a lower-QoS thread and the synchronous read causes a
+        // priority inversion. `stopSpeaking(.immediate)` is a no-op when idle,
+        // so stopping unconditionally is safe and never waits on the engine.
         speechSynthesizer.stopSpeaking(at: .immediate)
         onAudioStateChange?(false)
     }
@@ -177,11 +223,7 @@ final class CardWebViewCoordinator: NSObject, WKNavigationDelegate, WKScriptMess
         if !isWebLink || openLinksExternally {
             decisionHandler(.cancel)
             DispatchQueue.main.async {
-                if url.scheme == "http" || url.scheme == "https" {
-                    self.presentSafariView(url: url)
-                } else {
-                    UIApplication.shared.open(url, options: [:], completionHandler: nil)
-                }
+                self.openExternally(url)
             }
         } else {
             // Keep http/https inside WKWebView when external opening is disabled.
@@ -272,14 +314,26 @@ private extension CardWebViewCoordinator {
         }
 
         DispatchQueue.main.async {
-            if url.scheme == "http" || url.scheme == "https" {
-                self.presentSafariView(url: url)
-            } else {
-                UIApplication.shared.open(url, options: [:], completionHandler: nil)
-            }
+            self.openExternally(url)
         }
     }
 
+    /// Opens a link outside the card web view. iOS presents web links in an
+    /// in-app Safari view controller (falling back to the system); macOS
+    /// hands everything to the default browser via NSWorkspace.
+    func openExternally(_ url: URL) {
+        #if os(iOS)
+        if url.scheme == "http" || url.scheme == "https" {
+            presentSafariView(url: url)
+        } else {
+            UIApplication.shared.open(url, options: [:], completionHandler: nil)
+        }
+        #else
+        NSWorkspace.shared.open(url)
+        #endif
+    }
+
+    #if os(iOS)
     func presentSafariView(url: URL) {
         // `.first` could pick a background scene and `windows.first` is not
         // necessarily the key window, so under multi-window or Stage Manager
@@ -298,10 +352,11 @@ private extension CardWebViewCoordinator {
         let safari = SFSafariViewController(url: url)
         topVC.present(safari, animated: true)
     }
+    #endif
 
     // MARK: - CSS color parsing
 
-    static func parseCSSColor(_ cssColor: String) -> UIColor? {
+    static func parseCSSColor(_ cssColor: String) -> PlatformColor? {
         let trimmed = cssColor.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if trimmed.hasPrefix("#") {
             return parseHexColor(trimmed)
@@ -326,17 +381,17 @@ private extension CardWebViewCoordinator {
                 alpha = CGFloat(max(0, min(1, value)))
             }
 
-            return UIColor(red: component(1), green: component(2), blue: component(3), alpha: alpha)
+            return PlatformColor(red: component(1), green: component(2), blue: component(3), alpha: alpha)
         }
 
         if trimmed == "transparent" {
-            return UIColor.clear
+            return PlatformColor.clear
         }
 
         return nil
     }
 
-    static func parseHexColor(_ hex: String) -> UIColor? {
+    static func parseHexColor(_ hex: String) -> PlatformColor? {
         let value = String(hex.dropFirst())
         let chars = Array(value)
         func hexByte(_ a: Character, _ b: Character) -> UInt8 {
@@ -348,18 +403,18 @@ private extension CardWebViewCoordinator {
             let r = hexByte(chars[0], chars[0])
             let g = hexByte(chars[1], chars[1])
             let b = hexByte(chars[2], chars[2])
-            return UIColor(red: CGFloat(r) / 255, green: CGFloat(g) / 255, blue: CGFloat(b) / 255, alpha: 1)
+            return PlatformColor(red: CGFloat(r) / 255, green: CGFloat(g) / 255, blue: CGFloat(b) / 255, alpha: 1)
         case 6:
             let r = hexByte(chars[0], chars[1])
             let g = hexByte(chars[2], chars[3])
             let b = hexByte(chars[4], chars[5])
-            return UIColor(red: CGFloat(r) / 255, green: CGFloat(g) / 255, blue: CGFloat(b) / 255, alpha: 1)
+            return PlatformColor(red: CGFloat(r) / 255, green: CGFloat(g) / 255, blue: CGFloat(b) / 255, alpha: 1)
         case 8:
             let r = hexByte(chars[0], chars[1])
             let g = hexByte(chars[2], chars[3])
             let b = hexByte(chars[4], chars[5])
             let a = hexByte(chars[6], chars[7])
-            return UIColor(red: CGFloat(r) / 255, green: CGFloat(g) / 255, blue: CGFloat(b) / 255, alpha: CGFloat(a) / 255)
+            return PlatformColor(red: CGFloat(r) / 255, green: CGFloat(g) / 255, blue: CGFloat(b) / 255, alpha: CGFloat(a) / 255)
         default:
             return nil
         }

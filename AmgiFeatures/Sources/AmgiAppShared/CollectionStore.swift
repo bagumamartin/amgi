@@ -4,6 +4,16 @@ public import Dependencies
 import Foundation
 public import Observation
 
+public enum CollectionChangeOrigin: Sendable, Equatable {
+    case localUser
+    case remoteSync
+    /// amgi-mcp helper wrote to the shared collection from outside the
+    /// app process. Refreshes UI and rides the automatic sync like a
+    /// local user change, since the edit is ours to propagate.
+    case helperMutation
+    case refresh
+}
+
 /// Single refresh authority for Collection reads — deck tree (+ its due
 /// counts) in v1. Screens key `.task(id: store.generation)` so an
 /// Invalidation re-runs their load; mutations hand their
@@ -20,6 +30,7 @@ public final class CollectionStore {
     public nonisolated init() {}
 
     @ObservationIgnored @Dependency(\.deckClient) private var deckClient
+    @ObservationIgnored @Dependency(\.syncCoordinator) private var syncCoordinator
 
     @ObservationIgnored private var cachedTree: [DeckTreeNode]?
     @ObservationIgnored private var cachedGeneration = -1
@@ -51,13 +62,27 @@ public final class CollectionStore {
         return tree
     }
 
-    public func apply(_ changes: CollectionChanges) {
+    public func apply(_ changes: CollectionChanges, origin: CollectionChangeOrigin = .localUser) {
         guard changes.affectsDeckTree else { return }
         generation += 1
+        if origin == .localUser {
+            syncCoordinator.requestAutomaticSync(reason: "Local collection change")
+        } else if origin == .helperMutation {
+            syncCoordinator.requestAutomaticSync(reason: "Agent (MCP) collection change")
+        }
     }
 
-    public func invalidateAll() {
+    public func invalidateAll(origin: CollectionChangeOrigin = .refresh) {
         generation += 1
+        if origin == .localUser {
+            syncCoordinator.requestAutomaticSync(reason: "Local collection change")
+        } else if origin == .helperMutation {
+            syncCoordinator.requestAutomaticSync(reason: "Agent (MCP) collection change")
+        }
+    }
+
+    func markLocalMutation(reason: String) {
+        syncCoordinator.requestAutomaticSync(reason: reason)
     }
 }
 

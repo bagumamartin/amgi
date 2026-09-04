@@ -11,8 +11,9 @@ import AmgiTheme
 public struct ActivityHeatmapCard: View {
     public let data: HeatmapCardData
 
-    /// Session-only range selection. Default: 180 days (26 weeks).
-    @State private var selectedDays: Int = 180
+    /// Session-only range selection. Defaults to the last 180 days; compact
+    /// layouts can pass a shorter window so the grid isn't always scrollable.
+    @State private var selectedDays: Int
     /// The cell (day offset) currently shown in the popover tooltip.
     @State private var tooltipOffset: Int? = nil
     /// Rebuilds the grid only when the range, counts, or calendar day change —
@@ -20,16 +21,16 @@ public struct ActivityHeatmapCard: View {
     @State private var gridCache = HeatmapGridCache()
 
     @Environment(\.palette) private var palette
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-    public init(data: HeatmapCardData) {
+    public init(data: HeatmapCardData, initialDays: Int = 180) {
         self.data = data
+        self._selectedDays = State(initialValue: initialDays)
     }
 
     // MARK: - Computed grid geometry
 
-    private let cellSize: CGFloat = 11
-    private let cellSpacing: CGFloat = 2
-    private let weekdayLabelWidth: CGFloat = 18
+    private let weekdayLabelWidth: CGFloat = HeatmapGridMetrics.weekdayLabelWidth
 
     private var grid: HeatmapGrid {
         gridCache.grid(weekCount: selectedDays / 7 + 1, counts: data.counts)
@@ -50,19 +51,45 @@ public struct ActivityHeatmapCard: View {
                 if data.counts.isEmpty {
                     HeatmapEmptyLabel()
                 } else {
-                    HeatmapSummaryRow(summary: summary)
-                    HeatmapScrollGrid(
-                        grid: grid,
-                        maxCount: data.maxCount,
-                        cellSize: cellSize,
-                        cellSpacing: cellSpacing,
-                        weekdayLabelWidth: weekdayLabelWidth,
-                        tooltipOffset: $tooltipOffset
+                    HeatmapSummaryRow(
+                        summary: summary,
+                        spread: horizontalSizeClass != .regular
                     )
-                    HeatmapLegend(cellSize: cellSize)
+                    GeometryReader { geo in
+                        HeatmapScrollGrid(
+                            grid: grid,
+                            maxCount: data.maxCount,
+                            cellSize: HeatmapGridMetrics.cellSize,
+                            cellSpacing: HeatmapGridMetrics.cellSpacing,
+                            weekdayLabelWidth: weekdayLabelWidth,
+                            containerWidth: geo.size.width,
+                            tooltipOffset: $tooltipOffset
+                        )
+                    }
+                    .frame(height: HeatmapGridMetrics.gridHeight(cellSize: HeatmapGridMetrics.cellSize))
+                    HeatmapLegend(cellSize: HeatmapGridMetrics.cellSize)
                 }
             }
         }
+    }
+}
+
+// MARK: - Grid metrics
+
+private enum HeatmapGridMetrics {
+    static let cellSize: CGFloat = 11
+    static let cellSpacing: CGFloat = 2
+    static let weekdayLabelWidth: CGFloat = 18
+    static let monthHeaderHeight: CGFloat = 14
+
+    static func contentWidth(weekCount: Int, cellSize: CGFloat) -> CGFloat {
+        weekdayLabelWidth
+            + CGFloat(weekCount) * cellSize
+            + CGFloat(max(weekCount - 1, 0)) * cellSpacing
+    }
+
+    static func gridHeight(cellSize: CGFloat) -> CGFloat {
+        monthHeaderHeight + 7 * cellSize + 6 * cellSpacing
     }
 }
 
@@ -148,15 +175,19 @@ struct HeatmapSummary: Equatable {
 
 private struct HeatmapSummaryRow: View {
     let summary: HeatmapSummary
+    /// Compact iPhone: four equal columns. Regular: a tight leading cluster
+    /// so stats don't stretch across the iPad/Mac card.
+    let spread: Bool
 
     @Environment(\.palette) private var palette
 
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: spread ? 0 : 28) {
             summaryItem(value: summary.total, label: "Total")
             summaryItem(value: summary.thisMonth, label: "Month")
             summaryItem(value: summary.thisWeek, label: "Week")
             summaryItem(value: summary.today, label: "Today")
+            if !spread { Spacer(minLength: 0) }
         }
     }
 
@@ -169,7 +200,7 @@ private struct HeatmapSummaryRow: View {
                 .amgiFont(.micro)
                 .foregroundStyle(palette.textSecondary)
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: spread ? .infinity : nil)
     }
 }
 
@@ -181,29 +212,43 @@ private struct HeatmapScrollGrid: View {
     let cellSize: CGFloat
     let cellSpacing: CGFloat
     let weekdayLabelWidth: CGFloat
+    let containerWidth: CGFloat
     @Binding var tooltipOffset: Int?
 
+    private var contentWidth: CGFloat {
+        HeatmapGridMetrics.contentWidth(weekCount: grid.weeks.count, cellSize: cellSize)
+    }
+
+    private var needsScroll: Bool {
+        containerWidth > 0 && contentWidth > containerWidth + 0.5
+    }
+
     var body: some View {
-        ScrollView(.horizontal) {
-            VStack(alignment: .leading, spacing: 0) {
-                HeatmapMonthHeader(
-                    grid: grid,
-                    cellSize: cellSize,
-                    cellSpacing: cellSpacing,
-                    weekdayLabelWidth: weekdayLabelWidth
-                )
-                HeatmapCellGrid(
-                    grid: grid,
-                    maxCount: maxCount,
-                    cellSize: cellSize,
-                    cellSpacing: cellSpacing,
-                    weekdayLabelWidth: weekdayLabelWidth,
-                    tooltipOffset: $tooltipOffset
-                )
-            }
+        let gridView = VStack(alignment: .leading, spacing: 0) {
+            HeatmapMonthHeader(
+                grid: grid,
+                cellSize: cellSize,
+                cellSpacing: cellSpacing,
+                weekdayLabelWidth: weekdayLabelWidth
+            )
+            HeatmapCellGrid(
+                grid: grid,
+                maxCount: maxCount,
+                cellSize: cellSize,
+                cellSpacing: cellSpacing,
+                weekdayLabelWidth: weekdayLabelWidth,
+                tooltipOffset: $tooltipOffset
+            )
         }
-        .scrollIndicators(.never)
-        .defaultScrollAnchor(.trailing)
+
+        if needsScroll {
+            ScrollView(.horizontal) { gridView }
+                .scrollIndicators(.never)
+                .defaultScrollAnchor(.trailing)
+        } else {
+            gridView
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }
 
@@ -404,6 +449,15 @@ private struct HeatmapLegend: View {
         .padding(16)
         .background(Color.gray.opacity(0.1))
         .environment(\.palette, .mutedLight)
+}
+
+#Preview("Dense — regular width") {
+    ActivityHeatmapCard(data: .dense)
+        .padding(16)
+        .frame(width: 720)
+        .background(Color.gray.opacity(0.1))
+        .environment(\.horizontalSizeClass, .regular)
+        .environment(\.palette, .vividLight)
 }
 
 #Preview("Dense — dark mode") {

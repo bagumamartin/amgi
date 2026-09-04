@@ -2,6 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>BGTaskSchedulerPermittedIdentifiers</key>
+    <array>
+        <string>$(PRODUCT_BUNDLE_IDENTIFIER).widget-refresh</string>
+        <string>$(PRODUCT_BUNDLE_IDENTIFIER).automatic-sync</string>
+    </array>
     <key>CFBundleExecutable</key>
     <string>$(EXECUTABLE_NAME)</string>
     <key>CFBundlePackageType</key>
@@ -20,6 +25,10 @@
     <string>AppIcon</string>
     <key>UILaunchScreen</key>
     <dict/>
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>fetch</string>
+    </array>
     <key>UISupportedInterfaceOrientations</key>
     <array>
         <string>UIInterfaceOrientationPortrait</string>
@@ -45,7 +54,7 @@
                 <string>amgi</string>
             </array>
             <key>CFBundleURLName</key>
-            <string>com.amgiapp.AmgiApp</string>
+            <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
         </dict>
     </array>
 </dict>

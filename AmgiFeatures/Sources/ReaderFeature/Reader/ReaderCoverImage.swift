@@ -4,6 +4,9 @@ import AnkiClients
 import Dependencies
 import Foundation
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 /// Renders a book cover from whatever shape the user's notetype stored in
 /// the cover field. Three cases worth handling:
@@ -72,6 +75,7 @@ struct ReaderCoverImage<Placeholder: View>: View {
                 }
             }
         case .local(let url):
+            #if os(iOS)
             // Downsampled off the main thread: covers are drawn at ~120pt but
             // the source files are frequently thousands of pixels wide.
             DownsampledImage(url: url, maxPixelSize: AmgiImagePixelSize.cover) { image in
@@ -80,6 +84,14 @@ struct ReaderCoverImage<Placeholder: View>: View {
             } placeholder: {
                 placeholder()
             }
+            #else
+            if let image = NSImage(contentsOfFile: url.path) {
+                Image(nsImage: image).resizable().scaledToFill()
+                    .overlay { Rectangle().stroke(imageOutlineColor, lineWidth: 1) }
+            } else {
+                placeholder()
+            }
+            #endif
         }
     }
 

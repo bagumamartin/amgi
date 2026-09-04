@@ -13,6 +13,9 @@ public struct DeckDetailViewData: Equatable, Sendable {
     public let subdecks: [DeckSubdeckRowData]
     public let insights: InsightsCardData
     public let isActionInFlight: Bool
+    /// Persisted or name-derived icon (Phosphor case name). Nil ⇒ the hero
+    /// tile falls back to the emoji/letter/monogram glyph.
+    public var iconName: String?
 
     public init(
         title: String,
@@ -24,7 +27,8 @@ public struct DeckDetailViewData: Equatable, Sendable {
         isEmpty: Bool,
         subdecks: [DeckSubdeckRowData],
         insights: InsightsCardData,
-        isActionInFlight: Bool
+        isActionInFlight: Bool,
+        iconName: String? = nil
     ) {
         self.title = title
         self.subtitle = subtitle
@@ -36,6 +40,7 @@ public struct DeckDetailViewData: Equatable, Sendable {
         self.subdecks = subdecks
         self.insights = insights
         self.isActionInFlight = isActionInFlight
+        self.iconName = iconName
     }
 }
 

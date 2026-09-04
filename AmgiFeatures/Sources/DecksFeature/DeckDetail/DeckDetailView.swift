@@ -6,6 +6,7 @@ import AnkiKit
 import AnkiClients
 import Dependencies
 import BrowseFeature
+import Sharing
 
 /// Owns the `DeckDetailModel` (data state) and a single `Destination?`
 /// that drives every modal axis: full-screen review, sheets, alerts,
@@ -19,15 +20,29 @@ struct DeckDetailView: View {
 
     @Environment(\.palette) private var palette
     @Dependency(\.collectionStore) private var store
+    @Shared(.appStorage(NavigationPreferences.deckSortOrder)) private var sortOrderRaw: String = DeckSortOrder.mostUsed.rawValue
     @State private var model: DeckDetailModel
     @State private var destination: DeckDetailDestination?
     @State private var newSubdeckName = ""
     @State private var limitDelta = ""
     @State private var pendingSubdeck: DeckInfo?
+    @State private var renameSubdeckTarget: DeckSubdeckRowData?
+    @State private var iconSubdeckTarget: DeckSubdeckRowData?
+    @State private var deleteSubdeckTarget: DeckSubdeckRowData?
+    @State private var deleteError: String?
 
     init(deck: DeckInfo) {
         self.deck = deck
         _model = State(initialValue: DeckDetailModel(deck: deck))
+    }
+
+    private var sortOrderBinding: Binding<DeckSortOrder> {
+        Binding(
+            get: { DeckSortOrder(rawValue: sortOrderRaw) ?? .mostUsed },
+            set: { newOrder in
+                $sortOrderRaw.withLock { $0 = newOrder.rawValue }
+            }
+        )
     }
 
     private var shortTitle: String {
@@ -87,9 +102,18 @@ struct DeckDetailView: View {
             ),
             isFiltered: deck.isFiltered,
             isEmpty: isEmpty,
-            subdecks: model.childDecks.map(Self.subdeckRow(from:)),
+            subdecks: DeckSorting.subdeckRows(
+                model.childDecks,
+                order: sortOrderBinding.wrappedValue,
+                ranks: model.usageRanks
+            ).map { node in
+                var row = Self.subdeckRow(from: node)
+                row.iconName = model.subdeckIcons[node.id.rawValue]
+                return row
+            },
             insights: insights,
-            isActionInFlight: model.actionInFlight
+            isActionInFlight: model.actionInFlight,
+            iconName: model.iconName
         ))
     }
 
@@ -124,13 +148,24 @@ struct DeckDetailView: View {
             .task(id: store.generation) {
                 await model.loadCounts()
                 await model.loadChildren()
+                // Suggestions are RPC-backed; runs after children render so
+                // subdeck tiles populate progressively.
+                await model.refineSubdeckIcons()
                 model.loadStats()
+            }
+            // Warm the card WebView while the user reads this screen — the
+            // WebKit process pool takes seconds to spawn, and paying that
+            // cost after the Study tap leaves the first card blank. No-op if
+            // the app-root idle prewarm already filled the pool.
+            .task {
+                CardWebViewPrewarmer.shared.prewarmIfNeeded()
             }
     }
 
     private var contentWithToolbar: some View {
         DeckDetailScreen(
             state: viewState,
+            sortOrder: sortOrderBinding,
             heatmapSlot: { EmptyView() }, // R03 will inject its chart here.
             onAction: handle
         )
@@ -140,13 +175,60 @@ struct DeckDetailView: View {
         .navigationDestination(item: $pendingSubdeck) { sub in
             DeckDetailView(deck: sub)
         }
+        .sheet(item: $renameSubdeckTarget) { row in
+            RenameDeckSheet(deckId: DeckID(row.id), currentName: row.fullName) {
+                renameSubdeckTarget = nil
+            }
+        }
+        .sheet(item: $iconSubdeckTarget) { row in
+            DeckIconEditorSheet(deckId: row.id, deckName: row.name) {
+                iconSubdeckTarget = nil
+            }
+        }
+        .alert(
+            "Delete \"\(deleteSubdeckTarget?.name ?? "")\"?",
+            isPresented: Binding(
+                get: { deleteSubdeckTarget != nil },
+                set: { if !$0 { deleteSubdeckTarget = nil } }
+            )
+        ) {
+            Button("Delete", role: .destructive) {
+                guard let target = deleteSubdeckTarget else { return }
+                deleteSubdeckTarget = nil
+                Task {
+                    if let error = await model.deleteSubdeck(DeckID(target.id)) {
+                        deleteError = error
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) { deleteSubdeckTarget = nil }
+        } message: {
+            Text("This will permanently delete the deck and all its cards.")
+        }
+        .alert(
+            "Something went wrong",
+            isPresented: Binding(
+                get: { deleteError != nil },
+                set: { if !$0 { deleteError = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(deleteError ?? "")
+        }
     }
 
     // MARK: - Action dispatch
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) {
+        // Contextual trailing chrome: Undo · Sync · ⋯ (plain glyphs, iOS 26
+        // groups them into the glass capsule). Replaces the custom
+        // material-circle menu per the chrome design language. Undo here
+        // is the ENGINE stack (delete note, etc.), not ReviewSession.
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            EngineUndoButton()
+            SyncToolbarButton()
             Menu {
                 Button {
                     destination = .sheet(.addNote)
@@ -230,6 +312,12 @@ private extension DeckDetailView {
                 ),
                 isFiltered: row.isFiltered
             )
+        case .renameSubdeck(let row):
+            renameSubdeckTarget = row
+        case .changeSubdeckIcon(let row):
+            iconSubdeckTarget = row
+        case .deleteSubdeck(let row):
+            deleteSubdeckTarget = row
         }
     }
 

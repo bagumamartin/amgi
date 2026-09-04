@@ -105,5 +105,6 @@ public struct RootView: View {
         // ReaderFeature; the root injects it. Applied last so it reaches the
         // tabs and every sheet/cover presented above.
         .environment(\.lookupPopup, ReaderLookupPopup())
+        .environment(\.accountMenuProvider, RootAccountMenu())
     }
 }

@@ -1,22 +1,28 @@
 import SwiftUI
 import AmgiTheme
 import AmgiAppCore
+import AmgiAppShared
 
-/// Compact toolbar menu that exposes profile switching from the Decks
-/// tab without forcing the user into Settings. Active profile shows a
-/// checkmark; tapping any other profile switches immediately — the
-/// collection is swapped in place and the UI rebuilds.
+/// Compact toolbar menu: switch profile immediately, and open Settings /
+/// Manage Profiles on the enclosing stack via `.accountMenu()`.
 ///
-/// Add/delete still happens in Settings → Account → Profiles; this
-/// menu is a fast picker, not a full manager.
-/// `switchProfile` lives in the app's composition root — it drives the shared
-/// backend, the sync coordinator, and collection open/close — so the action is
-/// injected rather than imported.
-struct ProfilePickerMenu: View {
+/// `onSwitch` is injected from the composition root — it closes/reopens the
+/// collection — so this view does not import that machinery.
+package struct ProfilePickerMenu: View {
     let onSwitch: (AmgiAccount) async -> Void
+    @Binding var open: AccountMenuDestination?
 
     @State private var store = AccountStore.shared
+    @State private var iconStore = ProfileIconStore.shared
     @Environment(\.palette) private var palette
+
+    init(
+        onSwitch: @escaping (AmgiAccount) async -> Void,
+        open: Binding<AccountMenuDestination?>
+    ) {
+        self.onSwitch = onSwitch
+        self._open = open
+    }
 
     var body: some View {
         Menu {
@@ -26,6 +32,9 @@ struct ProfilePickerMenu: View {
                         Task { await onSwitch(account) }
                     } label: {
                         HStack {
+                            if let emoji = iconStore.icon(for: account.id) {
+                                Text(emoji)
+                            }
                             Text(account.displayName)
                             if account.id == store.selectedID {
                                 Image(systemName: "checkmark")
@@ -36,15 +45,29 @@ struct ProfilePickerMenu: View {
             } header: {
                 Text("Switch profile")
             }
+            Section {
+                Button("Settings…", systemImage: "gearshape") {
+                    open = .settings
+                }
+                Button("Manage Profiles…", systemImage: "person.crop.rectangle.stack") {
+                    open = .manageProfiles
+                }
+            }
         } label: {
             HStack(spacing: 4) {
-                Image(systemName: "person.crop.circle")
-                    .foregroundStyle(palette.accent)
+                if let emoji = iconStore.icon(for: store.current.id) {
+                    Text(emoji)
+                        .font(.system(size: 18))
+                } else {
+                    Image(systemName: "person.crop.circle")
+                        .foregroundStyle(palette.accent)
+                }
                 Text(store.current.displayName)
                     .amgiFont(.bodyEmphasis)
                     .lineLimit(1)
             }
         }
-        .accessibilityLabel("Profile: \(store.current.displayName)")
+        .accessibilityLabel("Profile and settings: \(store.current.displayName)")
+        .task { await iconStore.refresh() }
     }
 }

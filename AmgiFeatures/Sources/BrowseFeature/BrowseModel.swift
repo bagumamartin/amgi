@@ -1,198 +1,423 @@
 import AmgiAppCore
-import AnkiClients
 import AnkiBackend
+import AnkiProtoBridge
+import AnkiClients
 import AnkiKit
 import AnkiServices
 import Dependencies
 import Foundation
-import OSLog
 
-/// Data state + load/search/mutation logic for the Browse screen. Mirrors
-/// `DeckListModel`: the View owns navigation, sheets, selection, and the
-/// toolbar, while the model owns I/O, paging, and query assembly so that
-/// logic is testable in isolation and the View stays a thin presentation
-/// wiring layer.
+/// Data state + load/search/mutation logic for the Browse screen (spec §4.4,
+/// phase 2). The View owns navigation/sheets/toolbar; this model owns I/O.
+///
+/// Architecture vs. v1:
+/// - Ids come back ENGINE-SORTED (`searchIds` order builtin) — there is no
+///   client-side sort anywhere (D3 bans page-window sorting).
+/// - No hard result cap: ids are cheap; *records* hydrate in chunks as the
+///   visible window approaches them (`loadMoreIfNeeded` from row onAppear).
+/// - Cards↔Notes modes share one id pipeline; hydration fans per mode.
+/// - Every mutation rides a single engine RPC so undo produces one entry,
+///   and mutation results refresh via `CollectionStore` generation instead
+///   of a manual re-search (matches deck-icons behavior).
 @Observable
 @MainActor
 final class BrowseModel {
+    enum Mode: String, CaseIterable, Identifiable {
+        case notes, cards
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .notes: "Notes"
+            case .cards: "Cards"
+            }
+        }
+    }
+
+    /// Sort options map 1:1 to engine column keys (probed set in
+    /// BrowseEngineProbesTests; rslib browser_table.rs serializations).
+    enum SortOrder: String, CaseIterable, Identifiable {
+        case due = "cardDue"
+        case createdDesc = "noteCrt"
+        case modifiedDesc = "noteMod"
+        case sortFieldAsc = "noteFld"
+        case notetypeAsc = "note"
+        case tagsAsc = "noteTags"
+
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .due: "Due date"
+            case .createdDesc: "Date created"
+            case .modifiedDesc: "Date edited"
+            case .sortFieldAsc: "Sort field"
+            case .notetypeAsc: "Note type"
+            case .tagsAsc: "Tags"
+            }
+        }
+
+        var reverse: Bool {
+            switch self {
+            case .due: false
+            case .createdDesc, .modifiedDesc: true
+            case .sortFieldAsc, .notetypeAsc, .tagsAsc: false
+            }
+        }
+    }
+
+    // MARK: View-facing state
+
     var searchText = ""
+    /// Engine-ordered raw item ids (cards or notes per mode). Cheap; never capped.
+    private(set) var ids: [Int64] = []
+    /// Hydrated records so far, keyed by id for O(1) row updates.
+    private(set) var noteRecords: [Int64: NoteRecord] = [:]
+    private(set) var cardRecords: [Int64: CardRecord] = [:]
+    /// Rows surfaced to the list so far (ids[0..<windowEnd]).
+    private(set) var windowEnd = 0
+    var allDecks: [DeckInfo] = []
+    var allTags: [String] = []
+    /// The single sidebar selection — deck, tag, or saved search. Replaces the
+    /// old `parentDeck`/`activeDeck`/`activeTag` triple, which let the deck
+    /// list and the tag list disagree about what was active (tags never even
+    /// highlighted, because they bypassed the List selection binding).
+    var source: BrowseSource = .allDecks
+    var isLoading = false
+    var hasMorePages = false
+    var notetypeNames: [NotetypeID: String] = [:]
+    var mode: Mode = .notes
+    var sortOrder: SortOrder = .modifiedDesc
+
+    /// Deck backing the current source, when it is a deck.
+    var activeDeck: DeckInfo? {
+        guard case .deck(let id) = source else { return nil }
+        return allDecks.first { $0.id == id }
+    }
+
+    /// Tag backing the current source, when it is a tag.
+    var activeTag: String? {
+        guard case .tag(let tag) = source else { return nil }
+        return tag
+    }
+
+    /// Undo/redo chrome state ("Undo Delete Notes"), refreshed after ops.
+    private(set) var undoStatus: UndoStatusInfo?
+    /// Select-mode plumbing stays view-owned via BrowseSelectionState.
+
+    // Phase 3+ surface
+    let savedSearches = SavedSearchStore()
+    var searchError: String?
     /// Surfaced when a batch mutation partially or wholly fails.
     var errorMessage: String?
-    var allNotes: [NoteRecord] = []
-    var notes: [NoteRecord] = [] {
-        didSet { if !isPatchingInPlace { resort() } }
-    }
-    /// Set only across `fetchNoteDetails`' single-element write. Filling a stub
-    /// replaces one row's content without changing the list's membership, and
-    /// re-sorting there ran a full sort *per row* as stubs filled during a
-    /// scroll. Every other write to `notes` still re-sorts.
-    private var isPatchingInPlace = false
-    var allDecks: [DeckInfo] = []
-    /// The top-level parent deck selected (stays set even when drilling into subdecks).
-    var parentDeck: DeckInfo?
-    /// The actual deck filter applied (could be parent or a subdeck).
-    var activeDeck: DeckInfo?
-    var isLoading = false
-    /// True when the last search threw, so the empty state can say "search
-    /// failed" rather than "no results".
-    private(set) var searchFailed = false
-    var hasMorePages = true
-    var allTags: [String] = []
-    var activeTag: String?
-    var sortOrder: BrowseSortOrder = .dateDesc {
-        didSet { resort() }
-    }
-    var notetypeNames: [NotetypeID: String] = [:] {
-        didSet { if sortOrder == .templateAsc { resort() } }
+    /// Recent queries for search suggestions (max 30, per profile).
+    private(set) var recentQueries: [String] = []
+    /// Semantic fallback banner text; nil hides it.
+    private(set) var semanticNotice: String?
+
+    /// Row driving the detail column. Held as whole records rather than ids
+    /// into `noteRecords`/`cardRecords`, because `performSearch` prunes those
+    /// dictionaries to the current result set — and in Cards mode the note (or
+    /// in Notes mode the card) is not in the result id space at all.
+    private(set) var focusedNote: NoteRecord?
+    private(set) var focusedCard: CardRecord?
+
+    var focusedNoteID: Int64? { focusedNote?.id.rawValue }
+    var focusedCardID: CardID? { focusedCard?.id }
+
+    /// Drives `.task(id:)` on `BrowseView` so text, source, mode, and sort
+    /// all restart one search — SwiftUI cancels the previous run.
+    var searchIdentity: String {
+        "\(buildQuery())|\(mode.rawValue)|\(sortOrder.rawValue)"
     }
 
     /// First card of each note, resolved lazily by the row context menu.
-    /// Cached here rather than in per-row `@State` so a row scrolling out and
-    /// back doesn't re-issue the backend lookup.
-    ///
-    /// `@ObservationIgnored` on purpose: rows hold the resolved value in their
-    /// own `@State` and reach this only through `firstCardID(for:)`. Observed,
-    /// one row's entry landing would invalidate the menu button of every other
-    /// row reading the dictionary — N writes fanning out to N rows on a scroll.
+    /// `@ObservationIgnored` so one row's lookup does not invalidate every
+    /// other row's menu button.
     @ObservationIgnored private var firstCardIDs: [NoteID: CardID] = [:]
 
-    private let pageSize = 50
+    private static let historyKey = "browse.searchHistory"
+    /// Query recorded for history when this committed run started.
+    private var lastCommittedQuery = ""
+
+    private let windowSize = 100
+    private let hydrateChunkSize = 50
+    private var searchTask: Task<Void, Never>?
 
     @ObservationIgnored @Dependency(\.noteClient) private var noteClient
-    @ObservationIgnored @Dependency(\.deckClient) private var deckClient
     @ObservationIgnored @Dependency(\.cardClient) private var cardClient
+    @ObservationIgnored @Dependency(\.deckClient) private var deckClient
     @ObservationIgnored @Dependency(\.tagClient) private var tagClient
     @ObservationIgnored @Dependency(\.notetypesService) private var notetypesService
+    @ObservationIgnored @Dependency(\.collectionStore) private var collectionStore
 
     // MARK: - Derived
 
-    /// Stored, not computed: `body` reads this on every pass, and a computed
-    /// property would re-sort the whole loaded list each time — including once
-    /// per row as `fetchNoteDetails` fills in stubs during a scroll.
-    private(set) var sortedNotes: [NoteRecord] = []
+    /// Count of ids surfaced to the list window.
+    var loadedCount: Int {
+        min(ids.count, windowEnd)
+    }
 
-    private func resort() {
-        switch sortOrder {
-        case .dateDesc:
-            sortedNotes = notes.sorted { $0.mod > $1.mod }
-        case .titleAsc:
-            sortedNotes = notes.sorted {
-                $0.sfld.localizedCaseInsensitiveCompare($1.sfld) == .orderedAscending
+    func note(at id: Int64) -> NoteRecord? { noteRecords[id] }
+    func card(at id: Int64) -> CardRecord? { cardRecords[id] }
+
+    // MARK: - Detail focus
+
+    /// Notes-mode row activation: the note is the subject, and its first card
+    /// supplies Preview rendering and the per-card Info facts.
+    func focus(noteID: Int64) async {
+        if let cached = noteRecords[noteID] {
+            focusedNote = cached
+        } else {
+            focusedNote = try? await noteClient.fetch(NoteID(noteID))
+        }
+        guard let cid = (try? await cardClient.searchIds("nid:\(noteID)", nil))?.first else {
+            focusedCard = nil
+            return
+        }
+        if let cached = cardRecords[cid.rawValue] {
+            focusedCard = cached
+        } else {
+            focusedCard = try? await cardClient.getCard(cid)
+        }
+    }
+
+    /// Cards-mode row activation: the card is the subject, and its note backs
+    /// the Edit tab. Without this the detail column stayed empty in Cards mode.
+    func focus(cardID: Int64) async {
+        if let cached = cardRecords[cardID] {
+            focusedCard = cached
+        } else {
+            focusedCard = try? await cardClient.getCard(CardID(cardID))
+        }
+        guard let nid = focusedCard?.nid else {
+            focusedNote = nil
+            return
+        }
+        if let cached = noteRecords[nid.rawValue] {
+            focusedNote = cached
+        } else {
+            focusedNote = try? await noteClient.fetch(nid)
+        }
+    }
+
+    func clearFocus() {
+        focusedNote = nil
+        focusedCard = nil
+    }
+
+    // MARK: - Search pipeline
+
+    /// Debounced entry point kept for call sites that already mutated
+    /// `searchText` / `source`. The view's `.task(id: searchIdentity)`
+    /// is the real driver; this just runs an immediate search when the
+    /// identity would not change (e.g. a refresh of the same query).
+    func scheduleSearch(immediate: Bool = false) {
+        searchTask?.cancel()
+        searchTask = Task { [weak self] in
+            if !immediate {
+                try? await Task.sleep(for: .milliseconds(250))
+                if Task.isCancelled { return }
             }
-        case .templateAsc:
-            sortedNotes = notes.sorted { (notetypeNames[$0.mid] ?? "") < (notetypeNames[$1.mid] ?? "") }
+            await self?.performSearch()
         }
     }
 
-    var topLevelDecks: [DeckInfo] {
-        allDecks.filter { !$0.name.contains("::") }
+    /// History records EXPLICIT commits only — Return in the field or
+    /// picking a suggestion. Per-keystroke debounced runs are browsing,
+    /// not queries worth remembering.
+    func commitSearchHistory() {
+        let candidate = searchText.trimmingCharacters(in: .whitespaces)
+        guard !candidate.isEmpty, candidate != lastCommittedQuery else { return }
+        lastCommittedQuery = candidate
+        recordHistory(candidate)
     }
 
-    /// Direct children of the parent deck (shown as the second filter row).
-    var childDecks: [DeckInfo] {
-        guard let parent = parentDeck else { return [] }
-        let prefix = parent.name + "::"
-        return allDecks.filter { deck in
-            guard deck.name.hasPrefix(prefix) else { return false }
-            let remainder = deck.name.dropFirst(prefix.count)
-            return !remainder.contains("::")
-        }
+    /// Empties in-memory history and the persisted `"browse.searchHistory"`
+    /// key. The compact Search landing's Clear button is the only caller.
+    func clearSearchHistory() {
+        UserDefaults.standard.removeObject(forKey: Self.historyKey)
+        recentQueries = []
+        lastCommittedQuery = ""
     }
 
-    // MARK: - Loading
-
-    /// Everything the screen needs that isn't the note list itself. The list is
-    /// driven separately by `.task(id: searchQuery)`, which also covers the
-    /// first load — searching here too would issue the same query twice.
-    func loadInitial() async {
-        await loadDecks()
-        allTags = ((try? await tagClient.getAllTags()) ?? []).sorted()
-        let notetypes = notetypesService
-        if let pairs = try? await backendOffload({ try notetypes.getNotetypeNames() }) {
-            notetypeNames = Dictionary(uniqueKeysWithValues: pairs.map { ($0.id, $0.name) })
-        }
-    }
-
-    func loadDecks() async {
-        do {
-            allDecks = try await deckClient.fetchAll()
-        } catch {
-            allDecks = []
-        }
-    }
-
-    /// The full query the note list reflects. Drive `performSearch` from
-    /// `.task(id: searchQuery)` so a change cancels the in-flight search
-    /// instead of racing it.
-    var searchQuery: String { buildQuery() }
-
-    /// Runs the current query after a debounce.
-    ///
-    /// Both waits are cancellation points, and that is what makes this safe to
-    /// re-enter: driven from `.task(id:)`, a superseded call is cancelled
-    /// either during the sleep (so it never hits the backend) or before it can
-    /// write results. Without those guards, typing "hello" issued five
-    /// searches and the list showed whichever *returned* last.
-    func performSearch(debounce: Duration = .milliseconds(250)) async {
+    func performSearch(debounce: Duration = .zero) async {
         if debounce > .zero {
             try? await Task.sleep(for: debounce)
             guard !Task.isCancelled else { return }
         }
-
         isLoading = true
+        defer { isLoading = false }
         let query = buildQuery()
+        let order = order()
         do {
-            let results = try await noteClient.search(query, nil)
+            let newIDs: [Int64]
+            switch mode {
+            case .notes:
+                newIDs = try await noteClient.searchIds(query, order).map(\.rawValue)
+            case .cards:
+                newIDs = try await cardClient.searchIds(query, order).map(\.rawValue)
+            }
             guard !Task.isCancelled else { return }
-            searchFailed = false
-            allNotes = results
-            notes = Array(results.prefix(pageSize))
-            hasMorePages = results.count > pageSize
+            // Records for ids that remain in results stay valid; drop the
+            // rest so stale rows can't outlive the query.
+            noteRecords = noteRecords.filter { newIDs.contains($0.key) }
+            cardRecords = cardRecords.filter { newIDs.contains($0.key) }
+            ids = newIDs
+            windowEnd = min(ids.count, max(windowSize, windowEnd))
+            hasMorePages = windowEnd < ids.count
+            await hydrateWindow()
+            resolveResultDecks()
+        } catch is CancellationError {
         } catch {
-            guard !Task.isCancelled else { return }
-            // An empty list on failure is indistinguishable from "no matches",
-            // so record the difference for the empty state to read.
-            searchFailed = true
-            allNotes = []
-            notes = []
+            ids = []
+            noteRecords.removeAll()
+            cardRecords.removeAll()
+            windowEnd = 0
             hasMorePages = false
+            resultDeckIDs = []
         }
-        isLoading = false
     }
 
-    func loadNextPage() async {
-        guard hasMorePages, !isLoading else { return }
-        let loaded = notes.count
-        let nextBatch = Array(allNotes.dropFirst(loaded).prefix(pageSize))
-        notes.append(contentsOf: nextBatch)
-        hasMorePages = notes.count < allNotes.count
+    /// Deck ids whose cards match the current query — drives the macOS
+    /// source column's "decks with matching cards" filter. Notes carry no
+    /// deck, so this resolves dids from a bounded sample of matching cards
+    /// (batched off-main like hydration) and rolls them up to ancestors.
+    private(set) var resultDeckIDs: Set<Int64> = []
+    private var resultDeckTask: Task<Void, Never>?
+
+    private func resolveResultDecks() {
+        resultDeckTask?.cancel()
+        // Keyed off the TYPED text, not the composed query: the composed query
+        // is never empty now (an unscoped browse is "deck:*"), and sampling
+        // 240 cards to highlight "decks containing matches" is only meaningful
+        // while the user is actually searching for something.
+        let trimmed = searchText.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else {
+            resultDeckIDs = []
+            return
+        }
+        let sampleCap = 240
+        resultDeckTask = Task { [cardClient] in
+            guard let cardIds = try? await cardClient.searchIds(trimmed, nil) else { return }
+            var dids: Set<Int64> = []
+            for start in stride(from: 0, to: min(cardIds.count, sampleCap), by: 6) {
+                if Task.isCancelled { return }
+                let batch = cardIds[start..<min(start + 6, cardIds.count)]
+                await withTaskGroup(of: Int64?.self) { group in
+                    for cid in batch {
+                        group.addTask { (try? await cardClient.getCard(cid))?.did.rawValue }
+                    }
+                    for await did in group where did != nil {
+                        dids.insert(did!)
+                    }
+                }
+            }
+            guard !Task.isCancelled else { return }
+            let decks = await MainActor.run { self.allDecks }
+            // Roll each hit up to its ancestor chain ("A::B::C" → A, A::B).
+            let byName = Dictionary(uniqueKeysWithValues: decks.map { ($0.name, $0.id.rawValue) })
+            for deck in decks where dids.contains(deck.id.rawValue) {
+                var parts = deck.name.split(separator: "::").map(String.init)
+                parts.removeLast()
+                var ancestor = ""
+                for part in parts {
+                    ancestor = ancestor.isEmpty ? part : ancestor + "::" + part
+                    if let id = byName[ancestor] { dids.insert(id) }
+                }
+            }
+            await MainActor.run { self.resultDeckIDs = dids }
+        }
     }
 
-    /// Lazy-fetch full note details for a stub and update the arrays in place.
-    ///
-    /// Patches `sortedNotes` directly rather than re-sorting: a stub fill
-    /// replaces one row's content without changing which notes are in the
-    /// list, and re-sorting here ran a full sort per row filled during a
-    /// scroll — under `.titleAsc` that also reordered rows under the user's
-    /// finger mid-scroll.
-    func fetchNoteDetails(id: NoteID) async {
-        guard let fullNote = try? await noteClient.fetch(id) else { return }
-        if let idx = notes.firstIndex(where: { $0.id == id }) {
-            isPatchingInPlace = true
-            notes[idx] = fullNote
-            isPatchingInPlace = false
+    private func order() -> SearchOrder {
+        SearchOrder(.builtin(column: sortOrder.rawValue, reverse: sortOrder.reverse))
+    }
+
+    func loadDecks() async {
+        allDecks = (try? await deckClient.fetchAll()) ?? []
+    }
+
+    func loadInitial() async {
+        await loadDecks()
+        allTags = ((try? await tagClient.getAllTags()) ?? []).sorted()
+        // Nothing loaded saved searches at startup, so the sidebar section and
+        // the tools menu stayed empty until the user saved or deleted one.
+        savedSearches.refresh()
+        // Same for history: `recentQueries` only ever grew in-session, so the
+        // search field offered no suggestions on a fresh launch.
+        loadHistory()
+        let notetypes = notetypesService
+        if let pairs = try? await backendOffload({ try notetypes.getNotetypeNames() }) {
+            notetypeNames = Dictionary(uniqueKeysWithValues: pairs.map { ($0.id, $0.name) })
         }
-        if let idx = allNotes.firstIndex(where: { $0.id == id }) {
-            allNotes[idx] = fullNote
+        // The embedding corpus must build in the background for the
+        // semantic fallback ("Search meaning of…") to ever be offered —
+        // without this kickoff it was dead code and near-miss spellings
+        // ("Levelling" vs "leveling") dead-ended at zero results.
+        kickOffSemanticIndexBuild()
+        // Search itself is driven by BrowseView `.task(id: searchIdentity)`.
+    }
+    }
+
+    /// Row onAppear hook: extend the visible window toward the user.
+    func loadMoreIfNeeded(index: Int) async {
+        guard index >= windowEnd - 10, windowEnd < ids.count else {
+            hasMorePages = windowEnd < ids.count
+            return
         }
-        if let idx = sortedNotes.firstIndex(where: { $0.id == id }) {
-            sortedNotes[idx] = fullNote
+        windowEnd = min(ids.count, windowEnd + windowSize)
+        hasMorePages = windowEnd < ids.count
+        await hydrateWindow()
+    }
+
+    func hydrateWindow() async {
+        switch mode {
+        case .notes:
+            let missing = Array(ids.prefix(windowEnd).filter { noteRecords[$0] == nil }
+                .prefix(hydrateChunkSize))
+            await hydrateInBatches(missing) { [noteClient] nidRaw in
+                let nid = NoteID(nidRaw)
+                if let note = try? await noteClient.fetch(nid) ?? nil {
+                    await MainActor.run { self.noteRecords[nidRaw] = note }
+                }
+            }
+        case .cards:
+            let missing = Array(ids.prefix(windowEnd).filter { cardRecords[$0] == nil }
+                .prefix(hydrateChunkSize))
+            await hydrateInBatches(missing) { [cardClient] cidRaw in
+                let cid = CardID(cidRaw)
+                if let card = try? await cardClient.getCard(cid) {
+                    await MainActor.run { self.cardRecords[cidRaw] = card }
+                }
+            }
+        }
+    }
+
+    /// Runs fetches through a small worker pool. Each RPC blocks an FFI
+    /// thread under the hood; dozens of concurrent calls saturate the Swift
+    /// cooperative pool and hydration never completes (Cards mode hung on
+    /// "Loading…" rows indefinitely). Batching keeps at most `batchSize`
+    /// engine calls in flight.
+    private func hydrateInBatches(
+        _ ids: [Int64], batchSize: Int = 6,
+        _ fetch: @escaping @Sendable (Int64) async -> Void
+    ) async {
+        var start = ids.startIndex
+        while start < ids.endIndex {
+            let end = min(ids.endIndex, start + batchSize)
+            let batch = ids[start..<end]
+            await withTaskGroup(of: Void.self) { group in
+                for idRaw in batch {
+                    group.addTask { await fetch(idRaw) }
+                }
+            }
+            start = end
         }
     }
 
     /// Resolves (once) the first card of a note, for the row context menu.
-    /// Returns the cached value when it's already known, so a row scrolling
-    /// out and back doesn't re-issue the lookup.
     func firstCardID(for noteId: NoteID) async -> CardID? {
         if let cached = firstCardIDs[noteId] { return cached }
         guard let cardId = (try? await cardClient.fetchByNote(noteId))?.first?.id else {
@@ -202,42 +427,71 @@ final class BrowseModel {
         return cardId
     }
 
-    /// Resolve a possibly-stub note to its full record before navigation.
-    /// This runs from a synchronous SwiftUI `navigationDestination` closure
-    /// that can't await, so it falls back to the model's already-loaded
-    /// arrays (kept current by `fetchNoteDetails`) rather than an async
-    /// backend fetch.
-    func resolved(_ note: NoteRecord) -> NoteRecord {
-        guard note.sfld == "Loading..." else { return note }
-        return notes.first(where: { $0.id == note.id })
-            ?? allNotes.first(where: { $0.id == note.id })
-            ?? note
-    }
-
-    // MARK: - Mutations
+    // MARK: - Mutations (batch, undo-friendly)
 
     func delete(_ id: NoteID) async {
-        await runBatch("delete", over: [id]) { try await self.noteClient.delete($0) }
+        await run("delete") { try await self.noteClient.deleteBatch([id]) }
     }
 
     func suspendSelected(_ noteIDs: Set<NoteID>) async {
-        let cardIDs = await collectCardIDs(for: noteIDs)
-        await runBatch("suspend", over: cardIDs) { try await self.cardClient.suspend($0) }
+        await run("suspend") { try await self.cardClient.suspendCards([], Array(noteIDs)) }
+    }
+
+    func unSuspendSelected(_ noteIDs: Set<NoteID>, cardIDs: [CardID]) async {
+        await run("unsuspend") { try await self.cardClient.restoreBuriedAndSuspended(cardIDs) }
+    }
+
+    func burySelected(_ noteIDs: Set<NoteID>) async {
+        await run("bury") { try await self.cardClient.buryUserCards([], Array(noteIDs)) }
     }
 
     func flagSelected(_ noteIDs: Set<NoteID>, value: UInt32) async {
-        let cardIDs = await collectCardIDs(for: noteIDs)
-        await runBatch("flag", over: cardIDs) { try await self.cardClient.flag($0, value) }
+        let cardIds = await cardsOfNotes(Array(noteIDs))
+        await runBatch("flag", over: cardIds) { try await self.cardClient.flag($0, value) }
+    }
+
+    /// Cards of selected notes — ONE engine search instead of N fetches.
+    private func cardsOfNotes(_ noteIds: [NoteID]) async -> [CardID] {
+        guard !noteIds.isEmpty else { return [] }
+        let query = noteIds.map { "nid:\($0.rawValue)" }.joined(separator: " OR ")
+        return (try? await cardClient.searchIds(query, nil)) ?? []
     }
 
     func deleteSelected(_ noteIDs: Set<NoteID>) async {
-        await runBatch("delete", over: Array(noteIDs)) { try await self.noteClient.delete($0) }
+        // One removeNotes transaction → one engine undo entry (D6).
+        await run("delete") { try await self.noteClient.deleteBatch(Array(noteIDs)) }
     }
 
-    /// Applies `work` to every id, counting failures rather than discarding
-    /// them. These were `try?` per item, so in a multi-select batch an
-    /// arbitrary subset could fail with zero feedback — the user believed
-    /// 100 notes were deleted when some were not.
+    func changeDeckSelected(_ cardIDs: [CardID], deckId: DeckID) async {
+        await run("move") { _ = try await self.cardClient.changeDeck(cardIDs, deckId) }
+    }
+
+    func addTag(_ tag: String, to noteIDs: Set<NoteID>) async {
+        await run("tag") { try await self.tagClient.addTagToNotes(tag, Array(noteIDs)) }
+    }
+
+    func removeTag(_ tag: String, from noteIDs: Set<NoteID>) async {
+        await run("untag") { try await self.tagClient.removeTagFromNotes(tag, Array(noteIDs)) }
+    }
+
+    func gradeNowSelected(_ cardIDs: [CardID], rating: Rating) async {
+        await run("grade") { try await self.cardClient.gradeNow(cardIDs, rating) }
+    }
+
+    func repositionSelected(_ cardIDs: [CardID], start: UInt32, step: UInt32) async {
+        await run("reposition") { _ = try await self.cardClient.repositionCards(cardIDs, start, step, false, false) }
+    }
+
+    private func run(_ verb: String, _ work: () async throws -> Void) async {
+        do {
+            try await work()
+        } catch {
+            errorMessage = "Couldn't \(verb): \(error.localizedDescription)"
+            Log.browse.error("Browse \(verb) failed: \(error)")
+        }
+        await refreshAfterMutation()
+    }
+
     private func runBatch<ID>(
         _ verb: String,
         over ids: [ID],
@@ -259,33 +513,316 @@ final class BrowseModel {
                 ? "Couldn't \(verb) \(failures == 1 ? "that item" : "those \(failures) items"): \(firstError ?? "unknown error")"
                 : "\(failures) of \(ids.count) items couldn't be \(verb)d: \(firstError ?? "unknown error")"
         }
-        await performSearch()
+        await refreshAfterMutation()
     }
 
-    // MARK: - Query
+    // Undo / redo ----------------------------------------------------------
+
+    func refreshUndoStatus() async {
+        undoStatus = try? await cardClient.undoStatus()
+    }
+
+    func undoLast() async {
+        try? await cardClient.undoLast()
+        await refreshAfterMutation()
+    }
+
+    func redoLast() async {
+        try? await cardClient.redoLast()
+        await refreshAfterMutation()
+    }
+
+    /// After any engine op the CollectionStore generation bumps itself via
+    /// OpChanges observation (same rails as deck icons); we re-run the
+    /// search against fresh data and refresh undo chrome here.
+    func refreshAfterMutation() async {
+        collectionStore.invalidateAll(origin: .localUser)
+        await performSearch()
+        await refreshUndoStatus()
+    }
+
+
+    // MARK: - Filter rail application (spec §5.5)
+
+    enum RailComposition {
+        case replace            // plain tap
+        case andWithExisting    // ⌃-click analog
+        case orWithExisting     // ⇧-click analog
+        case negateAndAdd       // ⌥-click analog
+    }
+
+    /// Applies a rail node to the query with desktop's composition
+    /// semantics, always canonicalized by the engine so the string stays
+    /// valid grammar even when hand-built fragments nest oddly.
+    func applyFilterNode(_ node: FilterNode, composition: RailComposition) async {
+        switch composition {
+        case .replace:
+            searchText = node.fragment
+        case .negateAndAdd:
+            applyComposed(existing: activeBaseQuery(), additional: node.fragment) { fragment in
+                "( not ( \(fragment) ) )"
+            }
+        case .andWithExisting:
+            if searchText.trimmingCharacters(in: .whitespaces).isEmpty {
+                searchText = node.fragment
+            } else {
+                composeViaEngine(additional: node.fragment, joiner: .and)
+            }
+        case .orWithExisting:
+            if searchText.trimmingCharacters(in: .whitespaces).isEmpty {
+                searchText = node.fragment
+            } else {
+                composeViaEngine(additional: node.fragment, joiner: .or)
+            }
+        }
+    }
+
+    private func activeBaseQuery() -> String { searchText }
+
+    /// Synchronous textual composition — engine AND is a space join;
+    /// negation wraps the fragment. Used on replace/negate paths where
+    /// waiting on an RPC before re-search adds latency without value.
+    private func applyComposed(existing: String, additional: String, transform: (String) -> String) {
+        let base = existing.trimmingCharacters(in: .whitespaces)
+        let combined = base.isEmpty ? transform(additional) : base + " " + transform(additional)
+        searchText = combined
+    }
+
+    /// Engine-canonical join for AND/OR (async path).
+    private func composeViaEngine(additional: String, joiner: SearchJoiner) {
+        let existing = searchText
+        Task { [weak self] in
+            guard let self else { return }
+            if let composed = try? await noteClient.composeQuery(
+                existing: existing, additional: additional, joiner: joiner
+            ) {
+                self.searchText = composed
+            } else {
+                // Engine rejected the pair — fall back to textual AND which
+                // is definitionally correct.
+                self.searchText = existing + " " + additional
+            }
+        }
+    }
+
+    func validateCurrentQuery() {
+        let candidate = buildQuery()
+        guard !candidate.isEmpty else { searchError = nil; return }
+        Task { [weak self] in
+            _ = try? await self?.noteClient.validateQuery(candidate)
+            // Errors surface through performSearch's failure branch today;
+            // dedicated inline error UI lands with engine-row columns.
+        }
+    }
+
+    // Saved searches --------------------------------------------------------
+
+    func saveCurrentQuery(as name: String) {
+        let query = buildQuery()
+        guard !query.isEmpty else { return }
+        savedSearches.save(name: name, query: query)
+        collectionStore.invalidateAll(origin: .localUser)
+    }
+
+    func deleteSavedSearch(named name: String) {
+        savedSearches.delete(name: name)
+        collectionStore.invalidateAll(origin: .localUser)
+    }
+
+    // MARK: - Search history (spec §6)
+
+    private func loadHistory() {
+        recentQueries = UserDefaults.standard.stringArray(forKey: Self.historyKey) ?? []
+    }
+
+    private func recordHistory(_ query: String) {
+        var history = UserDefaults.standard.stringArray(forKey: Self.historyKey) ?? []
+        history.removeAll { $0 == query }
+        history.insert(query, at: 0)
+        history = Array(history.prefix(30))
+        UserDefaults.standard.set(history, forKey: Self.historyKey)
+        recentQueries = history
+    }
+
+    // MARK: - Semantic fallback (spec D4)
+
+    private var semanticKickoffStarted = false
+
+    /// Builds/refreshes the embedding corpus once per session, bounded,
+    /// fully off-main-thread work inside TextEmbedder's actor.
+    private func kickOffSemanticIndexBuild() {
+        guard !semanticKickoffStarted else { return }
+        semanticKickoffStarted = true
+        Task { [weak self] in
+            guard let self else { return }
+            // Extracted as a function value: some Xcode 26.5 whole-module
+            // plans mislabel this closure call otherwise.
+            let searchAll = self.noteClient.searchAll
+            let limit: Int? = SemanticNoteIndex.corpusCap
+            guard let records = try? await searchAll("deck:*", limit),
+                  !records.isEmpty else { return }
+            await SemanticNoteIndex.shared.updateCorpus(with: records)
+        }
+    }
+
+    /// Replaces current results with semantic nearest neighbors of the
+    /// free-text query. Only offered when the grammar path came up empty
+    /// and no structured filters are pinned.
+    func runSemanticFallback() async {
+        let trimmed = searchText.trimmingCharacters(in: .whitespaces)
+        guard mode == .notes, !trimmed.isEmpty else { return }
+        guard let matches = await SemanticNoteIndex.shared.search(trimmed, topK: 50) else {
+            semanticNotice = "Semantic index still building…"
+            return
+        }
+        guard !matches.isEmpty else {
+            semanticNotice = "No semantically similar notes found."
+            return
+        }
+        noteRecords.removeAll()
+        cardRecords.removeAll()
+        // The neighbor ids have to land in `ids` — a local binding shadowed it
+        // here, so the fallback used to re-hydrate the previous (empty) result
+        // window and silently show nothing.
+        ids = matches
+        windowEnd = min(ids.count, windowSize)
+        hasMorePages = false
+        semanticNotice = "Meaning-based matches for “\(trimmed)”"
+        await hydrateWindow()
+    }
+
+    func clearSemanticNotice() { semanticNotice = nil }
+
+    // MARK: - Power-tool plumbing (selection-scope resolution)
+
+    /// Card IDs for the given notes via one nid:(OR) search.
+    func resolveCardIds(for noteIds: [NoteID]) async -> [CardID] {
+        guard !noteIds.isEmpty else { return [] }
+        let query = noteIds.map { "nid:\($0.rawValue)" }.joined(separator: " OR ")
+        return (try? await cardClient.searchIds(query, nil)) ?? []
+    }
+
+    func changeDeckSelected(_ noteIDs: Set<NoteID>, deckId: DeckID) async {
+        let cardIds = await resolveCardIds(for: Array(noteIDs))
+        _ = try? await cardClient.changeDeck(cardIds, deckId)
+        await refreshAfterMutation()
+    }
+
+    func setDueDateSelected(_ noteIDs: Set<NoteID>, expression: String) async {
+        let cardIds = await resolveCardIds(for: Array(noteIDs))
+        try? await cardClient.setDueDate(cardIds, expression)
+        await refreshAfterMutation()
+    }
+
+    func gradeNowSelectedNotes(_ noteIDs: Set<NoteID>, rating: Rating) async {
+        let cardIds = await resolveCardIds(for: Array(noteIDs))
+        try? await cardClient.gradeNow(cardIds, rating)
+        await refreshAfterMutation()
+    }
+
+    func repositionSelectedNotes(_ noteIDs: Set<NoteID>, start: UInt32, step: UInt32, randomize: Bool, shift: Bool) async {
+        let cardIds = await resolveCardIds(for: Array(noteIDs))
+        _ = try? await cardClient.repositionCards(cardIds, start, step, randomize, shift)
+        await refreshAfterMutation()
+    }
+
+    func toggleMarkSelected(_ noteIDs: Set<NoteID>) async {
+        let anyMarked = noteIDs.contains { id in
+            noteRecords[id.rawValue]?.tags.split(separator: " ")
+                .contains { $0.caseInsensitiveCompare("marked") == .orderedSame } == true
+        }
+        if anyMarked {
+            try? await tagClient.removeTagFromNotes("marked", Array(noteIDs))
+        } else {
+            try? await tagClient.addTagToNotes("marked", Array(noteIDs))
+        }
+        await refreshAfterMutation()
+    }
+
+    /// Find & Replace scoped to selection when present, else to current results.
+    func findAndReplace(search: String, replacement: String, regex: Bool, matchCase: Bool, fieldName: String?, scopeNoteIds: [NoteID]?) async -> Int {
+        let targets: [NoteID]
+        if let scopeNoteIds, !scopeNoteIds.isEmpty {
+            targets = scopeNoteIds
+        } else {
+            targets = mode == .notes
+                ? ids.prefix(loadedCount).map { NoteID($0) }
+                : []
+        }
+        guard !targets.isEmpty else { return 0 }
+        let count = (try? await noteClient.findAndReplace(
+            noteIds: targets, search: search, replacement: replacement,
+            regex: regex, matchCase: matchCase, fieldName: fieldName)) ?? 0
+        await refreshAfterMutation()
+        return count
+    }
+
+    // MARK: - Duplicates data (spec §5.9)
+
+    @ObservationIgnored @Dependency(\.ankiBackend) private var ankiBackend
+
+    /// Exact groups straight from the rslib aux service.
+    func exactDuplicateGroups(field: String, searchText text: String) async -> FindDuplicatesResult? {
+        try? await ankiBackend.invoke(.findDuplicatesExact(search: text, fieldName: field))
+    }
+
+    /// Fuzzy clusters over currently loaded notes (scope-limited O(n²)).
+    func nearDuplicateGroupsInScope() -> [[Int64]] {
+        SemanticNoteIndex.shared.nearDuplicateGroups(scope: Array(ids.prefix(windowEnd)))
+    }
+
+    /// True when the user's text is pure free-text (no pinned grammar
+    /// fragments) — gates the semantic fallback suggestion so scoped or
+    /// structural searches never get "search meaning of…" noise.
+    var searchTextIsPlainFreeText: Bool {
+        let prefixes = ["deck:", "tag:", "is:", "due:", "added:", "edited:",
+                        "rated:", "prop:", "nid:", "note:", "flag:", "introduced:"]
+        for word in searchText.split(separator: " ") {
+            let lowered = word.lowercased()
+            if prefixes.contains(where: { lowered.hasPrefix($0) }) { return false }
+        }
+        return true
+    }
+
+    // MARK: - Query assembly (phase 3 replaces chips with tokens)
 
     func buildQuery() -> String {
         var parts: [String] = []
-        if let deck = activeDeck {
-            parts.append(DeckSearch.term(deck.name))
-        }
-        if let tag = activeTag {
+        switch source {
+        case .allDecks:
+            break
+        case .deck(let id):
+            if let deck = allDecks.first(where: { $0.id == id }) {
+                parts.append("deck:\"\(deck.name)\"")
+            }
+        case .tag(let tag):
             parts.append("tag:\"\(tag)\"")
+        case .saved(let name):
+            if let query = savedSearches.searches.first(where: { $0.name == name })?.query {
+                parts.append("( \(query) )")
+            }
         }
         let trimmed = searchText.trimmingCharacters(in: .whitespaces)
         if !trimmed.isEmpty {
             parts.append(trimmed)
         }
+        // An unscoped browse with no text used to compose the empty string,
+        // which left the list column showing a placeholder instead of the
+        // collection. "deck:*" is the whole collection and is the same
+        // fragment the semantic corpus build already relies on.
+        guard !parts.isEmpty else { return "deck:*" }
         return parts.joined(separator: " ")
     }
+}
 
-    private func collectCardIDs(for noteIDs: Set<NoteID>) async -> [CardID] {
-        var result: [CardID] = []
-        for nid in noteIDs {
-            if let cards = try? await cardClient.fetchByNote(nid) {
-                result.append(contentsOf: cards.map(\.id))
-            }
-        }
-        return result
+#if DEBUG
+extension BrowseModel {
+    /// SwiftUI #Preview seeding — bypasses private(set) pipeline state.
+    func seedPreview(ids noteIds: [Int64], records: [Int64: NoteRecord]) {
+        ids = noteIds
+        noteRecords = records
+        windowEnd = noteIds.count
     }
 }
+#endif
+
