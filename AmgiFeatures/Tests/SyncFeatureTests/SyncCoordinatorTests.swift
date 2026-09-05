@@ -2,6 +2,7 @@ import Testing
 import Foundation
 import Dependencies
 import Sharing
+import AmgiAppCore
 import AnkiKit
 import AnkiClients
 import AnkiSync
@@ -47,6 +48,29 @@ private func restoreCredentials(_ snapshot: CredentialSnapshot) {
     }
 }
 
+/// The full-sync flag persists in UserDefaults and outlives any one test:
+/// `needsFullSyncRequiresUserChoice` sets it and never clears it, so a
+/// later `startSync` in the same simulator would open `.needsFullSync`
+/// instead of `.syncing` (order-dependent flake in full runs; invisible in
+/// single-suite runs where the order happens to be safe). Snapshot/restore
+/// around the writer — same pattern as CredentialSnapshot for the keychain.
+private struct FullSyncFlagSnapshot: Sendable {
+    let value: Bool
+}
+
+private func stageFullSyncFlag() -> FullSyncFlagSnapshot {
+    FullSyncFlagSnapshot(
+        value: UserDefaults.standard.bool(forKey: SyncPreferences.Keys.needsFullSyncForCurrentUser())
+    )
+}
+
+private func restoreFullSyncFlag(_ snapshot: FullSyncFlagSnapshot) {
+    UserDefaults.standard.set(
+        snapshot.value,
+        forKey: SyncPreferences.Keys.needsFullSyncForCurrentUser()
+    )
+}
+
 @Suite("SyncCoordinator state machine")
 struct SyncCoordinatorTests {
 
@@ -73,8 +97,18 @@ struct SyncCoordinatorTests {
         } operation: {
             let coordinator = SyncCoordinator(mediaPollInterval: .milliseconds(20))
             await coordinator.startSync()
-            try await Task.sleep(for: .milliseconds(10))
-            #expect(coordinator.state == .syncingMedia("Checked: 12 \u{00B7} Added: 7\u{2191} 0\u{2193}"))
+            // Media arrives on the 20ms poll; a fixed sleep flakes under
+            // load (10ms can land before the first poll fires). Poll for the
+            // in-flight state instead — the assertion below still pins that
+            // the flow passes THROUGH syncingMedia before succeeding.
+            let expectedMedia: SyncCoordinator.SyncState =
+                .syncingMedia("Checked: 12 \u{00B7} Added: 7\u{2191} 0\u{2193}")
+            let mediaDeadline = ContinuousClock.now.advanced(by: .seconds(2))
+            while coordinator.state != expectedMedia {
+                if ContinuousClock.now >= mediaDeadline { break }
+                try await Task.sleep(for: .milliseconds(5))
+            }
+            #expect(coordinator.state == expectedMedia)
             try await Task.sleep(for: .milliseconds(60))
             guard case .success(let resultSummary) = coordinator.state else {
                 Issue.record("expected .success, got \(coordinator.state)")
@@ -168,6 +202,8 @@ struct SyncCoordinatorTests {
     func needsFullSyncRequiresUserChoice() async throws {
         let credentials = stageTestEndpoint()
         defer { restoreCredentials(credentials) }
+        let flag = stageFullSyncFlag()
+        defer { restoreFullSyncFlag(flag) }
         try await withDependencies {
             $0.appStorageKeyFormatWarningEnabled = false
             $0.syncClient.sync = { throw SyncError.fullSyncRequired }
@@ -186,6 +222,8 @@ struct SyncCoordinatorTests {
     func confirmFullSyncUpload() async throws {
         let credentials = stageTestEndpoint()
         defer { restoreCredentials(credentials) }
+        let flag = stageFullSyncFlag()
+        defer { restoreFullSyncFlag(flag) }
         try await withDependencies {
             $0.appStorageKeyFormatWarningEnabled = false
             $0.syncClient.sync = { throw SyncError.fullSyncRequired }
@@ -246,6 +284,11 @@ struct SyncCoordinatorTests {
     func cancelMidSync() async throws {
         let credentials = stageTestEndpoint()
         defer { restoreCredentials(credentials) }
+        let flag = stageFullSyncFlag()
+        defer { restoreFullSyncFlag(flag) }
+        // Fresh slate: a leftover flag from an earlier run would open
+        // .needsFullSync instead of the .syncing this test cancels.
+        UserDefaults.standard.set(false, forKey: SyncPreferences.Keys.needsFullSyncForCurrentUser())
         try await withDependencies {
             $0.appStorageKeyFormatWarningEnabled = false
             $0.syncClient.sync = {
