@@ -1,13 +1,13 @@
 // AmgiApp/Sources/Shared/NoteEmbedderBridge.swift
-import AmgiIcons
+import AmgiEmbeddings
 import Foundation
 
 /// Bridge between Browse's semantic index and the shared e5 engine
-/// (TextEmbedder inside the AmgiIcons package — one resident CoreML
+/// (TextEmbedder inside the AmgiEmbeddings package — one resident CoreML
 /// model instance serves both deck-icon suggestion and card search).
 ///
 /// This indirection exists for one narrow reason: under the current
-/// explicit-module build, brand-new source files that `import AmgiIcons`
+/// explicit-module build, brand-new source files that `import AmgiEmbeddings`
 /// directly can hit a planner quirk reporting the package unresolvable
 /// (BrowseSupport 2026-08), while long-standing importers resolve fine.
 /// New Browse-layer code should call through here, not import the

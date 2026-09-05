@@ -57,18 +57,3 @@ private extension SyncToastController {
         dismissTask = nil
     }
 }
-
-extension View {
-    /// Pins the sync toast to the bottom edge with the standard transition
-    /// and animation. Lifted out of `ContentView`'s body so the host keeps
-    /// a flat modifier chain.
-    func syncToastOverlay(_ kind: SyncToast.Kind?) -> some View {
-        overlay(alignment: .bottom) {
-            if let kind {
-                SyncToast(kind: kind)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
-        .animation(.snappy, value: kind)
-    }
-}

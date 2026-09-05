@@ -1,10 +1,12 @@
 import Testing
 import PhosphorSwift
+import AmgiEmbeddings
 @testable import AmgiIcons
 
-/// Exercises the real bundled engine (CoreML + tokenizer + embeddings) on
-/// macOS. First run compiles the .mlpackage into Caches, which takes a few
-/// extra seconds; later runs load the cached .mlmodelc.
+/// Engine tests need the e5 weights: either the CDN download (run the app
+/// once) or a locally compiled bundle copy. CI without the model records a
+/// known issue instead of failing; catalog/fallback tests below stay green
+/// regardless since they never touch CoreML.
 @Suite("IconSuggester", .serialized)
 struct IconSuggesterTests {
     private let suggester = IconSuggester.shared
@@ -21,7 +23,10 @@ struct IconSuggesterTests {
         #expect(Ph.amgi(named: "air-traffic-control") == .airTrafficControl)
     }
 
-    @Test("Semantic best match hits the expected icons")
+    @Test(
+        "Semantic best match hits the expected icons",
+        .enabled(if: ModelAssetManager.isModelInstalled, "e5 model not installed — run the app once to download it")
+    )
     func bestMatch() async {
         await #expect(suggester.bestMatch(for: "Python Programming") == "filePy")
         await #expect(suggester.bestMatch(for: "Organic Chemistry") == "testTube")
@@ -36,7 +41,10 @@ struct IconSuggesterTests {
         await #expect(suggester.bestMatch(for: "   ") == IconSuggester.defaultIconName)
     }
 
-    @Test("Search ranks chemistry icons first")
+    @Test(
+        "Search ranks chemistry icons first",
+        .enabled(if: ModelAssetManager.isModelInstalled, "e5 model not installed — run the app once to download it")
+    )
     func searchRanking() async {
         let results = await suggester.search("chemistry experiment", topK: 10)
         #expect(!results.isEmpty)
@@ -50,7 +58,10 @@ struct IconSuggesterTests {
         #expect(results.count == Ph.allCases.count)
     }
 
-    @Test("Repeated queries are served from the vector cache")
+    @Test(
+        "Repeated queries are served from the vector cache",
+        .enabled(if: ModelAssetManager.isModelInstalled, "e5 model not installed — run the app once to download it")
+    )
     func cacheStability() async {
         let first = await suggester.bestMatch(for: "Linear Algebra")
         let second = await suggester.bestMatch(for: "Linear Algebra")

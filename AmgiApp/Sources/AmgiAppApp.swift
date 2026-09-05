@@ -214,6 +214,8 @@ struct AnkiAppApp: App {
                 try? await Task.sleep(for: .seconds(2))
                 CardWebViewPrewarmer.shared.prewarmIfNeeded()
             }
+            // Model weights download only after explicit consent — owned by
+            // ModelDownloadCoordinator (ContentView), never fired blindly.
             .onOpenURL { url in
                 guard url.scheme == "amgi" else { return }
                 switch url.host {

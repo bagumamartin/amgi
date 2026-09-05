@@ -10,7 +10,7 @@ import PackageDescription
 // Xcode's CoreML code generation emits plain `import CoreML` in its
 // generated model class, which turns internal under those features and
 // breaks every public declaration in the generated file (verified 2026-08,
-// device build). This target is the only one that bundles a .mlmodelc.
+// device build).
 let sharedSwiftSettings: [SwiftSetting] = [
     .enableExperimentalFeature("IsolatedAny"),
     .enableUpcomingFeature("ExistentialAny"),
@@ -29,35 +29,24 @@ let package = Package(
         .library(name: "AmgiIcons", targets: ["AmgiIcons"]),
     ],
     dependencies: [
-        // Tokenizer runtime for the bundled e5 tokenizer.json — no
-        // hand-rolled SentencePiece/WordPiece.
-        .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.3"),
         // Vendored (see Vendor/PhosphorSwift/VENDOR_NOTE.md): upstream
         // 2.1.0's manifest omits the `resources:` rule its code requires.
         .package(path: "Vendor/PhosphorSwift"),
+        // Shared e5 engine (moved out 2026-09 — AmgiIcons is icons-only).
+        .package(path: "../AmgiEmbeddings"),
     ],
     targets: [
         .target(
             name: "AmgiIcons",
             dependencies: [
-                .product(name: "Tokenizers", package: "swift-transformers"),
                 .product(name: "PhosphorSwift", package: "PhosphorSwift"),
+                .product(name: "AmgiEmbeddings", package: "AmgiEmbeddings"),
             ],
             resources: [
                 // 1512 × 384 unit vectors keyed by Phosphor camelCase case
                 // name. Produced by scripts/icon-embeddings/precompute_
-                // embeddings.py — regenerate there if the manifest changes.
+                // embeddings.py — regenerate there if the model changes.
                 .process("Resources/IconEmbeddings.json"),
-                // fp16 CoreML e5-small, PRECOMPILED to .mlmodelc at dev time
-                // (`xcrun coremlcompiler compile`) — bundling the raw
-                // .mlpackage made Xcode auto-generate a Swift model class
-                // whose plain `import CoreML` breaks under this repo's
-                // import-discipline settings, and cost ~8s first-launch
-                // compile. `.copy` keeps the folder intact everywhere.
-                // Regenerate via scripts/icon-embeddings/ docs if the model
-                // is ever swapped.
-                .copy("Resources/MultilingualE5Small.mlmodelc"),
-                .copy("Resources/Tokenizer"),
             ],
             swiftSettings: sharedSwiftSettings
         ),

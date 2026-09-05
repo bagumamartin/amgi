@@ -69,7 +69,7 @@ public actor TextEmbedder {
     private func loadEngine() async throws -> Engine {
         let config = MLModelConfiguration()
         config.computeUnits = .all
-        let model = try MLModel(contentsOf: try compiledModelURL(), configuration: config)
+        let model = try MLModel(contentsOf: await compiledModelURL(), configuration: config)
 
         guard let folder = Self.tokenizerFolderURL else {
             throw EmbedderError.missingTokenizerResources
@@ -113,9 +113,20 @@ public actor TextEmbedder {
         return vector
     }
 
-    // MARK: - Resources (same bundle as IconSuggester)
+    // MARK: - Resources (CDN-installed model, dev-machine bundle fallback)
 
-    private func compiledModelURL() throws -> URL {
+    /// Lookup order: (1) CDN-installed model in Application Support (the
+    /// production path — ModelAssetManager downloads + compiles it on first
+    /// launch); (2) precompiled copy in the package bundle (dev machines that
+    /// still build one locally); (3) raw `.mlpackage` in the bundle compiled
+    /// to Caches (legacy dev path). Absence throws and every caller degrades
+    /// (name-token icons, no semantic fallback) until the download lands.
+    private func compiledModelURL() async throws -> URL {
+        if let installed = ModelAssetManager.installedCompiledModelURL(),
+           FileManager.default.fileExists(atPath: installed.path) {
+            return installed
+        }
+
         if let precompiled = Bundle.module.url(
             forResource: "MultilingualE5Small", withExtension: "mlmodelc"
         ) { return precompiled }
@@ -134,9 +145,18 @@ public actor TextEmbedder {
         if fm.fileExists(atPath: destination.path) {
             try? fm.removeItem(at: destination)
         }
-        let compiled = try MLModel.compileModel(at: package)
+        let compiled = try await MLModel.compileModel(at: package)
         _ = try? fm.replaceItemAt(destination, withItemAt: compiled)
         return destination
+    }
+
+    /// Called by `ModelAssetManager` after a fresh install: engine load
+    /// failures are memoized in `engineError`, so without this reset an embed
+    /// attempted before the download finished would keep throwing forever.
+    public func resetEngineForModelInstall() {
+        engine = nil
+        engineError = nil
+        vectorCache.removeAll(keepingCapacity: true)
     }
 
     private static var tokenizerFolderURL: URL? {
@@ -181,7 +201,7 @@ enum EmbedderError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .missingModelResource: "MultilingualE5Small.mlpackage not found in bundle"
+        case .missingModelResource: "e5 model not installed yet — background download pending"
         case .missingTokenizerResources: "tokenizer resources not found in bundle"
         case .unexpectedModelOutput: "CoreML model produced unexpected output"
         }

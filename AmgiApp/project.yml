@@ -72,6 +72,8 @@ packages:
     path: ../AmgiReader
   AmgiIcons:
     path: ../AmgiIcons
+  AmgiEmbeddings:
+    path: ../AmgiEmbeddings
   swift-navigation:
     url: https://github.com/pointfreeco/swift-navigation
     from: 2.0.0
@@ -150,6 +152,8 @@ targets:
         product: AmgiUI
       - package: AmgiIcons
         product: AmgiIcons
+      - package: AmgiEmbeddings
+        product: AmgiEmbeddings
       - package: swift-navigation
         product: SwiftNavigation
       - package: swift-navigation

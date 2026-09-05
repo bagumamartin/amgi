@@ -20,6 +20,7 @@ struct ContentView: View {
     @Environment(\.openWindow) private var openWindow
 
     @State private var syncToast = SyncToastController()
+    @State private var modelDownloads = ModelDownloadCoordinator()
     @State private var showSync = false
     @State private var showImport = false
     @State private var refreshID = UUID()
@@ -74,7 +75,44 @@ struct ContentView: View {
         .task {
             coordinator.setApplicationActive(scenePhase == .active)
         }
-        .syncToastOverlay(syncToast.toast)
+        .task {
+            modelDownloads.onAppear()
+        }
+        .onChange(of: NetworkMonitor.shared.isSatisfied) { _, _ in
+            modelDownloads.retryIfAllowed()
+        }
+        .onChange(of: NetworkMonitor.shared.usesWiFi) { _, _ in
+            modelDownloads.retryIfAllowed()
+        }
+        .confirmationDialog(
+            modelDownloads.consent?.offline == true ? "You're Offline" : "Download AI Model?",
+            isPresented: modelDownloads.consentBinding,
+            titleVisibility: .visible
+        ) {
+            if modelDownloads.consent?.offline == true {
+                Button("OK") { modelDownloads.consentOfflineAcknowledged() }
+            } else if modelDownloads.consent?.cellular == true {
+                Button("Download Anyway") { modelDownloads.consentDownload(allowExpensive: true) }
+                Button("Wait for Wi-Fi") { modelDownloads.consentWaitForWiFi() }
+                Button("Not Now", role: .cancel) { modelDownloads.consentNotNow() }
+            } else {
+                Button("Download") { modelDownloads.consentDownload(allowExpensive: false) }
+                Button("Not Now", role: .cancel) { modelDownloads.consentNotNow() }
+            }
+        } message: {
+            if modelDownloads.consent?.offline == true {
+                Text("The AI model powers smarter deck icons and meaning-based search. We'll ask again when you're back online — the app works fully without it.")
+            } else if modelDownloads.consent?.cellular == true {
+                Text("\(modelDownloads.consentSizeText), and you're on mobile data — this may use your data plan. The app works fully without it; future updates follow your network setting in Maintenance.")
+            } else {
+                Text("\(modelDownloads.consentSizeText) download. Powers smarter deck icons and meaning-based search — the app works fully without it. Future updates follow your network setting in Maintenance.")
+            }
+        }
+        .combinedToastOverlay(
+            sync: syncToast.toast,
+            model: modelDownloads.toast,
+            onModelRetry: { modelDownloads.retry() }
+        )
         .deckImport(isPresented: $showImport) {
             store.invalidateAll()
             store.markLocalMutation(reason: "Deck import")
