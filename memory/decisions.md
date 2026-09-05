@@ -517,6 +517,38 @@
   endpoint, and CollectionStoreTests scope a neutered syncCoordinator, so a
   real endpoint can never fire the live auto-sync debounce into an unstubbed
   client (and signOut tests can't wipe real credentials).
+- **Sync flag hygiene (2026-09)**: the full-sync flag persists in UserDefaults
+  and outlives any one test — the writer test set it without restoring, so a
+  later `startSync` opened `.needsFullSync` (order-dependent flake, invisible
+  in single-suite runs). Snapshot/restore around writers + explicit clear in
+  sensitive readers (same pattern as the keychain snapshot). Timing
+  assertions (10ms sleep vs 20ms media poll) flake under load — poll for the
+  expected state with a deadline instead.
+
+## XCFramework rebuild (2026-09)
+
+- **The build script drifted from the artifact**: `scripts/
+  build-xcframework.sh` still described staticlibs + header packaging, but
+  the shipped binary has been one dynamic `AnkiRustLib.framework` per slice
+  since the preview-JIT fix (crate-type cdylib). Rebuilt truthfully and
+  fixed the script to match: cdylib committed in `anki-bridge-rs/Cargo.toml`
+  (do not revert — previews resolve `anki_*` only from a dylib), framework
+  bundling in-script (flat iOS/watch, versioned mac, universal mac slice,
+  mac identifier patched to `macos-arm64_x86_64`).
+- **Fresh-tree watchOS builds fail in rslib/build.rs** ("No such file or
+  directory" for `anki_descriptors.bin`): cargo runs from the repo root, so
+  upstream's `.cargo/config` `DESCRIPTORS_BIN` never loads and the fallback
+  path only exists after a previous successful build. The script now
+  generates descriptors with system protoc into `anki-upstream/out`
+  (gitignored, upstream's own path) and exports the override — every leg
+  resolves the same file regardless of cache state.
+- **Toolchain prerequisites** (not installed by default): nightly + rust-src
+  for the watchOS build-std leg, plus explicit `rustup target add` for
+  `aarch64-apple-ios[-sim]` / darwin twins. A reused DerivedData can also
+  mask a stale slice — the sim slice silently predated aux interception
+  while mac passed; `findDuplicatesExactProbe` on simulator is the canary.
+- **Long builds need `screen`**: background `nohup` children die between
+  agent tool calls; a detached screen session survives (`screen -dmS`).
 
 ## Browse compact Search tab (2026-09)
 
