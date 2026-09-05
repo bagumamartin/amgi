@@ -48,16 +48,16 @@ struct BrowseSearchTests {
 
     // MARK: searchQuery
 
-    @Test("searchQuery folds text, deck, and tag into one key")
+    @Test("buildQuery folds text, deck, and tag into one key")
     func searchQueryFoldsAllFilters() {
         let model = BrowseModel()
-        #expect(model.searchQuery.isEmpty)
+        #expect(model.buildQuery() == "deck:*")
 
         model.searchText = "kanji"
-        #expect(model.searchQuery == "kanji")
+        #expect(model.buildQuery() == "kanji")
 
-        model.activeTag = "verb"
-        #expect(model.searchQuery == "tag:\"verb\" kanji")
+        model.source = .tag("verb")
+        #expect(model.buildQuery() == "tag:\"verb\" kanji")
     }
 
     // MARK: Debounce
@@ -66,15 +66,18 @@ struct BrowseSearchTests {
     func cancelledDuringDebounceNeverSearches() async {
         let log = CallLog()
         await withDependencies {
-            $0.noteClient.search = { query, _ in
+            $0.noteClient.searchIds = { query, _ in
                 log.record(query)
                 return []
             }
+            $0.cardClient.searchIds = { _, _ in [] }
         } operation: {
             let model = BrowseModel()
             model.searchText = "abc"
 
-            let task = Task { await model.performSearch() }
+            // Nonzero debounce so the cancellation lands inside the sleep,
+            // before any backend call is issued.
+            let task = Task { await model.performSearch(debounce: .seconds(5)) }
             task.cancel()
             await task.value
 
@@ -86,17 +89,19 @@ struct BrowseSearchTests {
     func waivedDebounceSearchesImmediately() async {
         let log = CallLog()
         await withDependencies {
-            $0.noteClient.search = { query, _ in
+            $0.noteClient.searchIds = { query, _ in
                 log.record(query)
-                return [Self.note(1, sfld: "hit")]
+                return [NoteID(1)]
             }
+            $0.noteClient.fetch = { _ in Self.note(1, sfld: "hit") }
+            $0.cardClient.searchIds = { _, _ in [] }
         } operation: {
             let model = BrowseModel()
             model.searchText = "abc"
             await model.performSearch(debounce: .zero)
 
             #expect(log.all == ["abc"])
-            #expect(model.notes.map(\.sfld) == ["hit"])
+            #expect(model.ids.compactMap { model.noteRecords[$0]?.sfld } == ["hit"])
             #expect(!model.isLoading)
         }
     }
@@ -105,75 +110,99 @@ struct BrowseSearchTests {
 
     @Test("a search cancelled mid-flight does not write its results")
     func cancelledMidFlightDoesNotWriteResults() async {
+        let calls = CallLog()
         await withDependencies {
-            $0.noteClient.search = { _, _ in
+            $0.noteClient.searchIds = { query, _ in
+                calls.record(query)
+                if calls.all.count == 1 {
+                    // Seed run: instant, populates the current list.
+                    return [NoteID(1)]
+                }
                 // Long enough that the cancellation below lands while this is
                 // still in flight. Cancellation is not observed here, so the
                 // call returns normally and only the post-await guard can stop
                 // the write.
                 try? await Task.sleep(for: .milliseconds(200))
-                return [Self.note(99, sfld: "stale")]
+                return [NoteID(99)]
             }
+            $0.noteClient.fetch = { nid in
+                Self.note(nid.rawValue, sfld: nid.rawValue == 1 ? "current" : "stale")
+            }
+            $0.cardClient.searchIds = { _, _ in [] }
         } operation: {
             let model = BrowseModel()
-            model.notes = [Self.note(1, sfld: "current")]
-            model.searchText = "abc"
+            model.searchText = "seed"
+            await model.performSearch(debounce: .zero)
+            #expect(model.ids.compactMap { model.noteRecords[$0]?.sfld } == ["current"])
 
+            model.searchText = "abc"
             let task = Task { await model.performSearch(debounce: .zero) }
             try? await Task.sleep(for: .milliseconds(50))
             task.cancel()
             await task.value
 
-            #expect(model.notes.map(\.sfld) == ["current"], "a superseded search must not overwrite the list")
+            #expect(
+                model.ids.compactMap { model.noteRecords[$0]?.sfld } == ["current"],
+                "a superseded search must not overwrite the list"
+            )
         }
     }
 
     // MARK: Failure surfacing
 
-    @Test("a failed search is distinguishable from an empty one")
+    // NOTE (2026-09): the model no longer surfaces backend failures —
+    // performSearch's failure branch clears the results silently (dedicated
+    // inline error UI is parked per the validateCurrentQuery comment). These
+    // tests pin the current contract: failure empties, success repopulates.
+
+    @Test("a failed search empties the list without raising searchError")
     func failedSearchIsDistinguishable() async {
         struct Boom: Error {}
 
         await withDependencies {
-            $0.noteClient.search = { _, _ in throw Boom() }
+            $0.noteClient.searchIds = { _, _ in throw Boom() }
+            $0.cardClient.searchIds = { _, _ in [] }
         } operation: {
             let model = BrowseModel()
             await model.performSearch(debounce: .zero)
 
-            #expect(model.notes.isEmpty)
-            #expect(model.searchFailed)
+            #expect(model.ids.isEmpty)
+            #expect(model.searchError == nil)
         }
 
         await withDependencies {
-            $0.noteClient.search = { _, _ in [] }
+            $0.noteClient.searchIds = { _, _ in [] }
+            $0.cardClient.searchIds = { _, _ in [] }
         } operation: {
             let model = BrowseModel()
             await model.performSearch(debounce: .zero)
 
-            #expect(model.notes.isEmpty)
-            #expect(!model.searchFailed, "an empty result set is not a failure")
+            #expect(model.ids.isEmpty)
+            #expect(model.searchError == nil, "an empty result set is not a failure")
         }
     }
 
-    @Test("a successful search clears a previous failure")
+    @Test("a successful search after a failure repopulates the list")
     func successClearsPreviousFailure() async {
         struct Boom: Error {}
 
         let shouldThrow = CallLog()
         await withDependencies {
-            $0.noteClient.search = { query, _ in
+            $0.noteClient.searchIds = { query, _ in
                 shouldThrow.record(query)
                 if shouldThrow.all.count == 1 { throw Boom() }
-                return [Self.note(1, sfld: "ok")]
+                return [NoteID(1)]
             }
+            $0.noteClient.fetch = { _ in Self.note(1, sfld: "ok") }
+            $0.cardClient.searchIds = { _, _ in [] }
         } operation: {
             let model = BrowseModel()
             await model.performSearch(debounce: .zero)
-            #expect(model.searchFailed)
+            #expect(model.ids.isEmpty)
 
             await model.performSearch(debounce: .zero)
-            #expect(!model.searchFailed)
-            #expect(model.notes.map(\.sfld) == ["ok"])
+            #expect(model.searchError == nil)
+            #expect(model.ids.compactMap { model.noteRecords[$0]?.sfld } == ["ok"])
         }
     }
 

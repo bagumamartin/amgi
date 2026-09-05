@@ -72,7 +72,12 @@ final class DeckListLoadPerformanceTests: XCTestCase {
         deckClient.fetchTree = { tree }
         return withDependencies {
             $0.deckClient = deckClient
-            $0.statsClient = StatsClient { _, _ in snapshot }
+            $0.statsClient = StatsClient(
+                fetchGraphs: { _, _ in snapshot },
+                graduatedToday: { _ in 0 },
+                learningDueToday: { _ in 0 },
+                lastRating: { _ in nil }
+            )
         } operation: {
             // Built *inside* the scope, not while assembling DependencyValues:
             // `@Dependency` captures the ambient context when the property

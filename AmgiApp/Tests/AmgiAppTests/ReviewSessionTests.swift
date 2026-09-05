@@ -3,6 +3,7 @@ import SwiftUI
 import UIKit
 import Dependencies
 import Foundation
+import AnkiClients
 import AnkiKit
 import AnkiServices
 @testable import AmgiApp
@@ -37,6 +38,18 @@ import AnkiServices
             if ContinuousClock.now >= deadline { return }
             try await Task.sleep(for: interval)
         }
+    }
+
+    /// start() now refines learn counts and loads daily progress through
+    /// `statsClient` (best-effort in production). Tests stub it so the
+    /// unimplemented-testValue closures never fire.
+    private nonisolated static var stubStatsClient: StatsClient {
+        StatsClient(
+            fetchGraphs: { _, _ in GraphsSnapshot() },
+            graduatedToday: { _ in 0 },
+            learningDueToday: { _ in 0 },
+            lastRating: { _ in nil }
+        )
     }
 
     // MARK: - Deferred from fork
@@ -123,6 +136,7 @@ import AnkiServices
     @Test func startWithEmptyQueueFinishesSession() async throws {
         try await withDependencies {
             $0.decksService.setCurrentDeck = { _ in }
+            $0.statsClient = Self.stubStatsClient
             $0.schedulerService.getQueuedCards = { _ in
                 QueuedCardsResult(cards: [], newCount: 0, learningCount: 0, reviewCount: 0)
             }
@@ -211,11 +225,13 @@ import AnkiServices
                 #expect(noteId == NoteID(100))
                 return stubNote
             }
+            $0.statsClient = Self.stubStatsClient
             $0.schedulerService.getQueuedCards = { _ in stubResult }
             $0.cardRenderingService.renderCard = { _ in
                 RenderedCard(frontHTML: "<p>front</p>", backHTML: "<p>back</p>", cardCSS: "")
             }
             $0.decksService.setCurrentDeck = { _ in }
+            $0.statsClient = Self.stubStatsClient
             $0.decksService.getCurrentDeck = { DeckInfo(id: DeckID(1), name: "Deck") }
         } operation: {
             let session = ReviewSession(deckId: DeckID(1))
@@ -243,11 +259,13 @@ import AnkiServices
 
         try await withDependencies {
             $0.notesService.getNote = { _ in stubNote }
+            $0.statsClient = Self.stubStatsClient
             $0.schedulerService.getQueuedCards = { _ in stubResult }
             $0.cardRenderingService.renderCard = { _ in
                 RenderedCard(frontHTML: "f", backHTML: "b", cardCSS: "")
             }
             $0.decksService.setCurrentDeck = { _ in }
+            $0.statsClient = Self.stubStatsClient
         } operation: {
             let session = ReviewSession(deckId: DeckID(1))
             session.start()
@@ -270,11 +288,13 @@ import AnkiServices
 
         try await withDependencies {
             $0.notesService.getNote = { _ in stubNote }
+            $0.statsClient = Self.stubStatsClient
             $0.schedulerService.getQueuedCards = { _ in stubResult }
             $0.cardRenderingService.renderCard = { _ in
                 RenderedCard(frontHTML: "f", backHTML: "b", cardCSS: "")
             }
             $0.decksService.setCurrentDeck = { _ in }
+            $0.statsClient = Self.stubStatsClient
         } operation: {
             let session = ReviewSession(deckId: DeckID(1))
             session.start()
@@ -322,6 +342,7 @@ import AnkiServices
             $0.notesService.getNote = { _ in
                 NoteRecord(id: NoteID(100), guid: "g", mid: NotetypeID(200), mod: 0, flds: state.noteFields, sfld: "", csum: 0)
             }
+            $0.statsClient = Self.stubStatsClient
             $0.schedulerService.getQueuedCards = { _ in stubResult }
             $0.cardRenderingService.renderCard = { _ in
                 state.renderCallCount += 1
@@ -332,6 +353,7 @@ import AnkiServices
                 )
             }
             $0.decksService.setCurrentDeck = { _ in }
+            $0.statsClient = Self.stubStatsClient
         } operation: {
             let session = ReviewSession(deckId: DeckID(1))
             session.start()
@@ -366,6 +388,7 @@ import AnkiServices
 
         try await withDependencies {
             $0.decksService.setCurrentDeck = { _ in }
+            $0.statsClient = Self.stubStatsClient
             $0.schedulerService.getQueuedCards = { _ in
                 // start() sees both cards; after answerReviewCard fires, only card2 remains.
                 box.answered
@@ -402,6 +425,7 @@ import AnkiServices
         let card = QueuedReviewCard.preview(cardId: CardID(1), noteId: NoteID(100), ord: 0)
         try await withDependencies {
             $0.decksService.setCurrentDeck = { _ in }
+            $0.statsClient = Self.stubStatsClient
             $0.schedulerService.getQueuedCards = { _ in
                 QueuedCardsResult(cards: [card], newCount: 1, learningCount: 0, reviewCount: 0)
             }
@@ -465,6 +489,7 @@ import AnkiServices
 
         try await withDependencies {
             $0.decksService.setCurrentDeck = { _ in }
+            $0.statsClient = Self.stubStatsClient
             $0.schedulerService.getQueuedCards = { _ in
                 QueuedCardsResult(cards: [card1, card2], newCount: 2, learningCount: 0, reviewCount: 0)
             }

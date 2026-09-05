@@ -67,6 +67,11 @@ struct DesignConformanceTests {
             "UIKit init where the SwiftUI palette isn't reachable.",
         "BrowseFeature/ImageOcclusionMaskSummaryCard.swift":
             "Preview thumbnail clip radius matches the canvas it mirrors, not a card radius.",
+        "BrowseFeature/BrowseView.swift":
+            "Bottom-bar toolbarBackground uses the system ultraThinMaterial. " +
+            "A toolbar is system chrome, not content — amgiMaterial has no " +
+            "toolbar-background seam, and the Reduce Transparency fallback " +
+            "the seam exists for is owned by the toolbar itself.",
         "SettingsFeature/AppearanceSettingsView.swift":
             "Radius literals with no AmgiRadius equivalent; changing them would be a layout change (R29 is no-layout).",
         "SettingsFeature/CodeEditorSettingsView.swift":
