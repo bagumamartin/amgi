@@ -5,7 +5,10 @@ edition = "2021"
 publish = false
 
 [lib]
-crate-type = ["staticlib"]
+# Dynamic: the xcframework ships AnkiRustLib.framework per slice, and
+# package-target previews (XCPreviewAgent, no app host) can only resolve
+# the anki_* FFI symbols from a dylib. Do not switch back to staticlib.
+crate-type = ["cdylib"]
 
 [dependencies]
 anki = { path = "../anki-upstream/rslib", features = ["rustls"] }
