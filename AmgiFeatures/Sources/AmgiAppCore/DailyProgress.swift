@@ -1,16 +1,18 @@
-import Foundation
-import AnkiKit
+package import Foundation
+package import AnkiKit
 
 /// Pure math for Anki's rollover day and the "graduated past today" rule.
 /// Kept dependency-free (apart from AnkiKit's `ScheduledInterval`) so the
 /// day-boundary + graduation rules are unit-testable without a backend.
-enum DailyProgressCalculator {
+/// `package` (not internal) so `AmgiReviewCore`'s session can apply the same
+/// graduation rule the Study ring and widgets use.
+package enum DailyProgressCalculator {
     /// Epoch seconds at the start of the current Anki day.
     ///
     /// Anki's day rolls over at `rolloverHour` local time (e.g. 4 for 4am),
     /// not at calendar midnight. Before the rollover hour the current Anki
     /// day still began *yesterday* at that hour.
-    static func ankiDayStart(
+    package static func ankiDayStart(
         rolloverHour: Int,
         now: Date = Date(),
         calendar: Calendar = .current
@@ -34,7 +36,7 @@ enum DailyProgressCalculator {
     /// Seconds from `now` until the *next* Anki day begins. This is not a
     /// fixed 24h — it can be minutes away when the rollover hour is close, or
     /// the better part of a day when it just passed.
-    static func secondsUntilNextDayStart(
+    package static func secondsUntilNextDayStart(
         rolloverHour: Int,
         now: Date = Date(),
         calendar: Calendar = .current
@@ -49,7 +51,7 @@ enum DailyProgressCalculator {
     /// rollover. Review states carry a whole-day count (`days >= 1` is already
     /// rollover-aware); sub-day states carry seconds, so they graduate only
     /// when their seconds reach past the next rollover.
-    static func isGraduated(interval: ScheduledInterval, secondsUntilNextDayStart: UInt32) -> Bool {
+    package static func isGraduated(interval: ScheduledInterval, secondsUntilNextDayStart: UInt32) -> Bool {
         switch interval {
         case .days(let days): return days >= 1
         case .seconds(let secs): return secs >= secondsUntilNextDayStart

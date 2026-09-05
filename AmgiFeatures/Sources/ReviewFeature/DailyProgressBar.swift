@@ -105,8 +105,8 @@ struct DailyProgressBar<Center: View>: View {
             }
         }
         .frame(height: 10)
-        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: progressFraction)
-        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: remainingCounts)
+        .animation(AmgiMotion.standard, value: progressFraction)
+        .animation(AmgiMotion.standard, value: remainingCounts)
     }
 
     /// Dim segmented backdrop — the live remaining new/learning/review mix.

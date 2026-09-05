@@ -1,10 +1,10 @@
 #if os(macOS)
 import AmgiAppShared
+import AmgiReviewCore
 import AnkiBackend
 import AnkiKit
 import Dependencies
 import Foundation
-import ReviewFeature
 import SyncFeature
 
 /// Unix-socket bridge that lets amgi-mcp execute RPCs against THIS

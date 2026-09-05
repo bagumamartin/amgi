@@ -105,7 +105,7 @@ struct CardPreviewPane: View {
                     VStack(spacing: 12) {
                         flipCard(rendered)
                         Button(showAnswer ? "Show question" : "Show answer") {
-                            withAnimation(.easeInOut(duration: 0.18)) { showAnswer.toggle() }
+                            withAnimation(AmgiMotion.quick) { showAnswer.toggle() }
                         }
                         .buttonStyle(.bordered)
                         .padding(.bottom, 16)

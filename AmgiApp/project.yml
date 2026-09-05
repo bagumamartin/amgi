@@ -103,6 +103,8 @@ packages:
     path: ../AmgiFeatures
   AmgiIcons:
     path: ../AmgiIcons
+  AmgiEmbeddings:
+    path: ../AmgiEmbeddings
   swift-navigation:
     url: https://github.com/pointfreeco/swift-navigation
     from: 2.0.0

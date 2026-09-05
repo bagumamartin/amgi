@@ -31,6 +31,9 @@ struct PreparedCard: Sendable {
     /// Freshly fetched notetype for the session cache; nil on cache hit
     /// or fetch failure.
     let notetype: Notetype?
+    /// The card's most recent historical rating (nil = never reviewed);
+    /// prefetched off-actor so the repeat shortcut is instant at reveal.
+    let lastRating: Rating?
 }
 
 /// Applies the R11 resolution order — template override → global preference
@@ -82,7 +85,8 @@ func prepareCard(
     notetypes: NotetypesService,
     cardRendering: CardRenderingService,
     notetypesClient: NotetypesClient,
-    notetypeCache: [NotetypeID: Notetype]
+    notetypeCache: [NotetypeID: Notetype],
+    statsClient: StatsClient
 ) async -> PreparedCard {
     let note: NoteRecord?
     do {
@@ -91,6 +95,11 @@ func prepareCard(
         Log.review.error("getNote failed: \(error)")
         note = nil
     }
+
+    // Prefetch the card's most recent rating (revlog) so the
+    // repeat-last-rating shortcut is instant at reveal time. Best-effort:
+    // a failure just means no hint (falls back to Again).
+    let lastRating = try? await statsClient.lastRating(queued.card.id.rawValue)
 
     // Template name comes from the full notetype (cached per session);
     // fetch failure only costs the chip-row label.
@@ -145,7 +154,8 @@ func prepareCard(
             resolvedMode: resolution.mode,
             resolvedByAuto: resolution.byAuto,
             templateName: templateName,
-            notetype: fetchedNotetype
+            notetype: fetchedNotetype,
+            lastRating: lastRating
         )
     } catch {
         Log.review.error("Render failed for card \(queued.card.id.rawValue): \(error)")
@@ -159,7 +169,8 @@ func prepareCard(
             resolvedMode: .html,
             resolvedByAuto: false,
             templateName: templateName,
-            notetype: fetchedNotetype
+            notetype: fetchedNotetype,
+            lastRating: lastRating
         )
     }
 }

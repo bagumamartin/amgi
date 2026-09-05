@@ -18,8 +18,7 @@ package struct SettingsView: View {
 
     /// - Parameter onSwitchProfile: profile switching closes/reopens the
     ///   collection, cancels sync and flips the keychain anchor — composition-
-    ///   root work that lives in `RootFeature/ProfileSwitching.swift`. Same
-    ///   shape as `DeckListView.onSwitchProfile`.
+    ///   root work that lives in `RootFeature/ProfileSwitching.swift`.
     package init(onSwitchProfile: @escaping (AmgiAccount) async -> Void) {
         self.onSwitchProfile = onSwitchProfile
     }

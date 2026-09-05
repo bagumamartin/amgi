@@ -107,6 +107,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		06F4556D1D24AD60E31C6EAE /* AmgiEmbeddings */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AmgiEmbeddings; path = ../AmgiEmbeddings; sourceTree = SOURCE_ROOT; };
 		17A85D01BAE1A3E571EFA15C /* ReviewContextTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewContextTools.swift; sourceTree = "<group>"; };
 		19E294E1EAED7A7BDAAE9D90 /* NoteTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteTools.swift; sourceTree = "<group>"; };
 		1B84A2ADB8D6A599253D2E78 /* Review */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Review; path = Resources/Review; sourceTree = SOURCE_ROOT; };
@@ -276,6 +277,7 @@
 			isa = PBXGroup;
 			children = (
 				C57E0A30A0C5B7FE232BF0C3 /* amgi */,
+				06F4556D1D24AD60E31C6EAE /* AmgiEmbeddings */,
 				BE8DDAC853DEF5B6112EB833 /* AmgiFeatures */,
 				39C2C9422C9A994272F8C208 /* AmgiIcons */,
 				9508481C0DD815976FA19522 /* AmgiReader */,
@@ -595,6 +597,7 @@
 				F8CFB621768CF5A192078609 /* XCRemoteSwiftPackageReference "swift-protobuf" */,
 				920EEAFB5C04B2B5808B8952 /* XCRemoteSwiftPackageReference "swift-sdk" */,
 				7B720D20F213A6E6D8D5745C /* XCRemoteSwiftPackageReference "swift-sharing" */,
+				8E2CC282779119DE9EC36494 /* XCLocalSwiftPackageReference "../AmgiEmbeddings" */,
 				A6B96AD4B0F992B1279DBDDE /* XCLocalSwiftPackageReference "../AmgiFeatures" */,
 				002A23A0F8AAD6E8BC1AE199 /* XCLocalSwiftPackageReference "../AmgiIcons" */,
 				FDF0EDB9E0DA0C1CAA19C4F8 /* XCLocalSwiftPackageReference "../AmgiReader" */,
@@ -1269,6 +1272,10 @@
 		269F9635F97EDD12C747836B /* XCLocalSwiftPackageReference ".." */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ..;
+		};
+		8E2CC282779119DE9EC36494 /* XCLocalSwiftPackageReference "../AmgiEmbeddings" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../AmgiEmbeddings;
 		};
 		A6B96AD4B0F992B1279DBDDE /* XCLocalSwiftPackageReference "../AmgiFeatures" */ = {
 			isa = XCLocalSwiftPackageReference;

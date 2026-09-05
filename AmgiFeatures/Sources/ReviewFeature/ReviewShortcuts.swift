@@ -89,7 +89,7 @@ package struct ReviewShortcut: Equatable, Codable, Hashable, Sendable {
         self.modifiersRaw = modifiers.rawValue
     }
 
-    var modifiers: EventModifiers { EventModifiers(rawValue: modifiersRaw) }
+    package var modifiers: EventModifiers { EventModifiers(rawValue: modifiersRaw) }
 
     /// The key equivalent for `.keyboardShortcut`; falls back to a space so an
     /// empty (never-persisted) key can't crash `KeyEquivalent`.
@@ -99,7 +99,7 @@ package struct ReviewShortcut: Equatable, Codable, Hashable, Sendable {
     /// `.upArrow` / etc. is required — `KeyEquivalent(Character("\u{F700}"))`
     /// does not match iPad hardware arrow events, which is why rebound
     /// rating shortcuts appeared dead.
-    var keyEquivalent: KeyEquivalent {
+    package var keyEquivalent: KeyEquivalent {
         if let arrow = Self.arrowKeyEquivalent(for: key) { return arrow }
         if key == " " { return .space }
         return key.first.map { KeyEquivalent($0) } ?? .space
@@ -187,11 +187,11 @@ extension SharedReaderKey where Self == AppStorageKey<[String: ReviewShortcut]>.
 /// once per screen appearance.
 @MainActor
 @Observable
-final class ReviewActions {
-    var undo: @MainActor () -> Void = {}
-    var editNote: @MainActor () -> Void = {}
-    var lookup: @MainActor () -> Void = {}
-    var replayAudio: @MainActor () -> Void = {}
+package final class ReviewActions {
+    package var undo: @MainActor () -> Void = {}
+    package var editNote: @MainActor () -> Void = {}
+    package var lookup: @MainActor () -> Void = {}
+    package var replayAudio: @MainActor () -> Void = {}
 }
 
 /// Dispatches a hardware key press to a review action. Used instead of

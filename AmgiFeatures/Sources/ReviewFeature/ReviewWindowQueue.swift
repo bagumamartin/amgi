@@ -37,6 +37,7 @@ package final class ReviewWindowQueue {
 /// decks can be reviewed concurrently in separate windows.
 package struct ReviewWindowHost: View {
     @State private var deckID: DeckID?
+    @Environment(\.palette) private var palette
 
     package init() {}
 
@@ -47,10 +48,10 @@ package struct ReviewWindowHost: View {
             } else {
                 VStack(spacing: AmgiSpacing.md) {
                     Image(systemName: "graduationcap")
-                        .font(.largeTitle)
-                        .foregroundStyle(.secondary)
+                        .amgiFont(.displayHero)
+                        .foregroundStyle(palette.textSecondary)
                     Text("No deck selected")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(palette.textSecondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }

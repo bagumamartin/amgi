@@ -158,7 +158,7 @@ struct MainTabView: View {
         switch section {
         case .library:
             NavigationStack {
-                DeckListView(onSwitchProfile: { await switchProfile(to: $0) })
+                DeckListView()
                     .accountMenu()
                     .toolbar { libraryToolbar }
             }

@@ -61,6 +61,10 @@ extension Notification.Name {
     /// screen can fire the same preflight/sync sheet without importing
     /// SyncFeature (AmgiAppShared cannot).
     public static let amgiPresentSync = Notification.Name("amgiPresentSync")
+
+    /// Fired by the iOS automatic-sync background task. Observed by the
+    /// sync flow, which runs a quiet automatic sync without presenting UI.
+    public static let amgiPerformBackgroundSync = Notification.Name("com.amgiapp.performBackgroundSync")
 }
 
 /// Standalone sync affordance for screens whose trailing slot carries the

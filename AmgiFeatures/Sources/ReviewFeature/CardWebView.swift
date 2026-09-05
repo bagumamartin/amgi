@@ -76,7 +76,15 @@ struct CardWebView: View {
     }
 
     func makeCoordinator() -> CardWebViewCoordinator {
-        CardWebViewCoordinator(
+        // Adopt the prewarmed pair when available: the returned coordinator
+        // already owns a loaded frame page and its webview, so the review's
+        // first HTML card skips the WebKit process cold-start entirely.
+        // Its nil callbacks are filled by the first `applyUpdate` via
+        // `refreshCallbacks`.
+        if let prewarmed = CardWebViewPrewarmer.shared.take() {
+            return prewarmed
+        }
+        return CardWebViewCoordinator(
             onAudioStateChange: onAudioStateChange,
             onCardBackgroundColorChange: onCardBackgroundColorChange,
             onLookupRequested: onLookupRequested
@@ -145,6 +153,14 @@ struct CardWebView: View {
 
         // Bookkeeping that has to track every render, expensive or not.
         coordinator.openLinksExternally = openLinksExternally
+        // Refresh every update: an adopted prewarm coordinator arrives with
+        // nil callbacks and takes over this session's wiring here.
+        coordinator.refreshCallbacks(
+            onAudioStateChange: onAudioStateChange,
+            onCardBackgroundColorChange: onCardBackgroundColorChange,
+            onLookupRequested: onLookupRequested,
+            onQuestionCanvasTap: nil
+        )
         coordinator.currentWebView = webView
         #if os(iOS)
         webView.overrideUserInterfaceStyle = isDarkMode ? .dark : .light
@@ -316,9 +332,10 @@ struct CardWebView: View {
     """
 
     /// Loads a blank page in a new WKWebView so WebKit's process pool is
-    /// already warm when the first real card appears. The prewarmed view is
-    /// discarded at adoption time unless `makeUIView` is later taught to
-    /// reuse it; warming the pool is the expensive part.
+    /// already warm when the first real card appears. `makeCoordinator`
+    /// adopts the paired coordinator (and its webview) via the prewarmer's
+    /// `take()`; the frame page self-heals to the real card through the
+    /// page-signature reload.
     @MainActor
     static func attachPrewarmedFrame(to coordinator: CardWebViewCoordinator) {
         let webView = WKWebView()
@@ -336,7 +353,7 @@ private struct CardWebViewPlatformHost: UIViewRepresentable {
     }
 
     func makeUIView(context: Context) -> WKWebView {
-        card.makeConfiguredWebView(coordinator: context.coordinator)
+        context.coordinator.prewarmedWebView ?? card.makeConfiguredWebView(coordinator: context.coordinator)
     }
 
     static func dismantleUIView(_ webView: WKWebView, coordinator: CardWebViewCoordinator) {
@@ -356,7 +373,7 @@ private struct CardWebViewPlatformHost: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> WKWebView {
-        card.makeConfiguredWebView(coordinator: context.coordinator)
+        context.coordinator.prewarmedWebView ?? card.makeConfiguredWebView(coordinator: context.coordinator)
     }
 
     static func dismantleNSView(_ nsView: WKWebView, coordinator: CardWebViewCoordinator) {

@@ -1,5 +1,6 @@
 package import SwiftUI
 import AmgiAppShared
+import AmgiReviewCore
 import AmgiUI
 import AmgiReader
 package import AnkiKit

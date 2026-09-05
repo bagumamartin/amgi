@@ -1,4 +1,5 @@
 import Foundation
+import AmgiEmbeddings
 import PhosphorSwift
 
 /// Semantic deck-icon suggestion over the bundled Phosphor tag embeddings.

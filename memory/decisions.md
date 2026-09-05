@@ -64,6 +64,78 @@
   fresh clones must fetch + compile per `AmgiIcons/README.md`. LFS tracking
   (`**/*.mlmodelc/**` in .gitattributes) is kept so a detached/non-fork repo
   can flip the .gitignore line and use LFS immediately.
+- **Model weights download from CDN on first launch (2026-09, supersedes the
+  bundled-model rows above)**: `ModelAssetManager` (AmgiEmbeddings actor)
+  fetches `https://amgiassets.bagumamartin.com/manifest.json` (v1: 206MB
+  `.mlpackage.zip` + sha256 + byteSize), downloads with progress (delegate
+  transport, Wi-Fi-only by default via `allowsExpensiveNetworkAccess=false`),
+  verifies size + SHA-256 (CryptoKit, streamed), unzips (ZIPFoundation — no
+  system unzip on iOS), compiles via `MLModel.compileModel` into the
+  app-group container `<group>/AmgiEmbeddings/models/v<N>/`
+  (backup-excluded), prunes old versions. Ships the `.mlpackage`, NOT
+  `.mlmodelc`: compiler output is version-tied and zip-fragile.
+  `TextEmbedder` lookup = installed dir → bundle `.mlmodelc` (dev leftover)
+  → bundle `.mlpackage`→Caches → throw with graceful degradation
+  (name-token icons, no semantic fallback). Manager calls
+  `TextEmbedder.resetEngineForModelInstall()` post-install because load
+  failures are memoized in `engineError`. `ModelDownloadCoordinator`
+  (@Observable, SyncFeature) runs the first-launch `.confirmationDialog`
+  (Wi-Fi / cellular / offline variants, exact MB from a silent manifest
+  fetch) from `.syncFlow()` (so it only appears post-onboarding).
+  `ModelDownloadPreferences` (UserDefaults: consentGiven, wifiOnly default
+  policy). `NetworkMonitor` (@Observable NWPathMonitor singleton) drives
+  policy-aware auto-retry of `.failed` (`retryIfAllowed` on
+  isSatisfied/usesWiFi flips; constrained treated as expensive).
+  `ModelDownloadToast` (progress/MB, success auto-dismiss, failure+Retry)
+  shares ONE bottom overlay with `SyncToast` (`combinedToastOverlay` in
+  SyncFeature; the single `syncToastOverlay` stays for other hosts).
+  MaintenanceView gains an AI Model section (status view + policy picker +
+  confirmed delete). No system notifications — repo has zero
+  UNUserNotification usage and a new permission prompt isn't worth it for a
+  one-time download.
+- **Interruption recovery (2026-09)**: `cancelDownload()` + resume-data
+  sidecar (`.resume-vN.dat` at models root — NOT staging, which is wiped on
+  every exit) + `downloadTask(withResumeData:)` with one fresh fallback.
+  Status is `.downloading(fraction:receivedBytes:totalBytes:)` so toasts
+  render MB. REAL BUG found by E2E: the fresh-fallback `guard resumeData !=
+  nil` couldn't distinguish "resume rejected" from "user just cancelled" —
+  a cancel that produced resume data instantly restarted the transfer
+  (second task completed, status went ready). Fixed with `guard
+  !userCancelled`. Proof harness: throttled localhost Range-supporting
+  server (CDN fetches 216MB in ~5s here, so no fixed-sleep cancel test can
+  ever win the race — the committed cancel test cancels on first sighting
+  instead). Kill -9 mid-download (no resume data produced) still restarts
+  fresh — safe via size+SHA gate, just wasteful. Server verified
+  `Accept-Ranges: bytes` + 206, so resume engages in practice.
+- **Engine moved to `AmgiEmbeddings/` sibling SPM (2026-09)**: AmgiIcons is
+  icons-only (`IconSuggester`, picker, Phosphor, `IconEmbeddings.json`);
+  `TextEmbedder`, `ModelAssetManager`, `ModelAssetStatusView`, `Tokenizer/`
+  live in AmgiEmbeddings (path dep from AmgiIcons + AmgiFeatures
+  SyncFeature/SettingsFeature/AmgiAppShared). Store renamed to the group
+  container (see next row); `migrateLegacyStoreIfNeeded()` moves the
+  unshipped `AmgiIcons/models` layout once. History preserved via
+  `git mv` for tracked files.
+- **Model store lives in the app-group container (2026-09)**: `<group>/
+  AmgiEmbeddings/models`, next to `AnkiCollection` — one visible home, no
+  scattered sandboxes. Sandbox Application Support is the fallback for
+  unentitled contexts (`swift test`, previews). Nothing outside the main
+  app reads the model (helper/widget/watch don't use it), so the move is
+  safe; group placement future-proofs helper-side semantic tools. Group ID
+  is mirrored by hand from `AppGroup.identifier` (package must not depend
+  on AmgiTheme/AnkiKit for six lines). Migration chain: sandbox
+  `AmgiIcons/models` → sandbox `AmgiEmbeddings/models` → group.
+- **Test hygiene (2026-09)**: `ModelAssetManager.modelsRootOverride`
+  (`nonisolated(unsafe)`, test-only) redirects the store to a temp dir;
+  `ModelStoreTestSupport` actor-serializer runs ALL store-touching tests
+  mutually exclusive (suites run parallel in-process — an NSLock can't be
+  held across awaits in Swift 6.2, and without serialization an E2E
+  download lands in another suite's scratch or the real install — observed
+  live). E2E (env-gated) downloads into temp, tears down everything
+  including the cached engine; host verified CLEAN after every run.
+  Caution learned twice: (1) fixed-sleep cancel tests can never win against
+  a ~5s 206MB fetch — cancel on first sighting; (2) `CODE_SIGNING_ALLOWED=NO`
+  breaks keychain → SyncCoordinatorTests fail with `.noServer` — always
+  sign test runs on this machine.
 - **Tokenizer**: swift-transformers `AutoTokenizer.from(modelFolder:)`
   (product `Tokenizers`). Verified byte-identical token IDs vs Python HF.
 - **Embedding space parity**: runtime query vectors match
@@ -283,6 +355,21 @@
   SetActiveBrowserColumns=8; cards UpdateCards=1/SetDeck=3; collectionOps
   redo=9. FIXED drift: DeckConfigMethod.getRetentionWorkload was 11, really
   **9** (latent production bug). CLAUDE.md index rows corrected too.
+- **Service-ID shift from upstream Github+I18n insertion (2026-09, stats
+  empty on device)**: upstream added GithubService(33) + I18nService(35)
+  after the catalog was written, shifting every later service by 2 —
+  imageOcclusion 35→37, importExport 37→39, media 39→41, stats 41→43,
+  tags 43→45 (method IDs inside each service were all correct).
+  `graphs` dispatched to MediaService/trash_media_files and protobuf
+  decoded the wrong response as empty charts — success with all zeros,
+  which is why the Stats tab showed flat charts with no error on a
+  collection with full history. Same silent misdispatch affected tags,
+  media check, export, and image occlusion. Caught by a new behavioral
+  probe (`GraphsEngineProbesTests`: graphs on scratch cards must show
+  card counts; answered cards must show today/reviews) — failed pre-fix,
+  green post-fix. Oracle re-verified for all services; pre-29 IDs
+  confirmed correct (sync 1, scheduler 13, notes 25, cardRendering 27,
+  search 29).
 - **Aux service pattern**: anki-bridge-rs `AnkiAuxSvc` id 200 intercepted in
   anki_run_method before engine dispatch; JSON wire format both sides;
   findDupesExact composes only PUBLIC engine rpcs (with_col is crate-private)

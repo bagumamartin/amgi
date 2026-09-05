@@ -31,9 +31,15 @@ struct ReviewContent: View {
     let onDismiss: () -> Void
 
     @Environment(\.palette) private var palette
+    @Environment(\.colorScheme) private var colorScheme
     /// Supplied by the app root — see `EnvironmentValues.lookupPopup`. Keeping
     /// the popup itself out of this target is what keeps it off the Cxx chain.
     @Environment(\.lookupPopup) private var lookupPopup
+    @Shared(.reviewShortcuts) private var reviewShortcuts: [String: ReviewShortcut] = [:]
+    // Stable-identity focused value — see `ReviewActions`. Created once per
+    // screen; closures rebound in `onAppear` (all captures are stable
+    // references, so rebinding once is sufficient).
+    @State private var reviewActions = ReviewActions()
     @State private var cardActions = CardContextMenuModel()
     @State private var confirmDeleteNote = false
 
@@ -41,7 +47,13 @@ struct ReviewContent: View {
         NavigationStack {
             VStack(spacing: 0) {
                 if showRemainingDays && session.startError == nil {
-                    progressBar
+                    DailyProgressBar(
+                        completedToday: session.dailyCompletedToday,
+                        remainingToday: session.dailyRemainingToday,
+                        remainingCounts: session.remainingCounts
+                    ) {
+                        ReviewContextDots(session: session)
+                    }
                 }
 
                 if let startError = session.startError {
@@ -59,7 +71,26 @@ struct ReviewContent: View {
                     )
                 }
             }
-            .background(palette.background)
+            // The review chrome (progress strip, card well, answer-button
+            // region) sits on the same background as the navigation bar
+            // above it. When auto-matching that's the card's own chrome
+            // colour; otherwise the theme palette.
+            .background(autoMatchCardBackground ? session.cardChromeColor : palette.background)
+            .environment(\.palette, contentPalette)
+            .modifier(ReviewHardwareKeyModifier(
+                session: session,
+                reviewShortcuts: reviewShortcuts,
+                perform: performReviewShortcut
+            ))
+            #if os(iOS)
+            .overlay { iOSShortcutOverlay }
+            #endif
+            #if os(macOS)
+            // Stable reference: writing the same instance every render is a
+            // no-op for change detection (see `ReviewActions`). Allocated
+            // inline here would loop the scene at hundreds of body evals/sec.
+            .focusedSceneValue(reviewActions)
+            #endif
             // Haptics fire on the causal event, not on its consequences: the
             // rating tap itself, and the undo actually landing. `.again` gets
             // a firmer tap than the other three — it's the one answer that
@@ -73,6 +104,30 @@ struct ReviewContent: View {
             .sensoryFeedback(.success, trigger: session.undoneCount)
             .sensoryFeedback(trigger: session.isFinished) { _, finished in
                 finished ? .success : nil
+            }
+            .onChange(of: session.graduationPulse) { _, _ in
+                // Graduation-only haptic (Duolingo-style sustained tap for a
+                // card pushed past today). Kept separate from the answer-tap
+                // feedback above so only graduating answers trigger it.
+                #if os(iOS)
+                GraduationHaptics.play()
+                #endif
+            }
+            .onAppear {
+                #if os(macOS)
+                reviewActions.undo = { session.undo() }
+                reviewActions.editNote = {
+                    destination = session.currentNote.map(ReviewDestination.editNote)
+                }
+                reviewActions.lookup = { destination = .lookup("") }
+                reviewActions.replayAudio = {
+                    if session.isAudioPlaying {
+                        session.bumpStopAudioRequest()
+                    } else {
+                        session.bumpReplayRequest()
+                    }
+                }
+                #endif
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -129,7 +184,9 @@ struct ReviewContent: View {
                 for: .navigationBar
             )
             .toolbarColorScheme(
-                autoMatchCardBackground && session.cardChromeIsDark ? .dark : .light,
+                autoMatchCardBackground && cardChromeIsResolved
+                    ? (session.cardChromeIsDark ? .dark : .light)
+                    : colorScheme,
                 for: .navigationBar
             )
             #endif
@@ -187,26 +244,113 @@ struct ReviewContent: View {
         min(session.sessionStats.reviewed + 1, max(sessionTotal, 1))
     }
 
-    private var progressFraction: Double {
-        sessionTotal > 0 ? Double(session.sessionStats.reviewed) / Double(sessionTotal) : 0
+    /// The card renderer has reported a real chrome background. WebKit cards
+    /// report via JS; native cards don't, so this stays `false` for them and
+    /// the chrome falls back to the system appearance.
+    private var cardChromeIsResolved: Bool {
+        session.cardChromeColor != .clear
     }
 
-    /// Thin session-progress bar under the navigation bar (replaces the old
-    /// counts row). The numeric position lives in the toolbar.
-    private var progressBar: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                Capsule().fill(palette.separator)
-                Capsule()
-                    .fill(palette.accent)
-                    .frame(width: max(0, geo.size.width * progressFraction))
+    /// Palette for the review content. When auto-matching the card's
+    /// background, the chrome must resolve light/dark against the *card*
+    /// (not the system appearance) — otherwise dark-mode text lands on a
+    /// light card, or vice-versa, and becomes unreadable. This mirrors the
+    /// toolbar's `toolbarColorScheme` behaviour for the body below it.
+    private var contentPalette: Palette {
+        guard autoMatchCardBackground, cardChromeIsResolved else { return palette }
+        return ThemeManager.shared.palette(forExplicitScheme: session.cardChromeIsDark ? .dark : .light)
+    }
+
+    // MARK: - Keyboard shortcuts (iOS)
+
+    #if os(iOS)
+    /// Zero-size overlay so Magic Keyboard shortcuts register even while
+    /// the overflow Menu's buttons are unmounted.
+    private var iOSShortcutOverlay: some View {
+        reviewKeyboardShortcuts
+            .frame(width: 0, height: 0)
+            .clipped()
+            .accessibilityHidden(true)
+    }
+    #endif
+
+    /// Hidden buttons that register hardware-keyboard shortcuts on iOS/iPadOS.
+    /// The on-screen actions live inside the overflow `Menu`, whose buttons are
+    /// only materialized once the menu opens — so they never register their
+    /// `.keyboardShortcut` equivalents. These zero-size buttons mirror the
+    /// persisted bindings instead, giving Magic Keyboard / Bluetooth keyboard
+    /// users the same ⌘Z / ⌘E / ⌘L / ⌘R shortcuts as macOS.
+    @ViewBuilder
+    private var reviewKeyboardShortcuts: some View {
+        ZStack {
+            Button("Undo") { session.undo() }
+                .keyboardShortcut(shortcut(.undo).keyEquivalent, modifiers: shortcut(.undo).modifiers)
+                .disabled(!session.canUndo)
+
+            Button("Edit Note") {
+                destination = session.currentNote.map(ReviewDestination.editNote)
+            }
+            .keyboardShortcut(shortcut(.editNote).keyEquivalent, modifiers: shortcut(.editNote).modifiers)
+            .disabled(session.currentNote == nil)
+
+            Button("Look Up") { destination = .lookup("") }
+                .keyboardShortcut(shortcut(.lookup).keyEquivalent, modifiers: shortcut(.lookup).modifiers)
+
+            Button("Replay Audio") {
+                if session.isAudioPlaying {
+                    session.bumpStopAudioRequest()
+                } else {
+                    session.bumpReplayRequest()
+                }
+            }
+            .keyboardShortcut(shortcut(.replayAudio).keyEquivalent, modifiers: shortcut(.replayAudio).modifiers)
+            .disabled(session.currentNote == nil)
+
+            // Ratings live on RatingBar too, but iPad doesn't deliver
+            // `.keyboardShortcut` for arrow keys to those buttons (focus
+            // navigation eats them). Registering here with the mapped
+            // `.upArrow` equivalents is the hardware-keyboard path.
+            ForEach(Rating.allCases, id: \.self) { rating in
+                let action = ReviewShortcutAction.ratingAction(for: rating)
+                Button(action.title) { session.answer(rating: rating) }
+                    .keyboardShortcut(shortcut(action).keyEquivalent, modifiers: shortcut(action).modifiers)
+                    .disabled(!session.showAnswer || session.isAdvancing)
             }
         }
-        .frame(height: 3)
-        .padding(.horizontal)
-        .padding(.top, 6)
-        .padding(.bottom, 2)
-        .animation(AmgiMotion.standard, value: progressFraction)
+    }
+
+    private func shortcut(_ action: ReviewShortcutAction) -> ReviewShortcut {
+        reviewShortcuts[action.rawValue] ?? action.defaultShortcut
+    }
+
+    private func performReviewShortcut(_ action: ReviewShortcutAction) {
+        switch action {
+        case .undo:
+            session.undo()
+        case .editNote:
+            destination = session.currentNote.map(ReviewDestination.editNote)
+        case .lookup:
+            destination = .lookup("")
+        case .replayAudio:
+            if session.isAudioPlaying {
+                session.bumpStopAudioRequest()
+            } else {
+                session.bumpReplayRequest()
+            }
+        case .revealAnswer:
+            session.revealAnswer()
+        case .repeatLastRating:
+            guard !session.requiresTypedAnswerInput else { return }
+            session.answerWithLastRating()
+        case .rateAgain:
+            session.answer(rating: .again)
+        case .rateHard:
+            session.answer(rating: .hard)
+        case .rateGood:
+            session.answer(rating: .good)
+        case .rateEasy:
+            session.answer(rating: .easy)
+        }
     }
 
     // MARK: - Card actions
@@ -316,6 +460,11 @@ struct ReviewContent: View {
                     .amgiFont(.body)
                     .foregroundStyle(palette.textSecondary)
             }
+            if session.dailyRemainingToday > 0 {
+                Text("\(session.dailyRemainingToday) due later today")
+                    .amgiFont(.body)
+                    .foregroundStyle(palette.textSecondary)
+            }
             Spacer()
             Button("Done") { onDismiss() }
                 .buttonStyle(AmgiPrimaryButtonStyle())
@@ -369,3 +518,35 @@ struct ReviewContent: View {
     )
 }
 #endif
+
+/// Hardware keys land here even when a rating button isn't the first
+/// responder. `.repeat` of Space/arrows is consumed so a held key can't
+/// flash through the deck; ⌘Z still repeats.
+private struct ReviewHardwareKeyModifier: ViewModifier {
+    let session: ReviewSession
+    let reviewShortcuts: [String: ReviewShortcut]
+    let perform: (ReviewShortcutAction) -> Void
+    @FocusState private var reviewKeysActive: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .focusable()
+            .focusEffectDisabled()
+            .focused($reviewKeysActive)
+            .onAppear { reviewKeysActive = true }
+            .onChange(of: session.currentCardId) { _, _ in
+                if !session.requiresTypedAnswerInput || session.showAnswer {
+                    reviewKeysActive = true
+                }
+            }
+            .onKeyPress { press in
+                ReviewKeyDispatch.handle(
+                    press,
+                    bindings: reviewShortcuts,
+                    isTypedAnswerEditing: session.requiresTypedAnswerInput && !session.showAnswer,
+                    showAnswer: session.showAnswer,
+                    perform: perform
+                )
+            }
+    }
+}

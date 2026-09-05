@@ -57,6 +57,7 @@ let package = Package(
         .package(path: "../AmgiUI"),
         .package(path: "../AmgiReader"),
         .package(path: "../AmgiIcons"),
+        .package(path: "../AmgiEmbeddings"),
         .package(url: "https://github.com/pointfreeco/swift-dependencies", from: "1.0.0"),
         .package(url: "https://github.com/pointfreeco/swift-sharing", from: "2.0.0"),
         .package(url: "https://github.com/pointfreeco/swift-navigation", from: "2.0.0"),
@@ -86,6 +87,7 @@ let package = Package(
                 .product(name: "AmgiTheme", package: "AmgiUI"),
                 .product(name: "AmgiUI", package: "AmgiUI"),
                 .product(name: "AmgiIcons", package: "AmgiIcons"),
+                .product(name: "AmgiEmbeddings", package: "AmgiEmbeddings"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
             ],
             swiftSettings: sharedSwiftSettings
@@ -268,6 +270,11 @@ let package = Package(
             ],
             swiftSettings: sharedSwiftSettings
         ),
+        .testTarget(
+            name: "ReviewFeatureTests",
+            dependencies: ["ReviewFeature"],
+            swiftSettings: sharedSwiftSettings
+        ),
         // The EPUB reader, its dictionary lookup UI, and the study landing
         // screen. The only target that touches AmgiReaderDictionary, which is
         // built in Cxx-interop mode for the hoshidicts bridge — hence the
@@ -283,6 +290,7 @@ let package = Package(
             dependencies: [
                 "AmgiAppCore",
                 "AmgiAppShared",
+                "AmgiReviewCore",
                 "BrowseFeature",
                 .product(name: "AmgiReader", package: "AmgiReader"),
                 .product(name: "AmgiReaderDictionary", package: "AmgiReader"),
@@ -305,6 +313,7 @@ let package = Package(
                 .product(name: "AnkiSync", package: "amgi"),
                 .product(name: "AmgiTheme", package: "AmgiUI"),
                 .product(name: "AmgiUI", package: "AmgiUI"),
+                .product(name: "AmgiEmbeddings", package: "AmgiEmbeddings"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
                 .product(name: "Sharing", package: "swift-sharing"),
             ],
@@ -381,6 +390,7 @@ let package = Package(
                 .product(name: "AmgiTheme", package: "AmgiUI"),
                 .product(name: "AmgiUI", package: "AmgiUI"),
                 .product(name: "AmgiIcons", package: "AmgiIcons"),
+                .product(name: "AmgiEmbeddings", package: "AmgiEmbeddings"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
                 .product(name: "Sharing", package: "swift-sharing"),
                 .product(name: "SwiftNavigation", package: "swift-navigation"),

@@ -2,6 +2,7 @@ import OSLog
 import AmgiAppCore
 import AmgiAppShared
 import AmgiReader
+import AmgiReviewCore
 import AmgiUI
 import AnkiClients
 import AnkiKit

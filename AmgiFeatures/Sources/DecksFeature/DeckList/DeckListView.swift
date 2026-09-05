@@ -12,7 +12,6 @@ import BrowseFeature
 /// delegated to `LibraryListContent` (AmgiUI); data assembly lives in the
 /// model. The View is intentionally thin — presentation wiring only.
 package struct DeckListView: View {
-    private let onSwitchProfile: (AmgiAccount) async -> Void
     @Dependency(\.collectionStore) private var store
     @State private var model: DeckListModel
     @State private var showCreateSheet = false
@@ -22,16 +21,14 @@ package struct DeckListView: View {
     /// in from the trailing edge — the row and the screen are the same thing.
     @Namespace private var deckTransition
 
-    /// `onSwitchProfile` is the app root's profile switch — see
-    /// `ProfilePickerMenu`.
-    package init(onSwitchProfile: @escaping (AmgiAccount) async -> Void) {
-        self.onSwitchProfile = onSwitchProfile
+    /// Profile switching lives in the toolbar account menu (see
+    /// `ProfilePickerMenu` + `.accountMenu()`), not here.
+    package init() {
         _model = State(initialValue: DeckListModel())
     }
 
     /// Preview / test seam — internal so the model stays module-private.
-    init(model: DeckListModel, onSwitchProfile: @escaping (AmgiAccount) async -> Void = { _ in }) {
-        self.onSwitchProfile = onSwitchProfile
+    init(model: DeckListModel) {
         _model = State(initialValue: model)
     }
 

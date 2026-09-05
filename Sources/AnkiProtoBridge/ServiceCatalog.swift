@@ -19,6 +19,12 @@ enum ServiceID {
     static let media: UInt32 = 41
     static let stats: UInt32 = 43
     static let tags: UInt32 = 45
+    // Gap 31/33/35 belongs to services we don't surface (31 is methodless;
+    // Github 33, I18n 35 — see _backend_generated.py). Upstream inserted
+    // Github+I18n after this catalog was written, shifting everything from
+    // imageOcclusion on by 2 (2026-09: stats graphs silently dispatched to
+    // MediaService and decoded as empty charts). Re-diff the oracle after
+    // ANY upstream update before trusting these constants.
     /// Amgi-only aux service in anki-bridge-rs (not an engine service).
     static let aux: UInt32 = 200
 }
