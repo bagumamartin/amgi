@@ -140,6 +140,21 @@
   a ~5s 206MB fetch — cancel on first sighting; (2) `CODE_SIGNING_ALLOWED=NO`
   breaks keychain → SyncCoordinatorTests fail with `.noServer` — always
   sign test runs on this machine.
+- **Service-ID shift from upstream Github+I18n insertion (2026-09, stats
+  empty on device)**: upstream added GithubService(33) + I18nService(35)
+  after the catalog was written, shifting every later service by 2 —
+  imageOcclusion 35→37, importExport 37→39, media 39→41, stats 41→43,
+  tags 43→45 (method IDs inside each service were all correct).
+  `graphs` dispatched to MediaService/trash_media_files and protobuf
+  decoded the wrong response as empty charts — success with all zeros,
+  which is why the Stats tab showed flat charts with no error on a
+  collection with full history. Same silent misdispatch affected tags,
+  media check, export, and image occlusion. Caught by a new behavioral
+  probe (`GraphsEngineProbesTests`: graphs on scratch cards must show
+  card counts; answered cards must show today/reviews) — failed pre-fix,
+  green post-fix. Oracle re-verified for all services; pre-29 IDs
+  confirmed correct (sync 1, scheduler 13, notes 25, cardRendering 27,
+  search 29).
 - **Tokenizer**: swift-transformers `AutoTokenizer.from(modelFolder:)`
   (product `Tokenizers`). Verified byte-identical token IDs vs Python HF.
 - **Embedding space parity**: runtime query vectors match

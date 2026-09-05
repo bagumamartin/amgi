@@ -15,11 +15,17 @@ enum ServiceID {
     static let deckConfig: UInt32 = 11
     static let cardRendering: UInt32 = 27
     static let search: UInt32 = 29
-    static let imageOcclusion: UInt32 = 35
-    static let importExport: UInt32 = 37
-    static let media: UInt32 = 39
-    static let stats: UInt32 = 41
-    static let tags: UInt32 = 43
+    static let imageOcclusion: UInt32 = 37
+    static let importExport: UInt32 = 39
+    static let media: UInt32 = 41
+    static let stats: UInt32 = 43
+    static let tags: UInt32 = 45
+    // Gap 31/33/35 belongs to services we don't surface (31 is methodless;
+    // Github 33, I18n 35 — see _backend_generated.py). Upstream inserted
+    // Github+I18n after this catalog was written, shifting everything from
+    // imageOcclusion on by 2 (2026-09: stats graphs silently dispatched to
+    // MediaService and decoded as empty charts). Re-diff the oracle after
+    // ANY upstream update before trusting these constants.
     /// Amgi-only aux service in anki-bridge-rs (not an engine service).
     /// Intercepted by `anki_run_method` before engine dispatch.
     static let aux: UInt32 = 200
@@ -157,7 +163,7 @@ enum SyncMethod {
     static let fullUploadOrDownload: UInt32 = 6
 }
 
-/// BackendTagsService (43).
+/// BackendTagsService (45).
 enum TagsMethod {
     static let clearUnusedTags: UInt32 = 0
     static let allTags: UInt32 = 1
@@ -172,7 +178,7 @@ enum TagsMethod {
     static let completeTag: UInt32 = 10
 }
 
-/// BackendImageOcclusionService (35).
+/// BackendImageOcclusionService (37).
 enum ImageOcclusionMethod {
     static let getImageForOcclusion: UInt32 = 0
     static let getImageOcclusionNote: UInt32 = 1
@@ -182,7 +188,7 @@ enum ImageOcclusionMethod {
     static let updateImageOcclusionNote: UInt32 = 5
 }
 
-/// BackendMediaService (39).
+/// BackendMediaService (41).
 enum MediaMethod {
     static let checkMedia: UInt32 = 0
     static let addMediaFile: UInt32 = 1
