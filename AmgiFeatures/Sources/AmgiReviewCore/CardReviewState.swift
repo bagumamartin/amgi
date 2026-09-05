@@ -1,4 +1,3 @@
-public import AnkiKit
 import Foundation
 
 /// Which scheduling category the current card belongs to, derived from the

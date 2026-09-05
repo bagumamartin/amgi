@@ -1,4 +1,4 @@
-package import SwiftUI
+import SwiftUI
 import AmgiEmbeddings
 import Foundation
 
