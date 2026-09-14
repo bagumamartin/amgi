@@ -73,6 +73,14 @@ let package = Package(
     products: [
         .library(name: "AnkiKit", targets: ["AnkiKit"]),
         .library(name: "AnkiBackend", targets: ["AnkiBackend"]),
+        // Productized so Xcode native targets can link the cdylib.
+        // SPM does not propagate a binaryTarget dylib through a static
+        // library product (AnkiBackend) to a `product-type.tool` target,
+        // so AmgiMCPHelper otherwise fails at link with undefined
+        // `_anki_open_backend` & friends. The helper is also an
+        // out-of-process composition root, which is the sanctioned
+        // direct consumer of this tier.
+        .library(name: "AnkiRustLib", targets: ["AnkiRustLib"]),
         // Productized for the embedded AmgiMCPHelper Xcode target — the
         // helper is an out-of-process composition root, which is the
         // sanctioned direct consumer of this tier.
@@ -204,6 +212,7 @@ let package = Package(
             dependencies: [
                 "AnkiKit",
                 "AnkiBackend",
+                "AnkiRustLib",
                 "AnkiProtoBridge",
                 .product(name: "MCP", package: "swift-sdk"),
                 .product(name: "Logging", package: "swift-log"),

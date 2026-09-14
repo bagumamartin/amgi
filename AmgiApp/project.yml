@@ -141,6 +141,8 @@ targets:
       - package: AnkiBridge
         product: AnkiBackend
       - package: AnkiBridge
+        product: AnkiRustLib
+      - package: AnkiBridge
         product: AmgiCardWeb
       - package: AmgiReader
         product: AmgiReader
@@ -237,6 +239,14 @@ targets:
         CLANG_CXX_LANGUAGE_STANDARD: "c++20"
         CLANG_CXX_LIBRARY: "libc++"
         OTHER_SWIFT_FLAGS: "$(inherited) -cxx-interoperability-mode=default"
+        # macOS frameworks live in Contents/Frameworks (sibling of MacOS,
+        # not a child). The xcodegen default `@executable_path/Frameworks`
+        # resolves to Contents/MacOS/Frameworks and dyld aborts at launch
+        # with "Library not loaded: @rpath/AnkiRustLib.framework/AnkiRustLib"
+        # after the cdylib switch. Same override as AmgiAppTests (e7d2cfff).
+        "LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]":
+          - "$(inherited)"
+          - "@executable_path/../Frameworks"
 
   # Vendored izyumkin/MCEmojiPicker 1.2.5 (iOS-only upstream). Kept as its
   # own Swift 5 static-library target because the sources predate strict
@@ -271,6 +281,8 @@ targets:
       - package: AnkiBridge
         product: AnkiBackend
       - package: AnkiBridge
+        product: AnkiRustLib
+      - package: AnkiBridge
         product: AnkiProtoBridge
       - package: swift-sdk
         product: MCP
@@ -294,6 +306,13 @@ targets:
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_IDENTITY: "Apple Development"
         DEVELOPMENT_TEAM: 39557WW39R
+        # @executable_path: sibling AnkiRustLib.framework in BUILT_PRODUCTS_DIR
+        # during xcodebuild. ../Frameworks: Contents/Helpers/amgi-mcp →
+        # Contents/Frameworks once the app embeds the helper.
+        LD_RUNPATH_SEARCH_PATHS:
+          - "$(inherited)"
+          - "@executable_path"
+          - "@executable_path/../Frameworks"
 
   AmgiWidget:
     type: app-extension

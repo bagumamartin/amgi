@@ -1,4 +1,4 @@
-import AnkiProtoBridge
+public import AnkiProtoBridge
 import AnkiClients
 import AnkiKit
 import AnkiServices
@@ -163,7 +163,10 @@ final class BrowseModel {
         } else {
             focusedNote = try? await noteClient.fetch(NoteID(noteID))
         }
-        guard let cid = (try? await cardClient.searchIds("nid:\(noteID)", nil))?.first else {
+        // Extracted as a function value: Xcode 26.5 whole-module plans
+        // mislabel the chained client call otherwise (19610b72).
+        let searchIds = cardClient.searchIds
+        guard let cid = (try? await searchIds("nid:\(noteID)", nil))?.first else {
             focusedCard = nil
             return
         }
@@ -237,11 +240,13 @@ final class BrowseModel {
         let order = order()
         do {
             let newIDs: [Int64]
+            let searchNoteIds = noteClient.searchIds
+            let searchCardIds = cardClient.searchIds
             switch mode {
             case .notes:
-                newIDs = try await noteClient.searchIds(query, order).map(\.rawValue)
+                newIDs = try await searchNoteIds(query, order).map { $0.rawValue }
             case .cards:
-                newIDs = try await cardClient.searchIds(query, order).map(\.rawValue)
+                newIDs = try await searchCardIds(query, order).map { $0.rawValue }
             }
             // Records for ids that remain in results stay valid; drop the
             // rest so stale rows can't outlive the query.
@@ -283,7 +288,8 @@ final class BrowseModel {
         }
         let sampleCap = 240
         resultDeckTask = Task { [cardClient] in
-            guard let cardIds = try? await cardClient.searchIds(trimmed, nil) else { return }
+            let searchIds = cardClient.searchIds
+            guard let cardIds = try? await searchIds(trimmed, nil) else { return }
             var dids: Set<Int64> = []
             for start in stride(from: 0, to: min(cardIds.count, sampleCap), by: 6) {
                 if Task.isCancelled { return }
@@ -432,7 +438,8 @@ final class BrowseModel {
     private func cardsOfNotes(_ noteIds: [NoteID]) async -> [CardID] {
         guard !noteIds.isEmpty else { return [] }
         let query = noteIds.map { "nid:\($0.rawValue)" }.joined(separator: " OR ")
-        return (try? await cardClient.searchIds(query, nil)) ?? []
+        let searchIds = cardClient.searchIds
+        return (try? await searchIds(query, nil)) ?? []
     }
 
     func deleteSelected(_ noteIDs: Set<NoteID>) async {
@@ -652,7 +659,8 @@ final class BrowseModel {
     func resolveCardIds(for noteIds: [NoteID]) async -> [CardID] {
         guard !noteIds.isEmpty else { return [] }
         let query = noteIds.map { "nid:\($0.rawValue)" }.joined(separator: " OR ")
-        return (try? await cardClient.searchIds(query, nil)) ?? []
+        let searchIds = cardClient.searchIds
+        return (try? await searchIds(query, nil)) ?? []
     }
 
     func changeDeckSelected(_ noteIDs: Set<NoteID>, deckId: DeckID) async {
