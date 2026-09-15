@@ -15,12 +15,12 @@ import SwiftUINavigation
 
 // MARK: - Card Area
 
-/// The card region of the reviewer: render-mode chip, the flip surface, and
-/// the reveal/rating controls. Extracted from `ReviewContent` so that session
-/// mutations it doesn't read (audio-playing toggles, toast, deck counts) skip
-/// its body — otherwise every such change re-runs `CardWebView.updateUIView`
-/// and its regex HTML processing. Owns the render-mode sheet flag and the
-/// native audio player, which are only relevant here.
+/// The card region of the reviewer: the flip surface and the reveal/rating
+/// controls. Extracted from `ReviewContent` so that session mutations it
+/// doesn't read (audio-playing toggles, toast, deck counts) skip its body —
+/// otherwise every such change re-runs `CardWebView.updateUIView` and its
+/// regex HTML processing. Owns the native audio player. The render-mode
+/// sheet is presented from the overflow menu, not from in-card chrome.
 struct ReviewCardArea: View {
     let session: ReviewSession
     let openLinksExternally: Bool
@@ -28,9 +28,9 @@ struct ReviewCardArea: View {
     let tapLookup: Bool
     let showNextReviewTime: Bool
     @Binding var lookupQuery: String?
+    @Binding var showRenderModeSheet: Bool
 
     @Environment(\.palette) private var palette
-    @State private var showRenderModeSheet = false
     @State private var nativeAudioPlayer = NativeCardAudioPlayer()
 
     /// Fixed for the collection's lifetime, so it's resolved once into `@State`
@@ -45,8 +45,8 @@ struct ReviewCardArea: View {
         if session.currentCardId == nil {
             // No card prepared yet — `start()` is still in its backend round
             // trip. Rendering the normal chrome here meant an empty WKWebView
-            // under a "HTML · sandboxed" label and a dead Show Answer button,
-            // with nothing to say the app was working.
+            // and a dead Show Answer button, with nothing to say the app was
+            // working.
             preparingCard
         } else {
             cardContent
@@ -69,15 +69,6 @@ struct ReviewCardArea: View {
 
     private var cardContent: some View {
         VStack(spacing: 0) {
-            RenderModeChipRow(
-                isNative: isNativeMode,
-                isAuto: session.resolvedByAuto,
-                templateName: session.templateName,
-                onTap: { showRenderModeSheet = true }
-            )
-            .padding(.horizontal)
-            .padding(.vertical, 4)
-
             cardFlipRegion
             .onChange(of: session.stopAudioRequestID) { _, _ in
                 if isNativeMode { nativeAudioPlayer.stop() }
@@ -165,58 +156,50 @@ struct ReviewCardArea: View {
     private func cardSurface(isBack: Bool) -> some View {
         switch session.resolvedMode {
         case .native(let front, let back):
+            let resolvedBack = isBack ? back.resolvingBackAnswerSplit(front: front) : nil
             NativeCardView(
-                content: isBack ? back : front,
+                content: resolvedBack?.content ?? front,
                 isAnswerSide: isBack,
-                mediaFolder: mediaFolder
+                answerStartIndex: resolvedBack?.answerStart,
+                mediaFolder: mediaFolder,
+                onQuestionCanvasTap: questionCanvasReveal
             )
+            .equatable()
         case .html:
-            VStack(spacing: 0) {
-                webChromeStrip
-                CardWebView(
-                    html: isBack ? session.backHTML : session.frontHTML,
-                    cardCSS: session.cardCSS,
-                    isAnswerSide: isBack,
-                    cardOrdinal: session.currentCardOrdinal,
-                    replayRequestID: session.replayRequestID,
-                    stopAudioRequestID: session.stopAudioRequestID,
-                    openLinksExternally: openLinksExternally,
-                    contentAlignment: CardWebViewContentAlignment(rawValue: cardContentAlignment) ?? .center,
-                    onAudioStateChange: { playing in session.updateAudioPlaying(playing) },
-                    onCardBackgroundColorChange: { color, isDark in
-                        session.updateCardChrome(color: color, isDark: isDark)
-                    },
-                    // No tap-lookup while the typed-answer input is up — the
-                    // dictionary would hand over the answer to be typed.
-                    onLookupRequested: tapLookup && !session.requiresTypedAnswerInput ? { text, _, _ in
-                        if let text, !text.isEmpty { lookupQuery = text }
-                    } : nil
-                )
-            }
+            CardWebView(
+                html: isBack ? session.backHTML : session.frontHTML,
+                cardCSS: session.cardCSS,
+                isAnswerSide: isBack,
+                cardOrdinal: session.currentCardOrdinal,
+                replayRequestID: session.replayRequestID,
+                stopAudioRequestID: session.stopAudioRequestID,
+                openLinksExternally: openLinksExternally,
+                lookupPopupEnabled: tapLookup && !session.requiresTypedAnswerInput,
+                contentAlignment: CardWebViewContentAlignment(rawValue: cardContentAlignment) ?? .center,
+                onAudioStateChange: { playing in session.updateAudioPlaying(playing) },
+                onCardBackgroundColorChange: { color, isDark in
+                    session.updateCardChrome(color: color, isDark: isDark)
+                },
+                // No tap-lookup while the typed-answer input is up — the
+                // dictionary would hand over the answer to be typed.
+                onLookupRequested: tapLookup && !session.requiresTypedAnswerInput ? { text, _, _ in
+                    if let text, !text.isEmpty { lookupQuery = text }
+                } : nil,
+                onQuestionCanvasTap: questionCanvasReveal
+            )
         }
     }
 
-    /// Slim chrome above the sandboxed WebView card (R11): HTML badge ·
-    /// template name · "sandboxed".
-    private var webChromeStrip: some View {
-        HStack(spacing: 8) {
-            Text("HTML")
-                .amgiFont(.caption)
-                .fontWeight(.semibold)
-                .foregroundStyle(palette.warning)
-            if let name = session.templateName {
-                Text(name)
-                    .amgiFont(.micro, .monospaced)
-                    .foregroundStyle(palette.textTertiary)
-                    .lineLimit(1)
-            }
-            Text("sandboxed")
-                .amgiFont(.caption)
-                .foregroundStyle(palette.textTertiary)
-                .frame(maxWidth: .infinity, alignment: .trailing)
-        }
-        .padding(.horizontal)
-        .padding(.vertical, 4)
+    private var questionCanvasReveal: (() -> Void)? {
+        #if os(iOS)
+        guard !session.showAnswer,
+              !session.isAdvancing,
+              !session.requiresTypedAnswerInput
+        else { return nil }
+        return { session.revealAnswer() }
+        #else
+        return nil
+        #endif
     }
 
     private func playNativeAudio() {

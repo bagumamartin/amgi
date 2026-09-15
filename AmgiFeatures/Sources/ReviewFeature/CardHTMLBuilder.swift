@@ -1,4 +1,5 @@
 import AmgiAppCore
+import Foundation
 import OSLog
 import SwiftUI
 import WebKit
@@ -325,5 +326,32 @@ extension CardWebView {
         }
 
         return classes.joined(separator: " ")
+    }
+
+    /// Dark mode only: rewrite exact black text / white backgrounds in
+    /// template CSS onto the frame tokens so light-authored cards remain
+    /// readable. Other authored colors are left alone.
+    nonisolated static func themeCompatibleCardCSS(_ css: String, isDarkMode: Bool) -> String {
+        guard isDarkMode, !css.isEmpty else { return css }
+
+        var result = css
+        let blackPattern = #"(?i)(\bcolor\s*:\s*)(#(?:000|000000)|black|rgb\s*\(\s*0\s*,\s*0\s*,\s*0\s*\))\b"#
+        let whitePattern = #"(?i)(\bbackground(?:-color)?\s*:\s*)(#(?:fff|ffffff)|white|rgb\s*\(\s*255\s*,\s*255\s*,\s*255\s*\))\b"#
+
+        if let regex = try? NSRegularExpression(pattern: blackPattern) {
+            result = regex.stringByReplacingMatches(
+                in: result,
+                range: NSRange(result.startIndex..., in: result),
+                withTemplate: "$1var(--amgi-card-fg)"
+            )
+        }
+        if let regex = try? NSRegularExpression(pattern: whitePattern) {
+            result = regex.stringByReplacingMatches(
+                in: result,
+                range: NSRange(result.startIndex..., in: result),
+                withTemplate: "$1var(--amgi-card-bg)"
+            )
+        }
+        return result
     }
 }

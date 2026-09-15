@@ -4,7 +4,6 @@ import AmgiUI
 import AnkiKit
 import AnkiClients
 import Dependencies
-import BrowseFeature
 
 /// Library container: owns navigation, sheets, and the toolbar, and drives
 /// a `DeckListModel` for load/refresh + deck mutations. Rendering is
@@ -14,14 +13,16 @@ package struct DeckListView: View {
     @Dependency(\.collectionStore) private var store
     @State private var model: DeckListModel
     @State private var showCreateSheet = false
+    @State private var showExportSheet = false
+    @State private var showImport = false
     @State private var renameTarget: DeckRowViewData?
     @State private var pendingDeck: DeckInfo?
     /// Deck detail grows out of the row that was tapped, rather than cutting
     /// in from the trailing edge — the row and the screen are the same thing.
     @Namespace private var deckTransition
 
-    /// Profile switching lives in the toolbar account menu (see
-    /// `ProfilePickerMenu` + `.accountMenu()`), not here.
+    /// Profile switching lives on the root stack (MainTabView `.accountMenu()`),
+    /// not here — applying it twice doubled the leading profile pill.
     package init() {
         _model = State(initialValue: DeckListModel())
     }
@@ -60,31 +61,43 @@ package struct DeckListView: View {
                 showCreateSheet = false
             }
         }
+        .sheet(isPresented: $showExportSheet) {
+            ExportPackagesSheet()
+        }
         .sheet(item: $renameTarget) { row in
             RenameDeckSheet(deckId: DeckID(row.id), currentName: row.fullName) {
                 renameTarget = nil
             }
         }
+        .deckImport(isPresented: $showImport) {
+            store.invalidateAll()
+        }
         // Keyed on the store's generation: any Invalidation (deck mutation,
         // sync, import, review-end) re-runs the load; `.task` still cancels
         // on disappear.
         .task(id: store.generation) { await model.load() }
-        .accountMenu()
     }
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) {
-            // `BrowseView` owns its own title and search field and expects to be
-            // pushed, so a plain NavigationLink is the whole wiring — no route
-            // state to thread through the model.
-            NavigationLink {
-                BrowseView()
+        // One glass capsule: Sync · Import · Export · New Deck. Browse is
+        // its own tab — a Library push was leftover from the old drill-in.
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            SyncToolbarButton()
+            Button {
+                showImport = true
             } label: {
-                Label("Browse", systemImage: "square.stack.3d.up")
+                Image(systemName: "square.and.arrow.down")
             }
-        }
-        ToolbarItem(placement: .topBarTrailing) {
+            .accessibilityLabel("Import deck")
+            .help("Import deck")
+            Button {
+                showExportSheet = true
+            } label: {
+                Image(systemName: "square.and.arrow.up")
+            }
+            .accessibilityLabel("Export")
+            .help("Export deck or collection package")
             Button("New Deck", systemImage: "plus") {
                 showCreateSheet = true
             }

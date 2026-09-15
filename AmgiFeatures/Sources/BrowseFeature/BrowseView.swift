@@ -45,6 +45,7 @@ package struct BrowseView: View {
     #endif
 
     @Dependency(\.notetypesService) private var notetypesService
+    @Dependency(\.collectionStore) private var store
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.palette) private var palette
 
@@ -71,6 +72,9 @@ package struct BrowseView: View {
             // switched tabs.
             .task(id: model.searchIdentity) {
                 await model.performSearch(debounce: .milliseconds(250))
+            }
+            .task(id: store.generation) {
+                await model.refreshUndoStatus()
             }
     }
 
@@ -371,7 +375,7 @@ package struct BrowseView: View {
                     pendingSwipeDelete = nil
                 }
             } message: { _ in
-                Text("You can undo this from the toolbar.")
+                Text("You can undo this from More.")
             }
             .confirmationDialog(
                 "Delete \(selectionState.count) note\(selectionState.count == 1 ? "" : "s")?",
@@ -382,7 +386,7 @@ package struct BrowseView: View {
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("One undo entry is created; you can restore from the toolbar.")
+                Text("You can undo this from More.")
             }
             .alert("Save current search", isPresented: $showSaveSearchPrompt) {
                 TextField("Name", text: $saveSearchName)
@@ -501,13 +505,12 @@ package struct BrowseView: View {
     // MARK: - Toolbar
     //
     // Mode and sort live in the list column's own header bar, not here.
-    // Trailing cluster is Undo · Sync · ＋/Done · ⋯ — Browse takes over the
-    // window on Mac, so Library's sync glyph is not on screen.
+    // Trailing cluster is Sync · ＋/Done · ⋯. Collection undo (engine
+    // stack: delete notes, etc.) lives in the overflow, Desktop-style.
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItemGroup(placement: .topBarTrailing) {
-            EngineUndoButton()
             SyncToolbarButton()
             if selectionState.isSelectMode {
                 Button("Done") {
@@ -523,6 +526,14 @@ package struct BrowseView: View {
                 .accessibilityLabel("Add")
             }
             Menu {
+                Section {
+                    Button {
+                        Task { await model.undoLast() }
+                    } label: {
+                        Label(model.undoMenuTitle, systemImage: "arrow.uturn.backward")
+                    }
+                    .disabled(!model.canUndo)
+                }
                 toolsSection
                 saveSearchSection
             } label: {

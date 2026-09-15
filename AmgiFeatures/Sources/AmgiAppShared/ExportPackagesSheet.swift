@@ -1,20 +1,17 @@
-// AmgiApp/Sources/Shared/ExportPackagesSheet.swift
-import SwiftUI
+package import SwiftUI
 import AmgiUI
-import AnkiKit
+public import AnkiKit
 import AnkiClients
 import AnkiServices
 import Dependencies
 import AmgiTheme
 
-/// Export entry point for both package kinds (browse-redesign-spec §5.7
-/// amendment): **whole collection** as `.colpkg` or a **single deck** as
-/// `.apkg`. Bridge/service surface already existed (`ImportExportService`);
-/// this is the shared UI.
+/// Export entry point for both package kinds: whole collection as `.colpkg`
+/// or a single deck as `.apkg`.
 ///
 /// Flow: pick scope + media toggle → Export writes to a timestamped temp
 /// file off-main → success row offers ShareLink. Errors render inline.
-struct ExportPackagesSheet: View {
+package struct ExportPackagesSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.palette) private var palette
 
@@ -29,13 +26,15 @@ struct ExportPackagesSheet: View {
     @Dependency(\.importExportService) private var importExport
     @Dependency(\.deckClient) private var deckClient
 
+    package init() {}
+
     private static var stamp: String {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyyMMdd-HHmm"
         return formatter.string(from: Date())
     }
 
-    var body: some View {
+    package var body: some View {
         NavigationStack {
             Form {
                 scopeSection
@@ -52,14 +51,10 @@ struct ExportPackagesSheet: View {
         }
         .presentationDetents([.medium, .large])
         .task {
-            // Self-contained: the sheet owns its deck list so any caller can
-            // present it without threading data through.
             decks = (try? await deckClient.fetchAll()) ?? []
             if selectedDeckID == nil { selectedDeckID = decks.first?.id }
         }
     }
-
-    // MARK: Sections
 
     private var scopeSection: some View {
         Section("What to export") {
@@ -119,8 +114,6 @@ struct ExportPackagesSheet: View {
         }
     }
 
-    // MARK: Work
-
     private func run() async {
         isExporting = true
         failureMessage = nil
@@ -142,8 +135,6 @@ struct ExportPackagesSheet: View {
                 let safeName = deck.name.replacingOccurrences(of: "::", with: "-")
                 let path = Self.destinationURL(name: "\(safeName)-\(Self.stamp)", ext: "apkg").path
                 try await Task.detached(priority: .userInitiated) {
-                    // legacy:false → modern fsrs-aware apkg; all optional
-                    // sections on, gated by the single media toggle.
                     _ = try service.exportDeckPackage(
                         deckID, path, true, true, media, false
                     )

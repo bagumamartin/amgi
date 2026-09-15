@@ -15,7 +15,7 @@ import SyncFeature
 /// The app's whole view composition. The host target supplies only `@main`.
 ///
 /// Owns the routing between onboarding, the tab bar, and the startup-error
-/// screen; the cross-cutting flows above the tabs (sync, deck import, the
+/// screen; the cross-cutting flows above the tabs (sync, the
 /// review cover); and the root chrome (`.themedRoot()`, the app font, the
 /// profile re-id, the deep link, the scene-phase widget refresh).
 public struct RootView: View {
@@ -30,7 +30,6 @@ public struct RootView: View {
     @Bindable private var accountStore = AccountStore.shared
 
     @State private var pendingReviewDeckId: DeckID?
-    @State private var showImport = false
     @State private var refreshID = UUID()
     @State private var launchState = CollectionLaunchState.shared
 
@@ -125,7 +124,6 @@ public struct RootView: View {
         MainTabView(
             refreshID: refreshID,
             showReaderTab: showReaderTab,
-            onImport: { showImport = true },
             onSelectStudyDeck: { pendingReviewDeckId = $0 }
         )
         .alert(
@@ -138,10 +136,6 @@ public struct RootView: View {
         }
         // still drives the tabs not yet on CollectionStore
         .syncFlow { refreshID = UUID() }
-        .deckImport(isPresented: $showImport) {
-            store.invalidateAll()
-            refreshID = UUID()
-        }
         .fullScreenCover(item: $pendingReviewDeckId) { deckId in
             ReviewView(deckId: deckId) {
                 pendingReviewDeckId = nil

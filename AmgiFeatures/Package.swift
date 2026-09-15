@@ -126,6 +126,7 @@ let package = Package(
             name: "StatsFeature",
             dependencies: [
                 "AmgiAppCore",
+                "AmgiAppShared",
                 "AmgiCharts",
                 .product(name: "AnkiKit", package: "amgi"),
                 .product(name: "AnkiClients", package: "amgi"),

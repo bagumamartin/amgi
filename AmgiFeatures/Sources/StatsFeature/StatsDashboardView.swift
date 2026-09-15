@@ -1,4 +1,5 @@
 package import SwiftUI
+import AmgiAppShared
 import AmgiTheme
 import AmgiUI
 import AmgiCharts
@@ -37,6 +38,11 @@ package struct StatsDashboardView: View {
         .scrollContentBackground(.hidden)
         .background(palette.surface)
         .navigationTitle("Statistics")
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                SyncToolbarButton()
+            }
+        }
         // `.task` already re-runs whenever the view re-enters the hierarchy —
         // an `.onAppear` reload alongside it fetched every graph twice per
         // visit, which on "All Time" means scanning the whole revlog twice.

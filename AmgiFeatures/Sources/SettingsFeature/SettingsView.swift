@@ -1,13 +1,15 @@
 package import SwiftUI
 import AmgiTheme
+import AmgiUI
 package import AmgiAppCore
 import BrowseFeature
 import TemplatesFeature
 import ReaderFeature
 
 /// Settings, following the `amgi-settings.jsx` screen in the Amgi design
-/// project: in-content large title, grouped inset panels, tinted glyph
-/// tiles, trailing values, hairline footer.
+/// project: grouped inset panels, tinted glyph tiles, trailing values,
+/// hairline footer. Title lives in the navigation bar so a push from any
+/// root (profile switcher on Library / Study / …) still has a Back.
 ///
 /// Row inventory is the app's real screens rather than the mock's — the
 /// mock names four destinations that don't exist (Privacy & Data, a global
@@ -28,7 +30,6 @@ package struct SettingsView: View {
     package var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                title
                 appearanceSection
                 accountSection
                 studySection
@@ -40,19 +41,11 @@ package struct SettingsView: View {
             .padding(.bottom, AmgiSpacing.xl)
         }
         .background(palette.background)
+        .navigationTitle("Settings")
+        .navigationBarTitleDisplayMode(.large)
         #if os(iOS)
-        .toolbarVisibility(.hidden, for: .navigationBar)
+        .toolbarVisibility(.visible, for: .navigationBar)
         #endif
-    }
-
-    // MARK: - Title
-
-    private var title: some View {
-        Text("Settings")
-            .amgiFont(.displayHero)
-            .foregroundStyle(palette.textPrimary)
-            .padding(.horizontal, 20)
-            .padding(.top, AmgiSpacing.sm)
     }
 
     // MARK: - Sections

@@ -32,6 +32,7 @@ struct CardWebView: View {
     let onAudioStateChange: ((Bool) -> Void)?
     let onCardBackgroundColorChange: ((PlatformColor, Bool) -> Void)?
     let onLookupRequested: ((String?, String?, CGPoint) -> Void)?
+    let onQuestionCanvasTap: (() -> Void)?
 
     init(
         html: String,
@@ -50,7 +51,8 @@ struct CardWebView: View {
         bottomContentInset: CGFloat = 0,
         onAudioStateChange: ((Bool) -> Void)? = nil,
         onCardBackgroundColorChange: ((PlatformColor, Bool) -> Void)? = nil,
-        onLookupRequested: ((String?, String?, CGPoint) -> Void)? = nil
+        onLookupRequested: ((String?, String?, CGPoint) -> Void)? = nil,
+        onQuestionCanvasTap: (() -> Void)? = nil
     ) {
         self.html = html
         self.cardCSS = cardCSS
@@ -69,6 +71,7 @@ struct CardWebView: View {
         self.onAudioStateChange = onAudioStateChange
         self.onCardBackgroundColorChange = onCardBackgroundColorChange
         self.onLookupRequested = onLookupRequested
+        self.onQuestionCanvasTap = onQuestionCanvasTap
     }
 
     var body: some View {
@@ -87,7 +90,8 @@ struct CardWebView: View {
         return CardWebViewCoordinator(
             onAudioStateChange: onAudioStateChange,
             onCardBackgroundColorChange: onCardBackgroundColorChange,
-            onLookupRequested: onLookupRequested
+            onLookupRequested: onLookupRequested,
+            onQuestionCanvasTap: onQuestionCanvasTap
         )
     }
 
@@ -101,7 +105,19 @@ struct CardWebView: View {
         config.userContentController.add(coordinator, name: "amgiStopTts")
         config.userContentController.add(coordinator, name: "amgiCardTheme")
         config.userContentController.add(coordinator, name: "amgiLookupText")
-
+        // iOS tap-interaction handlers and user script are registered
+        // unconditionally: the prewarm pool creates this configuration
+        // before any session's callbacks exist. Over-injection is safe
+        // because JS messages land in the coordinator, whose (nil)
+        // callbacks gate lookup and reveal.
+        #if os(iOS)
+        config.userContentController.add(coordinator, name: "amgiRevealAnswer")
+        config.userContentController.addUserScript(WKUserScript(
+            source: Self.tapInteractionBootstrapJS,
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        ))
+        #else
         if onLookupRequested != nil {
             config.userContentController.addUserScript(WKUserScript(
                 source: Self.tapLookupBootstrapJS,
@@ -109,6 +125,7 @@ struct CardWebView: View {
                 forMainFrameOnly: true
             ))
         }
+        #endif
 
         config.mediaTypesRequiringUserActionForPlayback = []
         #if os(iOS)
@@ -133,12 +150,14 @@ struct CardWebView: View {
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "amgiStopTts")
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "amgiCardTheme")
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "amgiLookupText")
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: "amgiRevealAnswer")
         coordinator.stopTTS()
     }
 
     fileprivate func applyUpdate(_ webView: WKWebView, coordinator: CardWebViewCoordinator) {
         let isDarkMode = colorScheme == .dark
         let alignTop = contentAlignment == .top
+        let effectiveCardCSS = Self.themeCompatibleCardCSS(cardCSS, isDarkMode: isDarkMode)
 
         // Both signatures are derived from the *inputs*, never from the
         // processed output. `processedHTML` costs three whole-document regex
@@ -149,7 +168,7 @@ struct CardWebView: View {
         // `html`, `isDarkMode`, and `showInlineAudioReplayButtons` are its only
         // inputs, so they discriminate exactly as well.
         let pageSignature = "\(isDarkMode)"
-        let contentSignature = "\(autoplayEnabled)|\(isAnswerSide)|\(lookupPopupEnabled)|\(replayMode.rawValue)|\(cardOrdinal)|\(alignTop)|\(showInlineAudioReplayButtons)|\(cardCSS.hashValue)|\(html.hashValue)|\(prefetchHTML?.hashValue ?? 0)"
+        let contentSignature = "\(autoplayEnabled)|\(isAnswerSide)|\(lookupPopupEnabled)|\(replayMode.rawValue)|\(cardOrdinal)|\(alignTop)|\(showInlineAudioReplayButtons)|\(effectiveCardCSS.hashValue)|\(html.hashValue)|\(prefetchHTML?.hashValue ?? 0)"
 
         // Bookkeeping that has to track every render, expensive or not.
         coordinator.openLinksExternally = openLinksExternally
@@ -159,7 +178,7 @@ struct CardWebView: View {
             onAudioStateChange: onAudioStateChange,
             onCardBackgroundColorChange: onCardBackgroundColorChange,
             onLookupRequested: onLookupRequested,
-            onQuestionCanvasTap: nil
+            onQuestionCanvasTap: onQuestionCanvasTap
         )
         coordinator.currentWebView = webView
         #if os(iOS)
@@ -194,7 +213,7 @@ struct CardWebView: View {
             let showCardScript = Self.showCardScript(
                 processedHTML: processedHTML,
                 prefetchHTML: prefetchHTML,
-                cardCSS: cardCSS,
+                cardCSS: effectiveCardCSS,
                 isAnswerSide: isAnswerSide,
                 lookupPopupEnabled: lookupPopupEnabled,
                 bodyClass: bodyClass,
@@ -331,17 +350,158 @@ struct CardWebView: View {
     }, true);
     """
 
-    /// Loads a blank page in a new WKWebView so WebKit's process pool is
-    /// already warm when the first real card appears. `makeCoordinator`
-    /// adopts the paired coordinator (and its webview) via the prewarmer's
-    /// `take()`; the frame page self-heals to the real card through the
-    /// page-signature reload.
+    /// Pairs a fully configured webview with `coordinator`, loads the frame
+    /// page for the current appearance, and records the page signature exactly
+    /// as `applyUpdate` would — so adoption continues through the normal
+    /// update path. The handlers and tap script are on this configuration
+    /// (prewarm runs before any session exists).
     @MainActor
     static func attachPrewarmedFrame(to coordinator: CardWebViewCoordinator) {
-        let webView = WKWebView()
+        let card = CardWebView(html: "")
+        let webView = card.makeConfiguredWebView(coordinator: coordinator)
+        let isDarkMode = currentAppearanceIsDark()
+        coordinator.lastPageSignature = "\(isDarkMode)"
+        coordinator.isPageLoaded = false
+        coordinator.pendingUpdateScript = nil
+        let htmlClass = htmlClasses(isDarkMode: isDarkMode)
+        let playIconHTML = audioButtonIconHTML(systemName: "play.circle", alt: "Play", isDarkMode: isDarkMode)
+        let pauseIconHTML = audioButtonIconHTML(systemName: "pause.circle", alt: "Pause", isDarkMode: isDarkMode)
+        webView.loadHTMLString(
+            buildFrameHTML(
+                htmlClass: htmlClass,
+                isDarkMode: isDarkMode,
+                playIconHTML: playIconHTML,
+                pauseIconHTML: pauseIconHTML,
+                baseTag: CardAssetPath.mediaBaseTag()
+            ),
+            baseURL: CardAssetPath.cardBaseURL
+        )
         coordinator.prewarmedWebView = webView
-        webView.loadHTMLString("<html><body></body></html>", baseURL: nil)
     }
+
+    @MainActor
+    static func currentAppearanceIsDark() -> Bool {
+        #if os(iOS)
+        UITraitCollection.current.userInterfaceStyle == .dark
+        #elseif canImport(AppKit)
+        NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        #else
+        false
+        #endif
+    }
+
+    /// Touch tap reveals; long-press looks up. Click is a guarded fallback
+    /// when WebKit drops the touch sequence. Skips links, audio, typed-answer,
+    /// and the answer side — native callbacks still gate the posts.
+    #if os(iOS)
+    private static let tapInteractionBootstrapJS: String = """
+        (function() {
+          const lookupEnabled = true;
+          const revealEnabled = true;
+          const longPressDelay = 500;
+          const movementThreshold = 12;
+          var touchState = null;
+          var lastTouchActionAt = 0;
+
+          function interactiveTarget(target) {
+            return target && target.closest(
+              'a, button, input, textarea, select, option, video, audio, iframe,' +
+              ' [role="button"], [contenteditable="true"], [data-amgi-interactive],' +
+              ' [onclick], .replay-button, .replay-btn, .sound-btn, .soundLink,' +
+              ' #image-occlusion-canvas'
+            );
+          }
+
+          function selectedTextExists() {
+            const selection = window.getSelection();
+            return !!(selection && selection.toString().length > 0);
+          }
+
+          function interactionDisabled() {
+            return !!amgiCardState().isAnswerSide || !!document.getElementById('typeans');
+          }
+
+          function touchPoint(event) {
+            const touch = event.changedTouches && event.changedTouches[0];
+            return touch ? { x: touch.clientX, y: touch.clientY } : null;
+          }
+
+          function textPayloadAt(point) {
+            if (!lookupEnabled || !point || typeof amgiCardLookupPayloadAt !== 'function') return null;
+            return amgiCardLookupPayloadAt(point.x, point.y, 16);
+          }
+
+          function sendLookup(point) {
+            const payload = textPayloadAt(point);
+            if (!payload || !window.webkit.messageHandlers.amgiLookupText) return false;
+            window.webkit.messageHandlers.amgiLookupText.postMessage(payload);
+            return true;
+          }
+
+          function cancelTouch() {
+            if (!touchState) return;
+            window.clearTimeout(touchState.timer);
+            touchState = null;
+          }
+
+          document.addEventListener('touchstart', function(event) {
+            if (event.touches.length !== 1 || selectedTextExists() || interactionDisabled()) return;
+            const target = event.target instanceof Element ? event.target : null;
+            if (!target || interactiveTarget(target)) return;
+            const point = touchPoint(event);
+            if (!point) return;
+
+            touchState = {
+              target: target,
+              start: point,
+              moved: false,
+              longPressed: false,
+              timer: window.setTimeout(function() {
+                if (!touchState || touchState.moved || !lookupEnabled) return;
+                if (sendLookup(touchState.start)) {
+                  touchState.longPressed = true;
+                }
+              }, longPressDelay)
+            };
+          }, { passive: true });
+
+          document.addEventListener('touchmove', function(event) {
+            if (!touchState) return;
+            const point = touchPoint(event);
+            if (!point) return;
+            const dx = point.x - touchState.start.x;
+            const dy = point.y - touchState.start.y;
+            if (Math.sqrt(dx * dx + dy * dy) > movementThreshold) {
+              touchState.moved = true;
+              cancelTouch();
+            }
+          }, { passive: true });
+
+          document.addEventListener('touchend', function(event) {
+            if (!touchState) return;
+            const state = touchState;
+            const point = touchPoint(event) || state.start;
+            window.clearTimeout(state.timer);
+            touchState = null;
+            if (state.moved || state.longPressed || selectedTextExists() || interactionDisabled()) return;
+            if (!revealEnabled || interactiveTarget(state.target)) return;
+            lastTouchActionAt = Date.now();
+            window.webkit.messageHandlers.amgiRevealAnswer.postMessage(null);
+          }, { passive: true });
+
+          document.addEventListener('touchcancel', cancelTouch, { passive: true });
+
+          document.addEventListener('click', function(event) {
+            if (Date.now() - lastTouchActionAt < 700) return;
+            if (!revealEnabled || interactionDisabled() || selectedTextExists()) return;
+            const target = event.target instanceof Element ? event.target : null;
+            if (!target || interactiveTarget(target)) return;
+            lastTouchActionAt = Date.now();
+            window.webkit.messageHandlers.amgiRevealAnswer.postMessage(null);
+          }, false);
+        })();
+        """
+    #endif
 }
 
 #if os(iOS)

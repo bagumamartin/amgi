@@ -1,58 +1,7 @@
 // AmgiApp/Sources/Shared/CollectionChrome.swift
 package import SwiftUI
 import AmgiUI
-import AmgiTheme
-import AnkiKit
-import AnkiClients
-import Dependencies
 public import Foundation
-
-// MARK: - Engine undo monitor
-
-/// Observable mirror of the ENGINE undo stack (not UIPasteboard/undoManager):
-/// `canUndo` plus human label ("Delete Notes") driving contextual trailing
-/// toolbars. Refreshes on demand — callers key off CollectionStore generation
-/// so every committed mutation re-arms us (same rails as everything else).
-@MainActor
-@Observable
-final class EngineUndoMonitor {
-    private(set) var canUndo = false
-    private(set) var undoText = ""
-    private(set) var canRedo = false
-
-    @ObservationIgnored @Dependency(\.cardClient) private var cardClient
-
-    func refresh() async {
-        guard let status = try? await cardClient.undoStatus() else { return }
-        canUndo = status.canUndo
-        undoText = status.undoText
-        canRedo = status.canRedo
-    }
-
-    func undoNow() async {
-        try? await cardClient.undoLast()
-        await refresh()
-    }
-}
-
-package struct EngineUndoButton: View {
-    @State private var monitor = EngineUndoMonitor()
-    @Dependency(\.collectionStore) private var store
-
-    package init() {}
-
-    package var body: some View {
-        Button {
-            Task { await monitor.undoNow() }
-        } label: {
-            Image(systemName: "arrow.uturn.backward")
-        }
-        .disabled(!monitor.canUndo)
-        .accessibilityLabel(monitor.canUndo ? "Undo \(monitor.undoText)" : "Nothing to undo")
-        .help(monitor.canUndo ? "Undo \(monitor.undoText)" : "Undo")
-        .task(id: store.generation) { await monitor.refresh() }
-    }
-}
 
 // MARK: - Sync
 
@@ -114,6 +63,25 @@ extension View {
         #else
         self
         #endif
+    }
+
+    /// Large-title subtitle (Study’s weekday line). iOS 26 API; no-op
+    /// on the iOS 18 deployment floor. macOS uses the AmgiUI shim.
+    @ViewBuilder
+    package func navigationSubtitleIfAvailable(_ subtitle: String) -> some View {
+        if subtitle.isEmpty {
+            self
+        } else {
+            #if os(iOS)
+            if #available(iOS 26.0, *) {
+                self.navigationSubtitle(subtitle)
+            } else {
+                self
+            }
+            #else
+            self.navigationSubtitle(subtitle)
+            #endif
+        }
     }
 
     /// iOS 26 shrinks the tab bar on scroll, matching Music. No-op on

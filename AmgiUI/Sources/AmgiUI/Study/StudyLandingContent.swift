@@ -3,10 +3,8 @@ import AmgiTheme
 
 /// Pure rendering surface for the Study landing screen. Owns no I/O.
 /// The container in the app target loads data and maps it to the
-/// single `State` value passed here.
-/// Screen state for ``StudyLandingContent``. Lives at file scope because
-/// the content struct gained a generic header-accessory parameter —
-/// nested-type lookups through a generic type would demand inference.
+/// single `State` value passed here. Title chrome ("Today") lives on
+/// the container's navigation bar, same pattern as Library.
 public enum StudyLandingState: Equatable, Sendable {
     case loading
     case empty
@@ -17,7 +15,7 @@ public enum StudyLandingState: Equatable, Sendable {
     )
 }
 
-public struct StudyLandingContent<HeaderAccessory: View>: View {
+public struct StudyLandingContent: View {
     /// Back-compat spelling of ``StudyLandingState``.
     public typealias State = StudyLandingState
 
@@ -27,42 +25,21 @@ public struct StudyLandingContent<HeaderAccessory: View>: View {
     let onSelectBook: (String) -> Void
     let onRefresh: () async -> Void
 
-    /// Trailing slot beside the inline title — the app target injects the
-    /// account menu here on iOS where the navigation bar is hidden.
-    let headerAccessory: HeaderAccessory
-
     @Environment(\.palette) private var palette
     @SwiftUI.State private var expandedIDs: Set<Int64> = []
 
     public init(
         state: State,
-        headerAccessory: HeaderAccessory,
         onBeginSession: @escaping () -> Void,
         onSelectDeck: @escaping (Int64) -> Void,
         onSelectBook: @escaping (String) -> Void,
         onRefresh: @escaping () async -> Void
     ) {
         self.state = state
-        self.headerAccessory = headerAccessory
         self.onBeginSession = onBeginSession
         self.onSelectDeck = onSelectDeck
         self.onSelectBook = onSelectBook
         self.onRefresh = onRefresh
-    }
-
-    /// Back-compat initializer for callers without a header accessory.
-    public init(
-        state: State,
-        onBeginSession: @escaping () -> Void,
-        onSelectDeck: @escaping (Int64) -> Void,
-        onSelectBook: @escaping (String) -> Void,
-        onRefresh: @escaping () async -> Void
-    ) where HeaderAccessory == EmptyView {
-        self.init(
-            state: state, headerAccessory: EmptyView(),
-            onBeginSession: onBeginSession, onSelectDeck: onSelectDeck,
-            onSelectBook: onSelectBook, onRefresh: onRefresh
-        )
     }
 
     public var body: some View {
@@ -102,7 +79,6 @@ public struct StudyLandingContent<HeaderAccessory: View>: View {
     ) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                inlineHeader(summary: summary)
                 ringHero(summary: summary)
                 beginButton(totalDue: summary.totalDue)
                     .padding(.top, 20)
@@ -117,26 +93,6 @@ public struct StudyLandingContent<HeaderAccessory: View>: View {
             .padding(.bottom, 24)
         }
         .refreshable { await onRefresh() }
-    }
-
-    // MARK: - Inline header
-
-    private func inlineHeader(summary: StudySummaryData) -> some View {
-        HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(summary.todayLabel)
-                    .amgiFont(.displayHero)
-                    .foregroundStyle(palette.textPrimary)
-                Text(summary.subtitleLabel)
-                    .amgiFont(.caption)
-                    .foregroundStyle(palette.textSecondary)
-            }
-            Spacer(minLength: 12)
-            headerAccessory
-        }
-        .padding(.top, 20)
-        .padding(.bottom, 24)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Ring (scrolls with page)

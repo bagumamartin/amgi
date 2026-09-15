@@ -21,45 +21,24 @@ package struct StudyLandingView: View {
 
     @Dependency(\.collectionStore) private var store
     @Dependency(\.liveReviewCounts) private var liveCounts
-    @Environment(\.accountMenuProvider) private var accountMenuProvider
     @State private var model = StudyLandingModel()
 
-    /// Account menu (profile switch + settings push). iOS renders it in
-    /// the landing header's accessory slot because the navigation bar is
-    /// hidden there; macOS gets the standard toolbar placement. Note search
-    /// lives in the app's dedicated search surface (.search tab / macOS
-    /// toolbar field) — Study needs no query state of its own.
-    #if os(iOS)
-    @State private var accountDestination: AccountMenuDestination?
-    @ViewBuilder
-    private var headerAccessory: some View {
-        if let accountMenuProvider {
-            accountMenuProvider.menu(open: $accountDestination)
-                .accountMenuDestinations($accountDestination)
-        }
-    }
-    #endif
-
     package var body: some View {
-        #if os(iOS)
-        studyContent(headerAccessory: headerAccessory)
-            .toolbarVisibility(.hidden, for: .navigationBar)
-        #else
-        studyContent(headerAccessory: EmptyView())
-            .accountMenu()
-        #endif
-    }
-
-    @ViewBuilder
-    private func studyContent<Accessory: View>(headerAccessory: Accessory) -> some View {
         StudyLandingContent(
             state: model.contentState,
-            headerAccessory: headerAccessory,
             onBeginSession: beginSession,
             onSelectDeck: { id in onSelectDeck(DeckID(id)) },
             onSelectBook: { bookID in model.selectBook(bookID) },
             onRefresh: { await model.load() }
         )
+        .navigationTitle("Today")
+        .navigationBarTitleDisplayMode(.large)
+        .navigationSubtitleIfAvailable(todaySubtitle)
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                SyncToolbarButton()
+            }
+        }
         .sheet(item: $model.selectedBook) { book in
             NavigationStack {
                 ChapterListView(book: book, progress: model.progressCoordinator)
@@ -78,6 +57,17 @@ package struct StudyLandingView: View {
             } else {
                 model.clearLiveCounts()
             }
+        }
+    }
+
+    /// Weekday / due copy that used to sit under the in-content "Today"
+    /// hero. Same string, now the navigation subtitle so the large title
+    /// matches Library.
+    private var todaySubtitle: String {
+        if case .loaded(let summary, _, _) = model.contentState {
+            summary.subtitleLabel
+        } else {
+            ""
         }
     }
 

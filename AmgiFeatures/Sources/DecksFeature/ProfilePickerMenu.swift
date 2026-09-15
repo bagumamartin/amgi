@@ -2,9 +2,13 @@ package import SwiftUI
 import AmgiTheme
 package import AmgiAppCore
 package import AmgiAppShared
+#if canImport(UIKit)
+import UIKit
+#endif
 
-/// Compact toolbar menu: switch profile immediately, and open Settings /
-/// Manage Profiles on the enclosing stack via `.accountMenu()`.
+/// Compact toolbar menu: switch profile immediately, and open Settings
+/// on the enclosing stack via `.accountMenu()`. Manage Profiles lives
+/// inside Settings, so it is not duplicated here.
 ///
 /// `onSwitch` is injected from the composition root — it closes/reopens the
 /// collection — so this view does not import that machinery.
@@ -22,6 +26,15 @@ package struct ProfilePickerMenu: View {
     ) {
         self.onSwitch = onSwitch
         self._open = open
+    }
+
+    /// iPhone toolbar is icon-only; iPad/Mac keep the name beside the emoji.
+    private var showsNameInLabel: Bool {
+        #if os(iOS)
+        UIDevice.current.userInterfaceIdiom != .phone
+        #else
+        true
+        #endif
     }
 
     package var body: some View {
@@ -49,9 +62,6 @@ package struct ProfilePickerMenu: View {
                 Button("Settings…", systemImage: "gearshape") {
                     open = .settings
                 }
-                Button("Manage Profiles…", systemImage: "person.crop.rectangle.stack") {
-                    open = .manageProfiles
-                }
             }
         } label: {
             HStack(spacing: 4) {
@@ -62,9 +72,11 @@ package struct ProfilePickerMenu: View {
                     Image(systemName: "person.crop.circle")
                         .foregroundStyle(palette.accent)
                 }
-                Text(store.current.displayName)
-                    .amgiFont(.bodyEmphasis)
-                    .lineLimit(1)
+                if showsNameInLabel {
+                    Text(store.current.displayName)
+                        .amgiFont(.bodyEmphasis)
+                        .lineLimit(1)
+                }
             }
         }
         .accessibilityLabel("Profile and settings: \(store.current.displayName)")

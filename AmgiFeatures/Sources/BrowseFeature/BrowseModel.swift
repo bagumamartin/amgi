@@ -104,8 +104,18 @@ final class BrowseModel {
         return tag
     }
 
-    /// Undo/redo chrome state ("Undo Delete Notes"), refreshed after ops.
+    /// Engine undo stack, for the Browse overflow item (not a toolbar glyph).
     private(set) var undoStatus: UndoStatusInfo?
+
+    var canUndo: Bool { undoStatus?.canUndo ?? false }
+
+    var undoMenuTitle: String {
+        let text = undoStatus?.undoText.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !canUndo || text.isEmpty { return "Undo" }
+        if text.lowercased().hasPrefix("undo") { return text }
+        return "Undo \(text)"
+    }
+
     /// Select-mode plumbing stays view-owned via BrowseSelectionState.
 
     // Phase 3+ surface
@@ -517,25 +527,19 @@ final class BrowseModel {
         await refreshAfterMutation()
     }
 
-    // Undo / redo ----------------------------------------------------------
-
     func refreshUndoStatus() async {
         undoStatus = try? await cardClient.undoStatus()
     }
 
     func undoLast() async {
+        guard canUndo else { return }
         try? await cardClient.undoLast()
-        await refreshAfterMutation()
-    }
-
-    func redoLast() async {
-        try? await cardClient.redoLast()
         await refreshAfterMutation()
     }
 
     /// After any engine op the CollectionStore generation bumps itself via
     /// OpChanges observation (same rails as deck icons); we re-run the
-    /// search against fresh data and refresh undo chrome here.
+    /// search against fresh data here.
     func refreshAfterMutation() async {
         collectionStore.invalidateAll(origin: .localUser)
         await performSearch()

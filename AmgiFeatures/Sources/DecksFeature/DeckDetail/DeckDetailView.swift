@@ -224,13 +224,18 @@ struct DeckDetailView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        // Contextual trailing chrome: Undo · Sync · ⋯ (plain glyphs, iOS 26
-        // groups them into the glass capsule). Replaces the custom
-        // material-circle menu per the chrome design language. Undo here
-        // is the ENGINE stack (delete note, etc.), not ReviewSession.
+        // Contextual trailing chrome: Sync · Create Subdeck · ⋯
         ToolbarItemGroup(placement: .topBarTrailing) {
-            EngineUndoButton()
             SyncToolbarButton()
+            if !deck.isFiltered {
+                Button {
+                    newSubdeckName = ""
+                    destination = .alert(.subdeck)
+                } label: {
+                    Image(systemName: "folder.badge.plus")
+                }
+                .accessibilityLabel("Create Subdeck")
+            }
             Menu {
                 Button {
                     destination = .sheet(.addNote)
@@ -238,12 +243,6 @@ struct DeckDetailView: View {
                     Label("Add Note", systemImage: "square.and.pencil")
                 }
                 if !deck.isFiltered {
-                    Button {
-                        newSubdeckName = ""
-                        destination = .alert(.subdeck)
-                    } label: {
-                        Label("Create Subdeck", systemImage: "folder.badge.plus")
-                    }
                     Button {
                         destination = .sheet(.showDeckOptions)
                     } label: {

@@ -9,7 +9,6 @@ import Sharing
 import StatsFeature
 import SwiftUI
 import AmgiUI
-import SyncFeature
 
 /// The app's top-level sections. Shared by the iOS tab bar and the macOS
 /// sidebar so menu commands (⌘1–5) and the root switcher stay in sync.
@@ -53,10 +52,7 @@ enum MainSection: String, CaseIterable, Identifiable {
 struct MainTabView: View {
     let refreshID: UUID
     let showReaderTab: Bool
-    let onImport: () -> Void
     let onSelectStudyDeck: (DeckID) -> Void
-
-    @Environment(\.startSync) private var startSync
 
     /// Persisted so menu commands and the sidebar share one source of truth.
     @Shared(.appStorage(NavigationPreferences.rootSection)) private var sectionRaw: String = MainSection.study.rawValue
@@ -160,7 +156,6 @@ struct MainTabView: View {
             NavigationStack {
                 DeckListView()
                     .accountMenu()
-                    .toolbar { libraryToolbar }
             }
         case .read:
             NavigationStack {
@@ -170,6 +165,7 @@ struct MainTabView: View {
         case .study:
             NavigationStack {
                 StudyLandingView(onSelectDeck: onSelectStudyDeck)
+                    .accountMenu()
             }
         case .stats:
             NavigationStack {
@@ -186,23 +182,5 @@ struct MainTabView: View {
     @ViewBuilder
     private func tabContent(for section: MainSection) -> some View {
         sectionContent(section)
-    }
-
-    @ToolbarContentBuilder
-    private var libraryToolbar: some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) {
-            Button { startSync() } label: {
-                Image(systemName: "arrow.triangle.2.circlepath")
-            }
-            .accessibilityLabel("Sync")
-            .help("Sync")
-        }
-        ToolbarItem(placement: .topBarTrailing) {
-            Button(action: onImport) {
-                Image(systemName: "square.and.arrow.down")
-            }
-            .accessibilityLabel("Import deck")
-            .help("Import deck")
-        }
     }
 }

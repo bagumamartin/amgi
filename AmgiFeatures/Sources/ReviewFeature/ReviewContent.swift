@@ -42,6 +42,7 @@ struct ReviewContent: View {
     @State private var reviewActions = ReviewActions()
     @State private var cardActions = CardContextMenuModel()
     @State private var confirmDeleteNote = false
+    @State private var showRenderModeSheet = false
 
     var body: some View {
         NavigationStack {
@@ -67,7 +68,8 @@ struct ReviewContent: View {
                         cardContentAlignment: cardContentAlignment,
                         tapLookup: tapLookup,
                         showNextReviewTime: showNextReviewTime,
-                        lookupQuery: lookupQuery
+                        lookupQuery: lookupQuery,
+                        showRenderModeSheet: $showRenderModeSheet
                     )
                 }
             }
@@ -130,44 +132,10 @@ struct ReviewContent: View {
                 #endif
             }
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        onDismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                    }
-                    .accessibilityLabel("Close")
-                }
-                ToolbarItem(placement: .principal) {
-                    Text(session.deckName)
-                        .amgiFont(.bodyEmphasis)
-                        .foregroundStyle(palette.textPrimary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                }
-                if showRemainingDays {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Text("\(cardPosition)/\(max(sessionTotal, 1))")
-                            .amgiFont(.caption)
-                            .monospacedDigit()
-                            .foregroundStyle(palette.textSecondary)
-                            .accessibilityLabel("Card \(cardPosition) of \(max(sessionTotal, 1))")
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        session.undo()
-                    } label: {
-                        Image(systemName: "arrow.uturn.backward")
-                    }
-                    .disabled(!session.canUndo)
-                    .accessibilityLabel("Undo")
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    cardActionsMenu
-                }
-            }
+            #if os(macOS)
+            .navigationTitle(navigationBreadcrumb)
+            #endif
+            .toolbar { reviewToolbar }
             .cardActionPresentations(
                 model: cardActions,
                 cardId: session.currentCardId,
@@ -231,17 +199,100 @@ struct ReviewContent: View {
 
     // MARK: - Progress
 
-    /// Total cards in this session = already reviewed + still queued. The
-    /// queued total shifts as learning cards re-enter the queue, so this
-    /// tracks the session rather than a fixed count.
-    private var sessionTotal: Int {
-        session.sessionStats.reviewed + session.remainingCounts.total
+    @ToolbarContentBuilder
+    private var reviewToolbar: some ToolbarContent {
+        #if !os(macOS)
+        ToolbarItem(placement: .topBarLeading) {
+            Button {
+                onDismiss()
+            } label: {
+                Image(systemName: "xmark")
+            }
+            .accessibilityLabel("Close")
+        }
+        #endif
+        #if os(iOS)
+        // Principal is the leftover strip between Close and the trailing
+        // capsule. Leading-align the title inside it so it uses that gap
+        // instead of shrinking to a stub in the leading cluster. Hide the
+        // glass so it doesn't sit in a second pill.
+        if #available(iOS 26.0, *) {
+            ToolbarItem(placement: .principal) {
+                reviewTitleBlock
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(placement: .principal) {
+                reviewTitleBlock
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        #endif
+        // Undo · Edit share one glass capsule. The Menu is a separate
+        // toolbar item so iOS 26 cannot fold it into the system overflow
+        // chevron (that was the nested-ellipsis: tap … to get another …).
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            Button {
+                session.undo()
+            } label: {
+                Image(systemName: "arrow.uturn.backward")
+            }
+            .disabled(!session.canUndo)
+            .accessibilityLabel(session.canUndo ? "Undo" : "Nothing to undo")
+
+            Button {
+                destination = session.currentNote.map(ReviewDestination.editNote)
+            } label: {
+                Image(systemName: "pencil")
+            }
+            .disabled(session.currentNote == nil)
+            .accessibilityLabel("Edit Note")
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            cardActionsMenu
+        }
     }
 
-    /// 1-indexed position of the current card, clamped so it never exceeds
-    /// the (moving) total.
-    private var cardPosition: Int {
-        min(session.sessionStats.reviewed + 1, max(sessionTotal, 1))
+    /// Parent path in the large font, leaf deck below it in the small one.
+    /// Top-level decks (no parent) render the leaf alone at full size.
+    private var reviewTitleBlock: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            if !deckSubtitle.isEmpty {
+                Text(deckSubtitle)
+                    .amgiFont(.bodyEmphasis)
+                    .foregroundStyle(palette.textPrimary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            Text(deckTitle)
+                .amgiFont(deckSubtitle.isEmpty ? .bodyEmphasis : .micro)
+                .foregroundStyle(deckSubtitle.isEmpty ? palette.textPrimary : palette.textSecondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(session.deckName.replacingOccurrences(of: "::", with: ", "))
+    }
+
+    /// Leaf deck name with the parent path stripped.
+    private var deckTitle: String {
+        session.deckName.components(separatedBy: "::").last?.trimmingCharacters(in: .whitespaces) ?? session.deckName
+    }
+
+    /// Parent path of the current deck. Empty for top-level decks.
+    private var deckSubtitle: String {
+        let parts = session.deckName.components(separatedBy: "::")
+        guard parts.count > 1 else { return "" }
+        return parts.dropLast().joined(separator: " - ")
+    }
+
+    /// "Parent::Child" as "Parent › Child" for the macOS window title.
+    private var navigationBreadcrumb: String {
+        session.deckName
+            .components(separatedBy: "::")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .joined(separator: " › ")
     }
 
     /// The card renderer has reported a real chrome background. WebKit cards
@@ -355,14 +406,8 @@ struct ReviewContent: View {
 
     // MARK: - Card actions
 
-    /// Every card action in one flat menu: the flag palette, this screen's own
-    /// edit/lookup/audio items, then the shared card and note sections. No
-    /// submenus and no duplicated Undo — Undo is a toolbar button of its own,
-    /// since it's the action a reviewer reaches for mid-session.
-    ///
-    /// The label keeps its `…` shape whatever the flag state; a flagged card
-    /// only tints it, so the "more actions" affordance never changes glyph
-    /// under the user.
+    /// Overflow for the less-used review actions. Undo and Edit Note live on
+    /// the toolbar, so this menu starts at Edit Template / Look Up.
     @ViewBuilder
     private var cardActionsMenu: some View {
         Menu {
@@ -371,13 +416,6 @@ struct ReviewContent: View {
             }
 
             Section {
-                Button {
-                    destination = session.currentNote.map(ReviewDestination.editNote)
-                } label: {
-                    Label("Edit Note", systemImage: "pencil")
-                }
-                .disabled(session.currentNote == nil)
-
                 Button {
                     destination = session.currentTemplateTarget.map(ReviewDestination.editTemplate)
                 } label: {
@@ -409,6 +447,14 @@ struct ReviewContent: View {
                 .disabled(session.currentNote == nil)
             }
 
+            Section {
+                Button {
+                    showRenderModeSheet = true
+                } label: {
+                    Label("Card Rendering", systemImage: "paintbrush")
+                }
+            }
+
             if let cardId = session.currentCardId {
                 CardActionSections(
                     model: cardActions,
@@ -418,13 +464,14 @@ struct ReviewContent: View {
                 )
             }
         } label: {
-            Image(systemName: "ellipsis.circle")
+            Image(systemName: "ellipsis")
                 .foregroundStyle(
                     cardActions.currentFlag == 0
-                        ? palette.accent
+                        ? palette.textPrimary
                         : CardFlag.color(cardActions.currentFlag)
                 )
         }
+        .tint(cardActions.currentFlag == 0 ? palette.textPrimary : CardFlag.color(cardActions.currentFlag))
         .accessibilityLabel("Card actions")
     }
 

@@ -27,6 +27,10 @@ extension View {
         self
     }
 
+    public func navigationSubtitle(_ subtitle: String) -> some View {
+        self
+    }
+
     public func textInputAutocapitalization(
         _ autocapitalization: AmgiTextInputAutocapitalization
     ) -> some View {
