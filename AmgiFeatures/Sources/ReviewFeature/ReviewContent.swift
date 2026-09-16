@@ -160,7 +160,7 @@ struct ReviewContent: View {
             #endif
             .sheet(item: $destination.editNote) { note in
                 NavigationStack {
-                    NoteEditorView(note: note) {
+                    NoteEditorView(note: note, deckID: session.deckId) {
                         Task { await session.refreshAfterEdit() }
                     }
                 }

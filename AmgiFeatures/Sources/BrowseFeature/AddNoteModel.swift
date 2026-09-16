@@ -36,6 +36,8 @@ final class AddNoteModel {
     @ObservationIgnored private let preselectedDeckId: DeckID?
     @ObservationIgnored private let initialDraft: AddNoteDraft?
 
+    var wasOpenedOnADeck: Bool { preselectedDeckId != nil }
+
     init(preselectedDeckId: DeckID? = nil, initialDraft: AddNoteDraft? = nil) {
         self.preselectedDeckId = preselectedDeckId
         self.initialDraft = initialDraft

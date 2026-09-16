@@ -24,9 +24,11 @@ final class NoteEditorModel {
     @ObservationIgnored @Dependency(\.noteClient) private var noteClient
     @ObservationIgnored @Dependency(\.notetypesService) private var notetypesService
     @ObservationIgnored private let note: NoteRecord
+    @ObservationIgnored private let deckID: DeckID?
 
-    init(note: NoteRecord) {
+    init(note: NoteRecord, deckID: DeckID? = nil) {
         self.note = note
+        self.deckID = deckID
     }
 
     /// Positional projection into `fieldValues`, read through `@Bindable` as
@@ -56,9 +58,6 @@ final class NoteEditorModel {
         tags = note.tags.trimmingCharacters(in: .whitespaces)
         originalFieldValues = fieldValues
         originalTags = tags
-        if let draft = NoteComposerDraftStore.loadEdit(noteID: note.id.rawValue) {
-            applyDraft(draft)
-        }
     }
 
     var hasUnsavedChanges: Bool {
@@ -66,6 +65,12 @@ final class NoteEditorModel {
     }
 
     var noteID: NoteID { note.id }
+
+    func applyParkedDraftIfAny() {
+        if let draft = NoteComposerDraftStore.loadEdit(noteID: note.id.rawValue) {
+            applyDraft(draft)
+        }
+    }
 
     func applyDraft(_ draft: NoteComposerDraft) {
         if !draft.fieldValues.isEmpty {
@@ -77,13 +82,18 @@ final class NoteEditorModel {
 
     func makeDraft() -> NoteComposerDraft {
         NoteComposerDraft(
-            deckID: nil,
+            deckID: deckID?.rawValue,
             notetypeID: note.mid.rawValue,
             fieldNames: fieldNames,
             fieldValues: fieldValues,
             tags: tags,
             noteID: note.id.rawValue
         )
+    }
+
+    func revertToCommitted() {
+        fieldValues = originalFieldValues
+        tags = originalTags
     }
 
     func markSaved() {

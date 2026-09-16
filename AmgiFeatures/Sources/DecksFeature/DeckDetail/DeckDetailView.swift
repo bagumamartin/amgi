@@ -53,6 +53,19 @@ struct DeckDetailView: View {
         Self.leafName(from: deck.name)
     }
 
+    private var draftDeckIDs: Set<Int64> {
+        var ids: Set<Int64> = [deck.id.rawValue]
+        collectDeckIDs(model.childDecks, into: &ids)
+        return ids
+    }
+
+    private func collectDeckIDs(_ nodes: [DeckTreeNode], into ids: inout Set<Int64>) {
+        for node in nodes {
+            ids.insert(node.id.rawValue)
+            collectDeckIDs(node.children, into: &ids)
+        }
+    }
+
     /// Leaf segment of a "Parent::Child" deck path — must be passed to
     /// `DeckTileGlyph.resolve` (see `deckName:` below) instead of the full
     /// path, or emoji detection/letter abbreviation/tint hash all break for
@@ -250,6 +263,11 @@ struct DeckDetailView: View {
                 } label: {
                     Label("Add Note", systemImage: "square.and.pencil")
                 }
+                Button {
+                    destination = .sheet(.drafts)
+                } label: {
+                    Label("Drafts", systemImage: "doc.text")
+                }
                 if !deck.isFiltered {
                     Button {
                         destination = .sheet(.showDeckOptions)
@@ -333,6 +351,8 @@ private extension DeckDetailView {
             // AddNoteModel invalidates the store on save; the generation-keyed
             // .task reloads this screen. Nothing extra to do here.
             AddNoteView(preselectedDeckId: deck.id) {}
+        case .drafts:
+            NoteDraftsView(deckIDs: draftDeckIDs)
         case .customStudy:
             CustomStudyView(
                 deck: deck,

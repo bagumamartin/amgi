@@ -10,12 +10,15 @@ package struct NoteEditorView: View {
     @State private var model: NoteEditorModel
     @State private var editingSession = NoteFieldEditingSession()
     let onSave: () -> Void
+    private let resumeDraft: Bool
 
     @State private var showSavedConfirmation = false
+    @State private var showParkedDraftPrompt = false
     @Environment(\.dismiss) private var dismiss
 
-    package init(note: NoteRecord, onSave: @escaping () -> Void) {
-        _model = State(initialValue: NoteEditorModel(note: note))
+    package init(note: NoteRecord, deckID: DeckID? = nil, resumeDraft: Bool = false, onSave: @escaping () -> Void) {
+        _model = State(initialValue: NoteEditorModel(note: note, deckID: deckID))
+        self.resumeDraft = resumeDraft
         self.onSave = onSave
     }
 
@@ -41,17 +44,13 @@ package struct NoteEditorView: View {
                         }
                     }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(model.isSaving || showSavedConfirmation)
+                    .disabled(model.isSaving || showSavedConfirmation || !model.hasUnsavedChanges)
                 }
             }
             .modifier(NoteFieldFormatChrome(session: editingSession))
             .modifier(NoteFieldMediaBridge(session: editingSession))
             .overlay { savedToast }
-            .task {
-                await model.loadNote()
-                editingSession.showsClozeTools = model.isClozeNotetype
-                editingSession.clozeFields = model.fieldValues
-            }
+            .task { await bootstrap() }
             .onChange(of: model.fieldValues) { _, values in
                 editingSession.clozeFields = values
                 persistEditDraft()
@@ -65,12 +64,46 @@ package struct NoteEditorView: View {
             #if os(macOS)
             .onExitCommand { requestDismiss() }
             #endif
+            .confirmationDialog(
+                "Unfinished edit",
+                isPresented: $showParkedDraftPrompt,
+                titleVisibility: .visible
+            ) {
+                Button("Resume") {
+                    resumeParkedDraft()
+                }
+                Button("Start New") {
+                    startNewLeavingParkedDraft()
+                }
+            } message: {
+                Text("You have a draft for this card. Resume it, or start from the saved card — the draft stays in Drafts until you save or delete it.")
+            }
+    }
+
+    private func bootstrap() async {
+        await model.loadNote()
+        if resumeDraft {
+            resumeParkedDraft()
+        } else if NoteComposerDraftStore.loadEdit(noteID: model.noteID.rawValue) != nil {
+            showParkedDraftPrompt = true
+        }
+        editingSession.showsClozeTools = model.isClozeNotetype
+        editingSession.clozeFields = model.fieldValues
     }
 
     private func persistEditDraft() {
-        if model.hasUnsavedChanges {
-            NoteComposerDraftStore.saveEdit(model.makeDraft())
-        }
+        guard model.hasUnsavedChanges else { return }
+        NoteComposerDraftStore.saveEdit(model.makeDraft())
+    }
+
+    private func resumeParkedDraft() {
+        model.applyParkedDraftIfAny()
+        editingSession.clozeFields = model.fieldValues
+    }
+
+    private func startNewLeavingParkedDraft() {
+        model.revertToCommitted()
+        editingSession.clozeFields = model.fieldValues
     }
 
     private func requestDismiss() {

@@ -27,6 +27,7 @@ struct BrowseDetailTabs: View {
     let infoCard: CardRecord?
     /// First card of the selected note — feeds Preview rendering.
     let firstCardID: CardID?
+    let deckID: DeckID?
     let onSaved: () -> Void
 
     enum Tab: String, CaseIterable {
@@ -59,7 +60,7 @@ struct BrowseDetailTabs: View {
         switch tab {
         case .edit:
             if let note {
-                NoteEditorView(note: note, onSave: onSaved)
+                NoteEditorView(note: note, deckID: deckID, onSave: onSaved)
                     .id(note.id)
             } else {
                 Text("Select one row to edit its fields and tags.")

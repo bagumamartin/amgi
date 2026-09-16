@@ -4,12 +4,22 @@ import AmgiTheme
 
 package struct NoteEditingDestinationView: View {
     let note: NoteRecord
+    let deckID: DeckID?
     let embedInNavigationStack: Bool
+    let resumeDraft: Bool
     let onSave: () -> Void
 
-    package init(note: NoteRecord, embedInNavigationStack: Bool = false, onSave: @escaping () -> Void) {
+    package init(
+        note: NoteRecord,
+        deckID: DeckID? = nil,
+        embedInNavigationStack: Bool = false,
+        resumeDraft: Bool = false,
+        onSave: @escaping () -> Void
+    ) {
         self.note = note
+        self.deckID = deckID
         self.embedInNavigationStack = embedInNavigationStack
+        self.resumeDraft = resumeDraft
         self.onSave = onSave
     }
 
@@ -34,7 +44,7 @@ package struct NoteEditingDestinationView: View {
                 embedInNavigationStack: false
             )
         } else {
-            NoteEditorView(note: note, onSave: onSave)
+            NoteEditorView(note: note, deckID: deckID, resumeDraft: resumeDraft, onSave: onSave)
         }
     }
 }

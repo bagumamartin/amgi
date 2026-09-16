@@ -15,6 +15,7 @@ enum DeckDetailDestination: Equatable {
 @CasePathable
 enum DeckDetailSheet: Identifiable, Equatable {
     case addNote
+    case drafts
     case customStudy
     case stats
     case browse
@@ -24,6 +25,7 @@ enum DeckDetailSheet: Identifiable, Equatable {
     var id: String {
         switch self {
         case .addNote: "addNote"
+        case .drafts: "drafts"
         case .customStudy: "customStudy"
         case .stats: "stats"
         case .browse: "browse"

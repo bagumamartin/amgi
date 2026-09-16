@@ -11,7 +11,11 @@ package struct AddNoteView: View {
     @State private var model: AddNoteModel
     @State private var editingSession = NoteFieldEditingSession()
     @State private var showAddedConfirmation = false
+    @State private var parkedAddDraft: NoteComposerDraft?
+    @State private var showParkedDraftPrompt = false
     private let initialDraft: AddNoteDraft?
+    private let composerDraft: NoteComposerDraft?
+    @State private var sessionDraftID: UUID
     let onSave: () -> Void
 
     package init(
@@ -19,9 +23,27 @@ package struct AddNoteView: View {
         initialDraft: AddNoteDraft? = nil,
         onSave: @escaping () -> Void
     ) {
-        let resolved = preselectedDeckId ?? initialDraft?.deckID.map { DeckID($0) }
+        self.init(
+            preselectedDeckId: preselectedDeckId,
+            initialDraft: initialDraft,
+            composerDraft: nil,
+            onSave: onSave
+        )
+    }
+
+    init(
+        preselectedDeckId: DeckID? = nil,
+        initialDraft: AddNoteDraft? = nil,
+        composerDraft: NoteComposerDraft?,
+        onSave: @escaping () -> Void
+    ) {
+        let resolved = preselectedDeckId
+            ?? composerDraft?.deckID.map { DeckID($0) }
+            ?? initialDraft?.deckID.map { DeckID($0) }
         _model = State(initialValue: AddNoteModel(preselectedDeckId: resolved, initialDraft: initialDraft))
         self.initialDraft = initialDraft
+        self.composerDraft = composerDraft
+        _sessionDraftID = State(initialValue: composerDraft?.id ?? UUID())
         self.onSave = onSave
     }
 
@@ -48,6 +70,20 @@ package struct AddNoteView: View {
                 #if os(macOS)
                 .onExitCommand { requestDismiss() }
                 #endif
+                .confirmationDialog(
+                    "Unfinished note",
+                    isPresented: $showParkedDraftPrompt,
+                    titleVisibility: .visible
+                ) {
+                    Button("Resume") {
+                        resumeParkedDraft()
+                    }
+                    Button("Start New") {
+                        startNewLeavingParkedDraft()
+                    }
+                } message: {
+                    Text("You have a draft for this deck. Resume it, or start a new note — the draft stays in Drafts until you add it or delete it.")
+                }
         }
     }
 
@@ -61,7 +97,8 @@ package struct AddNoteView: View {
             Button("Add") {
                 Task {
                     if await model.save() {
-                        NoteComposerDraftStore.clearAdd()
+                        NoteComposerDraftStore.deleteAdd(id: sessionDraftID)
+                        sessionDraftID = UUID()
                         onSave()
                         model.resetForNextNote()
                         withAnimation(AmgiMotion.momentum) { showAddedConfirmation = true }
@@ -83,6 +120,8 @@ package struct AddNoteView: View {
 
     private func handleLeadingAction() {
         if model.hasFieldContent {
+            NoteComposerDraftStore.deleteAdd(id: sessionDraftID)
+            sessionDraftID = UUID()
             model.resetForNextNote()
             return
         }
@@ -91,9 +130,12 @@ package struct AddNoteView: View {
 
     private func persistAddDraft() {
         if model.hasFieldContent {
-            NoteComposerDraftStore.saveAdd(model.makeDraft())
+            var draft = model.makeDraft()
+            draft.id = sessionDraftID
+            draft.updatedAt = Date()
+            NoteComposerDraftStore.saveAdd(draft)
         } else {
-            NoteComposerDraftStore.clearAdd()
+            NoteComposerDraftStore.deleteAdd(id: sessionDraftID)
         }
     }
 
@@ -103,11 +145,31 @@ package struct AddNoteView: View {
 
     private func bootstrap() async {
         await model.loadData()
-        if initialDraft == nil, let draft = NoteComposerDraftStore.loadAdd() {
-            model.applyDraft(draft)
+        if let composerDraft {
+            model.applyDraft(composerDraft)
+            sessionDraftID = composerDraft.id
+        } else if initialDraft == nil, model.wasOpenedOnADeck,
+                  let existing = NoteComposerDraftStore.addDrafts(inDeckIDs: [model.selectedDeckId.rawValue]).first {
+            parkedAddDraft = existing
+            sessionDraftID = UUID()
+            showParkedDraftPrompt = true
         }
         editingSession.showsClozeTools = model.isClozeNotetype
         editingSession.clozeFields = model.fieldValues
+    }
+
+    private func resumeParkedDraft() {
+        guard let parkedAddDraft else { return }
+        sessionDraftID = parkedAddDraft.id
+        model.applyDraft(parkedAddDraft)
+        editingSession.clozeFields = model.fieldValues
+        self.parkedAddDraft = nil
+    }
+
+    private func startNewLeavingParkedDraft() {
+        parkedAddDraft = nil
+        sessionDraftID = UUID()
+        model.resetForNextNote()
     }
 
     @ViewBuilder

@@ -24,6 +24,7 @@ package struct BrowseView: View {
     @State private var model: BrowseModel
     @State private var selectionState = BrowseSelectionState()
     @State private var showAddNote = false
+    @State private var showDrafts = false
     @State private var showAddImageOcclusion = false
     @State private var showTagSheet = false
     @State private var showDeleteConfirm = false
@@ -191,6 +192,7 @@ package struct BrowseView: View {
                 notetypeName: model.focusedNote.flatMap { model.notetypeNames[$0.mid] },
                 infoCard: model.focusedCard,
                 firstCardID: model.focusedCardID,
+                deckID: model.activeDeck?.id,
                 onSaved: { Task { await model.performSearch() } }
             )
             .id(model.focusedNote?.id ?? NoteID(0))
@@ -261,6 +263,7 @@ package struct BrowseView: View {
                     notetypeName: model.focusedNote.flatMap { model.notetypeNames[$0.mid] },
                     infoCard: model.focusedCard,
                     firstCardID: model.focusedCardID,
+                    deckID: model.activeDeck?.id,
                     onSaved: { Task { await model.performSearch() } }
                 )
                 .id(model.focusedNote?.id ?? NoteID(0))
@@ -436,6 +439,9 @@ package struct BrowseView: View {
                 Task { await model.performSearch() }
             }
         }
+        .sheet(isPresented: $showDrafts) {
+            NoteDraftsView(deckIDs: model.activeDeck.map { [$0.id.rawValue] })
+        }
         .sheet(isPresented: $showAddImageOcclusion) {
             AddImageOcclusionNoteView { Task { await model.performSearch() } }
         }
@@ -570,6 +576,11 @@ package struct BrowseView: View {
             activeSheet = .filterRail
         } label: {
             Label("Filter Rail…", systemImage: "line.3.horizontal.decrease.circle")
+        }
+        Button {
+            showDrafts = true
+        } label: {
+            Label("Drafts", systemImage: "doc.text")
         }
         Button {
             Task { await refreshNotetypeFields() }
