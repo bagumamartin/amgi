@@ -1,5 +1,8 @@
 import SwiftUI
 import AmgiTheme
+import AmgiUI
+import AnkiClients
+import Dependencies
 #if canImport(UIKit)
 import UIKit
 #elseif canImport(AppKit)
@@ -56,8 +59,12 @@ private struct NoteFieldUIKitHost: UIViewRepresentable {
     var session: NoteFieldEditingSession
     var palette: Palette
 
+    @Dependency(\.mediaClient) private var mediaClient
+
     func makeCoordinator() -> Coordinator {
-        Coordinator(htmlText: $htmlText, session: session, fieldIndex: fieldIndex, palette: palette)
+        let coordinator = Coordinator(htmlText: $htmlText, session: session, fieldIndex: fieldIndex, palette: palette)
+        coordinator.resolveImageURL = { [mediaClient] name in mediaClient.localURL(name) }
+        return coordinator
     }
 
     func makeUIView(context: Context) -> NoteFieldTextView {
@@ -77,7 +84,7 @@ private struct NoteFieldUIKitHost: UIViewRepresentable {
         context.coordinator.load(htmlText, preservesSourceHTML: preservesSourceHTML)
 
         let accessory = NoteFieldFormatAccessory { [weak coordinator = context.coordinator] action in
-            coordinator?.perform(action)
+            coordinator?.session.perform(action)
         }
         textView.formatAccessory = accessory
         context.coordinator.accessory = accessory
@@ -98,8 +105,17 @@ private struct NoteFieldUIKitHost: UIViewRepresentable {
         context.coordinator.fieldIndex = fieldIndex
         context.coordinator.session = session
         context.coordinator.palette = palette
+        context.coordinator.resolveImageURL = { mediaClient.localURL($0) }
         uiView.accessoryEnabled = !session.hasHardwareKeyboard
         context.coordinator.refreshAccessory()
+
+        let source = session.htmlSourceFields.contains(fieldIndex)
+        if source != context.coordinator.isShowingHTMLSource {
+            context.coordinator.commit()
+            context.coordinator.isShowingHTMLSource = source
+            context.coordinator.load(htmlText, preservesSourceHTML: source)
+            return
+        }
 
         if context.coordinator.lastAppliedFocusGeneration != focusGeneration {
             context.coordinator.lastAppliedFocusGeneration = focusGeneration
@@ -109,7 +125,7 @@ private struct NoteFieldUIKitHost: UIViewRepresentable {
         }
 
         guard htmlText != context.coordinator.lastHTML else { return }
-        context.coordinator.load(htmlText, preservesSourceHTML: preservesSourceHTML)
+        context.coordinator.load(htmlText, preservesSourceHTML: context.coordinator.isShowingHTMLSource)
     }
 
     final class Coordinator: NSObject, UITextViewDelegate, NoteFieldFormatResponder {
@@ -122,6 +138,8 @@ private struct NoteFieldUIKitHost: UIViewRepresentable {
         var lastHTML: String = ""
         var isEditing = false
         var lastAppliedFocusGeneration = 0
+        var isShowingHTMLSource = false
+        var resolveImageURL: (String) -> URL? = { _ in nil }
         private let baseFont = NoteFieldHTML.defaultFont()
 
         init(
@@ -145,14 +163,20 @@ private struct NoteFieldUIKitHost: UIViewRepresentable {
             let attributed: NSAttributedString
             if preservesSourceHTML {
                 attributed = NSAttributedString(
-                    string: NoteFieldHTML.normalizeMathJax(html),
-                    attributes: NoteFieldHTML.attributes(for: .init(), font: baseFont)
+                    string: html,
+                    attributes: [
+                        .font: UIFont.monospacedSystemFont(ofSize: baseFont.pointSize, weight: .regular),
+                        .foregroundColor: UIColor.label,
+                    ]
                 )
             } else {
                 attributed = NoteFieldHTML.attributedString(from: html, font: baseFont)
             }
-            textView.attributedText = attributed
+            textView.textStorage.setAttributedString(attributed)
             lastHTML = html
+            if !preservesSourceHTML {
+                hydrateImages()
+            }
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) {
@@ -192,8 +216,50 @@ private struct NoteFieldUIKitHost: UIViewRepresentable {
             return NoteFieldHTML.listKind(in: textView.attributedText, at: location)
         }
 
+        var currentAlignment: NoteFieldHTML.Alignment {
+            guard let textView else { return .unspecified }
+            if textView.attributedText.length == 0 {
+                return NoteFieldHTML.blockStyle(from: textView.typingAttributes).alignment
+            }
+            let location = max(0, min(textView.selectedRange.location, max(0, textView.attributedText.length - 1)))
+            return NoteFieldHTML.blockStyle(in: textView.attributedText, at: location).alignment
+        }
+
+        var currentIndent: Int {
+            guard let textView else { return 0 }
+            if textView.attributedText.length == 0 {
+                return NoteFieldHTML.blockStyle(from: textView.typingAttributes).indent
+            }
+            let location = max(0, min(textView.selectedRange.location, max(0, textView.attributedText.length - 1)))
+            return NoteFieldHTML.blockStyle(in: textView.attributedText, at: location).indent
+        }
+
+        var isHTMLSource: Bool {
+            session.htmlSourceFields.contains(fieldIndex)
+        }
+
+        func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+            guard !isHTMLSource, text == "\n" else { return true }
+            let attributed = NSMutableAttributedString(attributedString: textView.attributedText)
+            guard let selected = NoteFieldHTML.handleReturn(on: attributed, range: range, font: baseFont) else {
+                return true
+            }
+            textView.attributedText = attributed
+            textView.selectedRange = selected
+            commit()
+            session.refreshChrome()
+            refreshAccessory()
+            return false
+        }
+
         func perform(_ action: NoteFieldFormatAction) {
             guard let textView else { return }
+            if isHTMLSource {
+                switch action {
+                case .undo, .redo, .toggleHTMLSource, .dismiss, .camera, .photoLibrary, .attach: break
+                default: return
+                }
+            }
             switch action {
             case .undo: textView.undoManager?.undo()
             case .redo: textView.undoManager?.redo()
@@ -206,14 +272,33 @@ private struct NoteFieldUIKitHost: UIViewRepresentable {
             case .code: toggle(\.code)
             case .math: wrapPlain(#"\("#, suffix: #"\)"#)
             case .clear: clearFormatting()
-            case .bulletList: toggleList(.bullet)
-            case .numberedList: toggleList(.numbered)
+            case .list(let kind): toggleList(kind)
+            case .align(let alignment): applyAlignment(alignment)
+            case .indent: changeIndent(1)
+            case .outdent: changeIndent(-1)
+            case .toggleHTMLSource:
+                commit()
+                if session.htmlSourceFields.contains(fieldIndex) {
+                    session.htmlSourceFields.remove(fieldIndex)
+                } else {
+                    session.htmlSourceFields.insert(fieldIndex)
+                }
+                isShowingHTMLSource = isHTMLSource
+                load(htmlText, preservesSourceHTML: isHTMLSource)
             case .cloze: wrapCloze(increment: true)
             case .clozeSame: wrapCloze(increment: false)
-            case .camera, .photoLibrary, .attach: break
+            case .camera:
+                session.perform(.camera)
+            case .photoLibrary:
+                session.perform(.photoLibrary)
+            case .attach:
+                session.perform(.attach)
             case .dismiss: textView.resignFirstResponder()
             }
-            commit()
+            switch action {
+            case .toggleHTMLSource, .camera, .photoLibrary, .attach: break
+            default: commit()
+            }
             session.refreshChrome()
             refreshAccessory()
         }
@@ -226,13 +311,55 @@ private struct NoteFieldUIKitHost: UIViewRepresentable {
                 style: currentStyle,
                 listKind: currentListKind
             )
-            let attributed = NSMutableAttributedString(attributedString: textView.attributedText)
-            attributed.replaceCharacters(in: textView.selectedRange, with: placeholder)
+            textView.textStorage.replaceCharacters(in: textView.selectedRange, with: placeholder)
             let cursor = textView.selectedRange.location + placeholder.length
-            textView.attributedText = attributed
             textView.selectedRange = NSRange(location: cursor, length: 0)
             commit()
             session.refreshChrome()
+            hydrateImages()
+        }
+
+        func hydrateImages() {
+            guard !isShowingHTMLSource, let textView else { return }
+            let storage = textView.textStorage
+            var filenames: [String] = []
+            storage.enumerateAttribute(
+                .attachment,
+                in: NSRange(location: 0, length: storage.length)
+            ) { value, _, _ in
+                guard let attachment = value as? NoteFieldImageAttachment else { return }
+                filenames.append(attachment.filename)
+            }
+            for filename in filenames {
+                guard let url = resolveImageURL(filename) else { continue }
+                if let cached = DownsampledImageLoader.cached(url: url, maxPixelSize: 1400) {
+                    applyLoadedImage(cached, filename: filename)
+                    continue
+                }
+                Task { [weak self] in
+                    let image = await DownsampledImageLoader.load(url: url, maxPixelSize: 1400)
+                    await MainActor.run {
+                        self?.applyLoadedImage(image, filename: filename)
+                    }
+                }
+            }
+        }
+
+        func applyLoadedImage(_ image: UIImage?, filename: String) {
+            guard let image, let textView else { return }
+            let framed = NoteFieldHTML.framedImage(image)
+            let storage = textView.textStorage
+            storage.enumerateAttribute(
+                .attachment,
+                in: NSRange(location: 0, length: storage.length)
+            ) { value, range, _ in
+                guard let attachment = value as? NoteFieldImageAttachment,
+                      attachment.filename == filename else { return }
+                attachment.image = framed
+                textView.layoutManager.invalidateLayout(forCharacterRange: range, actualCharacterRange: nil)
+                textView.layoutManager.invalidateDisplay(forCharacterRange: range)
+            }
+            textView.invalidateIntrinsicContentSize()
         }
 
         func insertSound(filename: String) {
@@ -271,20 +398,13 @@ private struct NoteFieldUIKitHost: UIViewRepresentable {
         }
 
         fileprivate func refreshAccessory() {
-            accessory?.update(
-                style: currentStyle,
-                canUndo: canUndo,
-                canRedo: canRedo,
-                listKind: currentListKind,
-                showsCloze: session.showsClozeTools,
-                palette: palette
-            )
+            accessory?.update(chrome: session.chrome, palette: palette)
             textView?.accessoryEnabled = !session.hasHardwareKeyboard
         }
 
-        private func commit() {
+        fileprivate func commit() {
             guard let textView else { return }
-            let encoded = NoteFieldHTML.encode(textView.attributedText)
+            let encoded = isHTMLSource ? (textView.text ?? "") : NoteFieldHTML.encode(textView.attributedText)
             lastHTML = encoded
             htmlText = encoded
         }
@@ -292,8 +412,34 @@ private struct NoteFieldUIKitHost: UIViewRepresentable {
         private func toggleList(_ kind: NoteFieldHTML.ListKind) {
             guard let textView else { return }
             let attributed = NSMutableAttributedString(attributedString: textView.attributedText)
+            let selected = NoteFieldHTML.toggleListKind(
+                on: attributed,
+                range: textView.selectedRange,
+                kind: kind,
+                font: baseFont
+            )
+            textView.attributedText = attributed
+            textView.selectedRange = selected
+            let block = NoteFieldHTML.blockStyle(in: attributed, at: min(selected.location, max(0, attributed.length - 1)))
+            textView.typingAttributes = NoteFieldHTML.attributes(for: currentStyle, font: baseFont, block: block)
+        }
+
+        private func applyAlignment(_ alignment: NoteFieldHTML.Alignment) {
+            guard let textView else { return }
+            let attributed = NSMutableAttributedString(attributedString: textView.attributedText)
             let selected = textView.selectedRange
-            NoteFieldHTML.toggleListKind(on: attributed, range: selected, kind: kind, font: baseFont)
+            NoteFieldHTML.applyAlignment(on: attributed, range: selected, alignment: alignment, font: baseFont)
+            textView.attributedText = attributed
+            textView.selectedRange = selected
+            let block = NoteFieldHTML.blockStyle(in: attributed, at: min(selected.location, max(0, attributed.length - 1)))
+            textView.typingAttributes = NoteFieldHTML.attributes(for: currentStyle, font: baseFont, block: block)
+        }
+
+        private func changeIndent(_ delta: Int) {
+            guard let textView else { return }
+            let attributed = NSMutableAttributedString(attributedString: textView.attributedText)
+            let selected = textView.selectedRange
+            NoteFieldHTML.changeIndent(on: attributed, range: selected, delta: delta, font: baseFont)
             textView.attributedText = attributed
             textView.selectedRange = selected
         }
@@ -406,8 +552,12 @@ private struct NoteFieldAppKitHost: NSViewRepresentable {
     var session: NoteFieldEditingSession
     var palette: Palette
 
+    @Dependency(\.mediaClient) private var mediaClient
+
     func makeCoordinator() -> Coordinator {
-        Coordinator(htmlText: $htmlText, session: session, fieldIndex: fieldIndex)
+        let coordinator = Coordinator(htmlText: $htmlText, session: session, fieldIndex: fieldIndex)
+        coordinator.resolveImageURL = { [mediaClient] name in mediaClient.localURL(name) }
+        return coordinator
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -455,6 +605,14 @@ private struct NoteFieldAppKitHost: NSViewRepresentable {
         _ = palette
         context.coordinator.attach(textView: textView)
 
+        let source = session.htmlSourceFields.contains(fieldIndex)
+        if source != context.coordinator.isShowingHTMLSource {
+            context.coordinator.commit()
+            context.coordinator.isShowingHTMLSource = source
+            context.coordinator.load(htmlText, preservesSourceHTML: source)
+            return
+        }
+
         if context.coordinator.lastAppliedFocusGeneration != focusGeneration {
             context.coordinator.lastAppliedFocusGeneration = focusGeneration
             if fieldIndex == 0, focusGeneration > 0 {
@@ -462,8 +620,9 @@ private struct NoteFieldAppKitHost: NSViewRepresentable {
             }
         }
 
+        context.coordinator.resolveImageURL = { mediaClient.localURL($0) }
         guard htmlText != context.coordinator.lastHTML else { return }
-        context.coordinator.load(htmlText, preservesSourceHTML: preservesSourceHTML)
+        context.coordinator.load(htmlText, preservesSourceHTML: context.coordinator.isShowingHTMLSource)
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate, NoteFieldFormatResponder {
@@ -474,6 +633,8 @@ private struct NoteFieldAppKitHost: NSViewRepresentable {
         var lastHTML: String = ""
         var isEditing = false
         var lastAppliedFocusGeneration = 0
+        var isShowingHTMLSource = false
+        var resolveImageURL: (String) -> URL? = { _ in nil }
         private let baseFont = NoteFieldHTML.defaultFont()
 
         init(htmlText: Binding<String>, session: NoteFieldEditingSession, fieldIndex: Int) {
@@ -496,6 +657,9 @@ private struct NoteFieldAppKitHost: NSViewRepresentable {
                 )
             }
             lastHTML = html
+            if !preservesSourceHTML {
+                hydrateImages()
+            }
         }
 
         func textDidBeginEditing(_ notification: Notification) {
@@ -532,8 +696,41 @@ private struct NoteFieldAppKitHost: NSViewRepresentable {
             return NoteFieldHTML.listKind(in: storage, at: location)
         }
 
+        var currentAlignment: NoteFieldHTML.Alignment {
+            guard let textView, let storage = textView.textStorage, storage.length > 0 else { return .unspecified }
+            let location = max(0, min(textView.selectedRange().location, storage.length - 1))
+            return NoteFieldHTML.blockStyle(in: storage, at: location).alignment
+        }
+
+        var currentIndent: Int {
+            guard let textView, let storage = textView.textStorage, storage.length > 0 else { return 0 }
+            let location = max(0, min(textView.selectedRange().location, storage.length - 1))
+            return NoteFieldHTML.blockStyle(in: storage, at: location).indent
+        }
+
+        var isHTMLSource: Bool {
+            session.htmlSourceFields.contains(fieldIndex)
+        }
+
+        func textView(_ textView: NSTextView, shouldChangeTextIn range: NSRange, replacementString: String?) -> Bool {
+            guard !isHTMLSource, replacementString == "\n", let storage = textView.textStorage else { return true }
+            guard let selected = NoteFieldHTML.handleReturn(on: storage, range: range, font: baseFont) else {
+                return true
+            }
+            textView.setSelectedRange(selected)
+            commit()
+            session.refreshChrome()
+            return false
+        }
+
         func perform(_ action: NoteFieldFormatAction) {
             guard let textView else { return }
+            if isHTMLSource {
+                switch action {
+                case .undo, .redo, .toggleHTMLSource, .dismiss, .camera, .photoLibrary, .attach: break
+                default: return
+                }
+            }
             switch action {
             case .undo: textView.undoManager?.undo()
             case .redo: textView.undoManager?.redo()
@@ -546,14 +743,33 @@ private struct NoteFieldAppKitHost: NSViewRepresentable {
             case .code: toggle(\.code)
             case .math: wrapPlain(#"\("#, suffix: #"\)"#)
             case .clear: clearFormatting()
-            case .bulletList: toggleList(.bullet)
-            case .numberedList: toggleList(.numbered)
+            case .list(let kind): toggleList(kind)
+            case .align(let alignment): applyAlignment(alignment)
+            case .indent: changeIndent(1)
+            case .outdent: changeIndent(-1)
+            case .toggleHTMLSource:
+                commit()
+                if session.htmlSourceFields.contains(fieldIndex) {
+                    session.htmlSourceFields.remove(fieldIndex)
+                } else {
+                    session.htmlSourceFields.insert(fieldIndex)
+                }
+                isShowingHTMLSource = isHTMLSource
+                load(htmlText, preservesSourceHTML: isHTMLSource)
             case .cloze: wrapCloze(increment: true)
             case .clozeSame: wrapCloze(increment: false)
-            case .camera, .photoLibrary, .attach: break
+            case .camera:
+                session.perform(.camera)
+            case .photoLibrary:
+                session.perform(.photoLibrary)
+            case .attach:
+                session.perform(.attach)
             case .dismiss: textView.window?.makeFirstResponder(nil)
             }
-            commit()
+            switch action {
+            case .toggleHTMLSource, .camera, .photoLibrary, .attach: break
+            default: commit()
+            }
             session.refreshChrome()
         }
 
@@ -568,6 +784,47 @@ private struct NoteFieldAppKitHost: NSViewRepresentable {
             storage.replaceCharacters(in: textView.selectedRange(), with: placeholder)
             commit()
             session.refreshChrome()
+            hydrateImages()
+        }
+
+        func hydrateImages() {
+            guard !isShowingHTMLSource, let textView, let storage = textView.textStorage else { return }
+            var filenames: [String] = []
+            storage.enumerateAttribute(
+                .attachment,
+                in: NSRange(location: 0, length: storage.length)
+            ) { value, _, _ in
+                guard let attachment = value as? NoteFieldImageAttachment else { return }
+                filenames.append(attachment.filename)
+            }
+            for filename in filenames {
+                guard let url = resolveImageURL(filename) else { continue }
+                if let cached = DownsampledImageLoader.cached(url: url, maxPixelSize: 1400) {
+                    applyLoadedImage(cached, filename: filename)
+                    continue
+                }
+                Task { [weak self] in
+                    let image = await DownsampledImageLoader.load(url: url, maxPixelSize: 1400)
+                    await MainActor.run {
+                        self?.applyLoadedImage(image, filename: filename)
+                    }
+                }
+            }
+        }
+
+        func applyLoadedImage(_ image: NSImage?, filename: String) {
+            guard let image, let textView, let storage = textView.textStorage else { return }
+            let framed = NoteFieldHTML.framedImage(image)
+            storage.enumerateAttribute(
+                .attachment,
+                in: NSRange(location: 0, length: storage.length)
+            ) { value, _, _ in
+                guard let attachment = value as? NoteFieldImageAttachment,
+                      attachment.filename == filename else { return }
+                attachment.image = framed
+            }
+            textView.needsLayout = true
+            textView.needsDisplay = true
         }
 
         func insertSound(filename: String) {
@@ -576,21 +833,34 @@ private struct NoteFieldAppKitHost: NSViewRepresentable {
             session.refreshChrome()
         }
 
-        private func commit() {
+        fileprivate func commit() {
             guard let textView, let storage = textView.textStorage else { return }
-            let encoded = NoteFieldHTML.encode(storage)
+            let encoded = isHTMLSource ? textView.string : NoteFieldHTML.encode(storage)
             lastHTML = encoded
             htmlText = encoded
         }
 
         private func toggleList(_ kind: NoteFieldHTML.ListKind) {
             guard let textView, let storage = textView.textStorage else { return }
-            NoteFieldHTML.toggleListKind(
+            let selected = NoteFieldHTML.toggleListKind(
                 on: storage,
                 range: textView.selectedRange(),
                 kind: kind,
                 font: baseFont
             )
+            textView.setSelectedRange(selected)
+        }
+
+        private func applyAlignment(_ alignment: NoteFieldHTML.Alignment) {
+            guard let textView, let storage = textView.textStorage else { return }
+            let selected = textView.selectedRange()
+            NoteFieldHTML.applyAlignment(on: storage, range: selected, alignment: alignment, font: baseFont)
+            textView.setSelectedRange(selected)
+        }
+
+        private func changeIndent(_ delta: Int) {
+            guard let textView, let storage = textView.textStorage else { return }
+            NoteFieldHTML.changeIndent(on: storage, range: textView.selectedRange(), delta: delta, font: baseFont)
         }
 
         private func wrapCloze(increment: Bool) {

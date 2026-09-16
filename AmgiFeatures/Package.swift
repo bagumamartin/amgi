@@ -165,6 +165,7 @@ let package = Package(
                 .product(name: "AnkiKit", package: "amgi"),
                 .product(name: "AnkiClients", package: "amgi"),
                 .product(name: "AnkiServices", package: "amgi"),
+                .product(name: "AmgiCardWeb", package: "amgi"),
                 .product(name: "AmgiTheme", package: "AmgiUI"),
                 .product(name: "AmgiUI", package: "AmgiUI"),
                 .product(name: "Dependencies", package: "swift-dependencies"),

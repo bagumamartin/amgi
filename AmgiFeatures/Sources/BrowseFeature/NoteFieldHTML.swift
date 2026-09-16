@@ -10,18 +10,130 @@ import AppKit
 enum NoteFieldHTML {
     #if canImport(UIKit)
     typealias Font = UIFont
+    typealias PlatformImage = UIImage
     #else
     typealias Font = NSFont
+    typealias PlatformImage = NSImage
     #endif
+
+    static let zeroWidthSpace = "\u{200B}"
+    static let indentStep: CGFloat = 24
+    static let maxIndent = 6
+
+    static let listKindKey = NSAttributedString.Key("amgi.noteField.listKind")
+    static let alignmentKey = NSAttributedString.Key("amgi.noteField.alignment")
+    static let indentKey = NSAttributedString.Key("amgi.noteField.indent")
+    static let imageFilenameKey = NSAttributedString.Key("amgi.noteField.imageFilename")
+
+    enum Alignment: Int, Equatable, Sendable {
+        case unspecified = 0
+        case left = 1
+        case center = 2
+        case right = 3
+
+        var css: String {
+            switch self {
+            case .unspecified, .left: "left"
+            case .center: "center"
+            case .right: "right"
+            }
+        }
+
+        #if canImport(UIKit)
+        var nsTextAlignment: NSTextAlignment {
+            switch self {
+            case .unspecified: .natural
+            case .left: .left
+            case .center: .center
+            case .right: .right
+            }
+        }
+        #else
+        var nsTextAlignment: NSTextAlignment {
+            switch self {
+            case .unspecified: .natural
+            case .left: .left
+            case .center: .center
+            case .right: .right
+            }
+        }
+        #endif
+    }
 
     enum ListKind: Int, Equatable, Sendable {
         case none = 0
         case bullet = 1
         case numbered = 2
-    }
+        case circle = 3
+        case square = 4
+        case lowerAlpha = 5
+        case upperAlpha = 6
+        case lowerRoman = 7
+        case upperRoman = 8
 
-    static let listKindKey = NSAttributedString.Key("amgi.noteField.listKind")
-    static let imageFilenameKey = NSAttributedString.Key("amgi.noteField.imageFilename")
+        var isBullet: Bool {
+            self == .bullet || self == .circle || self == .square
+        }
+
+        var isNumbered: Bool {
+            switch self {
+            case .numbered, .lowerAlpha, .upperAlpha, .lowerRoman, .upperRoman: true
+            default: false
+            }
+        }
+
+        var htmlTag: String { isNumbered ? "ol" : "ul" }
+
+        var cssType: String {
+            switch self {
+            case .none: "none"
+            case .bullet: "disc"
+            case .circle: "circle"
+            case .square: "square"
+            case .numbered: "decimal"
+            case .lowerAlpha: "lower-alpha"
+            case .upperAlpha: "upper-alpha"
+            case .lowerRoman: "lower-roman"
+            case .upperRoman: "upper-roman"
+            }
+        }
+
+        var markerFormat: NSTextList.MarkerFormat {
+            switch self {
+            case .none, .bullet: .disc
+            case .circle: .circle
+            case .square: .square
+            case .numbered: .decimal
+            case .lowerAlpha: .lowercaseAlpha
+            case .upperAlpha: .uppercaseAlpha
+            case .lowerRoman: .lowercaseRoman
+            case .upperRoman: .uppercaseRoman
+            }
+        }
+
+        static func fromCSS(_ value: String) -> ListKind? {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            switch trimmed {
+            case "A": return .upperAlpha
+            case "I": return .upperRoman
+            case "a": return .lowerAlpha
+            case "i": return .lowerRoman
+            case "1": return .numbered
+            default: break
+            }
+            switch trimmed.lowercased() {
+            case "disc", "disc-outside", "disc-inside": return .bullet
+            case "circle": return .circle
+            case "square", "box": return .square
+            case "decimal", "decimal-leading-zero": return .numbered
+            case "lower-alpha", "lower-latin": return .lowerAlpha
+            case "upper-alpha", "upper-latin": return .upperAlpha
+            case "lower-roman": return .lowerRoman
+            case "upper-roman": return .upperRoman
+            default: return nil
+            }
+        }
+    }
 
     struct Style: Equatable, Sendable {
         var bold = false
@@ -33,6 +145,12 @@ enum NoteFieldHTML {
         var code = false
     }
 
+    struct BlockStyle: Equatable, Sendable {
+        var listKind: ListKind = .none
+        var alignment: Alignment = .unspecified
+        var indent: Int = 0
+    }
+
     static func defaultFont() -> Font {
         #if canImport(UIKit)
         UIFont.preferredFont(forTextStyle: .body)
@@ -41,7 +159,6 @@ enum NoteFieldHTML {
         #endif
     }
 
-    /// Decode stored field HTML into attributed text for the editor.
     static func attributedString(
         from html: String,
         font: Font = defaultFont()
@@ -49,22 +166,24 @@ enum NoteFieldHTML {
         parse(normalizeMathJax(html), font: font)
     }
 
-    /// Encode editor attributed text back into Anki field HTML.
     static func encode(_ attributed: NSAttributedString) -> String {
         guard attributed.length > 0 else { return "" }
 
         var output = ""
-        var openList: ListKind = .none
+        var listStack: [(kind: ListKind, indent: Int)] = []
         let ns = attributed.string as NSString
         var location = 0
 
-        func closeList() {
-            switch openList {
-            case .bullet: output += "</ul>"
-            case .numbered: output += "</ol>"
-            case .none: break
+        func closeLists(downTo indent: Int) {
+            while let last = listStack.last, last.indent >= indent {
+                output += "</\(last.kind.htmlTag)>"
+                listStack.removeLast()
             }
-            openList = .none
+        }
+
+        func openList(_ kind: ListKind, indent: Int) {
+            output += "<\(kind.htmlTag) style=\"list-style-type: \(kind.cssType); text-align: left\">"
+            listStack.append((kind, indent))
         }
 
         while location < attributed.length {
@@ -73,36 +192,68 @@ enum NoteFieldHTML {
             if paragraph.length > 0, ns.character(at: paragraph.location + paragraph.length - 1) == 10 {
                 content.length -= 1
             }
-            let kind = listKind(in: attributed, at: paragraph.location)
-            if kind != openList {
-                closeList()
-                switch kind {
-                case .bullet: output += "<ul>"
-                case .numbered: output += "<ol>"
-                case .none: break
-                }
-                openList = kind
-            }
-            let encoded = encodeRuns(attributed, range: content)
-            if kind == .none {
-                output += encoded
-                if paragraph.location + paragraph.length < attributed.length {
-                    output += "<br>"
+            let block = blockStyle(in: attributed, at: min(paragraph.location, max(0, attributed.length - 1)))
+            if block.listKind == .none {
+                closeLists(downTo: 0)
+                let encoded = encodeRuns(attributed, range: content)
+                if block.alignment != .unspecified || block.indent > 0 {
+                    var css: [String] = []
+                    if block.alignment != .unspecified {
+                        css.append("text-align: \(block.alignment.css)")
+                    }
+                    if block.indent > 0 {
+                        css.append("margin-left: \(Int(CGFloat(block.indent) * indentStep))px")
+                    }
+                    output += "<div style=\"\(css.joined(separator: "; "))\">\(encoded)</div>"
+                } else {
+                    output += encoded
+                    if paragraph.location + paragraph.length < attributed.length {
+                        output += "<br>"
+                    }
                 }
             } else {
-                output += "<li>\(encoded)</li>"
+                let indent = max(0, block.indent)
+                while let last = listStack.last, last.indent > indent || (last.indent == indent && last.kind != block.listKind) {
+                    output += "</\(last.kind.htmlTag)>"
+                    listStack.removeLast()
+                }
+                while listStack.last.map({ $0.indent < indent }) ?? true {
+                    let nextIndent = (listStack.last?.indent ?? -1) + 1
+                    openList(block.listKind, indent: nextIndent)
+                }
+                if listStack.isEmpty {
+                    openList(block.listKind, indent: indent)
+                }
+                output += "<li>\(encodeRuns(attributed, range: content))</li>"
             }
             location = paragraph.location + paragraph.length
         }
-        closeList()
+        closeLists(downTo: 0)
         return output
     }
 
     static func listKind(in attributed: NSAttributedString, at location: Int) -> ListKind {
-        guard attributed.length > 0 else { return .none }
+        blockStyle(in: attributed, at: location).listKind
+    }
+
+    static func blockStyle(in attributed: NSAttributedString, at location: Int) -> BlockStyle {
+        guard attributed.length > 0 else { return .init() }
         let loc = min(max(0, location), attributed.length - 1)
-        let raw = attributed.attributes(at: loc, effectiveRange: nil)[listKindKey] as? Int
-        return ListKind(rawValue: raw ?? 0) ?? .none
+        return blockStyle(from: attributed.attributes(at: loc, effectiveRange: nil))
+    }
+
+    static func blockStyle(from attributes: [NSAttributedString.Key: Any]) -> BlockStyle {
+        var block = BlockStyle()
+        if let raw = attributes[listKindKey] as? Int {
+            block.listKind = ListKind(rawValue: raw) ?? .none
+        }
+        if let raw = attributes[alignmentKey] as? Int {
+            block.alignment = Alignment(rawValue: raw) ?? .unspecified
+        }
+        if let raw = attributes[indentKey] as? Int {
+            block.indent = min(maxIndent, max(0, raw))
+        }
+        return block
     }
 
     static func nextClozeOrdinal(in fields: [String]) -> Int {
@@ -129,7 +280,6 @@ enum NoteFieldHTML {
         return (updated, inner)
     }
 
-    /// Round-trip helper used by tests: HTML → attributes → HTML.
     static func roundTrip(_ source: String, font: Font = defaultFont()) -> String {
         encode(attributedString(from: source, font: font))
     }
@@ -178,7 +328,21 @@ enum NoteFieldHTML {
         return output
     }
 
-    static func attributes(for style: Style, font: Font, listKind: ListKind = .none) -> [NSAttributedString.Key: Any] {
+    static func attributes(
+        for style: Style,
+        font: Font,
+        block: BlockStyle = .init()
+    ) -> [NSAttributedString.Key: Any] {
+        attributes(for: style, font: font, listKind: block.listKind, alignment: block.alignment, indent: block.indent)
+    }
+
+    static func attributes(
+        for style: Style,
+        font: Font,
+        listKind: ListKind = .none,
+        alignment: Alignment = .unspecified,
+        indent: Int = 0
+    ) -> [NSAttributedString.Key: Any] {
         var attrs: [NSAttributedString.Key: Any] = [
             .font: fontByApplying(style, to: font),
             .foregroundColor: labelColor,
@@ -194,16 +358,45 @@ enum NoteFieldHTML {
         } else if style.subscript {
             attrs[.baselineOffset] = -(font.pointSize * 0.2)
         }
+
+        let depth = min(maxIndent, max(0, indent))
+        var block = BlockStyle(listKind: listKind, alignment: alignment, indent: depth)
         if listKind != .none {
-            attrs[listKindKey] = listKind.rawValue
-            let paragraph = NSMutableParagraphStyle()
-            let format: NSTextList.MarkerFormat = listKind == .numbered ? .decimal : .disc
-            paragraph.textLists = [NSTextList(markerFormat: format, options: 0)]
-            paragraph.headIndent = 28
-            paragraph.firstLineHeadIndent = 28
-            attrs[.paragraphStyle] = paragraph
+            block.alignment = .left
+        }
+        if block.listKind != .none {
+            attrs[listKindKey] = block.listKind.rawValue
+        }
+        if block.alignment != .unspecified {
+            attrs[alignmentKey] = block.alignment.rawValue
+        }
+        if block.indent > 0 {
+            attrs[indentKey] = block.indent
+        }
+
+        if block.listKind != .none || block.alignment != .unspecified || block.indent > 0 {
+            attrs[.paragraphStyle] = paragraphStyle(for: block)
         }
         return attrs
+    }
+
+    static func paragraphStyle(for block: BlockStyle) -> NSMutableParagraphStyle {
+        let paragraph = NSMutableParagraphStyle()
+        let depth = min(maxIndent, max(0, block.indent))
+        if block.listKind != .none {
+            let levels = max(1, depth + 1)
+            paragraph.textLists = (0..<levels).map { _ in
+                NSTextList(markerFormat: block.listKind.markerFormat, options: 0)
+            }
+            paragraph.alignment = .left
+            paragraph.headIndent = indentStep * CGFloat(levels)
+            paragraph.firstLineHeadIndent = indentStep * CGFloat(levels - 1)
+        } else {
+            paragraph.alignment = block.alignment.nsTextAlignment
+            paragraph.headIndent = indentStep * CGFloat(depth)
+            paragraph.firstLineHeadIndent = indentStep * CGFloat(depth)
+        }
+        return paragraph
     }
 
     static func style(from attributes: [NSAttributedString.Key: Any]) -> Style {
@@ -274,22 +467,22 @@ enum NoteFieldHTML {
         var index = html.startIndex
         var style = Style()
         var stack: [Style] = []
-        var listKind: ListKind = .none
-        var listStack: [ListKind] = []
+        var block = BlockStyle()
+        var blockStack: [BlockStyle] = []
 
         func append(_ text: String) {
-            let decoded = decodeEntities(text)
+            let decoded = decodeEntities(text).replacingOccurrences(of: zeroWidthSpace, with: "")
             guard !decoded.isEmpty else { return }
             result.append(NSAttributedString(
                 string: decoded,
-                attributes: attributes(for: style, font: font, listKind: listKind)
+                attributes: attributes(for: style, font: font, block: block)
             ))
         }
 
         func appendBreak() {
             result.append(NSAttributedString(
                 string: "\n",
-                attributes: attributes(for: style, font: font, listKind: listKind)
+                attributes: attributes(for: style, font: font, block: block)
             ))
         }
 
@@ -301,11 +494,17 @@ enum NoteFieldHTML {
                 }
                 let tagBody = String(html[html.index(after: index)..<close])
                 if let filename = imageSource(from: tagBody) {
-                    result.append(imagePlaceholder(filename: filename, font: font, style: style, listKind: listKind))
+                    result.append(imagePlaceholder(filename: filename, font: font, style: style, block: block))
                     index = html.index(after: close)
                     continue
                 }
-                switch apply(tag: tagBody, style: &style, stack: &stack, listKind: &listKind, listStack: &listStack) {
+                switch apply(
+                    tag: tagBody,
+                    style: &style,
+                    stack: &stack,
+                    block: &block,
+                    blockStack: &blockStack
+                ) {
                 case .none:
                     break
                 case .lineBreak:
@@ -343,8 +542,8 @@ enum NoteFieldHTML {
         tag raw: String,
         style: inout Style,
         stack: inout [Style],
-        listKind: inout ListKind,
-        listStack: inout [ListKind]
+        block: inout BlockStyle,
+        blockStack: inout [BlockStyle]
     ) -> TagEffect {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.hasPrefix("!") else { return .none }
@@ -357,23 +556,41 @@ enum NoteFieldHTML {
             .map(String.init)?
             .lowercased() ?? ""
         let isEmpty = trimmed.hasSuffix("/") || name == "br"
+        let attrs = tagAttributes(nameAndRest)
 
         switch (isClose, isEmpty, name) {
         case (_, true, "br"), (false, _, "br"):
             return .lineBreak
-        case (false, _, "ul"):
-            listStack.append(listKind)
-            listKind = .bullet
-        case (false, _, "ol"):
-            listStack.append(listKind)
-            listKind = .numbered
+        case (false, _, "ul"), (false, _, "ol"):
+            blockStack.append(block)
+            let parsed = listKind(from: attrs, ordered: name == "ol")
+            block.listKind = parsed
+            block.alignment = .left
+            if !blockStack.isEmpty, blockStack.last?.listKind != .none {
+                block.indent = min(maxIndent, block.indent + 1)
+            }
         case (true, _, "ul"), (true, _, "ol"):
-            listKind = listStack.popLast() ?? .none
+            block = blockStack.popLast() ?? BlockStyle()
         case (true, _, "div"), (true, _, "p"), (true, _, "li"),
              (true, _, "h1"), (true, _, "h2"), (true, _, "h3"),
              (true, _, "h4"), (true, _, "h5"), (true, _, "h6"):
+            if name != "li" {
+                block.alignment = blockStack.last?.alignment ?? .unspecified
+                if name == "div" || name == "p" {
+                    block.indent = blockStack.last?.indent ?? block.indent
+                }
+            }
             return .lineBreak
-        case (false, _, "div"), (false, _, "p"), (false, _, "li"),
+        case (false, _, "div"), (false, _, "p"):
+            blockStack.append(block)
+            if let alignment = alignment(from: attrs) {
+                block.alignment = alignment
+            }
+            if let margin = marginLeft(from: attrs) {
+                block.indent = min(maxIndent, Int((margin / indentStep).rounded()))
+            }
+            return .blockOpen
+        case (false, _, "li"),
              (false, _, "h1"), (false, _, "h2"), (false, _, "h3"),
              (false, _, "h4"), (false, _, "h5"), (false, _, "h6"):
             return .blockOpen
@@ -418,15 +635,8 @@ enum NoteFieldHTML {
         guard range.length > 0 else { return "" }
         var output = ""
         attributed.enumerateAttributes(in: range, options: []) { attributes, subrange, _ in
-            if let filename = attributes[imageFilenameKey] as? String, !filename.isEmpty {
-                output += #"<img src="\#(filename)">"#
-                return
-            }
-            if attributes[.attachment] != nil,
-               let filename = String(data: (attributes[.attachment] as? NSTextAttachment)?.contents ?? Data(), encoding: .utf8),
-               !filename.isEmpty
-            {
-                output += #"<img src="\#(filename)">"#
+            if let filename = imageFilename(from: attributes), !filename.isEmpty {
+                output += #"<img src="\#(escapeAttribute(filename))">"#
                 return
             }
             let raw = (attributed.string as NSString).substring(with: subrange)
@@ -461,29 +671,100 @@ enum NoteFieldHTML {
         return ns.substring(with: match.range(at: 1))
     }
 
+    static func imageFilename(from attributes: [NSAttributedString.Key: Any]) -> String? {
+        if let filename = attributes[imageFilenameKey] as? String, !filename.isEmpty {
+            return filename
+        }
+        if let attachment = attributes[.attachment] as? NoteFieldImageAttachment,
+           !attachment.filename.isEmpty
+        {
+            return attachment.filename
+        }
+        if let attachment = attributes[.attachment] as? NSTextAttachment,
+           let filename = attachment.fileWrapper?.preferredFilename,
+           !filename.isEmpty
+        {
+            return filename
+        }
+        return nil
+    }
+
+    private static func escapeAttribute(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+    }
+
     static func imagePlaceholder(
         filename: String,
         font: Font,
         style: Style = .init(),
-        listKind: ListKind = .none
+        listKind: ListKind = .none,
+        block: BlockStyle? = nil,
+        image: PlatformImage? = nil
     ) -> NSAttributedString {
-        let attachment = NSTextAttachment()
-        attachment.contents = filename.data(using: .utf8)
-        attachment.bounds = CGRect(x: 0, y: -4, width: font.pointSize * 1.4, height: font.pointSize * 1.4)
-        #if canImport(UIKit)
-        attachment.image = UIImage(systemName: "photo")
-        #else
-        attachment.image = NSImage(systemSymbolName: "photo", accessibilityDescription: filename)
-        #endif
-        var attrs = attributes(for: style, font: font, listKind: listKind)
+        let attachment = NoteFieldImageAttachment(filename: filename)
+        attachment.image = framedImage(image) ?? loadingPlaceholderImage()
+        var attrs = attributes(for: style, font: font, block: block ?? BlockStyle(listKind: listKind))
         attrs[imageFilenameKey] = filename
         let result = NSMutableAttributedString(attachment: attachment)
         result.addAttributes(attrs, range: NSRange(location: 0, length: result.length))
         return result
     }
 
+    static func framedImage(_ image: PlatformImage?) -> PlatformImage? {
+        guard let image else { return nil }
+        let radius: CGFloat = 14
+        #if canImport(UIKit)
+        let size = image.size
+        guard size.width > 0, size.height > 0 else { return image }
+        let format = UIGraphicsImageRendererFormat.default()
+        format.opaque = false
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        return renderer.image { _ in
+            let rect = CGRect(origin: .zero, size: size)
+            UIBezierPath(roundedRect: rect, cornerRadius: radius).addClip()
+            image.draw(in: rect)
+        }
+        #else
+        let size = image.size
+        guard size.width > 0, size.height > 0 else { return image }
+        let framed = NSImage(size: size)
+        framed.lockFocus()
+        NSGraphicsContext.current?.imageInterpolation = .high
+        NSBezierPath(roundedRect: NSRect(origin: .zero, size: size), xRadius: radius, yRadius: radius).addClip()
+        image.draw(in: NSRect(origin: .zero, size: size))
+        framed.unlockFocus()
+        return framed
+        #endif
+    }
+
+    private static func loadingPlaceholderImage() -> PlatformImage {
+        let size = CGSize(width: 280, height: 196)
+        #if canImport(UIKit)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.opaque = false
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        return renderer.image { _ in
+            let rect = CGRect(origin: .zero, size: size)
+            let path = UIBezierPath(roundedRect: rect, cornerRadius: 14)
+            UIColor.secondarySystemFill.setFill()
+            path.fill()
+        }
+        #else
+        let image = NSImage(size: size)
+        image.lockFocus()
+        NSColor.separatorColor.withAlphaComponent(0.35).setFill()
+        NSBezierPath(roundedRect: NSRect(origin: .zero, size: size), xRadius: 14, yRadius: 14).fill()
+        image.unlockFocus()
+        return image
+        #endif
+    }
+
     private static func escapeTextPreservingBreaks(_ text: String) -> String {
         text
+            .replacingOccurrences(of: zeroWidthSpace, with: "")
             .replacingOccurrences(of: "&", with: "&amp;")
             .replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;")
@@ -535,46 +816,270 @@ enum NoteFieldHTML {
         #endif
     }
 
-    static func toggleListKind(
-        on attributed: NSMutableAttributedString,
-        range: NSRange,
-        kind: ListKind,
-        font: Font
-    ) {
-        let ns = attributed.string as NSString
-        let full = range.length == 0
-            ? ns.paragraphRange(for: NSRange(location: range.location, length: 0))
-            : ns.paragraphRange(for: range)
-        let current = listKind(in: attributed, at: full.location)
-        let target: ListKind = current == kind ? .none : kind
-        var location = full.location
-        while location < full.location + full.length {
-            let paragraph = ns.paragraphRange(for: NSRange(location: location, length: 0))
-            var replacements: [(NSRange, [NSAttributedString.Key: Any])] = []
-            attributed.enumerateAttributes(in: paragraph, options: []) { attributes, subrange, _ in
-                let resolved = style(from: attributes)
-                var next = attributes
-                for (key, value) in self.attributes(for: resolved, font: font, listKind: target) {
-                    next[key] = value
-                }
-                if target == .none {
-                    next[listKindKey] = nil
-                    next[.paragraphStyle] = nil
-                }
-                replacements.append((subrange, next))
-            }
-            for (subrange, next) in replacements {
-                attributed.setAttributes(next, range: subrange)
-            }
-            location = paragraph.location + paragraph.length
-        }
-    }
-
     private static func isItalic(_ font: Font) -> Bool {
         #if canImport(UIKit)
         font.fontDescriptor.symbolicTraits.contains(.traitItalic)
         #else
         NSFontManager.shared.traits(of: font).contains(.italicFontMask)
         #endif
+    }
+
+    private static func tagAttributes(_ tag: String) -> [String: String] {
+        var result: [String: String] = [:]
+        let ns = tag as NSString
+        let regex = try? NSRegularExpression(
+            pattern: #"([a-zA-Z:-]+)\s*=\s*["']([^"']*)["']"#,
+            options: []
+        )
+        regex?.enumerateMatches(in: tag, range: NSRange(location: 0, length: ns.length)) { match, _, _ in
+            guard let match, match.numberOfRanges > 2 else { return }
+            let key = ns.substring(with: match.range(at: 1)).lowercased()
+            result[key] = ns.substring(with: match.range(at: 2))
+        }
+        return result
+    }
+
+    private static func cssMap(_ style: String) -> [String: String] {
+        var result: [String: String] = [:]
+        for part in style.split(separator: ";") {
+            let pair = part.split(separator: ":", maxSplits: 1)
+            guard pair.count == 2 else { continue }
+            result[pair[0].trimmingCharacters(in: .whitespaces).lowercased()] =
+                pair[1].trimmingCharacters(in: .whitespaces).lowercased()
+        }
+        return result
+    }
+
+    private static func alignment(from attrs: [String: String]) -> Alignment? {
+        if let align = attrs["align"] {
+            return alignmentValue(align)
+        }
+        if let style = attrs["style"] {
+            return alignmentValue(cssMap(style)["text-align"] ?? "")
+        }
+        return nil
+    }
+
+    private static func alignmentValue(_ raw: String) -> Alignment? {
+        switch raw.lowercased() {
+        case "left", "start": .left
+        case "center": .center
+        case "right", "end": .right
+        default: nil
+        }
+    }
+
+    private static func marginLeft(from attrs: [String: String]) -> CGFloat? {
+        guard let style = attrs["style"] else { return nil }
+        let css = cssMap(style)
+        guard let raw = css["margin-left"] ?? css["padding-left"] else { return nil }
+        let number = raw.replacingOccurrences(of: "px", with: "")
+        return Double(number).map { CGFloat($0) }
+    }
+
+    private static func listKind(from attrs: [String: String], ordered: Bool) -> ListKind {
+        if let type = attrs["type"], let parsed = ListKind.fromCSS(type) {
+            return parsed
+        }
+        if let style = attrs["style"], let type = cssMap(style)["list-style-type"], let parsed = ListKind.fromCSS(type) {
+            return parsed
+        }
+        return ordered ? .numbered : .bullet
+    }
+
+    static func toggleListKind(
+        on attributed: NSMutableAttributedString,
+        range: NSRange,
+        kind: ListKind,
+        font: Font
+    ) -> NSRange {
+        ensureEditableParagraph(in: attributed, font: font)
+        let ns = attributed.string as NSString
+        let safeLocation = min(max(0, range.location), attributed.length)
+        let full = range.length == 0
+            ? ns.paragraphRange(for: NSRange(location: min(safeLocation, max(0, attributed.length - 1)), length: 0))
+            : ns.paragraphRange(for: NSRange(location: range.location, length: min(range.length, attributed.length - range.location)))
+        let current = blockStyle(in: attributed, at: full.location).listKind
+        let target: ListKind = current == kind ? .none : kind
+        applyBlock(on: attributed, range: full, font: font) { block in
+            block.listKind = target
+            if target != .none {
+                block.alignment = .left
+            }
+        }
+        let caret = min(range.location, attributed.length)
+        return NSRange(location: caret, length: 0)
+    }
+
+    static func applyAlignment(
+        on attributed: NSMutableAttributedString,
+        range: NSRange,
+        alignment: Alignment,
+        font: Font
+    ) {
+        ensureEditableParagraph(in: attributed, font: font)
+        applyBlock(on: attributed, range: paragraphRange(in: attributed, range: range), font: font) { block in
+            if block.listKind != .none {
+                block.alignment = .left
+            } else {
+                block.alignment = alignment
+            }
+        }
+    }
+
+    static func changeIndent(
+        on attributed: NSMutableAttributedString,
+        range: NSRange,
+        delta: Int,
+        font: Font
+    ) {
+        ensureEditableParagraph(in: attributed, font: font)
+        applyBlock(on: attributed, range: paragraphRange(in: attributed, range: range), font: font) { block in
+            block.indent = min(maxIndent, max(0, block.indent + delta))
+        }
+    }
+
+    /// Return-key behaviour inside a list: empty item outdents/exits; otherwise
+    /// a new item is created with the same style. Returns nil to use the system insert.
+    static func handleReturn(
+        on attributed: NSMutableAttributedString,
+        range: NSRange,
+        font: Font
+    ) -> NSRange? {
+        guard attributed.length > 0 else { return nil }
+        let ns = attributed.string as NSString
+        let location = min(range.location, attributed.length)
+        let paragraph = ns.paragraphRange(for: NSRange(location: min(location, max(0, attributed.length - 1)), length: 0))
+        let block = blockStyle(in: attributed, at: paragraph.location)
+        guard block.listKind != .none else { return nil }
+
+        var content = paragraph
+        if paragraph.length > 0, ns.character(at: paragraph.location + paragraph.length - 1) == 10 {
+            content.length -= 1
+        }
+        let item = ns.substring(with: content)
+            .replacingOccurrences(of: zeroWidthSpace, with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if item.isEmpty {
+            applyBlock(on: attributed, range: paragraph, font: font) { current in
+                if current.indent > 0 {
+                    current.indent -= 1
+                } else {
+                    current.listKind = .none
+                    current.alignment = .unspecified
+                }
+            }
+            return NSRange(location: min(range.location, attributed.length), length: 0)
+        }
+
+        let insertion = NSAttributedString(
+            string: "\n" + zeroWidthSpace,
+            attributes: attributes(for: style(from: attributed.attributes(at: min(location, attributed.length - 1), effectiveRange: nil)), font: font, block: block)
+        )
+        attributed.replaceCharacters(in: range, with: insertion)
+        return NSRange(location: range.location + insertion.length, length: 0)
+    }
+
+    private static func paragraphRange(in attributed: NSAttributedString, range: NSRange) -> NSRange {
+        let ns = attributed.string as NSString
+        guard attributed.length > 0 else { return NSRange(location: 0, length: 0) }
+        let location = min(max(0, range.location), attributed.length - 1)
+        if range.length == 0 {
+            return ns.paragraphRange(for: NSRange(location: location, length: 0))
+        }
+        return ns.paragraphRange(for: NSRange(location: range.location, length: min(range.length, attributed.length - range.location)))
+    }
+
+    private static func ensureEditableParagraph(in attributed: NSMutableAttributedString, font: Font) {
+        if attributed.length == 0 {
+            attributed.append(NSAttributedString(
+                string: zeroWidthSpace,
+                attributes: attributes(for: .init(), font: font)
+            ))
+        }
+    }
+
+    private static func applyBlock(
+        on attributed: NSMutableAttributedString,
+        range: NSRange,
+        font: Font,
+        update: (inout BlockStyle) -> Void
+    ) {
+        guard attributed.length > 0 else { return }
+        let target = range.length == 0 ? NSRange(location: 0, length: attributed.length) : range
+        var location = target.location
+        let end = min(attributed.length, target.location + max(target.length, 1))
+        let ns = attributed.string as NSString
+        while location < end {
+            let paragraph = ns.paragraphRange(for: NSRange(location: location, length: 0))
+            var replacements: [(NSRange, [NSAttributedString.Key: Any])] = []
+            let enumerateRange = paragraph.length == 0
+                ? NSRange(location: 0, length: attributed.length)
+                : paragraph
+            attributed.enumerateAttributes(in: enumerateRange, options: []) { attributes, subrange, _ in
+                let resolved = style(from: attributes)
+                var block = blockStyle(from: attributes)
+                update(&block)
+                var next = self.attributes(for: resolved, font: font, block: block)
+                if let filename = attributes[imageFilenameKey] {
+                    next[imageFilenameKey] = filename
+                }
+                if let attachment = attributes[.attachment] {
+                    next[.attachment] = attachment
+                }
+                replacements.append((subrange, next))
+            }
+            for (subrange, next) in replacements {
+                attributed.setAttributes(next, range: subrange)
+            }
+            location = paragraph.location + max(paragraph.length, 1)
+            if paragraph.length == 0 { break }
+        }
+    }
+}
+
+/// Attachment that keeps the Anki media filename even if UIKit drops custom
+/// attributes, and sizes the bitmap to the field width.
+final class NoteFieldImageAttachment: NSTextAttachment {
+    var filename: String
+
+    init(filename: String) {
+        self.filename = filename
+        super.init(data: nil, ofType: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        filename = (coder.decodeObject(of: NSString.self, forKey: "amgi.filename") as String?) ?? ""
+        super.init(coder: coder)
+    }
+
+    override func encode(with coder: NSCoder) {
+        super.encode(with: coder)
+        coder.encode(filename as NSString, forKey: "amgi.filename")
+    }
+
+    override func attachmentBounds(
+        for textContainer: NSTextContainer?,
+        proposedLineFragment lineFrag: CGRect,
+        glyphPosition position: CGPoint,
+        characterIndex charIndex: Int
+    ) -> CGRect {
+        let maxWidth = max(96, lineFrag.width > 8 ? lineFrag.width - 8 : 280)
+        let maxHeight: CGFloat = 420
+        #if canImport(UIKit)
+        let size = image?.size ?? CGSize(width: maxWidth, height: min(maxWidth * 0.7, 200))
+        #else
+        let size = image?.size ?? NSSize(width: maxWidth, height: min(maxWidth * 0.7, 200))
+        #endif
+        guard size.width > 0, size.height > 0 else {
+            return CGRect(x: 0, y: 0, width: maxWidth, height: 160)
+        }
+        let scale = min(1, maxWidth / size.width, maxHeight / size.height)
+        return CGRect(
+            x: 0,
+            y: 0,
+            width: floor(size.width * scale),
+            height: floor(size.height * scale)
+        )
     }
 }

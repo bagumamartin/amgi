@@ -11,7 +11,6 @@ package struct AddNoteView: View {
     @State private var model: AddNoteModel
     @State private var editingSession = NoteFieldEditingSession()
     @State private var showAddedConfirmation = false
-    @State private var showDismissConfirmation = false
     private let initialDraft: AddNoteDraft?
     let onSave: () -> Void
 
@@ -34,26 +33,6 @@ package struct AddNoteView: View {
                 .toolbar { toolbar }
                 .modifier(NoteFieldFormatChrome(session: editingSession))
                 .modifier(NoteFieldMediaBridge(session: editingSession))
-                .modifier(NoteComposerDismissGuard(isBlocked: model.hasFieldContent) {
-                    showDismissConfirmation = true
-                })
-                .confirmationDialog(
-                    "Save your progress?",
-                    isPresented: $showDismissConfirmation,
-                    titleVisibility: .visible
-                ) {
-                    Button("Save Progress") {
-                        NoteComposerDraftStore.saveAdd(model.makeDraft())
-                        dismiss()
-                    }
-                    Button("Discard", role: .destructive) {
-                        NoteComposerDraftStore.clearAdd()
-                        dismiss()
-                    }
-                    Button("Keep Editing", role: .cancel) {}
-                } message: {
-                    Text("You have text that isn’t added to a card yet.")
-                }
                 .overlay { addedToast }
                 .task { await bootstrap() }
                 .onChange(of: model.fieldValues) { _, values in
@@ -119,11 +98,7 @@ package struct AddNoteView: View {
     }
 
     private func requestDismiss() {
-        if model.hasFieldContent {
-            showDismissConfirmation = true
-        } else {
-            dismiss()
-        }
+        dismiss()
     }
 
     private func bootstrap() async {

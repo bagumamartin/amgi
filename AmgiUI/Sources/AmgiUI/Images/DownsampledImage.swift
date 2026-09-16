@@ -7,9 +7,9 @@ import AppKit
 #endif
 
 #if canImport(UIKit)
-typealias LoadedImage = UIImage
+public typealias LoadedImage = UIImage
 #elseif canImport(AppKit)
-typealias LoadedImage = NSImage
+public typealias LoadedImage = NSImage
 #endif
 
 /// Target pixel budgets for on-disk images, sized to what they're actually
@@ -43,13 +43,13 @@ public enum DownsampledImageLoader {
 
     /// Already-decoded image, if any — a cheap synchronous peek so a cell
     /// scrolling back into view doesn't flash its placeholder.
-    static func cached(url: URL, maxPixelSize: CGFloat) -> LoadedImage? {
+    public static func cached(url: URL, maxPixelSize: CGFloat) -> LoadedImage? {
         cache.object(forKey: key(url, maxPixelSize))
     }
 
     /// Decodes off the main thread, caches, and returns. `nil` if the file is
     /// missing or isn't a decodable image.
-    static func load(url: URL, maxPixelSize: CGFloat) async -> LoadedImage? {
+    public static func load(url: URL, maxPixelSize: CGFloat) async -> LoadedImage? {
         if let hit = cached(url: url, maxPixelSize: maxPixelSize) { return hit }
         let image = await Task.detached(priority: .userInitiated) {
             downsample(url: url, maxPixelSize: maxPixelSize)

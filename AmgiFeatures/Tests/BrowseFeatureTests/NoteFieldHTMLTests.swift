@@ -118,7 +118,7 @@ struct NoteFieldHTMLTests {
         #expect(attributed.string == "alpha\nbeta")
         #expect(NoteFieldHTML.listKind(in: attributed, at: 0) == .bullet)
         let encoded = NoteFieldHTML.encode(attributed)
-        #expect(encoded.contains("<ul>"))
+        #expect(encoded.contains("<ul"))
         #expect(encoded.contains("<li>alpha</li>"))
         #expect(encoded.contains("<li>beta</li>"))
     }
@@ -129,8 +129,60 @@ struct NoteFieldHTMLTests {
         #expect(wrapped.text == "hello {{c2::world}}")
     }
 
+    @Test func emptyParagraphStartsAList() {
+        let font = NoteFieldHTML.defaultFont()
+        let attributed = NSMutableAttributedString()
+        _ = NoteFieldHTML.toggleListKind(
+            on: attributed,
+            range: NSRange(location: 0, length: 0),
+            kind: .bullet,
+            font: font
+        )
+        #expect(NoteFieldHTML.listKind(in: attributed, at: 0) == .bullet)
+        let encoded = NoteFieldHTML.encode(attributed)
+        #expect(encoded.contains("<ul"))
+        #expect(encoded.contains("list-style-type: disc"))
+    }
+
+    @Test func letterAndRomanListsRoundTrip() {
+        let html = #"<ol style="list-style-type: lower-alpha; text-align: left"><li>alpha</li></ol>"#
+        let attributed = NoteFieldHTML.attributedString(from: html)
+        #expect(NoteFieldHTML.listKind(in: attributed, at: 0) == .lowerAlpha)
+        #expect(NoteFieldHTML.encode(attributed).contains("lower-alpha"))
+    }
+
+    @Test func explicitAlignmentRoundTrips() {
+        let html = #"<div style="text-align: left">hello</div>"#
+        let attributed = NoteFieldHTML.attributedString(from: html)
+        #expect(NoteFieldHTML.blockStyle(in: attributed, at: 0).alignment == .left)
+        #expect(NoteFieldHTML.encode(attributed).contains("text-align: left"))
+    }
+
+    @Test func indentIsStoredOnParagraph() {
+        let font = NoteFieldHTML.defaultFont()
+        let attributed = NSMutableAttributedString(
+            string: "hello",
+            attributes: NoteFieldHTML.attributes(for: .init(), font: font)
+        )
+        NoteFieldHTML.changeIndent(on: attributed, range: NSRange(location: 0, length: 0), delta: 1, font: font)
+        #expect(NoteFieldHTML.blockStyle(in: attributed, at: 0).indent == 1)
+        #expect(NoteFieldHTML.encode(attributed).contains("margin-left"))
+    }
+
     @Test func imageTagRoundTrips() {
         let html = #"<img src="paste-cat.jpg">"#
         #expect(NoteFieldHTML.roundTrip(html) == html)
+    }
+
+    @Test func imageAttachmentEncodesFilenameWithoutCustomAttribute() {
+        let font = NoteFieldHTML.defaultFont()
+        let attributed = NoteFieldHTML.imagePlaceholder(filename: "paste-cat.jpg", font: font)
+        let stripped = NSMutableAttributedString(attributedString: attributed)
+        stripped.enumerateAttributes(in: NSRange(location: 0, length: stripped.length)) { attributes, range, _ in
+            var next = attributes
+            next.removeValue(forKey: NoteFieldHTML.imageFilenameKey)
+            stripped.setAttributes(next, range: range)
+        }
+        #expect(NoteFieldHTML.encode(stripped) == #"<img src="paste-cat.jpg">"#)
     }
 }

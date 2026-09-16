@@ -12,7 +12,6 @@ package struct NoteEditorView: View {
     let onSave: () -> Void
 
     @State private var showSavedConfirmation = false
-    @State private var showDismissConfirmation = false
     @Environment(\.dismiss) private var dismiss
 
     package init(note: NoteRecord, onSave: @escaping () -> Void) {
@@ -47,26 +46,6 @@ package struct NoteEditorView: View {
             }
             .modifier(NoteFieldFormatChrome(session: editingSession))
             .modifier(NoteFieldMediaBridge(session: editingSession))
-            .modifier(NoteComposerDismissGuard(isBlocked: model.hasUnsavedChanges) {
-                showDismissConfirmation = true
-            })
-            .confirmationDialog(
-                "Save your progress?",
-                isPresented: $showDismissConfirmation,
-                titleVisibility: .visible
-            ) {
-                Button("Save Progress") {
-                    NoteComposerDraftStore.saveEdit(model.makeDraft())
-                    dismiss()
-                }
-                Button("Discard", role: .destructive) {
-                    NoteComposerDraftStore.clearEdit(noteID: model.noteID.rawValue)
-                    dismiss()
-                }
-                Button("Keep Editing", role: .cancel) {}
-            } message: {
-                Text("You have changes that aren’t saved to the card yet.")
-            }
             .overlay { savedToast }
             .task {
                 await model.loadNote()
@@ -95,11 +74,7 @@ package struct NoteEditorView: View {
     }
 
     private func requestDismiss() {
-        if model.hasUnsavedChanges {
-            showDismissConfirmation = true
-        } else {
-            dismiss()
-        }
+        dismiss()
     }
 
     @ViewBuilder

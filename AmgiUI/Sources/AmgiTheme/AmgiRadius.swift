@@ -17,4 +17,7 @@ public enum AmgiRadius {
     public static let pill: CGFloat = 28
     /// R11's native review-card surface.
     public static let card: CGFloat = 24
+    /// Full-bleed sheets and in-sheet camera cards. Larger than `card` so the
+    /// curve finishes inside the device corner instead of being clipped by it.
+    public static let sheet: CGFloat = 48
 }

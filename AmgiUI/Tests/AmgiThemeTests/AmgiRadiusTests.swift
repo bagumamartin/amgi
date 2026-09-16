@@ -10,6 +10,8 @@ struct AmgiRadiusTests {
         #expect(AmgiRadius.hero == 14)
         #expect(AmgiRadius.control == 10)
         #expect(AmgiRadius.pill == 28)
+        #expect(AmgiRadius.card == 24)
+        #expect(AmgiRadius.sheet == 48)
     }
 
     @Test func displayHeroTrackingTightened() {

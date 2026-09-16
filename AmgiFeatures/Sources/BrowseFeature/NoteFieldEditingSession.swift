@@ -14,18 +14,37 @@ import UIKit
 @MainActor
 final class NoteFieldEditingSession {
     weak var responder: (any NoteFieldFormatResponder)?
+    /// Kept after the keyboard resigns so camera/library sheets can still
+    /// insert into the field that invoked them.
+    weak var insertionResponder: (any NoteFieldFormatResponder)?
     var focusedFieldIndex: Int?
     var hasHardwareKeyboard = false
     var currentStyle: NoteFieldHTML.Style = .init()
     var currentListKind: NoteFieldHTML.ListKind = .none
+    var currentAlignment: NoteFieldHTML.Alignment = .unspecified
+    var currentIndent = 0
     var canUndo = false
     var canRedo = false
     var showsClozeTools = false
     var clozeFields: [String] = []
     var lastClozeOrdinal = 1
     var pendingMediaSource: NoteFieldMediaSource?
+    var htmlSourceFields: Set<Int> = []
 
     var isEditing: Bool { responder != nil }
+
+    var chrome: NoteFieldChromeState {
+        NoteFieldChromeState(
+            style: currentStyle,
+            listKind: currentListKind,
+            alignment: currentAlignment,
+            indent: currentIndent,
+            canUndo: canUndo,
+            canRedo: canRedo,
+            showsCloze: showsClozeTools,
+            isHTMLSource: focusedFieldIndex.map { htmlSourceFields.contains($0) } ?? false
+        )
+    }
 
     /// Hardware keyboards leave `inputAccessoryView` stranded at the bottom
     /// of the screen; surface the same bar in navigation chrome instead.
@@ -39,6 +58,7 @@ final class NoteFieldEditingSession {
 
     func attach(responder: any NoteFieldFormatResponder, fieldIndex: Int) {
         self.responder = responder
+        insertionResponder = responder
         focusedFieldIndex = fieldIndex
         refreshHardwareKeyboard()
         refreshChrome()
@@ -50,6 +70,8 @@ final class NoteFieldEditingSession {
             focusedFieldIndex = nil
             currentStyle = .init()
             currentListKind = .none
+            currentAlignment = .unspecified
+            currentIndent = 0
             canUndo = false
             canRedo = false
         }
@@ -58,6 +80,8 @@ final class NoteFieldEditingSession {
     func refreshChrome() {
         currentStyle = responder?.currentStyle ?? .init()
         currentListKind = responder?.currentListKind ?? .none
+        currentAlignment = responder?.currentAlignment ?? .unspecified
+        currentIndent = responder?.currentIndent ?? 0
         canUndo = responder?.canUndo ?? false
         canRedo = responder?.canRedo ?? false
     }
@@ -76,11 +100,12 @@ final class NoteFieldEditingSession {
     }
 
     func insertMedia(filename: String) {
+        let target = responder ?? insertionResponder
         let ext = URL(fileURLWithPath: filename).pathExtension.lowercased()
         if Self.imageExtensions.contains(ext) {
-            responder?.insertImage(filename: filename)
+            target?.insertImage(filename: filename)
         } else {
-            responder?.insertSound(filename: filename)
+            target?.insertSound(filename: filename)
         }
     }
 
@@ -154,11 +179,7 @@ struct NoteFieldFormatChrome: ViewModifier {
     private func formatBar(showsDismiss: Bool) -> some View {
         NoteFieldFormatBar(
             showsDismiss: showsDismiss,
-            style: session.currentStyle,
-            canUndo: session.canUndo,
-            canRedo: session.canRedo,
-            listKind: session.currentListKind,
-            showsCloze: session.showsClozeTools,
+            chrome: session.chrome,
             perform: { session.perform($0) }
         )
     }

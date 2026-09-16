@@ -5,8 +5,14 @@ public import Foundation
 /// file references. `CardComplexity` gates entry, so the parser only ever
 /// sees tags it understands; anything unrecognized is stripped.
 public struct NativeCardContent: Sendable, Equatable {
+    public enum NativeTextAlignment: Sendable, Equatable {
+        case left
+        case center
+        case right
+    }
+
     public enum Block: Sendable, Equatable {
-        case text(AttributedString)
+        case text(AttributedString, alignment: NativeTextAlignment)
         case image(filename: String)
         case divider
     }
@@ -32,7 +38,7 @@ public struct NativeCardContent: Sendable, Equatable {
     /// whitespace-normalized.
     var normalizedPlainText: String {
         Self.normalize(blocks.compactMap { block in
-            if case .text(let attributed) = block { return String(attributed.characters) }
+            if case .text(let attributed, _) = block { return String(attributed.characters) }
             return nil
         }.joined(separator: " "))
     }
@@ -66,7 +72,7 @@ public struct NativeCardContent: Sendable, Equatable {
         var remaining = Substring(frontText)
 
         for (index, block) in blocks.enumerated() {
-            guard case .text(let attributed) = block else { continue }
+            guard case .text(let attributed, _) = block else { continue }
             let normalized = Self.normalize(String(attributed.characters))
             if normalized.isEmpty { continue }
 
@@ -109,7 +115,7 @@ public struct NativeCardContent: Sendable, Equatable {
     /// the answer side reduces to nothing (the front ends at the block's
     /// end), only a divider is appended after the block.
     private func splittingBlock(at index: Int, offset: Int) -> NativeCardContent {
-        guard case .text(let attributed) = blocks[index] else { return self }
+        guard case .text(let attributed, let alignment) = blocks[index] else { return self }
         let characters = attributed.characters
         let splitIndex = characters.index(
             characters.startIndex,
@@ -131,15 +137,15 @@ public struct NativeCardContent: Sendable, Equatable {
 
         var newBlocks = blocks
         if answerStart >= characters.endIndex {
-            newBlocks[index] = .text(AttributedString(attributed[characters.startIndex..<recapEnd]))
+            newBlocks[index] = .text(AttributedString(attributed[characters.startIndex..<recapEnd]), alignment: alignment)
             newBlocks.insert(.divider, at: index + 1)
         } else {
             newBlocks.replaceSubrange(
                 index...index,
                 with: [
-                    .text(AttributedString(attributed[characters.startIndex..<recapEnd])),
+                    .text(AttributedString(attributed[characters.startIndex..<recapEnd]), alignment: alignment),
                     .divider,
-                    .text(AttributedString(attributed[answerStart...])),
+                    .text(AttributedString(attributed[answerStart...]), alignment: alignment),
                 ]
             )
         }
@@ -190,7 +196,7 @@ public struct NativeCardContent: Sendable, Equatable {
         func flushText(upTo location: Int) {
             let raw = ns.substring(with: NSRange(location: cursor, length: location - cursor))
             if let text = parseInlineText(raw) {
-                blocks.append(.text(text))
+                blocks.append(.text(text, alignment: parseAlignment(raw)))
             }
         }
 
@@ -234,13 +240,52 @@ public struct NativeCardContent: Sendable, Equatable {
 
     private static let anyTagRegex = try! NSRegularExpression(pattern: #"<[^>]+>"#)
 
+    private static func parseAlignment(_ fragment: String) -> NativeTextAlignment {
+        let lower = fragment.lowercased()
+        if lower.contains("text-align: left")
+            || lower.contains("text-align:left")
+            || lower.contains("align=\"left\"")
+            || lower.contains("align='left'")
+        {
+            return .left
+        }
+        if lower.contains("text-align: right")
+            || lower.contains("text-align:right")
+            || lower.contains("align=\"right\"")
+            || lower.contains("align='right'")
+        {
+            return .right
+        }
+        return .center
+    }
+
     private static func imageSource(in tag: String) -> String? {
         let regex = try! NSRegularExpression(pattern: #"src\s*=\s*["']([^"']+)["']"#)
         let ns = tag as NSString
         guard let match = regex.firstMatch(in: tag, range: NSRange(location: 0, length: ns.length)) else {
             return nil
         }
-        return ns.substring(with: match.range(at: 1))
+        return mediaFilename(from: ns.substring(with: match.range(at: 1)))
+    }
+
+    /// Anki fields store a bare filename; WebView rewrite and some templates
+    /// emit `amgi-asset://media/…` or a path. Native loading needs the last
+    /// path component, percent-decoded.
+    public static func mediaFilename(from src: String) -> String {
+        var value = src.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let decoded = value.removingPercentEncoding, !decoded.isEmpty {
+            value = decoded
+        }
+        if let schemeEnd = value.range(of: "://") {
+            value = String(value[schemeEnd.upperBound...])
+            if let slash = value.firstIndex(of: "/") {
+                value = String(value[value.index(after: slash)...])
+            }
+        }
+        if value.contains("/") {
+            value = (value as NSString).lastPathComponent
+        }
+        return value
     }
 
     // MARK: - Inline text

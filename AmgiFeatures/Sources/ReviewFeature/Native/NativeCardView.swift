@@ -128,35 +128,50 @@ struct NativeCardView: View, Equatable {
     @ViewBuilder
     private func blockView(_ block: NativeCardContent.Block, index: Int) -> some View {
         switch block {
-        case .text(let attributed):
-            // One `Text` rather than if/else over two `Text`s so the block
-            // keeps a stable identity. Recap/answer sizing is Martin's
-            // product typography; lookup is an iOS extra.
+        case .text(let attributed, let alignment):
+            let textAlignment: TextAlignment = switch alignment {
+            case .left: .leading
+            case .center: .center
+            case .right: .trailing
+            }
+            let frameAlignment: Alignment = switch alignment {
+            case .left: .leading
+            case .center: .center
+            case .right: .trailing
+            }
             Text(attributed)
                 .font(textFont(isRecap: isRecap(index)))
-                .multilineTextAlignment(.center)
+                .multilineTextAlignment(textAlignment)
+                .frame(maxWidth: .infinity, alignment: frameAlignment)
                 .foregroundStyle(palette.textPrimary)
             #if os(iOS)
                 .contentShape(Rectangle())
                 .highPriorityGesture(textLookupGesture(for: String(attributed.characters)))
             #endif
         case .image(let filename):
+            let url = mediaFolder?.appendingPathComponent(NativeCardContent.mediaFilename(from: filename))
             #if os(iOS)
-            // Decoded and downsampled off the main thread — a full-resolution
-            // decode here lands squarely in the answer-reveal frame.
             DownsampledImage(
-                url: mediaFolder?.appendingPathComponent(filename),
+                url: url,
                 maxPixelSize: AmgiImagePixelSize.card
             ) { image in
                 image
                     .resizable()
                     .scaledToFit()
-                    .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.small, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous))
             } placeholder: {
-                EmptyView()
+                RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous)
+                    .fill(palette.surface)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous)
+                            .strokeBorder(palette.separator, lineWidth: 1)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .aspectRatio(4 / 3, contentMode: .fit)
             }
+            .frame(maxWidth: .infinity)
             #else
-            NativeMediaImageView(filename: filename, mediaFolder: mediaFolder)
+            NativeMediaImageView(filename: NativeCardContent.mediaFilename(from: filename), mediaFolder: mediaFolder)
             #endif
         case .divider:
             Rectangle()

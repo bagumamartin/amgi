@@ -25,6 +25,8 @@
     <string>AppIcon</string>
     <key>NSCameraUsageDescription</key>
     <string>Amgi uses the camera to add pictures to your cards.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Amgi shows your recent photos so you can add pictures to your cards.</string>
     <key>UILaunchScreen</key>
     <dict/>
     <key>UIBackgroundModes</key>

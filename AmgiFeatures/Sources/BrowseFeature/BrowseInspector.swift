@@ -5,6 +5,7 @@ import AnkiClients
 import AnkiServices
 import Dependencies
 import AmgiTheme
+import AmgiCardWeb
 #if canImport(WebKit)
 import WebKit
 #endif
@@ -267,8 +268,14 @@ private struct BrowseCardPreview: UIViewRepresentable {
     let html: String
     let css: String
 
+    func makeCoordinator() -> BrowsePreviewAssetScheme {
+        BrowsePreviewAssetScheme()
+    }
+
     func makeUIView(context: Context) -> WKWebView {
-        let view = WKWebView()
+        let config = WKWebViewConfiguration()
+        config.setURLSchemeHandler(context.coordinator, forURLScheme: CardAssetPath.scheme)
+        let view = WKWebView(frame: .zero, configuration: config)
         view.isOpaque = false
         view.backgroundColor = .clear
         view.scrollView.backgroundColor = .clear
@@ -276,11 +283,17 @@ private struct BrowseCardPreview: UIViewRepresentable {
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
-        webView.loadHTMLString(wrapped, baseURL: nil)
+        webView.loadHTMLString(wrapped, baseURL: CardAssetPath.cardBaseURL)
     }
 
     private var wrapped: String {
-        "<html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><style>\(css)</style></head><body>\(html)</body></html>"
+        let body = CardHTMLRewriter.rewrite(html)
+        return """
+        <html><head>\(CardAssetPath.mediaBaseTag())\
+        <meta name="viewport" content="width=device-width,initial-scale=1">\
+        <style>img{max-width:100%;height:auto;border-radius:12px;} \(css)</style>\
+        </head><body>\(body)</body></html>
+        """
     }
 }
 #elseif os(macOS)
@@ -288,18 +301,96 @@ private struct BrowseCardPreview: NSViewRepresentable {
     let html: String
     let css: String
 
+    func makeCoordinator() -> BrowsePreviewAssetScheme {
+        BrowsePreviewAssetScheme()
+    }
+
     func makeNSView(context: Context) -> WKWebView {
-        let view = WKWebView()
+        let config = WKWebViewConfiguration()
+        config.setURLSchemeHandler(context.coordinator, forURLScheme: CardAssetPath.scheme)
+        let view = WKWebView(frame: .zero, configuration: config)
         view.setValue(false, forKey: "drawsBackground")
         return view
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
-        webView.loadHTMLString(wrapped, baseURL: nil)
+        webView.loadHTMLString(wrapped, baseURL: CardAssetPath.cardBaseURL)
     }
 
     private var wrapped: String {
-        "<html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><style>\(css)</style></head><body>\(html)</body></html>"
+        let body = CardHTMLRewriter.rewrite(html)
+        return """
+        <html><head>\(CardAssetPath.mediaBaseTag())\
+        <meta name="viewport" content="width=device-width,initial-scale=1">\
+        <style>img{max-width:100%;height:auto;border-radius:12px;} \(css)</style>\
+        </head><body>\(body)</body></html>
+        """
+    }
+}
+#endif
+
+#if canImport(WebKit)
+@MainActor
+final class BrowsePreviewAssetScheme: NSObject, WKURLSchemeHandler {
+    private var tasks: [ObjectIdentifier: Task<Void, Never>] = [:]
+    @Dependency(\.mediaClient) private var mediaClient
+
+    func webView(_ webView: WKWebView, start urlSchemeTask: any WKURLSchemeTask) {
+        guard let url = urlSchemeTask.request.url else {
+            urlSchemeTask.didFailWithError(URLError(.badURL))
+            return
+        }
+        let mediaRoot = mediaClient.folderURL()
+        guard let fileURL = CardAssetPath.resolve(
+            url: url,
+            mediaRoot: mediaRoot,
+            bundleRoot: Bundle.main.resourceURL
+        ) else {
+            respond(to: urlSchemeTask, url: url, statusCode: 204, data: Data())
+            return
+        }
+        let key = ObjectIdentifier(urlSchemeTask)
+        let mimeType = CardAssetPath.mimeType(for: fileURL)
+        tasks[key] = Task { [weak self] in
+            let data = try? await Task.detached(priority: .userInitiated) {
+                try Data(contentsOf: fileURL, options: .mappedIfSafe)
+            }.value
+            guard let self, self.tasks[key] != nil, !Task.isCancelled else { return }
+            self.tasks[key] = nil
+            if let data {
+                self.respond(to: urlSchemeTask, url: url, statusCode: 200, mimeType: mimeType, data: data)
+            } else {
+                self.respond(to: urlSchemeTask, url: url, statusCode: 404, data: Data())
+            }
+        }
+    }
+
+    func webView(_ webView: WKWebView, stop urlSchemeTask: any WKURLSchemeTask) {
+        tasks.removeValue(forKey: ObjectIdentifier(urlSchemeTask))?.cancel()
+    }
+
+    private func respond(
+        to task: any WKURLSchemeTask,
+        url: URL,
+        statusCode: Int,
+        mimeType: String = "text/plain",
+        data: Data
+    ) {
+        guard let response = HTTPURLResponse(
+            url: url,
+            statusCode: statusCode,
+            httpVersion: "HTTP/1.1",
+            headerFields: [
+                "Content-Type": mimeType,
+                "Content-Length": String(data.count),
+            ]
+        ) else {
+            task.didFailWithError(URLError(.badServerResponse))
+            return
+        }
+        task.didReceive(response)
+        if !data.isEmpty { task.didReceive(data) }
+        task.didFinish()
     }
 }
 #endif

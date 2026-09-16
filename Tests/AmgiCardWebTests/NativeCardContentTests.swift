@@ -5,7 +5,7 @@ import Testing
 @Suite struct NativeCardContentTests {
     private func texts(_ content: NativeCardContent) -> [String] {
         content.blocks.compactMap {
-            if case .text(let attributed) = $0 { return String(attributed.characters) }
+            if case .text(let attributed, _) = $0 { return String(attributed.characters) }
             return nil
         }
     }
@@ -37,6 +37,11 @@ import Testing
         #expect(content.blocks == [.image(filename: "cat.jpg")])
     }
 
+    @Test func imgSrcStripsAssetScheme() {
+        let content = NativeCardContent.parse(html: "<img src=\"amgi-asset://media/paste-cat.jpg\">")
+        #expect(content.blocks == [.image(filename: "paste-cat.jpg")])
+    }
+
     @Test func soundMarkerExtractedNotRendered() {
         let content = NativeCardContent.parse(html: "hello [sound:hello.mp3]")
         #expect(content.audioFiles == ["hello.mp3"])
@@ -51,7 +56,7 @@ import Testing
 
     @Test func boldSurvivesAsAttributedRun() {
         let content = NativeCardContent.parse(html: "a <b>bold</b> word")
-        guard case .text(let attributed) = content.blocks.first else {
+        guard case .text(let attributed, _) = content.blocks.first else {
             Issue.record("expected text block")
             return
         }
@@ -64,7 +69,7 @@ import Testing
 
     @Test func italicSurvivesAsAttributedRun() {
         let content = NativeCardContent.parse(html: "an <i>example</i>")
-        guard case .text(let attributed) = content.blocks.first else {
+        guard case .text(let attributed, _) = content.blocks.first else {
             Issue.record("expected text block")
             return
         }
@@ -92,5 +97,15 @@ import Testing
     @Test func unknownTagsAreStripped() {
         let content = NativeCardContent.parse(html: "<span style=\"x\">word</span>")
         #expect(texts(content) == ["word"])
+    }
+
+    @Test func textAlignLeftIsParsed() {
+        let content = NativeCardContent.parse(html: #"<div style="text-align: left">hello</div>"#)
+        guard case .text(_, let alignment) = content.blocks.first else {
+            Issue.record("expected text block")
+            return
+        }
+        #expect(alignment == .left)
+        #expect(texts(content) == ["hello"])
     }
 }

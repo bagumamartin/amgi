@@ -81,6 +81,12 @@ struct ReviewCardArea: View {
             .onChange(of: nativeAudioPlayer.isPlaying) { _, playing in
                 if isNativeMode { session.updateAudioPlaying(playing) }
             }
+            .onAppear {
+                if mediaFolder == nil {
+                    @Dependency(\.mediaClient) var mediaClient
+                    mediaFolder = mediaClient.folderURL()
+                }
+            }
             .onDisappear { nativeAudioPlayer.stop() }
             .sheet(isPresented: $showRenderModeSheet) { renderModeSheet }
 

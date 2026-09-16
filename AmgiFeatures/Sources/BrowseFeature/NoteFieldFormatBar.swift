@@ -17,11 +17,7 @@ enum NoteFieldToolbarMetrics {
 
 struct NoteFieldFormatBar: View {
     var showsDismiss: Bool = true
-    var style: NoteFieldHTML.Style = .init()
-    var canUndo: Bool = false
-    var canRedo: Bool = false
-    var listKind: NoteFieldHTML.ListKind = .none
-    var showsCloze: Bool = false
+    var chrome: NoteFieldChromeState = .init()
     var paletteOverride: Palette? = nil
     var perform: (NoteFieldFormatAction) -> Void
 
@@ -61,15 +57,15 @@ struct NoteFieldFormatBar: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 2) {
                 group {
-                    icon("arrow.uturn.backward", .undo, enabled: canUndo, label: "Undo")
-                    icon("arrow.uturn.forward", .redo, enabled: canRedo, label: "Redo")
+                    icon("arrow.uturn.backward", .undo, enabled: chrome.canUndo, label: "Undo")
+                    icon("arrow.uturn.forward", .redo, enabled: chrome.canRedo, label: "Redo")
                 }
                 separator
                 group {
-                    icon("bold", .bold, selected: style.bold, label: "Bold")
-                    icon("italic", .italic, selected: style.italic, label: "Italic")
-                    icon("underline", .underline, selected: style.underline, label: "Underline")
-                    icon("strikethrough", .strike, selected: style.strike, label: "Strikethrough")
+                    icon("bold", .bold, selected: chrome.style.bold, label: "Bold")
+                    icon("italic", .italic, selected: chrome.style.italic, label: "Italic")
+                    icon("underline", .underline, selected: chrome.style.underline, label: "Underline")
+                    icon("strikethrough", .strike, selected: chrome.style.strike, label: "Strikethrough")
                     Menu {
                         Button("Superscript") { perform(.superscript) }
                         Button("Subscript") { perform(.subscript) }
@@ -79,7 +75,11 @@ struct NoteFieldFormatBar: View {
                     } label: {
                         Image(systemName: "textformat.size")
                             .font(.system(size: 17, weight: .medium))
-                            .foregroundStyle(style.superscript || style.subscript || style.code ? palette.accent : palette.textPrimary)
+                            .foregroundStyle(
+                                chrome.style.superscript || chrome.style.subscript || chrome.style.code
+                                    ? palette.accent
+                                    : palette.textPrimary
+                            )
                             .frame(width: NoteFieldToolbarMetrics.buttonWidth, height: NoteFieldToolbarMetrics.buttonHeight)
                             .contentShape(Rectangle())
                     }
@@ -87,10 +87,55 @@ struct NoteFieldFormatBar: View {
                 }
                 separator
                 group {
-                    icon("list.bullet", .bulletList, selected: listKind == .bullet, label: "Bulleted list")
-                    icon("list.number", .numberedList, selected: listKind == .numbered, label: "Numbered list")
+                    icon(
+                        "text.alignleft",
+                        .align(.left),
+                        selected: chrome.alignment == .left,
+                        label: "Align left"
+                    )
+                    icon(
+                        "text.aligncenter",
+                        .align(.center),
+                        selected: chrome.alignment == .center,
+                        label: "Align center"
+                    )
+                    icon(
+                        "text.alignright",
+                        .align(.right),
+                        selected: chrome.alignment == .right,
+                        label: "Align right"
+                    )
                 }
-                if showsCloze {
+                separator
+                group {
+                    Menu {
+                        Button("Disc") { perform(.list(.bullet)) }
+                        Button("Circle") { perform(.list(.circle)) }
+                        Button("Square") { perform(.list(.square)) }
+                    } label: {
+                        menuGlyph(
+                            "list.bullet",
+                            selected: chrome.listKind.isBullet,
+                            label: "Bulleted list"
+                        )
+                    }
+                    Menu {
+                        Button("1, 2, 3") { perform(.list(.numbered)) }
+                        Button("a, b, c") { perform(.list(.lowerAlpha)) }
+                        Button("A, B, C") { perform(.list(.upperAlpha)) }
+                        Button("i, ii, iii") { perform(.list(.lowerRoman)) }
+                        Button("I, II, III") { perform(.list(.upperRoman)) }
+                    } label: {
+                        menuGlyph(
+                            "list.number",
+                            selected: chrome.listKind.isNumbered,
+                            label: "Numbered list"
+                        )
+                    }
+                    icon("increase.indent", .indent, enabled: !chrome.isHTMLSource, label: "Increase indent")
+                    icon("decrease.indent", .outdent, enabled: chrome.indent > 0 && !chrome.isHTMLSource, label: "Decrease indent")
+                }
+                if chrome.showsCloze {
                     separator
                     group {
                         icon("rectangle.dashed", .cloze, label: "Cloze")
@@ -99,6 +144,12 @@ struct NoteFieldFormatBar: View {
                 }
                 separator
                 group {
+                    icon(
+                        "chevron.left.forwardslash.chevron.right",
+                        .toggleHTMLSource,
+                        selected: chrome.isHTMLSource,
+                        label: "HTML source"
+                    )
                     icon("camera", .camera, label: "Take photo")
                     icon("photo", .photoLibrary, label: "Choose from library")
                     icon("paperclip", .attach, label: "Attach file")
@@ -117,6 +168,21 @@ struct NoteFieldFormatBar: View {
             .fill(palette.separator)
             .frame(width: 1, height: NoteFieldToolbarMetrics.separatorHeight)
             .padding(.horizontal, 4)
+    }
+
+    private func menuGlyph(_ systemName: String, selected: Bool, label: String) -> some View {
+        Image(systemName: systemName)
+            .font(.system(size: 17, weight: .medium))
+            .foregroundStyle(selected ? palette.accent : palette.textPrimary)
+            .frame(width: NoteFieldToolbarMetrics.buttonWidth, height: NoteFieldToolbarMetrics.buttonHeight)
+            .background {
+                if selected {
+                    Capsule().fill(palette.accent.opacity(0.16))
+                }
+            }
+            .contentShape(Rectangle())
+            .accessibilityLabel(label)
+            .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     private func icon(
@@ -141,7 +207,7 @@ struct NoteFieldFormatBar: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(!enabled && (action == .undo || action == .redo))
+        .disabled(!enabled && (action == .undo || action == .redo || action == .indent || action == .outdent))
         .accessibilityLabel(label)
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
@@ -183,19 +249,8 @@ final class NoteFieldFormatAccessory: UIInputView {
         CGSize(width: UIView.noIntrinsicMetric, height: NoteFieldToolbarMetrics.barHeight)
     }
 
-    func update(
-        style: NoteFieldHTML.Style,
-        canUndo: Bool,
-        canRedo: Bool,
-        listKind: NoteFieldHTML.ListKind,
-        showsCloze: Bool,
-        palette: Palette
-    ) {
-        bar.style = style
-        bar.canUndo = canUndo
-        bar.canRedo = canRedo
-        bar.listKind = listKind
-        bar.showsCloze = showsCloze
+    func update(chrome: NoteFieldChromeState, palette: Palette) {
+        bar.chrome = chrome
         bar.paletteOverride = palette
         hosting.rootView = bar
     }
