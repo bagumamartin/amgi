@@ -23,6 +23,8 @@
     <string>$(MARKETING_VERSION)</string>
     <key>CFBundleIconName</key>
     <string>AppIcon</string>
+    <key>NSCameraUsageDescription</key>
+    <string>Amgi uses the camera to add pictures to your cards.</string>
     <key>UILaunchScreen</key>
     <dict/>
     <key>UIBackgroundModes</key>

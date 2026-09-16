@@ -20,6 +20,9 @@ extension MediaClient: DependencyKey {
             folderURL: {
                 backend.currentMediaFolderPath.map { URL(fileURLWithPath: $0) }
             },
+            addFile: { desiredName, data in
+                try await backend.invoke(.addMediaFile(desiredName: desiredName, data: data))
+            },
             save: { data, filename in
                 try await backendOffload {
                     guard let folder = backend.currentMediaFolderPath else { return }

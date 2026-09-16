@@ -2,11 +2,18 @@ public struct NotetypeInfo: Sendable {
     public let id: NotetypeID
     public let name: String
     public let fieldNames: [String]
+    public let kind: Notetype.Kind
 
-    package init(id: NotetypeID, name: String, fieldNames: [String]) {
+    package init(
+        id: NotetypeID,
+        name: String,
+        fieldNames: [String],
+        kind: Notetype.Kind = .normal
+    ) {
         self.id = id
         self.name = name
         self.fieldNames = fieldNames
+        self.kind = kind
     }
 }
 

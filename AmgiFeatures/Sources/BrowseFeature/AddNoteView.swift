@@ -9,6 +9,10 @@ import AmgiTheme
 package struct AddNoteView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var model: AddNoteModel
+    @State private var editingSession = NoteFieldEditingSession()
+    @State private var showAddedConfirmation = false
+    @State private var showDismissConfirmation = false
+    private let initialDraft: AddNoteDraft?
     let onSave: () -> Void
 
     package init(
@@ -18,6 +22,7 @@ package struct AddNoteView: View {
     ) {
         let resolved = preselectedDeckId ?? initialDraft?.deckID.map { DeckID($0) }
         _model = State(initialValue: AddNoteModel(preselectedDeckId: resolved, initialDraft: initialDraft))
+        self.initialDraft = initialDraft
         self.onSave = onSave
     }
 
@@ -26,34 +31,129 @@ package struct AddNoteView: View {
             AddNoteContent(model: model)
                 .navigationTitle("Add Note")
                 .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") { dismiss() }
-                            .keyboardShortcut(.cancelAction)
+                .toolbar { toolbar }
+                .modifier(NoteFieldFormatChrome(session: editingSession))
+                .modifier(NoteFieldMediaBridge(session: editingSession))
+                .modifier(NoteComposerDismissGuard(isBlocked: model.hasFieldContent) {
+                    showDismissConfirmation = true
+                })
+                .confirmationDialog(
+                    "Save your progress?",
+                    isPresented: $showDismissConfirmation,
+                    titleVisibility: .visible
+                ) {
+                    Button("Save Progress") {
+                        NoteComposerDraftStore.saveAdd(model.makeDraft())
+                        dismiss()
                     }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Add") {
-                            Task {
-                                if await model.save() {
-                                    onSave()
-                                    dismiss()
-                                }
-                            }
-                        }
-                        .keyboardShortcut(.defaultAction)
-                        .disabled(model.isSaving || model.fieldValues.allSatisfy(\.isEmpty))
+                    Button("Discard", role: .destructive) {
+                        NoteComposerDraftStore.clearAdd()
+                        dismiss()
+                    }
+                    Button("Keep Editing", role: .cancel) {}
+                } message: {
+                    Text("You have text that isn’t added to a card yet.")
+                }
+                .overlay { addedToast }
+                .task { await bootstrap() }
+                .onChange(of: model.fieldValues) { _, values in
+                    editingSession.clozeFields = values
+                    persistAddDraft()
+                }
+                .onChange(of: model.isClozeNotetype) { _, isCloze in
+                    editingSession.showsClozeTools = isCloze
+                }
+                .onChange(of: model.tags) { _, _ in persistAddDraft() }
+                .onChange(of: model.selectedDeckId) { _, _ in persistAddDraft() }
+                .onChange(of: model.selectedNotetypeId) { _, _ in persistAddDraft() }
+                #if os(macOS)
+                .onExitCommand { requestDismiss() }
+                #endif
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var toolbar: some ToolbarContent {
+        ToolbarItem(placement: .cancellationAction) {
+            Button(leadingActionTitle) { handleLeadingAction() }
+                .keyboardShortcut(.cancelAction)
+        }
+        ToolbarItem(placement: .confirmationAction) {
+            Button("Add") {
+                Task {
+                    if await model.save() {
+                        NoteComposerDraftStore.clearAdd()
+                        onSave()
+                        model.resetForNextNote()
+                        withAnimation(AmgiMotion.momentum) { showAddedConfirmation = true }
+                        try? await Task.sleep(for: .seconds(1.5))
+                        withAnimation(AmgiMotion.standard) { showAddedConfirmation = false }
                     }
                 }
-                .task { await model.loadData() }
+            }
+            .keyboardShortcut(.defaultAction)
+            .disabled(model.isSaving || !model.hasFieldContent || showAddedConfirmation)
+        }
+    }
+
+    private var leadingActionTitle: String {
+        if model.hasFieldContent { return "Clear" }
+        if model.addedCount > 0 { return "Done" }
+        return "Cancel"
+    }
+
+    private func handleLeadingAction() {
+        if model.hasFieldContent {
+            model.resetForNextNote()
+            return
+        }
+        requestDismiss()
+    }
+
+    private func persistAddDraft() {
+        if model.hasFieldContent {
+            NoteComposerDraftStore.saveAdd(model.makeDraft())
+        } else {
+            NoteComposerDraftStore.clearAdd()
+        }
+    }
+
+    private func requestDismiss() {
+        if model.hasFieldContent {
+            showDismissConfirmation = true
+        } else {
+            dismiss()
+        }
+    }
+
+    private func bootstrap() async {
+        await model.loadData()
+        if initialDraft == nil, let draft = NoteComposerDraftStore.loadAdd() {
+            model.applyDraft(draft)
+        }
+        editingSession.showsClozeTools = model.isClozeNotetype
+        editingSession.clozeFields = model.fieldValues
+    }
+
+    @ViewBuilder
+    private var addedToast: some View {
+        if showAddedConfirmation {
+            VStack {
+                Spacer()
+                Text("Added")
+                    .amgiFont(.bodyEmphasis)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .amgiMaterial(.light, in: Capsule())
+                    .padding(.bottom, 32)
+            }
+            .transition(AmgiMotion.slide(from: .bottom))
         }
     }
 }
 
 // MARK: - AddNoteContent
 
-/// The Add Note form: deck + note-type pickers, the note-type's fields, and a
-/// tags field. Bound to an `AddNoteModel`; owns no I/O of its own, so it
-/// renders in a `#Preview` from a seeded model.
 struct AddNoteContent: View {
     @Environment(\.palette) private var palette
     @Bindable var model: AddNoteModel
@@ -85,7 +185,11 @@ struct AddNoteContent: View {
                         Text(name)
                             .amgiFont(.caption)
                             .foregroundStyle(palette.textSecondary)
-                        RichNoteFieldEditor(htmlText: $model[fieldAt: index])
+                        RichNoteFieldEditor(
+                            htmlText: $model[fieldAt: index],
+                            fieldIndex: index,
+                            focusGeneration: model.fieldFocusGeneration
+                        )
                     }
                 }
             }
@@ -112,12 +216,8 @@ struct AddNoteContent: View {
     }
 }
 
-// MARK: - Preview
-
 #if DEBUG
 #Preview {
-    // Seed the model directly: AddNoteContent has no `.task`, so the sample
-    // fields aren't overwritten by a load and no live backend is touched.
     let model = AddNoteModel()
     model.decks = [.sample, .filtered]
     model.selectedDeckId = DeckInfo.sample.id

@@ -24,6 +24,9 @@ final class AddNoteModel {
     var tags: String = ""
     var isSaving = false
     var errorMessage: String?
+    var fieldFocusGeneration = 0
+    var addedCount = 0
+    var isClozeNotetype = false
 
     @ObservationIgnored @Dependency(\.deckClient) private var deckClient
     @ObservationIgnored @Dependency(\.notetypesService) private var notetypesService
@@ -82,17 +85,53 @@ final class AddNoteModel {
             let service = notetypesService
             let id = selectedNotetypeId
             let notetype = try await backendOffload { try service.getNotetype(id) }
+            let previous = Dictionary(uniqueKeysWithValues: zip(fieldNames, fieldValues))
             fieldNames = notetype.fieldNames
-            // Pre-fill from the incoming draft by mapping
-            // `fieldValues[name] → fieldValues[positionalIndex]` against the
-            // notetype's actual field-name list. Names not present on this
-            // notetype are silently dropped.
+            isClozeNotetype = notetype.kind == .cloze
             fieldValues = fieldNames.map { name in
-                initialDraft?.fieldValues[name] ?? ""
+                previous[name] ?? initialDraft?.fieldValues[name] ?? ""
             }
         } catch {
             Log.browse.error("Error loading fields: \(error)")
         }
+    }
+
+    var hasFieldContent: Bool {
+        fieldValues.contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
+    func applyDraft(_ draft: NoteComposerDraft) {
+        if let deckID = draft.deckID {
+            selectedDeckId = DeckID(deckID)
+        }
+        if let notetypeID = draft.notetypeID {
+            selectedNotetypeId = NotetypeID(notetypeID)
+        }
+        if !draft.fieldNames.isEmpty {
+            fieldNames = draft.fieldNames
+        }
+        if !draft.fieldValues.isEmpty {
+            fieldValues = draft.fieldValues
+            while fieldValues.count < fieldNames.count { fieldValues.append("") }
+        }
+        tags = draft.tags
+    }
+
+    func makeDraft() -> NoteComposerDraft {
+        NoteComposerDraft(
+            deckID: selectedDeckId.rawValue,
+            notetypeID: selectedNotetypeId.rawValue,
+            fieldNames: fieldNames,
+            fieldValues: fieldValues,
+            tags: tags,
+            noteID: nil
+        )
+    }
+
+    func resetForNextNote() {
+        fieldValues = Array(repeating: "", count: fieldNames.count)
+        errorMessage = nil
+        fieldFocusGeneration += 1
     }
 
     /// Persist the note. Returns whether the write succeeded; on failure
@@ -118,6 +157,7 @@ final class AddNoteModel {
             // tree cache conservatively so every host (DeckDetail, reader
             // lookup, Browse) sees fresh counts.
             store.apply(CollectionChanges(card: true, note: true, studyQueues: true))
+            addedCount += 1
             return true
         } catch {
             errorMessage = "Failed to add note: \(error.localizedDescription)"

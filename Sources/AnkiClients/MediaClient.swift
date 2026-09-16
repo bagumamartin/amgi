@@ -11,6 +11,10 @@ public struct MediaClient: Sendable {
     /// Prefer `localURL` when you want one file — this is for callers that
     /// resolve paths themselves, like the card WebView's asset scheme handler.
     public var folderURL: @Sendable () -> URL? = { nil }
+    /// Registers bytes with the collection and returns the canonical filename
+    /// (the engine may rename on collision). Note fields must use that name.
+    public var addFile: @Sendable (_ desiredName: String, _ data: Data) async throws -> String = { _, _ in "" }
+
     public var save: @Sendable (_ data: Data, _ filename: String) async throws -> Void
     public var delete: @Sendable (_ filename: String) async throws -> Void
 

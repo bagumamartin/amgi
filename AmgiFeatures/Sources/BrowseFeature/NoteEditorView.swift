@@ -8,9 +8,11 @@ import AmgiTheme
 /// is `NoteEditorContent`, bound to the model.
 package struct NoteEditorView: View {
     @State private var model: NoteEditorModel
+    @State private var editingSession = NoteFieldEditingSession()
     let onSave: () -> Void
 
     @State private var showSavedConfirmation = false
+    @State private var showDismissConfirmation = false
     @Environment(\.dismiss) private var dismiss
 
     package init(note: NoteRecord, onSave: @escaping () -> Void) {
@@ -24,13 +26,14 @@ package struct NoteEditorView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button("Cancel") { requestDismiss() }
                         .keyboardShortcut(.cancelAction)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         Task {
                             if await model.save() {
+                                NoteComposerDraftStore.clearEdit(noteID: model.noteID.rawValue)
                                 withAnimation(AmgiMotion.momentum) { showSavedConfirmation = true }
                                 try? await Task.sleep(for: .seconds(1.5))
                                 withAnimation(AmgiMotion.standard) { showSavedConfirmation = false }
@@ -38,17 +41,65 @@ package struct NoteEditorView: View {
                             }
                         }
                     }
-                    // Stay disabled across the "Saved" toast too — the model's
-                    // isSaving flag clears the instant the write returns, but a
-                    // second tap during the 1.5s toast would re-save and re-fire
-                    // onSave (the pre-extraction save() held isSaving across the
-                    // toast).
                     .keyboardShortcut(.defaultAction)
                     .disabled(model.isSaving || showSavedConfirmation)
                 }
             }
+            .modifier(NoteFieldFormatChrome(session: editingSession))
+            .modifier(NoteFieldMediaBridge(session: editingSession))
+            .modifier(NoteComposerDismissGuard(isBlocked: model.hasUnsavedChanges) {
+                showDismissConfirmation = true
+            })
+            .confirmationDialog(
+                "Save your progress?",
+                isPresented: $showDismissConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Save Progress") {
+                    NoteComposerDraftStore.saveEdit(model.makeDraft())
+                    dismiss()
+                }
+                Button("Discard", role: .destructive) {
+                    NoteComposerDraftStore.clearEdit(noteID: model.noteID.rawValue)
+                    dismiss()
+                }
+                Button("Keep Editing", role: .cancel) {}
+            } message: {
+                Text("You have changes that aren’t saved to the card yet.")
+            }
             .overlay { savedToast }
-            .task { await model.loadNote() }
+            .task {
+                await model.loadNote()
+                editingSession.showsClozeTools = model.isClozeNotetype
+                editingSession.clozeFields = model.fieldValues
+            }
+            .onChange(of: model.fieldValues) { _, values in
+                editingSession.clozeFields = values
+                persistEditDraft()
+            }
+            .onChange(of: model.tags) { _, _ in
+                persistEditDraft()
+            }
+            .onChange(of: model.isClozeNotetype) { _, isCloze in
+                editingSession.showsClozeTools = isCloze
+            }
+            #if os(macOS)
+            .onExitCommand { requestDismiss() }
+            #endif
+    }
+
+    private func persistEditDraft() {
+        if model.hasUnsavedChanges {
+            NoteComposerDraftStore.saveEdit(model.makeDraft())
+        }
+    }
+
+    private func requestDismiss() {
+        if model.hasUnsavedChanges {
+            showDismissConfirmation = true
+        } else {
+            dismiss()
+        }
     }
 
     @ViewBuilder
@@ -68,11 +119,6 @@ package struct NoteEditorView: View {
     }
 }
 
-// MARK: - NoteEditorContent
-
-/// The Edit Note form: the note-type's fields and a tags field. Bound to a
-/// `NoteEditorModel`; owns no I/O, so it renders in a `#Preview` from a
-/// seeded model.
 struct NoteEditorContent: View {
     @Environment(\.palette) private var palette
     @Bindable var model: NoteEditorModel
@@ -85,7 +131,10 @@ struct NoteEditorContent: View {
                         Text(name)
                             .amgiFont(.caption)
                             .foregroundStyle(palette.textSecondary)
-                        RichNoteFieldEditor(htmlText: $model[fieldAt: index])
+                        RichNoteFieldEditor(
+                            htmlText: $model[fieldAt: index],
+                            fieldIndex: index
+                        )
                     }
                 }
             }
@@ -103,8 +152,6 @@ struct NoteEditorContent: View {
         #endif
     }
 }
-
-// MARK: - Preview
 
 #if DEBUG
 #Preview {

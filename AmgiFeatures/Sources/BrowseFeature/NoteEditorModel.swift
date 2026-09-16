@@ -17,6 +17,9 @@ final class NoteEditorModel {
     var fieldValues: [String] = []
     var tags: String = ""
     var isSaving = false
+    var isClozeNotetype = false
+    private var originalFieldValues: [String] = []
+    private var originalTags = ""
 
     @ObservationIgnored @Dependency(\.noteClient) private var noteClient
     @ObservationIgnored @Dependency(\.notetypesService) private var notetypesService
@@ -41,6 +44,7 @@ final class NoteEditorModel {
             let mid = note.mid
             let notetype = try await backendOffload { try service.getNotetype(mid) }
             fieldNames = notetype.fieldNames
+            isClozeNotetype = notetype.kind == .cloze
         } catch {
             Log.browse.error("Error loading notetype: \(error)")
         }
@@ -50,6 +54,41 @@ final class NoteEditorModel {
             .map(String.init)
         while fieldValues.count < fieldNames.count { fieldValues.append("") }
         tags = note.tags.trimmingCharacters(in: .whitespaces)
+        originalFieldValues = fieldValues
+        originalTags = tags
+        if let draft = NoteComposerDraftStore.loadEdit(noteID: note.id.rawValue) {
+            applyDraft(draft)
+        }
+    }
+
+    var hasUnsavedChanges: Bool {
+        fieldValues != originalFieldValues || tags != originalTags
+    }
+
+    var noteID: NoteID { note.id }
+
+    func applyDraft(_ draft: NoteComposerDraft) {
+        if !draft.fieldValues.isEmpty {
+            fieldValues = draft.fieldValues
+            while fieldValues.count < fieldNames.count { fieldValues.append("") }
+        }
+        tags = draft.tags
+    }
+
+    func makeDraft() -> NoteComposerDraft {
+        NoteComposerDraft(
+            deckID: nil,
+            notetypeID: note.mid.rawValue,
+            fieldNames: fieldNames,
+            fieldValues: fieldValues,
+            tags: tags,
+            noteID: note.id.rawValue
+        )
+    }
+
+    func markSaved() {
+        originalFieldValues = fieldValues
+        originalTags = tags
     }
 
     /// Persist the edited fields/tags. Returns whether the write succeeded.
@@ -71,6 +110,7 @@ final class NoteEditorModel {
 
         do {
             try await noteClient.save(updatedNote)
+            markSaved()
             return true
         } catch {
             return false
