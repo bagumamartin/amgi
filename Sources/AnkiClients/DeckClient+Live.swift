@@ -57,6 +57,16 @@ extension DeckClient: DependencyKey {
                     logger.info("Extended limits for deck \(deckId): new+\(newDelta) review+\(reviewDelta)")
                 }
             },
+            customStudyDefaults: { deckId in
+                try await backendOffload { try decks.customStudyDefaults(deckId) }
+            },
+            customStudy: { deckId, request in
+                try await backendOffload {
+                    let result = try decks.customStudy(deckId, request)
+                    logger.info("Custom study completed for deck \(deckId)")
+                    return result
+                }
+            },
             fetchDeckConfigContext: { deckId in
                 try await backendOffload { try decks.fetchDeckConfigContext(deckId) }
             },

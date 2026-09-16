@@ -7,6 +7,10 @@ public struct WidgetSnapshot: Codable, Sendable {
     public var learnCount: Int
     public var reviewCount: Int
     public var reviewedToday: Int
+    /// Cards graduated past today's Anki-day scope — the same quantity the
+    /// Study ring and reviewer progress bar count. Answer counts
+    /// (`reviewedToday`) inflate on Again / mid-step learning re-answers.
+    public var completedToday: Int
     public var streak: Int
     public var lastSevenDays: [Int]   // index 0 = 6 days ago, index 6 = today
     public var snapshotDate: Date
@@ -20,6 +24,7 @@ public struct WidgetSnapshot: Codable, Sendable {
         learnCount: Int,
         reviewCount: Int,
         reviewedToday: Int,
+        completedToday: Int,
         streak: Int,
         lastSevenDays: [Int],
         snapshotDate: Date,
@@ -31,19 +36,34 @@ public struct WidgetSnapshot: Codable, Sendable {
         self.learnCount = learnCount
         self.reviewCount = reviewCount
         self.reviewedToday = reviewedToday
+        self.completedToday = completedToday
         self.streak = streak
         self.lastSevenDays = lastSevenDays
         self.snapshotDate = snapshotDate
         self.forecast = forecast
     }
 
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        deckId = try container.decode(Int64.self, forKey: .deckId)
+        deckName = try container.decode(String.self, forKey: .deckName)
+        newCount = try container.decode(Int.self, forKey: .newCount)
+        learnCount = try container.decode(Int.self, forKey: .learnCount)
+        reviewCount = try container.decode(Int.self, forKey: .reviewCount)
+        reviewedToday = try container.decode(Int.self, forKey: .reviewedToday)
+        completedToday = try container.decodeIfPresent(Int.self, forKey: .completedToday)
+            ?? reviewedToday
+        streak = try container.decode(Int.self, forKey: .streak)
+        lastSevenDays = try container.decode([Int].self, forKey: .lastSevenDays)
+        snapshotDate = try container.decode(Date.self, forKey: .snapshotDate)
+        forecast = try container.decodeIfPresent(Forecast.self, forKey: .forecast)
+    }
+
     public var totalDue: Int { newCount + learnCount + reviewCount }
-    /// Martin's widgets/progress bar name this "completed today"; same value as reviewedToday.
-    public var completedToday: Int { reviewedToday }
     /// `completed / (completed + remaining due)` — same formula as DailyProgressBar.
     public var todayProgressFraction: Double {
-        let total = max(reviewedToday + totalDue, 1)
-        return min(1, Double(max(reviewedToday, 0)) / Double(total))
+        let total = max(completedToday + totalDue, 1)
+        return min(1, Double(max(completedToday, 0)) / Double(total))
     }
 
     /// Precomputed per-Anki-day due counts. While the app is closed the
@@ -98,6 +118,7 @@ public struct WidgetSnapshot: Codable, Sendable {
             learnCount: 8,
             reviewCount: 22,
             reviewedToday: 18,
+            completedToday: 18,
             streak: 7,
             lastSevenDays: [20, 15, 22, 18, 25, 12, 8],
             snapshotDate: Date()
@@ -170,6 +191,7 @@ extension WidgetSnapshot {
         projected.learnCount = counts.learnCount
         projected.reviewCount = counts.reviewCount
         projected.reviewedToday = 0
+        projected.completedToday = 0
         // Same rule as StreakCalculator: a streak survives exactly one
         // boundary, and only if the write day itself had reviews.
         projected.streak = (day == 1 && reviewedToday > 0) ? streak : 0

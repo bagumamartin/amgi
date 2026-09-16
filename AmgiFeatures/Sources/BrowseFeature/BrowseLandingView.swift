@@ -13,7 +13,8 @@ private enum BrowseColumn {
 ///
 /// - Idle: quick-filter tiles, then Decks / Tags / Saved Searches.
 /// - Focused with an empty query: Recent Searches + Saved Searches.
-/// - Non-empty query: `BrowseListColumn` replaces the landing in place.
+/// - Selected source or non-empty query: `BrowseListColumn` replaces the
+///   landing in place, preserving the root search field.
 ///
 /// Rows are plain buttons with no `List(selection:)` — the grey full-bleed
 /// slab on the old compact sidebar was that selection highlight sitting
@@ -26,6 +27,7 @@ struct BrowseLandingView: View {
     let onSwipeDelete: (NoteRecord) -> Void
     let onSelect: (BrowseSource) -> Void
     let onOpenDetail: () -> Void
+    let isShowingSource: Bool
 
     @State private var iconNames: [Int64: String] = [:]
     @AppStorage(BrowseDeckTree.expandedStorageKey) private var expandedRaw = ""
@@ -36,7 +38,7 @@ struct BrowseLandingView: View {
 
     var body: some View {
         Group {
-            if !query.isEmpty {
+            if isShowingSource || !query.isEmpty {
                 BrowseListColumn(
                     model: model,
                     selectionState: $selectionState,
@@ -70,6 +72,16 @@ struct BrowseLandingView: View {
             }
 
             Section {
+                Button {
+                    onSelect(.allDecks)
+                } label: {
+                    Label("All decks", systemImage: "square.stack.3d.up.fill")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(palette.textPrimary)
+
                 ForEach(deckRows) { row in
                     Button {
                         onSelect(.deck(row.deck.id))
@@ -80,6 +92,8 @@ struct BrowseLandingView: View {
                         ) {
                             toggleExpansion(row.deck.name)
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(palette.textPrimary)
@@ -97,6 +111,8 @@ struct BrowseLandingView: View {
                             Label(tag, systemImage: "tag")
                                 .lineLimit(1)
                                 .truncationMode(.middle)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
                         }
                         .foregroundStyle(palette.textPrimary)
                     }
@@ -128,6 +144,8 @@ struct BrowseLandingView: View {
                             Label(recent, systemImage: "clock.arrow.circlepath")
                                 .lineLimit(1)
                                 .truncationMode(.middle)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
                         }
                         .foregroundStyle(palette.textPrimary)
                     }
@@ -163,6 +181,8 @@ struct BrowseLandingView: View {
                     Label(saved.name, systemImage: "heart")
                         .lineLimit(1)
                         .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                 }
                 .foregroundStyle(palette.textPrimary)
             }

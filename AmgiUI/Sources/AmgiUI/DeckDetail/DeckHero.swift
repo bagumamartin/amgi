@@ -12,6 +12,7 @@ public struct DeckHero: View {
     public let isFiltered: Bool
 
     @Environment(\.palette) private var palette
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     public init(
         title: String,
@@ -30,11 +31,33 @@ public struct DeckHero: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            DeckHeroTile(tone: tone, deckName: deckName, iconName: iconName)
-                .padding(.bottom, 8)
-            titleRow
-            subtitleText
+        Group {
+            if horizontalSizeClass == .compact {
+                HStack(alignment: .center, spacing: 12) {
+                    DeckHeroTile(tone: tone, deckName: deckName, iconName: iconName, size: 48)
+                    VStack(alignment: .leading, spacing: 2) {
+                        compactTitleRow
+                        subtitleText
+                    }
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    DeckHeroTile(tone: tone, deckName: deckName, iconName: iconName)
+                        .padding(.bottom, 8)
+                    titleRow
+                    subtitleText
+                }
+            }
+        }
+    }
+
+    private var compactTitleRow: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(title)
+                .amgiFont(size: 22, weight: .bold)
+                .foregroundStyle(palette.textPrimary)
+                .lineLimit(2)
+            if isFiltered { customStudyChip }
         }
     }
 

@@ -1,7 +1,7 @@
 package import SwiftUI
 import AmgiAppShared
 import AmgiUI
-import AnkiKit
+package import AnkiKit
 import AnkiClients
 import AnkiServices
 import Dependencies
@@ -9,8 +9,8 @@ import AmgiTheme
 
 /// Browse container. Regular width (Mac / iPad) is ONE three-column
 /// `NavigationSplitView` — sources, list, detail. Compact width (iPhone)
-/// is a `NavigationStack` rooted on `BrowseLandingView`, which is what
-/// lets `Tab(role: .search)` morph the tab-bar circle into a search pill.
+/// is a `NavigationStack` rooted on `BrowseLandingView`, which swaps the
+/// landing and scoped results in place so the search pill remains contextual.
 ///
 /// It used to be mounted inside another `NavigationSplitView` (the root
 /// sidebar) with a `NavigationStack` around each of its own columns. Four
@@ -40,8 +40,10 @@ package struct BrowseView: View {
     @State private var showSaveSearchPrompt = false
     @State private var saveSearchName = ""
     #if os(iOS)
-    /// Compact push stack: landing → scoped list → note detail.
+    /// Compact pushes only the note detail. A selected source replaces the
+    /// landing in place so the search-tab field stays mounted and scoped.
     @State private var path: [BrowseRoute] = []
+    @State private var isShowingCompactSource = false
     #endif
 
     @Dependency(\.notetypesService) private var notetypesService
@@ -56,6 +58,14 @@ package struct BrowseView: View {
 
     package init(exit: BrowseExit? = nil) {
         self.init(model: BrowseModel(), exit: exit)
+    }
+
+    /// Modal entry from deck detail. The deck source is installed before the
+    /// first search, so the sheet never flashes collection-wide results.
+    package init(deck: DeckInfo) {
+        let model = BrowseModel()
+        model.source = .deck(deck.id)
+        self.init(model: model, exit: nil)
     }
 
     init(model: BrowseModel, exit: BrowseExit? = nil) {
@@ -96,7 +106,7 @@ package struct BrowseView: View {
     private var splitLayout: some View {
         NavigationSplitView {
             BrowseSourceColumn(model: model, exit: exit)
-                .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 360)
+                .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 260)
         } content: {
             listPane
                 .navigationSplitViewColumnWidth(min: 300, ideal: 400)
@@ -114,51 +124,60 @@ package struct BrowseView: View {
     #if os(iOS)
     private var compactLayout: some View {
         NavigationStack(path: $path) {
-            BrowseLandingView(
-                model: model,
-                selectionState: $selectionState,
-                onSwipeDelete: { pendingSwipeDelete = $0 },
-                onSelect: { source in
-                    model.source = source
-                    path.append(.source(source))
-                },
-                onOpenDetail: openDetail
-            )
-            .navigationTitle("Search")
-            .navigationBarTitleDisplayMode(.large)
-            .accountMenu()
-            .toolbar { toolbarContent }
+            compactRoot
+            .toolbar {
+                if isShowingCompactSource {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button {
+                            isShowingCompactSource = false
+                            model.source = .allDecks
+                        } label: {
+                            Label("All decks", systemImage: "chevron.left")
+                        }
+                    }
+                }
+                toolbarContent
+            }
             .navigationDestination(for: BrowseRoute.self) { route in
                 compactDestination(route)
             }
         }
-        .searchable(text: $model.searchText, prompt: "Search notes and cards")
+        .searchable(text: $model.searchText, prompt: searchPrompt)
         .onSubmit(of: .search) { model.commitSearchHistory() }
         .toolbarBackground(.visible, for: .bottomBar)
         .toolbarBackground(.ultraThinMaterial, for: .bottomBar)
     }
 
+    /// Profile switching belongs to the Browse landing, like every other root
+    /// tab. A scoped deck/tag/search uses the leading Back control instead.
+    @ViewBuilder
+    private var compactRoot: some View {
+        if isShowingCompactSource {
+            compactRootContent
+        } else {
+            compactRootContent.accountMenu()
+        }
+    }
+
+    private var compactRootContent: some View {
+        BrowseLandingView(
+            model: model,
+            selectionState: $selectionState,
+            onSwipeDelete: { pendingSwipeDelete = $0 },
+            onSelect: { source in
+                model.source = source
+                isShowingCompactSource = true
+            },
+            onOpenDetail: openDetail,
+            isShowingSource: isShowingCompactSource
+        )
+        .navigationTitle(isShowingCompactSource ? sourceTitle : "Search")
+        .navigationBarTitleDisplayMode(isShowingCompactSource ? .inline : .large)
+    }
+
     @ViewBuilder
     private func compactDestination(_ route: BrowseRoute) -> some View {
         switch route {
-        case .source(let source):
-            BrowseListColumn(
-                model: model,
-                selectionState: $selectionState,
-                onSwipeDelete: { pendingSwipeDelete = $0 },
-                onOpenDetail: openDetail
-            )
-            .navigationTitle(sourceTitle)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { toolbarContent }
-            .onDisappear {
-                // Popping back to landing unscopes the query. Pushing detail
-                // on top of this source must NOT reset — the source is still
-                // in the path.
-                if !path.contains(.source(source)), model.source == source {
-                    model.source = .allDecks
-                }
-            }
         case .detail:
             compactDetail
         }
@@ -325,11 +344,10 @@ package struct BrowseView: View {
         await model.refreshUndoStatus()
         await refreshNotetypeFields()
         #if os(iOS)
-        // Compact landing does not observe `model.source` by itself — a
-        // scoped seed has to push the list, otherwise the user lands on
-        // the idle tree with the query silently scoped underneath.
+        // A scoped seed must show the in-place result list; otherwise the
+        // user lands on the idle tree with the query silently scoped beneath it.
         if horizontalSizeClass == .compact, model.source != .allDecks {
-            path = [.source(model.source)]
+            isShowingCompactSource = true
         }
         #endif
     }
@@ -788,9 +806,8 @@ private func previewBrowseModel() -> BrowseModel {
 
 extension BrowseView.Sheet: Identifiable {}
 
-/// Compact NavigationStack destinations. Split view never uses this —
-/// its columns are always on screen.
+/// Compact pushes only details. Source selection stays at the stack root so
+/// iOS keeps the bottom search field alive and scoped while browsing a deck.
 enum BrowseRoute: Hashable {
-    case source(BrowseSource)
     case detail
 }

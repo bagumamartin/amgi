@@ -50,6 +50,7 @@ enum MainSection: String, CaseIterable, Identifiable {
 /// Platform idiom: iPhone keeps the bottom tab bar, iPad gets
 /// `.sidebarAdaptable`, and macOS uses a `NavigationSplitView` sidebar.
 struct MainTabView: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let refreshID: UUID
     let showReaderTab: Bool
     let onSelectStudyDeck: (DeckID) -> Void
@@ -61,7 +62,7 @@ struct MainTabView: View {
     /// by switching sections; BrowseView clears after consuming.
     @State private var browseRequest = BrowseLauncher.shared
 
-    /// Section to return to when Browse hands the macOS window back.
+    /// Section to return to when Browse hands a regular-width window back.
     @State private var previousSection: MainSection = .library
 
     private var sections: [MainSection] {
@@ -112,31 +113,42 @@ struct MainTabView: View {
                 }
             }
             #else
-            TabView(selection: selectionBinding) {
-                Tab(MainSection.library.title, systemImage: MainSection.library.systemImage, value: MainSection.library) {
-                    tabContent(for: .library)
-                }
-                if showReaderTab {
-                    Tab(MainSection.read.title, systemImage: MainSection.read.systemImage, value: MainSection.read) {
-                        tabContent(for: .read)
+            // Like macOS, regular-width iPad lets Browse replace the root
+            // sidebar. Nesting its own three columns inside sidebarAdaptable
+            // leaves two unrelated sidebars competing for the window.
+            if horizontalSizeClass == .regular, selection == .browse {
+                BrowseView(exit: BrowseExit(
+                    title: previousSection.title,
+                    systemImage: previousSection.systemImage,
+                    action: { selectionBinding.wrappedValue = previousSection }
+                ))
+            } else {
+                TabView(selection: selectionBinding) {
+                    Tab(MainSection.library.title, systemImage: MainSection.library.systemImage, value: MainSection.library) {
+                        tabContent(for: .library)
+                    }
+                    if showReaderTab {
+                        Tab(MainSection.read.title, systemImage: MainSection.read.systemImage, value: MainSection.read) {
+                            tabContent(for: .read)
+                        }
+                    }
+                    Tab(MainSection.study.title, systemImage: MainSection.study.systemImage, value: MainSection.study) {
+                        tabContent(for: .study)
+                    }
+                    Tab(MainSection.stats.title, systemImage: MainSection.stats.systemImage, value: MainSection.stats) {
+                        tabContent(for: .stats)
+                    }
+                    Tab(value: MainSection.browse, role: .search) {
+                        tabContent(for: .browse)
+                    } label: {
+                        Label(MainSection.browse.title, systemImage: MainSection.browse.systemImage)
+                            .fontWeight(.heavy)
+                            .symbolVariant(.fill)
                     }
                 }
-                Tab(MainSection.study.title, systemImage: MainSection.study.systemImage, value: MainSection.study) {
-                    tabContent(for: .study)
-                }
-                Tab(MainSection.stats.title, systemImage: MainSection.stats.systemImage, value: MainSection.stats) {
-                    tabContent(for: .stats)
-                }
-                Tab(value: MainSection.browse, role: .search) {
-                    tabContent(for: .browse)
-                } label: {
-                    Label(MainSection.browse.title, systemImage: MainSection.browse.systemImage)
-                        .fontWeight(.heavy)
-                        .symbolVariant(.fill)
-                }
+                .tabViewStyle(.sidebarAdaptable)
+                .tabBarMinimizedOnScrollIfAvailable()
             }
-            .tabViewStyle(.sidebarAdaptable)
-            .tabBarMinimizedOnScrollIfAvailable()
             #endif
         }
         .onChange(of: selection) { oldValue, newValue in

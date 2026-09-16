@@ -13,7 +13,6 @@ import UniformTypeIdentifiers  // UTType.data
 
 struct SheetCoverModifier: ViewModifier {
     let destination: Binding<DeckDetailDestination?>
-    let deckId: DeckID
     let onReviewDismiss: () -> Void
     let sheetContent: (DeckDetailSheet) -> AnyView
 
@@ -26,14 +25,14 @@ struct SheetCoverModifier: ViewModifier {
             // screen returns to the underlying content instead of being
             // covered by a full-screen modal.
             .onChange(of: destination.wrappedValue) { _, newValue in
-                guard case .review? = newValue else { return }
-                ReviewWindowQueue.shared.enqueue(deckId)
+                guard case .review(let reviewDeckId)? = newValue else { return }
+                ReviewWindowQueue.shared.enqueue(reviewDeckId)
                 openWindow(id: "review")
                 destination.wrappedValue = nil
             }
             #else
-            .fullScreenCover(isPresented: destination.review) {
-                ReviewView(deckId: deckId) { onReviewDismiss() }
+            .fullScreenCover(item: destination.review) { reviewDeckId in
+                ReviewView(deckId: reviewDeckId) { onReviewDismiss() }
             }
             #endif
             .sheet(item: destination.sheet) { sheet in
@@ -69,4 +68,3 @@ struct AlertImporterModifier: ViewModifier {
             }
     }
 }
-

@@ -20,27 +20,28 @@ public func writeWidgetSnapshot() async {
         return
     }
 
-    @Dependency(\.deckClient) var deckClient
+    @Dependency(\.collectionStore) var collectionStore
     @Dependency(\.statsClient) var statsClient
 
     do {
-        // 1. Fetch deck list
-        let decks: [DeckInfo] = try await deckClient.fetchAll()
+        // Match the Library hero: top-level nodes already include their
+        // descendants' due counts, so summing a flat deck list would count
+        // parent/subdeck cards more than once.
+        let tree = try await collectionStore.tree()
+        let libraryDecks = tree.map(\.asDeckInfo)
+        let individualDecks = tree.flattened()
 
-        // Sweep in a defer so it still runs when a later step throws.
-        // As the last statement of the `do` it was skipped entirely on any
-        // failure, leaving the *previous* profile's deck names and due
-        // counts in the shared container to keep rendering on the lock
-        // screen after a profile switch.
+        var keptIds: Set<Int64> = [0]
         defer {
-            WidgetSnapshotStore.removeSnapshots(notIn: Set([0] + decks.map(\.id.rawValue)))
+            WidgetSnapshotStore.removeSnapshots(notIn: keptIds)
             WidgetCenter.shared.reloadAllTimelines()
         }
 
-        // 2. Fetch 28-day stats graph for streak + daily counts
+        // 28-day stats graph for streak + daily counts. The rollover hour
+        // rides along — the widget's day boundary comes from here, never
+        // from calendar midnight.
         let graphs = try await statsClient.fetchGraphs("", 28)
 
-        // 3+4. Compute streak and last-7-days totals via shared helper.
         let streak = StreakCalculator.streak(reviews: graphs.reviews.count)
         let lastSevenDays = StreakCalculator.lastNDaysTotals(
             reviews: graphs.reviews.count, days: 7
@@ -51,11 +52,21 @@ public func writeWidgetSnapshot() async {
         let rolloverHour = graphs.rolloverHour
         let dayZero = AnkiDay.start(of: now, rolloverHour: rolloverHour)
 
-        // 5. Write all-decks aggregate snapshot (deckId = 0)
+        // "Completed" = graduated past today's Anki-day scope — the exact
+        // quantity the reviewer's daily progress bar counts. Answer counts
+        // would diverge (Again / mid-step learning re-answers inflate them).
+        let allDecksCompleted = try await statsClient.graduatedToday(search: "")
+
+        // Learning remaining must include intraday cards due later today —
+        // tree counts drop them beyond the learn-ahead window, which would
+        // make the widget's denominator (and bar) drift from the reviewer's.
+        let allDecksLearning = (try? await statsClient.learningDueToday(search: ""))
+            ?? libraryDecks.reduce(0) { $0 + $1.counts.learnCount }
+
         let aggregateBase = WidgetSnapshot.DayCounts(
-            newCount: decks.reduce(0) { $0 + $1.counts.newCount },
-            learnCount: decks.reduce(0) { $0 + $1.counts.learnCount },
-            reviewCount: decks.reduce(0) { $0 + $1.counts.reviewCount }
+            newCount: libraryDecks.reduce(0) { $0 + $1.counts.newCount },
+            learnCount: allDecksLearning,
+            reviewCount: libraryDecks.reduce(0) { $0 + $1.counts.reviewCount }
         )
         let allDecksSnapshot = WidgetSnapshot(
             deckId: 0,
@@ -64,6 +75,7 @@ public func writeWidgetSnapshot() async {
             learnCount: aggregateBase.learnCount,
             reviewCount: aggregateBase.reviewCount,
             reviewedToday: reviewedToday,
+            completedToday: allDecksCompleted,
             streak: streak,
             lastSevenDays: lastSevenDays,
             snapshotDate: now,
@@ -76,21 +88,23 @@ public func writeWidgetSnapshot() async {
         )
         try WidgetSnapshotStore.write(allDecksSnapshot)
 
-        // 6. Write per-deck snapshots. Each deck needs its own future-due
-        // histogram for the forecast; a failed per-deck fetch degrades to a
-        // forecast-less snapshot rather than failing the whole write.
-        //
-        // The engine's graphs RPC takes one search string, so there is no
-        // batch form without a new proto method — but a forecast is a
-        // projection over whole Anki days, so recomputing it mid-day is
-        // wasted work. Counts below come from the already-fetched deck list
-        // and still update on every foreground; only the forecast is reused
-        // when the stored one was written in the current Anki day. That
-        // turns N RPCs per foreground into N once a day.
-        for deck in decks {
+        // Graduated counts are scoped searches, so compute them only where
+        // a widget can actually be watching: decks with due cards now, or
+        // decks that already have a snapshot file. Bounds the N+1 searches
+        // to real consumers.
+        for deck in individualDecks {
+            let hasWidget = WidgetSnapshotStore.read(deckId: deck.id.rawValue) != nil
+            guard deck.counts.total > 0 || hasWidget else { continue }
+            keptIds.insert(deck.id.rawValue)
+            let completed = try await statsClient.graduatedToday(
+                search: DeckSearch.term(deck.name)
+            )
+            let learning = (try? await statsClient.learningDueToday(
+                search: DeckSearch.term(deck.name)
+            )) ?? deck.counts.learnCount
             let base = WidgetSnapshot.DayCounts(
                 newCount: deck.counts.newCount,
-                learnCount: deck.counts.learnCount,
+                learnCount: learning,
                 reviewCount: deck.counts.reviewCount
             )
             let storedForecast = WidgetSnapshotStore.read(deckId: deck.id.rawValue)?.forecast
@@ -99,11 +113,9 @@ public func writeWidgetSnapshot() async {
             } ?? false
             let deckFutureDue: [Int: Int]?
             if forecastIsCurrent, let reusable = storedForecast?.futureDue {
-                // Same Anki day: re-project the stored histogram against the
-                // deck's current counts rather than re-fetching it.
                 deckFutureDue = reusable
             } else {
-                deckFutureDue = (try? await statsClient.fetchGraphs(deckSearch(deck.name), 1))?
+                deckFutureDue = (try? await statsClient.fetchGraphs(DeckSearch.term(deck.name), 1))?
                     .futureDue.futureDue
             }
             let snapshot = WidgetSnapshot(
@@ -113,6 +125,7 @@ public func writeWidgetSnapshot() async {
                 learnCount: base.learnCount,
                 reviewCount: base.reviewCount,
                 reviewedToday: reviewedToday,
+                completedToday: completed,
                 streak: streak,
                 lastSevenDays: lastSevenDays,
                 snapshotDate: now,
@@ -127,8 +140,6 @@ public func writeWidgetSnapshot() async {
             )
             try WidgetSnapshotStore.write(snapshot)
         }
-
-        // 7+8. Sweep + timeline reload happen in the defer above.
     } catch {
         Log.widget.error("Failed: \(error)")
     }
@@ -156,9 +167,4 @@ private func forecastDays(
         ))
     }
     return days
-}
-
-/// Anki search string matching one deck (and its subdecks) by name.
-private func deckSearch(_ name: String) -> String {
-    DeckSearch.term(name)
 }

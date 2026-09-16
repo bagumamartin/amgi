@@ -20,6 +20,8 @@ public struct DecksService: Sendable {
     /// Raises today's new/review limits for a deck by the given deltas —
     /// Anki's "custom study → increase today's limit".
     public var extendLimits: @Sendable (_ deckId: DeckID, _ newDelta: Int32, _ reviewDelta: Int32) throws -> Void
+    public var customStudyDefaults: @Sendable (_ deckId: DeckID) throws -> CustomStudyDefaults
+    public var customStudy: @Sendable (_ deckId: DeckID, _ request: CustomStudyRequest) throws -> CustomStudyResult
     public var fetchDeckConfigContext: @Sendable (_ deckId: DeckID) throws -> DeckConfigsForUpdate
     public var getDeckConfig: @Sendable (_ deckId: DeckID) throws -> DeckConfig
     public var updateDeckConfig: @Sendable (
@@ -89,6 +91,24 @@ extension DecksService: DependencyKey {
             },
             extendLimits: { deckId, newDelta, reviewDelta in
                 try backend.invoke(.extendLimits(deckId: deckId, newDelta: newDelta, reviewDelta: reviewDelta))
+            },
+            customStudyDefaults: { deckId in
+                try backend.invoke(.customStudyDefaults(deckId: deckId))
+            },
+            customStudy: { deckId, request in
+                let changes = try backend.invoke(.customStudy(deckId: deckId, request: request))
+                let sessionDeck: DeckInfo?
+                switch request {
+                case .increaseNewLimit, .increaseReviewLimit:
+                    sessionDeck = nil
+                default:
+                    var current = try backend.invoke(.getCurrentDeck)
+                    if let counts = try backend.invoke(.deckCounts(for: current.id)) {
+                        current.counts = counts
+                    }
+                    sessionDeck = current
+                }
+                return CustomStudyResult(changes: changes, sessionDeck: sessionDeck)
             },
             fetchDeckConfigContext: { deckId in
                 try backend.invoke(.deckConfigsForUpdate(deckId: deckId))

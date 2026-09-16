@@ -30,6 +30,7 @@ struct StatsDashboardContent: View {
     /// blanking to a spinner — but silently, the screen was indistinguishable
     /// from one that had ignored the tap. This marks the wait.
     let isRefreshing: Bool
+    let allowsDeckSelection: Bool
 
     var body: some View {
         ScrollView {
@@ -66,10 +67,15 @@ struct StatsDashboardContent: View {
 
     private var filters: some View {
         HStack(spacing: AmgiSpacing.md) {
-            deckMenu
+            if allowsDeckSelection { deckMenu }
+            else if let selectedDeck { lockedDeckCapsule(selectedDeck) }
             periodMenu
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func lockedDeckCapsule(_ deck: DeckInfo) -> some View {
+        filterCapsule(icon: "rectangle.stack", label: deck.name, showsDisclosure: false)
     }
 
     private var deckMenu: some View {
@@ -109,15 +115,17 @@ struct StatsDashboardContent: View {
         }
     }
 
-    private func filterCapsule(icon: String, label: String) -> some View {
+    private func filterCapsule(icon: String, label: String, showsDisclosure: Bool = true) -> some View {
         HStack(spacing: 4) {
             Image(systemName: icon)
                 .amgiFont(.caption)
             Text(label)
                 .fontWeight(.medium)
                 .lineLimit(1)
-            Image(systemName: "chevron.up.chevron.down")
-                .font(.system(size: 8))
+            if showsDisclosure {
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 8))
+            }
         }
         .amgiFont(.body)
         .amgiCapsuleControl()
@@ -138,7 +146,7 @@ struct StatsDashboardContent: View {
     StatsDashboardContent(
         state: .loaded(.sample), period: .month, selectedDeck: nil,
         topLevelDecks: [], onSelectDeck: { _ in }, onSelectPeriod: { _ in },
-        isRefreshing: false
+        isRefreshing: false, allowsDeckSelection: true
     )
 }
 
@@ -146,7 +154,7 @@ struct StatsDashboardContent: View {
     StatsDashboardContent(
         state: .loaded(.sample), period: .year, selectedDeck: nil,
         topLevelDecks: [], onSelectDeck: { _ in }, onSelectPeriod: { _ in },
-        isRefreshing: true
+        isRefreshing: true, allowsDeckSelection: true
     )
 }
 
@@ -154,7 +162,7 @@ struct StatsDashboardContent: View {
     StatsDashboardContent(
         state: .loading, period: .month, selectedDeck: nil,
         topLevelDecks: [], onSelectDeck: { _ in }, onSelectPeriod: { _ in },
-        isRefreshing: false
+        isRefreshing: false, allowsDeckSelection: true
     )
 }
 
@@ -162,7 +170,7 @@ struct StatsDashboardContent: View {
     StatsDashboardContent(
         state: .failed("The collection is locked."), period: .month,
         selectedDeck: nil, topLevelDecks: [], onSelectDeck: { _ in }, onSelectPeriod: { _ in },
-        isRefreshing: false
+        isRefreshing: false, allowsDeckSelection: true
     )
 }
 #endif

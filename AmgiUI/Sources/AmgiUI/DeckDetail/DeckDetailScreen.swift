@@ -16,6 +16,10 @@ import AmgiTheme
 public struct DeckDetailScreen<HeatmapSlot: View>: View {
     public enum Action: Equatable, Sendable {
         case studyNow
+        case customStudy
+        case addNote
+        case stats
+        case browse
         case rebuild
         case emptyDeck
         case subdeckSelected(DeckSubdeckRowData)
@@ -30,6 +34,7 @@ public struct DeckDetailScreen<HeatmapSlot: View>: View {
     public let onAction: (Action) -> Void
 
     @Environment(\.palette) private var palette
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     public init(
         state: DeckDetailViewState,
@@ -47,6 +52,7 @@ public struct DeckDetailScreen<HeatmapSlot: View>: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 18) {
                 heroSection
+                if horizontalSizeClass == .compact { quickActionsSection }
                 statsSection
                 ctaSection
                 customStudySection
@@ -61,6 +67,19 @@ public struct DeckDetailScreen<HeatmapSlot: View>: View {
             .padding(.bottom, 32)
         }
         .background(palette.background.ignoresSafeArea())
+    }
+
+    @ViewBuilder
+    private var quickActionsSection: some View {
+        if case .loaded(let data) = state {
+            HStack(spacing: 8) {
+                quickAction("Add", systemImage: "plus", action: .addNote)
+                quickAction("Stats", systemImage: "chart.bar", action: .stats)
+                if !data.isFiltered {
+                    quickAction("Browse", systemImage: "magnifyingglass", action: .browse)
+                }
+            }
+        }
     }
 
     // MARK: - Sections
@@ -100,7 +119,42 @@ public struct DeckDetailScreen<HeatmapSlot: View>: View {
         case .loading:
             DeckStudyButton(isDisabled: true, onTap: {})
         case .loaded(let data):
-            DeckStudyButton(isDisabled: data.isEmpty) { onAction(.studyNow) }
+            if horizontalSizeClass == .compact {
+                VStack(spacing: 12) {
+                    DeckStudyButton(isDisabled: data.isEmpty) { onAction(.studyNow) }
+                    if !data.isFiltered { customStudyButton }
+                }
+            } else {
+                HStack(spacing: 12) {
+                    if !data.isFiltered { customStudyButton }
+                    DeckStudyButton(isDisabled: data.isEmpty) { onAction(.studyNow) }
+                }
+            }
+        }
+    }
+
+    private var customStudyButton: some View {
+        Button { onAction(.customStudy) } label: {
+            Text("Custom Study…")
+                .amgiFont(size: 15, weight: .semibold)
+                .frame(maxWidth: .infinity, minHeight: 44)
+        }
+        .buttonStyle(.bordered)
+        .accessibilityHint("Create a focused session from this deck and its subdecks")
+    }
+
+    private func quickAction(_ title: String, systemImage: String, action: Action) -> some View {
+        Button { onAction(action) } label: {
+            Label(title, systemImage: systemImage)
+                .amgiFont(size: 14, weight: .semibold)
+                .frame(maxWidth: .infinity, minHeight: 42)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(palette.accent)
+        .background(palette.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(palette.separator, lineWidth: 0.5)
         }
     }
 

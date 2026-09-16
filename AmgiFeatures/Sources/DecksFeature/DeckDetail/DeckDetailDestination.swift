@@ -1,11 +1,12 @@
 import Foundation
 import CasePaths
+import AnkiKit
 
 /// Single source of truth for every modal axis on the deck-detail screen:
 /// full-screen review, action sheets, alerts, and the file importer.
 @CasePathable
 enum DeckDetailDestination: Equatable {
-    case review
+    case review(DeckID)
     case alert(DeckDetailAlert)
     case sheet(DeckDetailSheet)
     case importer
@@ -14,12 +15,18 @@ enum DeckDetailDestination: Equatable {
 @CasePathable
 enum DeckDetailSheet: Identifiable, Equatable {
     case addNote
+    case customStudy
+    case stats
+    case browse
     case showDeckOptions
     case exportFile(URL)
 
     var id: String {
         switch self {
         case .addNote: "addNote"
+        case .customStudy: "customStudy"
+        case .stats: "stats"
+        case .browse: "browse"
         case .showDeckOptions: "showDeckOptions"
         case .exportFile(let url): "exportFile-\(url.absoluteString)"
         }

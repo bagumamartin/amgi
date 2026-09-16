@@ -55,7 +55,6 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "D799962EF4F5CA4D32203063"
             BuildableName = "AmgiWatchApp.app"
-            BlueprintName = "AmgiWatchApp"
             ReferencedContainer = "container:AmgiApp.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -72,7 +71,6 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "D799962EF4F5CA4D32203063"
             BuildableName = "AmgiWatchApp.app"
-            BlueprintName = "AmgiWatchApp"
             ReferencedContainer = "container:AmgiApp.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>

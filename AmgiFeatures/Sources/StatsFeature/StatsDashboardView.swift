@@ -3,7 +3,7 @@ import AmgiAppShared
 import AmgiTheme
 import AmgiUI
 import AmgiCharts
-import AnkiKit
+package import AnkiKit
 import AnkiClients
 import Dependencies
 
@@ -16,13 +16,16 @@ package struct StatsDashboardView: View {
     /// selected deck, the period, and the scroll position to achieve a reload
     /// the task already does.
     private let refreshID: UUID?
+    private let locksDeckScope: Bool
 
     @State private var model = StatsDashboardModel()
     @State private var period: StatsPeriod = .month
     @State private var selectedDeck: DeckInfo?
 
-    package init(refreshID: UUID? = nil) {
+    package init(refreshID: UUID? = nil, deck: DeckInfo? = nil, locksDeckScope: Bool = false) {
         self.refreshID = refreshID
+        self.locksDeckScope = locksDeckScope
+        _selectedDeck = State(initialValue: deck)
     }
 
     package var body: some View {
@@ -33,7 +36,8 @@ package struct StatsDashboardView: View {
             topLevelDecks: model.topLevelDecks,
             onSelectDeck: { selectedDeck = $0 },
             onSelectPeriod: { period = $0 },
-            isRefreshing: model.isRefreshing
+            isRefreshing: model.isRefreshing,
+            allowsDeckSelection: !locksDeckScope
         )
         .scrollContentBackground(.hidden)
         .background(palette.surface)

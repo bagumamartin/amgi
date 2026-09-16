@@ -15,6 +15,23 @@ extension DeckClient {
         rebuildFilteredDeck: { _ in 0 },
         emptyFilteredDeck: { _ in },
         extendLimits: { _, _, _ in },
+        customStudyDefaults: { _ in
+            CustomStudyDefaults(
+                tags: [
+                    CustomStudyTag(name: "exam::high-yield"),
+                    CustomStudyTag(name: "pharmchem::structures"),
+                ],
+                extendNew: 10,
+                extendReview: 50,
+                availableNew: 45,
+                availableReview: 254,
+                availableNewInChildren: 120,
+                availableReviewInChildren: 310
+            )
+        },
+        customStudy: { _, _ in
+            CustomStudyResult(changes: CollectionChanges(deck: true, studyQueues: true), sessionDeck: .filtered)
+        },
         fetchDeckConfigContext: { _ in
             throw PreviewClientError.notImplementedInPreview("fetchDeckConfigContext")
         },

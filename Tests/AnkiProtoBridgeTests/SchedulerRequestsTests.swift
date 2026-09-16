@@ -121,6 +121,56 @@ private import SwiftProtobuf
         #expect(proto.reviewDelta == 50)
     }
 
+    // MARK: - customStudy
+
+    @Test func customStudy_encodes_forgotten_session() throws {
+        let envelope: Request<CollectionChanges> = .customStudy(
+            deckId: DeckID(42),
+            request: .reviewForgotten(days: 7)
+        )
+        #expect(envelope.serviceId == ServiceID.scheduler)
+        #expect(envelope.methodId == 27)
+        let proto = try Anki_Scheduler_CustomStudyRequest(serializedBytes: envelope.body)
+        #expect(proto.deckID == 42)
+        #expect(proto.forgotDays == 7)
+    }
+
+    @Test func customStudy_encodes_state_limit_and_tags() throws {
+        let envelope: Request<CollectionChanges> = .customStudy(
+            deckId: DeckID(9),
+            request: .studyByState(
+                .all,
+                limit: 100,
+                includeTags: ["pharmchem::structures"],
+                excludeTags: ["exam::mastered"]
+            )
+        )
+        let proto = try Anki_Scheduler_CustomStudyRequest(serializedBytes: envelope.body)
+        #expect(proto.cram.kind == .all)
+        #expect(proto.cram.cardLimit == 100)
+        #expect(proto.cram.tagsToInclude == ["pharmchem::structures"])
+        #expect(proto.cram.tagsToExclude == ["exam::mastered"])
+    }
+
+    @Test func customStudyDefaults_decodes_counts_and_tag_choices() throws {
+        var tag = Anki_Scheduler_CustomStudyDefaultsResponse.Tag()
+        tag.name = "exam::high-yield"
+        tag.include = true
+        var proto = Anki_Scheduler_CustomStudyDefaultsResponse()
+        proto.tags = [tag]
+        proto.extendNew = 10
+        proto.availableNew = 45
+        proto.availableNewInChildren = 120
+
+        let envelope: Request<CustomStudyDefaults> = .customStudyDefaults(deckId: DeckID(1))
+        #expect(envelope.methodId == 28)
+        let result = try envelope.decode(proto.serializedData())
+        #expect(result.extendNew == 10)
+        #expect(result.availableNew == 45)
+        #expect(result.availableNewInChildren == 120)
+        #expect(result.tags == [CustomStudyTag(name: "exam::high-yield", isIncluded: true)])
+    }
+
     // MARK: - scheduleCardsAsNew
 
     @Test func scheduleCardsAsNew_dispatches_and_encodes_ids_and_log_flag() throws {

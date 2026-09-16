@@ -77,6 +77,8 @@ enum SchedulerMethod {
     static let setDueDate: UInt32 = 19
     static let gradeNow: UInt32 = 20
     static let sortCards: UInt32 = 21
+    static let customStudy: UInt32 = 27
+    static let customStudyDefaults: UInt32 = 28
     static let computeFsrsParams: UInt32 = 30
     static let simulateFsrsReview: UInt32 = 33
     static let simulateFsrsWorkload: UInt32 = 34

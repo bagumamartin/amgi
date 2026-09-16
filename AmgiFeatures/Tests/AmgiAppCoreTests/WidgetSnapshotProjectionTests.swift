@@ -27,6 +27,7 @@ import Testing
             learnCount: 2,
             reviewCount: 20,
             reviewedToday: reviewedToday,
+            completedToday: reviewedToday,
             streak: streak,
             lastSevenDays: [1, 2, 3, 4, 5, 6, 7],
             snapshotDate: date(10, 12),
@@ -140,5 +141,20 @@ import Testing
         let snap = try decoder.decode(WidgetSnapshot.self, from: Data(json.utf8))
         #expect(snap.forecast == nil)
         #expect(snap.reviewCount == 20)
+        #expect(snap.completedToday == 10)
+    }
+
+    @Test func completedTodayDecodesWhenPresent() throws {
+        let json = """
+        {"deckId":1,"deckName":"Korean","newCount":3,"learnCount":2,"reviewCount":20,\
+        "reviewedToday":40,"completedToday":12,"streak":5,"lastSevenDays":[1,2,3,4,5,6,7],\
+        "snapshotDate":"2026-07-10T12:00:00Z"}
+        """
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let snap = try decoder.decode(WidgetSnapshot.self, from: Data(json.utf8))
+        #expect(snap.reviewedToday == 40)
+        #expect(snap.completedToday == 12)
+        #expect(snap.todayProgressFraction == 12.0 / (12.0 + 25.0))
     }
 }

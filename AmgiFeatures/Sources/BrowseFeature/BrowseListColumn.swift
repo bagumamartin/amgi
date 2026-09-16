@@ -29,8 +29,6 @@ struct BrowseListColumn: View {
 
     #if os(macOS)
     @State private var multiSelection: Set<Int64> = []
-    #else
-    @State private var rowSelection: Int64?
     #endif
 
     var body: some View {
@@ -43,15 +41,6 @@ struct BrowseListColumn: View {
         #if os(macOS)
         .onChange(of: multiSelection) { _, new in applySelection(new) }
         .onChange(of: model.mode) { _, _ in multiSelection = [] }
-        #else
-        .onChange(of: rowSelection) { _, new in
-            guard let new else { return }
-            Task {
-                await focusRow(new)
-                onOpenDetail?()
-            }
-        }
-        .onChange(of: model.mode) { _, _ in rowSelection = nil }
         #endif
     }
 
@@ -189,11 +178,7 @@ struct BrowseListColumn: View {
         #if os(macOS)
         List(selection: $multiSelection) { listRows }
         #else
-        if showsCheckmarks {
-            List { listRows }
-        } else {
-            List(selection: $rowSelection) { listRows }
-        }
+        List { listRows }
         #endif
     }
 
@@ -256,6 +241,11 @@ struct BrowseListColumn: View {
             }
         case .cards:
             CardRowView(card: model.card(at: idRaw))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                #if os(iOS)
+                .contentShape(Rectangle())
+                .onTapGesture { activateRow(idRaw) }
+                #endif
                 .onAppear { loadMore(index) }
         }
     }
@@ -270,6 +260,7 @@ struct BrowseListColumn: View {
                     )
                 NoteRowView(note: note, notetypeName: model.notetypeNames[note.mid])
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
             .onTapGesture { selectionState.toggle(note.id) }
             .onAppear { loadMore(index) }
@@ -280,8 +271,11 @@ struct BrowseListColumn: View {
                     Task { await model.performSearch() }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .onAppear { loadMore(index) }
             #if os(iOS)
+            .contentShape(Rectangle())
+            .onTapGesture { activateRow(note.id.rawValue) }
             .onLongPressGesture(minimumDuration: 0.5) {
                 selectionState.enterSelectMode(preselect: note.id)
             }
@@ -316,6 +310,15 @@ struct BrowseListColumn: View {
     private func loadMore(_ index: Int) {
         Task { await model.loadMoreIfNeeded(index: index) }
     }
+
+    #if os(iOS)
+    private func activateRow(_ idRaw: Int64) {
+        Task {
+            await focusRow(idRaw)
+            onOpenDetail?()
+        }
+    }
+    #endif
 }
 
 // MARK: - NoteContextMenuButton

@@ -4,6 +4,81 @@ public import AnkiKit
 import AnkiProto
 import SwiftProtobuf
 
+// MARK: - customStudy
+
+extension Request where Response == CollectionChanges {
+    public static func customStudy(deckId: DeckID, request: CustomStudyRequest) -> Self {
+        Self(
+            serviceId: ServiceID.scheduler,
+            methodId: SchedulerMethod.customStudy,
+            encode: {
+                var proto = Anki_Scheduler_CustomStudyRequest()
+                proto.deckID = deckId.rawValue
+                switch request {
+                case .increaseNewLimit(let delta):
+                    proto.newLimitDelta = delta
+                case .increaseReviewLimit(let delta):
+                    proto.reviewLimitDelta = delta
+                case .reviewForgotten(let days):
+                    proto.forgotDays = days
+                case .reviewAhead(let days):
+                    proto.reviewAheadDays = days
+                case .previewNew(let days):
+                    proto.previewDays = days
+                case .studyByState(let state, let limit, let include, let exclude):
+                    var cram = Anki_Scheduler_CustomStudyRequest.Cram()
+                    cram.kind = switch state {
+                    case .new: .new
+                    case .due: .due
+                    case .review: .review
+                    case .all: .all
+                    }
+                    cram.cardLimit = limit
+                    cram.tagsToInclude = include
+                    cram.tagsToExclude = exclude
+                    proto.cram = cram
+                }
+                return try proto.serializedData()
+            },
+            decode: { bytes in
+                CollectionChanges(try Anki_Collection_OpChanges(serializedBytes: bytes))
+            }
+        )
+    }
+}
+
+extension Request where Response == CustomStudyDefaults {
+    public static func customStudyDefaults(deckId: DeckID) -> Self {
+        Self(
+            serviceId: ServiceID.scheduler,
+            methodId: SchedulerMethod.customStudyDefaults,
+            encode: {
+                var proto = Anki_Scheduler_CustomStudyDefaultsRequest()
+                proto.deckID = deckId.rawValue
+                return try proto.serializedData()
+            },
+            decode: { bytes in
+                let proto = try Anki_Scheduler_CustomStudyDefaultsResponse(serializedBytes: bytes)
+                return CustomStudyDefaults(
+                    tags: proto.tags.map {
+                        CustomStudyTag(
+                            name: $0.name,
+                            isIncluded: $0.include,
+                            isExcluded: $0.exclude
+                        )
+                    },
+                    extendNew: proto.extendNew,
+                    extendReview: proto.extendReview,
+                    availableNew: proto.availableNew,
+                    availableReview: proto.availableReview,
+                    availableNewInChildren: proto.availableNewInChildren,
+                    availableReviewInChildren: proto.availableReviewInChildren
+                )
+            }
+        )
+    }
+}
+
 // MARK: - answerCard (simple — no scheduling state)
 
 extension Request where Response == Void {

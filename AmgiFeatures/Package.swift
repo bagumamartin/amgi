@@ -221,6 +221,7 @@ let package = Package(
                 "AmgiAppShared",
                 "BrowseFeature",
                 "ReviewFeature",
+                "StatsFeature",
                 .product(name: "AnkiKit", package: "amgi"),
                 .product(name: "AnkiClients", package: "amgi"),
                 .product(name: "AmgiTheme", package: "AmgiUI"),

@@ -8,6 +8,7 @@ import AnkiClients
 import Dependencies
 import BrowseFeature
 import ReviewFeature
+import StatsFeature
 import Sharing
 
 /// Owns the `DeckDetailModel` (data state) and a single `Destination?`
@@ -21,6 +22,7 @@ struct DeckDetailView: View {
     let deck: DeckInfo
 
     @Environment(\.palette) private var palette
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Dependency(\.collectionStore) private var store
     @Shared(.appStorage(NavigationPreferences.deckSortOrder)) private var sortOrderRaw: String = DeckSortOrder.mostUsed.rawValue
     @State private var model: DeckDetailModel
@@ -123,7 +125,6 @@ struct DeckDetailView: View {
         contentWithToolbar
             .modifier(SheetCoverModifier(
                 destination: $destination,
-                deckId: deck.id,
                 onReviewDismiss: {
                     destination = nil
                     // Review-end from this screen's own cover: invalidate so
@@ -226,6 +227,13 @@ struct DeckDetailView: View {
     private var toolbarContent: some ToolbarContent {
         // Contextual trailing chrome: Sync · Create Subdeck · ⋯
         ToolbarItemGroup(placement: .topBarTrailing) {
+            if horizontalSizeClass != .compact {
+                Button { destination = .sheet(.addNote) } label: {
+                    Label("Add", systemImage: "plus")
+                }
+                Button("Stats") { destination = .sheet(.stats) }
+                Button("Browse") { destination = .sheet(.browse) }
+            }
             SyncToolbarButton()
             if !deck.isFiltered {
                 Button {
@@ -247,18 +255,6 @@ struct DeckDetailView: View {
                         destination = .sheet(.showDeckOptions)
                     } label: {
                         Label("Deck Options…", systemImage: "slider.horizontal.3")
-                    }
-                    Button {
-                        limitDelta = Self.defaultNewDelta
-                        destination = .alert(.extendLimit(.new))
-                    } label: {
-                        Label("Increase New Limit…", systemImage: "plus.rectangle.on.rectangle")
-                    }
-                    Button {
-                        limitDelta = Self.defaultReviewDelta
-                        destination = .alert(.extendLimit(.review))
-                    } label: {
-                        Label("Increase Review Limit…", systemImage: "plus.rectangle.on.rectangle")
                     }
                 }
                 Divider()
@@ -292,7 +288,15 @@ private extension DeckDetailView {
     func handle(_ action: DeckDetailScreen<EmptyView>.Action) {
         switch action {
         case .studyNow:
-            destination = .review
+            destination = .review(deck.id)
+        case .customStudy:
+            destination = .sheet(.customStudy)
+        case .addNote:
+            destination = .sheet(.addNote)
+        case .stats:
+            destination = .sheet(.stats)
+        case .browse:
+            destination = .sheet(.browse)
         case .rebuild:
             Task { await runRebuild() }
         case .emptyDeck:
@@ -329,6 +333,29 @@ private extension DeckDetailView {
             // AddNoteModel invalidates the store on save; the generation-keyed
             // .task reloads this screen. Nothing extra to do here.
             AddNoteView(preselectedDeckId: deck.id) {}
+        case .customStudy:
+            CustomStudyView(
+                deck: deck,
+                onChanges: { store.apply($0) },
+                onOpenSession: { session in
+                    destination = nil
+                    pendingSubdeck = session
+                },
+                onStudySession: { session in
+                    destination = .review(session.id)
+                }
+            )
+        case .stats:
+            NavigationStack {
+                StatsDashboardView(deck: deck, locksDeckScope: true)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Done") { destination = nil }
+                        }
+                    }
+            }
+        case .browse:
+            BrowseView(deck: deck)
         case .showDeckOptions:
             NavigationStack {
                 DeckConfigView(deckId: deck.id, deckName: deck.name) {
