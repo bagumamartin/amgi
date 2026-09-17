@@ -1,9 +1,7 @@
 public import SwiftUI
 import AmgiTheme
 
-/// Full-width "▶ Study Now" pill. Disabled state dims to 40% and drops
-/// the accent shadow. No spinner — Container manages any pending state
-/// externally if needed.
+/// Full-width native primary study button. Container manages any pending state.
 public struct DeckStudyButton: View {
     public let isDisabled: Bool
     public let disabledHint: String
@@ -23,23 +21,12 @@ public struct DeckStudyButton: View {
 
     public var body: some View {
         Button(action: onTap) {
-            HStack(spacing: 8) {
-                Image(systemName: "play.fill")
-                    .font(.callout.weight(.semibold))
-                Text("Study Now")
-                    .font(.headline)
-            }
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
-            .background(palette.accent, in: RoundedRectangle(cornerRadius: AmgiRadius.control, style: .continuous))
-            .opacity(isDisabled ? 0.4 : 1.0)
-            .shadow(
-                color: (isDisabled || palette.elevation == .ring) ? .clear : palette.accent.opacity(0.28),
-                radius: 8, x: 0, y: 6
-            )
+            Text("Study Now")
+                .amgiFont(size: 15, weight: .semibold)
+                .frame(maxWidth: .infinity, minHeight: 44)
         }
-        .buttonStyle(.pressScale)
+        .buttonStyle(.borderedProminent)
+        .tint(palette.accent)
         .disabled(isDisabled)
         .accessibilityLabel("Study now")
         .accessibilityHint(isDisabled ? disabledHint : "Start a review session")

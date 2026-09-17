@@ -53,12 +53,15 @@ struct WatchReviewView: View {
             }
         }
         .background(Color.black)
+        #if os(iOS) || os(watchOS)
         ._statusBarHidden()
         .toolbarVisibility(.hidden, for: .navigationBar)
+        #endif
         .ignoresSafeArea(edges: .top)
         .onTapGesture { playAudio(from: session.showAnswer ? session.backHTML : session.frontHTML) }
         .onTapGesture(count: 2) { dismiss() }
         .task {
+            #if os(iOS) || os(watchOS)
             do {
                 try AVAudioSession.sharedInstance().setCategory(
                     .playback,
@@ -75,6 +78,7 @@ struct WatchReviewView: View {
             } catch {
                 // Audio may fail silently on watchOS if session setup errors.
             }
+            #endif
             session.start()
         }
         .onChange(of: session.frontHTML) { _, new in playAudio(from: new) }

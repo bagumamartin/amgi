@@ -110,23 +110,14 @@ public struct LibraryListContent: View {
     @ViewBuilder
     private func loadedList(rows: [DeckRowViewData], hero: HeroData, heatmap: HeatmapCardData?) -> some View {
         #if os(iOS)
-        GeometryReader { proxy in
-            let inset = LibraryColumn.inset(for: proxy.size.width)
-            if inset > 0 {
-                deckList(rows: rows, hero: hero, heatmap: heatmap)
-                    // Inset the List *content* (not the List frame) so the
-                    // scroll indicator stays at the screen edge while the rows
-                    // stay centered on regular-width layouts. Compact widths skip
-                    // this so the insetGrouped style keeps its native margins.
-                    .contentMargins(.horizontal, inset, for: .scrollContent)
-            } else {
-                deckList(rows: rows, hero: hero, heatmap: heatmap)
-            }
+        // Sidebar resizing must not replace the scroll surface when the
+        // content width crosses the column's maximum width.
+        if horizontalSizeClass == .regular {
+            scrollList(rows: rows, hero: hero, heatmap: heatmap)
+        } else {
+            deckList(rows: rows, hero: hero, heatmap: heatmap)
         }
         #else
-        // `List` doesn't honor `contentMargins` on macOS, and swipe actions are
-        // touch-only — use a full-bleed ScrollView with a centered column so the
-        // scroll indicator stays at the window edge.
         scrollList(rows: rows, hero: hero, heatmap: heatmap)
         #endif
     }
@@ -193,7 +184,6 @@ public struct LibraryListContent: View {
     }
     #endif
 
-    #if os(macOS)
     private func scrollList(rows: [DeckRowViewData], hero: HeroData, heatmap: HeatmapCardData?) -> some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 18) {
@@ -211,11 +201,11 @@ public struct LibraryListContent: View {
                 ActivityHeatmapCard(data: heatmap ?? .empty, initialDays: heatmapInitialDays)
                     .redacted(reason: heatmap == nil ? .placeholder : [])
             }
+            .frame(maxWidth: LibraryColumn.maxWidth)
+            .frame(maxWidth: .infinity)
             .padding(.horizontal, 20)
             .padding(.top, 6)
             .padding(.bottom, 32)
-            .frame(maxWidth: LibraryColumn.maxWidth)
-            .frame(maxWidth: .infinity)
         }
         .background(palette.background.ignoresSafeArea())
         .refreshable { await onRefresh() }
@@ -232,6 +222,7 @@ public struct LibraryListContent: View {
                     onChangeIcon: { onChangeIconDeck(row) }
                 )
                 .padding(.horizontal, 12)
+                .modifier(DeckTransitionSource(id: row.id, namespace: deckTransition))
                 .overlay(alignment: .bottom) {
                     if index < rows.count - 1 {
                         Rectangle()
@@ -251,7 +242,6 @@ public struct LibraryListContent: View {
                 .strokeBorder(palette.border, lineWidth: 0.5)
         )
     }
-    #endif
 }
 
 /// Every per-row list modifier in one place, including anchoring the row as
@@ -411,13 +401,6 @@ extension LibraryListContent: Equatable {
 /// layouts without pinning the scroll indicator to the column edge.
 private enum LibraryColumn {
     static let maxWidth: CGFloat = 800
-
-    /// Horizontal margin that centers the column when the detail pane is
-    /// wider than `maxWidth`. Compact widths return 0, leaving the
-    /// insetGrouped style's native margins untouched.
-    static func inset(for width: CGFloat) -> CGFloat {
-        max(0, (width - maxWidth) / 2)
-    }
 }
 
 

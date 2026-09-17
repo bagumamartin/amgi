@@ -1,5 +1,6 @@
 package import SwiftUI
 import AmgiTheme
+import AmgiUI
 package import AmgiAppCore
 import BrowseFeature
 import TemplatesFeature
@@ -34,7 +35,7 @@ package struct SettingsWindowHost: View {
                 }
             }
             .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(min: 200, ideal: 230, max: 320)
+            .appSidebarWidth()
         } detail: {
             NavigationStack {
                 if let selection {

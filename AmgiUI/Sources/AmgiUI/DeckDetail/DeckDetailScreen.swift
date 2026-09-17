@@ -52,9 +52,13 @@ public struct DeckDetailScreen<HeatmapSlot: View>: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 18) {
                 heroSection
-                if horizontalSizeClass == .compact { quickActionsSection }
                 statsSection
                 ctaSection
+                #if os(iOS)
+                quickActionsSection
+                #else
+                if horizontalSizeClass == .compact { quickActionsSection }
+                #endif
                 customStudySection
                 subdecksSection
                 heatmapSection
@@ -119,23 +123,16 @@ public struct DeckDetailScreen<HeatmapSlot: View>: View {
         case .loading:
             DeckStudyButton(isDisabled: true, onTap: {})
         case .loaded(let data):
-            if horizontalSizeClass == .compact {
-                VStack(spacing: 12) {
-                    DeckStudyButton(isDisabled: data.isEmpty) { onAction(.studyNow) }
-                    if !data.isFiltered { customStudyButton }
-                }
-            } else {
-                HStack(spacing: 12) {
-                    if !data.isFiltered { customStudyButton }
-                    DeckStudyButton(isDisabled: data.isEmpty) { onAction(.studyNow) }
-                }
+            HStack(spacing: 12) {
+                DeckStudyButton(isDisabled: data.isEmpty) { onAction(.studyNow) }
+                if !data.isFiltered { customStudyButton }
             }
         }
     }
 
     private var customStudyButton: some View {
         Button { onAction(.customStudy) } label: {
-            Text("Custom Study…")
+            Text("Custom Study")
                 .amgiFont(size: 15, weight: .semibold)
                 .frame(maxWidth: .infinity, minHeight: 44)
         }

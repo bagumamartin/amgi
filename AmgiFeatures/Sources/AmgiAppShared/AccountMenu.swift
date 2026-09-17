@@ -51,11 +51,40 @@ struct AccountMenuModifier: ViewModifier {
     }
 }
 
+/// Toolbar control only, for callers that register the push destinations on
+/// a different stack — Browse's split layout wraps its whole
+/// `NavigationSplitView` in one stack so Settings covers all three columns
+/// instead of pushing inside the middle one.
+private struct AccountMenuControlModifier: ViewModifier {
+    let placement: ToolbarItemPlacement
+    @Binding var open: AccountMenuDestination?
+    @Environment(\.accountMenuProvider) private var provider
+
+    func body(content: Content) -> some View {
+        content.toolbar {
+            if let provider {
+                ToolbarItem(placement: placement) {
+                    provider.menu(open: $open)
+                }
+            }
+        }
+    }
+}
+
 package extension View {
     /// Installs the profile/account toolbar control plus its push
     /// destinations. Use once per root view, inside its NavigationStack.
     package func accountMenu(placement: ToolbarItemPlacement = .topBarLeading) -> some View {
         modifier(AccountMenuModifier(placement: placement))
+    }
+
+    /// Toolbar control only; pair with `accountMenuDestinations(_:)` on an
+    /// enclosing stack.
+    package func accountMenuControl(
+        placement: ToolbarItemPlacement = .topBarLeading,
+        open: Binding<AccountMenuDestination?>
+    ) -> some View {
+        modifier(AccountMenuControlModifier(placement: placement, open: open))
     }
 
     package func accountMenuDestinations(_ destination: Binding<AccountMenuDestination?>) -> some View {

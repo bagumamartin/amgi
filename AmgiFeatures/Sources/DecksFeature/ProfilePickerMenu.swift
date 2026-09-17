@@ -6,9 +6,8 @@ package import AmgiAppShared
 import UIKit
 #endif
 
-/// Compact toolbar menu: switch profile immediately, and open Settings
-/// on the enclosing stack via `.accountMenu()`. Manage Profiles lives
-/// inside Settings, so it is not duplicated here.
+/// Toolbar profile selector. On iOS, its menu also opens Settings on the
+/// enclosing stack via `.accountMenu()`. macOS uses the standard Settings entry.
 ///
 /// `onSwitch` is injected from the composition root — it closes/reopens the
 /// collection — so this view does not import that machinery.
@@ -38,6 +37,25 @@ package struct ProfilePickerMenu: View {
     }
 
     package var body: some View {
+        #if os(macOS)
+        Picker("Profile", selection: Binding(
+            get: { store.selectedID },
+            set: { id in
+                guard id != store.selectedID,
+                      let account = store.accounts.first(where: { $0.id == id }) else { return }
+                Task { await onSwitch(account) }
+            }
+        )) {
+            ForEach(store.accounts) { account in
+                Text(profileTitle(for: account))
+                    .tag(account.id)
+            }
+        }
+        .pickerStyle(.menu)
+        .labelsHidden()
+        .accessibilityLabel("Profile: \(store.current.displayName)")
+        .task { await iconStore.refresh() }
+        #else
         Menu {
             Section {
                 ForEach(store.accounts) { account in
@@ -45,10 +63,8 @@ package struct ProfilePickerMenu: View {
                         Task { await onSwitch(account) }
                     } label: {
                         HStack {
-                            if let emoji = iconStore.icon(for: account.id) {
-                                Text(emoji)
-                            }
-                            Text(account.displayName)
+                            // Native menus extract one text title per item.
+                            Text(profileTitle(for: account))
                             if account.id == store.selectedID {
                                 Image(systemName: "checkmark")
                             }
@@ -81,5 +97,11 @@ package struct ProfilePickerMenu: View {
         }
         .accessibilityLabel("Profile and settings: \(store.current.displayName)")
         .task { await iconStore.refresh() }
+        #endif
+    }
+
+    private func profileTitle(for account: AmgiAccount) -> String {
+        let icon = iconStore.icon(for: account.id) ?? "👤"
+        return "\(icon) \(account.displayName)"
     }
 }

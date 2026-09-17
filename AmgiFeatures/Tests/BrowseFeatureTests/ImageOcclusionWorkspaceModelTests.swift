@@ -1,7 +1,10 @@
 import Testing
 import SwiftUI
-import UIKit
 @testable import BrowseFeature
+
+// UIKit-only suite (UIImage fixtures); compiles to nothing on macOS/Linux.
+#if canImport(UIKit)
+import UIKit
 
 /// The mask document logic used to live in a private extension on
 /// `ImageOcclusionWorkspaceView`, where none of it was reachable without a
@@ -336,3 +339,4 @@ struct ImageOcclusionWorkspaceModelTests {
         #expect(writes == 1)
     }
 }
+#endif

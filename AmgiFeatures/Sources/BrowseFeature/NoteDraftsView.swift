@@ -65,9 +65,11 @@ package struct NoteDraftsView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
                 }
+                #if os(iOS)
                 ToolbarItem(placement: .primaryAction) {
                     EditButton()
                 }
+                #endif
             }
             .task { await reload() }
             .sheet(item: $openedAdd) { draft in

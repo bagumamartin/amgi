@@ -12,7 +12,19 @@ public struct DeckHero: View {
     public let isFiltered: Bool
 
     @Environment(\.palette) private var palette
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @State private var wrappedTitleHeight: CGFloat = 0
+    @State private var singleLineTitleHeight: CGFloat = 0
+
+    private var titleFontSize: CGFloat {
+        guard singleLineTitleHeight > 0 else { return 32 }
+        let lines = Int(((wrappedTitleHeight + 2) / (singleLineTitleHeight + 2)).rounded())
+        switch lines {
+        case ...1: return 32
+        case 2: return 28
+        case 3: return 24
+        default: return 22
+        }
+    }
 
     public init(
         title: String,
@@ -31,34 +43,64 @@ public struct DeckHero: View {
     }
 
     public var body: some View {
-        Group {
-            if horizontalSizeClass == .compact {
-                HStack(alignment: .center, spacing: 12) {
-                    DeckHeroTile(tone: tone, deckName: deckName, iconName: iconName, size: 48)
-                    VStack(alignment: .leading, spacing: 2) {
-                        compactTitleRow
-                        subtitleText
-                    }
-                }
-            } else {
-                VStack(alignment: .leading, spacing: 4) {
-                    DeckHeroTile(tone: tone, deckName: deckName, iconName: iconName)
-                        .padding(.bottom, 8)
-                    titleRow
-                    subtitleText
-                }
+        #if os(iOS)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 12) {
+                DeckHeroTile(tone: tone, deckName: deckName, iconName: iconName, size: 48)
+                inlineTitleRow
             }
+            subtitleText
+        }
+        #else
+        VStack(alignment: .leading, spacing: 4) {
+            DeckHeroTile(tone: tone, deckName: deckName, iconName: iconName)
+                .padding(.bottom, 8)
+            titleRow
+            subtitleText
+        }
+        #endif
+    }
+
+    private var inlineTitleRow: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(title)
+                .amgiFont(size: titleFontSize, weight: .bold)
+                .lineSpacing(2)
+                .foregroundStyle(palette.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(alignment: .topLeading) {
+                    titleMeasurement
+                }
+            if isFiltered { customStudyChip }
         }
     }
 
-    private var compactTitleRow: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(title)
-                .amgiFont(size: 22, weight: .bold)
-                .foregroundStyle(palette.textPrimary)
-                .lineLimit(2)
-            if isFiltered { customStudyChip }
-        }
+    // Measure at a fixed base size so shrinking the visible title cannot change its size tier.
+    private var titleMeasurement: some View {
+        Text(title)
+            .amgiFont(size: 32, weight: .bold)
+            .lineSpacing(2)
+            .fixedSize(horizontal: false, vertical: true)
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.height
+            } action: { height in
+                wrappedTitleHeight = height
+            }
+            .background(alignment: .topLeading) {
+                Text(title)
+                    .amgiFont(size: 32, weight: .bold)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .onGeometryChange(for: CGFloat.self) { proxy in
+                        proxy.size.height
+                    } action: { height in
+                        singleLineTitleHeight = height
+                    }
+            }
+            .hidden()
+            .accessibilityHidden(true)
+            .allowsHitTesting(false)
     }
 
     private var titleRow: some View {

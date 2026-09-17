@@ -45,12 +45,16 @@ package struct BrowseView: View {
     /// landing in place so the search-tab field stays mounted and scoped.
     @State private var path: [BrowseRoute] = []
     @State private var isShowingCompactSource = false
+    /// Settings push from the split layout's profile control; registered on
+    /// the stack wrapping the whole split view so it covers all columns.
+    @State private var accountDestination: AccountMenuDestination?
     #endif
 
     @Dependency(\.notetypesService) private var notetypesService
     @Dependency(\.collectionStore) private var store
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.palette) private var palette
+    @Environment(\.dismiss) private var dismiss
 
     /// Present only on macOS, where Browse replaces the root sidebar.
     private let exit: BrowseExit?
@@ -64,14 +68,15 @@ package struct BrowseView: View {
     /// Modal entry from deck detail. The deck source is installed before the
     /// first search, so the sheet never flashes collection-wide results.
     package init(deck: DeckInfo) {
-        let model = BrowseModel()
-        model.source = .deck(deck.id)
-        self.init(model: model, exit: nil)
+        self.init(model: BrowseModel(rootDeck: deck), exit: nil)
     }
 
     init(model: BrowseModel, exit: BrowseExit? = nil) {
         _model = State(initialValue: model)
         self.exit = exit
+        #if os(iOS)
+        _isShowingCompactSource = State(initialValue: model.rootDeck != nil)
+        #endif
     }
 
     package var body: some View {
@@ -105,9 +110,30 @@ package struct BrowseView: View {
     // MARK: - Split (Mac / iPad)
 
     private var splitLayout: some View {
+        #if os(iOS)
+        // The stack wrapping the split view owns the Settings push so it
+        // covers all three columns (standard page behavior), not just the
+        // middle one.
+        NavigationStack {
+            splitColumns
+                .accountMenuDestinations($accountDestination)
+        }
+        #else
+        splitColumns
+        #endif
+    }
+
+    private var splitColumns: some View {
         NavigationSplitView {
             BrowseSourceColumn(model: model, exit: exit)
-                .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 260)
+                .appSidebarWidth()
+                .toolbar {
+                    if model.rootDeck != nil {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Close") { dismiss() }
+                        }
+                    }
+                }
         } content: {
             listPane
                 .navigationSplitViewColumnWidth(min: 300, ideal: 400)
@@ -127,7 +153,11 @@ package struct BrowseView: View {
         NavigationStack(path: $path) {
             compactRoot
             .toolbar {
-                if isShowingCompactSource {
+                if model.rootDeck != nil {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Close") { dismiss() }
+                    }
+                } else if isShowingCompactSource {
                     ToolbarItem(placement: .topBarLeading) {
                         Button {
                             isShowingCompactSource = false
@@ -229,7 +259,11 @@ package struct BrowseView: View {
                 .navigationTitle(sourceTitle)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar { toolbarContent }
+                #if os(iOS)
+                .accountMenuControl(open: $accountDestination)
+                #else
                 .accountMenu()
+                #endif
                 .searchable(
                     text: $model.searchText,
                     placement: searchPlacement,
@@ -304,7 +338,7 @@ package struct BrowseView: View {
         case .allDecks:
             return "All Decks"
         case .deck(let id):
-            guard let deck = model.allDecks.first(where: { $0.id == id }) else { return "Browse" }
+            guard let deck = model.availableDecks.first(where: { $0.id == id }) else { return "Browse" }
             return deck.name.split(separator: "::").last.map(String.init) ?? deck.name
         case .tag(let tag):
             return tag
@@ -335,7 +369,7 @@ package struct BrowseView: View {
     private func appear() async {
         await model.loadDecks()
         // Drill-in from a deck detail screen or an amgi://browse deep link.
-        if let seed = BrowseLauncher.shared.consume(), !seed.isEmpty {
+        if model.rootDeck == nil, let seed = BrowseLauncher.shared.consume(), !seed.isEmpty {
             if seed.hasPrefix("deck:"), let name = seed.dropFirst(5).trimmedQuoted,
                let deck = model.allDecks.first(where: { $0.name == name }) {
                 model.source = .deck(deck.id)

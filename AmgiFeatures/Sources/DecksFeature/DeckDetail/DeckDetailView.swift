@@ -240,6 +240,7 @@ struct DeckDetailView: View {
     private var toolbarContent: some ToolbarContent {
         // Contextual trailing chrome: Sync · Create Subdeck · ⋯
         ToolbarItemGroup(placement: .topBarTrailing) {
+            #if !os(iOS)
             if horizontalSizeClass != .compact {
                 Button { destination = .sheet(.addNote) } label: {
                     Label("Add", systemImage: "plus")
@@ -247,6 +248,7 @@ struct DeckDetailView: View {
                 Button("Stats") { destination = .sheet(.stats) }
                 Button("Browse") { destination = .sheet(.browse) }
             }
+            #endif
             SyncToolbarButton()
             if !deck.isFiltered {
                 Button {

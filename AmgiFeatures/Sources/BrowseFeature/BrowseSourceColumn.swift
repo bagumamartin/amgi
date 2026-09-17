@@ -60,8 +60,10 @@ struct BrowseSourceColumn: View {
             }
 
             Section("Decks") {
-                Label("All decks", systemImage: "square.stack.3d.up.fill")
-                    .tag(BrowseSource.allDecks)
+                if model.rootDeck == nil {
+                    Label("All decks", systemImage: "square.stack.3d.up.fill")
+                        .tag(BrowseSource.allDecks)
+                }
                 ForEach(deckRows) { row in
                     BrowseDeckRowLabel(row: row, iconName: iconNames[row.deck.id.rawValue]) {
                         toggleExpansion(row.deck.name)
@@ -145,7 +147,7 @@ struct BrowseSourceColumn: View {
 
     private var deckRows: [BrowseDeckTree.Row] {
         BrowseDeckTree.rows(
-            decks: model.allDecks,
+            decks: model.availableDecks,
             expanded: expanded,
             filterTokens: BrowseDeckTree.filterTokens(from: model.searchText),
             resultDeckIDs: model.resultDeckIDs

@@ -107,7 +107,7 @@ struct MainTabView: View {
                                 .tag(section)
                         }
                     }
-                    .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 260)
+                    .appSidebarWidth()
                 } detail: {
                     sectionContent(selection)
                 }

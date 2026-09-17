@@ -65,11 +65,28 @@ struct CustomStudyView: View {
     @State private var completionMessage: String?
 
     var body: some View {
-        Group {
-            if horizontalSizeClass == .compact {
-                compactBody
-            } else {
-                regularBody
+        NavigationStack {
+            Group {
+                switch phase {
+                case .settings:
+                    settingsBody
+                case .ready(let session):
+                    readyBody(session)
+                }
+            }
+            .navigationTitle(navigationTitle)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .keyboardShortcut(.cancelAction)
+                }
+                if case .settings = phase {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(primaryActionTitle) { beginSubmit() }
+                            .keyboardShortcut(.defaultAction)
+                            .disabled(isLoading || isSubmitting)
+                    }
+                }
             }
         }
         .frame(minWidth: 360, idealWidth: 820, minHeight: 520, idealHeight: 620)
@@ -105,45 +122,10 @@ struct CustomStudyView: View {
         #endif
     }
 
-    private var regularBody: some View {
-        NavigationStack {
-            Group {
-                switch phase {
-                case .settings:
-                    settingsBody
-                case .ready(let session):
-                    readyBody(session)
-                }
-            }
-            .navigationTitle("Custom Study")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var compactBody: some View {
+    private var navigationTitle: String {
         switch phase {
-        case .settings:
-            if isLoading {
-                ProgressView("Loading options…")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(palette.background)
-            } else {
-                mobileSettings
-            }
-        case .ready(let session):
-            VStack(spacing: 0) {
-                compactHeader(title: "Session Ready")
-                readyBody(session)
-            }
-            .background(palette.background)
+        case .settings: "Custom Study"
+        case .ready: "Session Ready"
         }
     }
 
@@ -151,6 +133,8 @@ struct CustomStudyView: View {
     private var settingsBody: some View {
         if isLoading {
             ProgressView("Loading options…")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(palette.background)
         } else if horizontalSizeClass == .compact {
             mobileSettings
         } else {
@@ -178,12 +162,10 @@ struct CustomStudyView: View {
                     .padding(28)
             }
         }
-        .safeAreaInset(edge: .bottom) { actionBar }
     }
 
     private var mobileSettings: some View {
         VStack(spacing: 0) {
-            compactHeader(title: "Custom Study")
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -246,32 +228,11 @@ struct CustomStudyView: View {
                     }
                 }
                 .padding(.horizontal, 20)
+                .padding(.top, 16)
                 .padding(.bottom, 20)
             }
-            mobileActionBar
         }
         .background(palette.background)
-    }
-
-    private func compactHeader(title: String) -> some View {
-        HStack {
-            Text(title)
-                .font(.system(size: 24, weight: .bold))
-                .foregroundStyle(palette.textPrimary)
-            Spacer()
-            Button { dismiss() } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(palette.textPrimary)
-                    .frame(width: 44, height: 44)
-                    .background(palette.surface, in: Circle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Close")
-        }
-        .padding(.horizontal, 20)
-        .padding(.top, 8)
-        .padding(.bottom, 18)
     }
 
     private var compactAmountControl: some View {
@@ -312,26 +273,6 @@ struct CustomStudyView: View {
         .buttonStyle(.plain)
         .foregroundStyle(palette.accent)
         .disabled(delta < 0 && amount == amountRange.lowerBound)
-    }
-
-    private var mobileActionBar: some View {
-        VStack(spacing: 6) {
-            Button(primaryActionTitle) { beginSubmit() }
-                .font(.headline)
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity, minHeight: 50)
-                .background(palette.accent, in: RoundedRectangle(cornerRadius: 12))
-                .buttonStyle(.plain)
-                .disabled(isSubmitting)
-            Button("Cancel") { dismiss() }
-                .font(.system(size: 16, weight: .medium))
-                .frame(maxWidth: .infinity, minHeight: 44)
-                .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 20)
-        .padding(.top, 12)
-        .padding(.bottom, 8)
-        .background(.bar)
     }
 
     private var settingsForm: some View {
@@ -404,17 +345,6 @@ struct CustomStudyView: View {
         }
         .padding(16)
         .background(palette.surface, in: RoundedRectangle(cornerRadius: 12))
-    }
-
-    private var actionBar: some View {
-        HStack {
-            Spacer()
-            Button(primaryActionTitle) { beginSubmit() }
-                .buttonStyle(.borderedProminent)
-                .disabled(isSubmitting)
-        }
-        .padding()
-        .background(.bar)
     }
 
     private func readyBody(_ session: DeckInfo) -> some View {

@@ -60,6 +60,55 @@ struct BrowseSearchTests {
         #expect(model.buildQuery() == "tag:\"verb\" kanji")
     }
 
+    @Test("deck sheet scope survives loading and source changes")
+    func deckSheetScopeIsPersistent() {
+        let root = DeckInfo(id: DeckID(10), name: "Parent::Child")
+        let model = BrowseModel(rootDeck: root)
+        #expect(model.buildQuery() == "deck:\"Parent::Child\"")
+        #expect(model.activeDeck == root)
+
+        model.source = .allDecks
+        model.searchText = "front OR back"
+        #expect(model.buildQuery() == "deck:\"Parent::Child\" ( front OR back )")
+        model.source = .tag("verb")
+        #expect(model.buildQuery() == "deck:\"Parent::Child\" ( tag:\"verb\" ) ( front OR back )")
+        #expect(!model.searchTextIsPlainFreeText)
+    }
+
+    @Test("deck sheet excludes ancestors, siblings, and similarly named decks")
+    func deckSheetAvailableDecks() {
+        let root = DeckInfo(id: DeckID(10), name: "Parent::Child")
+        let child = DeckInfo(id: DeckID(11), name: "Parent::Child::Nested")
+        let model = BrowseModel(rootDeck: root)
+        model.allDecks = [
+            DeckInfo(id: DeckID(1), name: "Parent"), root, child,
+            DeckInfo(id: DeckID(12), name: "Parent::Sibling"),
+            DeckInfo(id: DeckID(13), name: "Parent::Childish"),
+        ]
+        #expect(model.availableDecks == [root, child])
+        model.source = .deck(child.id)
+        #expect(model.buildQuery() == "deck:\"Parent::Child\" ( deck:\"Parent::Child::Nested\" )")
+        model.source = .deck(DeckID(1))
+        #expect(model.buildQuery() == "deck:\"Parent::Child\"")
+    }
+
+    @Test("notes and cards backend searches keep the sheet scope")
+    func scopedBackendQueries() async {
+        let log = CallLog()
+        await withDependencies {
+            $0.noteClient.searchIds = { query, _ in log.record(query); return [] }
+            $0.cardClient.searchIds = { query, _ in log.record(query); return [] }
+        } operation: {
+            let model = BrowseModel(rootDeck: DeckInfo(id: DeckID(10), name: "Parent::Child"))
+            model.source = .allDecks
+            model.searchText = "front OR back"
+            await model.performSearch(debounce: .zero)
+            model.mode = .cards
+            await model.performSearch(debounce: .zero)
+            #expect(log.all == Array(repeating: "deck:\"Parent::Child\" ( front OR back )", count: 2))
+        }
+    }
+
     // MARK: Debounce
 
     @Test("a search cancelled during the debounce never reaches the backend")

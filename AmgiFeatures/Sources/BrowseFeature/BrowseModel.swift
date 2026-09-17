@@ -71,6 +71,23 @@ final class BrowseModel {
 
     // MARK: View-facing state
 
+    let rootDeck: DeckInfo?
+
+    init(rootDeck: DeckInfo? = nil) {
+        self.rootDeck = rootDeck
+        if let rootDeck {
+            source = .deck(rootDeck.id)
+        }
+    }
+
+    var availableDecks: [DeckInfo] {
+        guard let rootDeck else { return allDecks }
+        let root = allDecks.first { $0.id == rootDeck.id } ?? rootDeck
+        return [root] + allDecks.filter {
+            $0.id != root.id && $0.name.hasPrefix(root.name + "::")
+        }
+    }
+
     var searchText = ""
     /// Engine-ordered raw item ids (cards or notes per mode). Cheap; never capped.
     private(set) var ids: [Int64] = []
@@ -95,7 +112,7 @@ final class BrowseModel {
     /// Deck backing the current source, when it is a deck.
     var activeDeck: DeckInfo? {
         guard case .deck(let id) = source else { return nil }
-        return allDecks.first { $0.id == id }
+        return availableDecks.first { $0.id == id }
     }
 
     /// Tag backing the current source, when it is a tag.
@@ -675,7 +692,7 @@ final class BrowseModel {
     /// and no structured filters are pinned.
     func runSemanticFallback() async {
         let trimmed = searchText.trimmingCharacters(in: .whitespaces)
-        guard mode == .notes, !trimmed.isEmpty else { return }
+        guard rootDeck == nil, mode == .notes, !trimmed.isEmpty else { return }
         guard let matches = await SemanticNoteIndex.shared.search(trimmed, topK: 50) else {
             semanticNotice = "Semantic index still building…"
             return
@@ -780,6 +797,7 @@ final class BrowseModel {
     /// fragments) — gates the semantic fallback suggestion so scoped or
     /// structural searches never get "search meaning of…" noise.
     var searchTextIsPlainFreeText: Bool {
+        guard rootDeck == nil else { return false }
         let prefixes = ["deck:", "tag:", "is:", "due:", "added:", "edited:",
                         "rated:", "prop:", "nid:", "note:", "flag:", "introduced:"]
         for word in searchText.split(separator: " ") {
@@ -797,8 +815,8 @@ final class BrowseModel {
         case .allDecks:
             break
         case .deck(let id):
-            if let deck = allDecks.first(where: { $0.id == id }) {
-                parts.append("deck:\"\(deck.name)\"")
+            if let deck = availableDecks.first(where: { $0.id == id }), deck.id != rootDeck?.id {
+                parts.append(DeckSearch.term(deck.name))
             }
         case .tag(let tag):
             parts.append("tag:\"\(tag)\"")
@@ -810,6 +828,12 @@ final class BrowseModel {
         let trimmed = searchText.trimmingCharacters(in: .whitespaces)
         if !trimmed.isEmpty {
             parts.append(trimmed)
+        }
+        if let rootDeck {
+            let root = availableDecks.first { $0.id == rootDeck.id } ?? rootDeck
+            // Keep every mutable filter inside the immutable sheet scope, including OR searches.
+            return ([DeckSearch.term(root.name)] + parts.map { "( \($0) )" })
+                .joined(separator: " ")
         }
         // An unscoped browse with no text used to compose the empty string,
         // which left the list column showing a placeholder instead of the

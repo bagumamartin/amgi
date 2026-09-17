@@ -11,31 +11,18 @@ public struct DeckDetailTile: View {
     let data: DeckDetailTileData
 
     @Environment(\.palette) private var palette
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     public init(data: DeckDetailTileData) {
         self.data = data
     }
 
     public var body: some View {
-        Group {
-            if horizontalSizeClass == .compact {
-                columns
-                    .padding(.vertical, 2)
-            } else {
-                AmgiCard(
-                    background: .surfaceElevated,
-                    shadow: palette.shadows.sm,
-                    cornerRadius: AmgiRadius.hero,
-                    contentInsets: EdgeInsets(top: 18, leading: 4, bottom: 18, trailing: 4)
-                ) {
-                    columns
-                }
-            }
-        }
-    }
-
-    private var columns: some View {
+        AmgiCard(
+            background: .surfaceElevated,
+            shadow: palette.shadows.sm,
+            cornerRadius: AmgiRadius.hero,
+            contentInsets: EdgeInsets(top: 18, leading: 4, bottom: 18, trailing: 4)
+        ) {
             HStack(spacing: 0) {
                 countColumn(label: "New", value: data.newCount, color: palette.cardStateNew)
                 columnDivider
@@ -43,6 +30,7 @@ public struct DeckDetailTile: View {
                 columnDivider
                 countColumn(label: "Review", value: data.reviewCount, color: palette.cardStateReview)
             }
+        }
     }
 
     private var columnDivider: some View {
