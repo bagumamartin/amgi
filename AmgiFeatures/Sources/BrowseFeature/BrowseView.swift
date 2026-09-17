@@ -33,6 +33,8 @@ package struct BrowseView: View {
     // Power tools + batch destinations
     enum Sheet: Int, Hashable {
         case filterRail, findDuplicates, findReplace, changeDeck, setDueDate, reposition
+        case removeTags, forget, copyNote, export, changeNotetype, filteredDeck
+        case columns, savedSearchManage, previewNav
 
         var id: Int { rawValue }
     }
@@ -40,6 +42,9 @@ package struct BrowseView: View {
     @State private var notetypeFieldNames: [String] = []
     @State private var showSaveSearchPrompt = false
     @State private var saveSearchName = ""
+    @State private var saveOverwritePending = false
+    @State private var renameSearchFrom: String?
+    @State private var renameSearchTo = ""
     #if os(iOS)
     /// Compact pushes only the note detail. A selected source replaces the
     /// landing in place so the search-tab field stays mounted and scoped.
@@ -125,7 +130,7 @@ package struct BrowseView: View {
 
     private var splitColumns: some View {
         NavigationSplitView {
-            BrowseSourceColumn(model: model, exit: exit)
+            BrowseSourceColumn(model: model, exit: exit, selection: selectionState)
                 .appSidebarWidth()
                 .toolbar {
                     if model.rootDeck != nil {
@@ -289,6 +294,21 @@ package struct BrowseView: View {
         }
     }
 
+    private var previewNav: BrowsePreviewNav? {
+        let ids = Array(model.ids.prefix(max(model.loadedCount, model.windowEnd, 1)))
+        guard !ids.isEmpty else { return nil }
+        let current: Int64? = model.mode == .cards
+            ? model.focusedCardID?.rawValue
+            : model.focusedNoteID
+        return BrowsePreviewNav(ids: ids, currentID: current) { next in
+            if model.mode == .cards {
+                await model.focus(cardID: next)
+            } else {
+                await model.focus(noteID: next)
+            }
+        }
+    }
+
     private var detailPane: some View {
         NavigationStack {
             if model.focusedNote != nil || model.focusedCard != nil {
@@ -298,7 +318,8 @@ package struct BrowseView: View {
                     infoCard: model.focusedCard,
                     firstCardID: model.focusedCardID,
                     deckID: model.activeDeck?.id,
-                    onSaved: { Task { await model.performSearch() } }
+                    onSaved: { Task { await model.performSearch() } },
+                    previewNav: previewNav
                 )
                 .id(model.focusedNote?.id ?? NoteID(0))
                 .navigationTitle("Details")
@@ -389,18 +410,15 @@ package struct BrowseView: View {
         #endif
     }
 
-    /// Field names of the most common notetype among current results —
-    /// feeds Find&Replace and the duplicates field picker.
+    /// Union of field names across the effective scope (desktop Find &
+    /// Replace / Find Duplicates picker source) — never just the first
+    /// hydrated note's fields.
     private func refreshNotetypeFields() async {
-        guard let anyNote = model.ids.first(where: { model.note(at: $0) != nil })
-            .flatMap({ model.note(at: $0) }) else {
-            notetypeFieldNames = []
-            return
-        }
-        if let names = try? notetypesService.getNotetype(anyNote.mid).fieldNames,
-           !names.isEmpty {
-            notetypeFieldNames = names
-        }
+        let names = await model.fieldNamesForScope(
+            noteIDs: Array(selectionState.selectedNoteIDs),
+            cardIDs: Array(selectionState.selectedCardIDs)
+        )
+        notetypeFieldNames = names
     }
 
     // MARK: - Dialogs & sheets
@@ -446,12 +464,31 @@ package struct BrowseView: View {
             .alert("Save current search", isPresented: $showSaveSearchPrompt) {
                 TextField("Name", text: $saveSearchName)
                 Button("Save") {
-                    model.saveCurrentQuery(as: saveSearchName)
-                    saveSearchName = ""
+                    let name = saveSearchName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !name.isEmpty,
+                       model.savedSearches.searches.contains(where: { $0.name == name }) {
+                        // Collision: confirm overwrite explicitly (desktop parity).
+                        saveOverwritePending = true
+                    } else {
+                        model.saveCurrentQuery(as: name)
+                        saveSearchName = ""
+                    }
                 }
                 Button("Cancel", role: .cancel) { saveSearchName = "" }
             } message: {
                 Text("Saved searches sync to every device via your collection config — desktop Anki sees them too.")
+            }
+            .confirmationDialog(
+                "“\(saveSearchName)” already exists. Overwrite it?",
+                isPresented: $saveOverwritePending,
+                titleVisibility: .visible
+            ) {
+                Button("Overwrite", role: .destructive) {
+                    model.saveCurrentQuery(as: saveSearchName)
+                    saveSearchName = ""
+                    saveOverwritePending = false
+                }
+                Button("Cancel", role: .cancel) { saveOverwritePending = false }
             }
             .alert(
                 "Couldn't finish that",
@@ -480,7 +517,14 @@ package struct BrowseView: View {
             AddImageOcclusionNoteView { Task { await model.performSearch() } }
         }
         .sheet(isPresented: $showTagSheet) {
-            BatchTagSheet(noteIDs: selectionState.selectedNoteIDs) {
+            BatchTagSheet(
+                noteIDs: model.cachedNotesForSelection(
+                    noteIDs: selectionState.selectedNoteIDs,
+                    cardIDs: selectionState.selectedCardIDs
+                ),
+                cardIDs: selectionState.selectedCardIDs,
+                browseModel: model
+            ) {
                 Task {
                     selectionState.exitSelectMode()
                     await model.performSearch()
@@ -515,47 +559,107 @@ package struct BrowseView: View {
                 runNearScan: {
                     model.nearDuplicateGroupsInScope()
                 },
-                openGroup: { ids in openDuplicateGroup(ids.map { NoteID($0) }) }
+                openGroup: { ids in openDuplicateGroup(ids.map { NoteID($0) }) },
+                onTagDuplicates: { noteIDs in
+                    guard !noteIDs.isEmpty else { return }
+                    await model.tagDuplicateGroups([noteIDs], tag: "duplicate")
+                }
             )
         case .findReplace:
             FindReplaceSheet(
                 fieldNames: notetypeFieldNames,
                 selectionCount: selectionState.count,
-                onApply: { search, replacement, regex, matchCase, fieldName in
+                resultCount: model.ids.count,
+                onApply: { search, replacement, regex, matchCase, fieldName, tagsTarget, selectedOnly in
                     await model.findAndReplace(
                         search: search, replacement: replacement, regex: regex,
-                        matchCase: matchCase, fieldName: fieldName,
-                        scopeNoteIds: Array(selectionState.selectedNoteIDs)
+                        matchCase: matchCase, fieldName: fieldName, tagsTarget: tagsTarget,
+                        scopeNoteIds: Array(selectionState.selectedNoteIDs),
+                        scopeCardIds: Array(selectionState.selectedCardIDs),
+                        selectedScopeOnly: selectedOnly
                     )
                 }
             )
         case .changeDeck:
             ChangeDeckSheet(decks: model.allDecks) { deckId in
-                let ids = selectionState.selectedNoteIDs
+                let notes = selectionState.selectedNoteIDs
+                let cards = selectionState.selectedCardIDs
                 selectionState.exitSelectMode()
-                Task { await model.changeDeckSelected(ids, deckId: deckId) }
+                Task { await model.changeDeckSelected(notes, cardIDs: Array(cards), deckId: deckId) }
             }
         case .setDueDate:
-            SetDueDateSheet { expression in
-                let ids = selectionState.selectedNoteIDs
+            SetDueDateSheet(initialExpression: model.lastSetDueExpression) { expression in
+                let notes = selectionState.selectedNoteIDs
+                let cards = selectionState.selectedCardIDs
                 selectionState.exitSelectMode()
-                Task { await model.setDueDateSelected(ids, expression: expression) }
+                Task { await model.setDueDateSelected(notes, cardIDs: Array(cards), expression: expression) }
             }
         case .reposition:
             RepositionSheet { start, step, randomize, shift in
-                let ids = selectionState.selectedNoteIDs
+                let notes = selectionState.selectedNoteIDs
+                let cards = selectionState.selectedCardIDs
                 selectionState.exitSelectMode()
                 Task {
                     await model.repositionSelectedNotes(
-                        ids, start: start, step: step, randomize: randomize, shift: shift
+                        notes, cardIDs: Array(cards),
+                        start: start, step: step, randomize: randomize, shift: shift
                     )
                 }
             }
+        case .removeTags:
+            RemoveTagsSheet(allTags: model.allTags) { tag in
+                let notes = await model.resolveTargetNotes(
+                    cardIDs: Array(selectionState.selectedCardIDs),
+                    noteIDs: Array(selectionState.selectedNoteIDs)
+                )
+                selectionState.exitSelectMode()
+                Task { await model.removeTag(tag, from: Set(notes)) }
+            }
+        case .forget:
+            ForgetSheet { restorePosition, resetCounts in
+                let notes = selectionState.selectedNoteIDs
+                let cards = selectionState.selectedCardIDs
+                selectionState.exitSelectMode()
+                Task {
+                    await model.forgetSelected(
+                        notes, cardIDs: Array(cards),
+                        restorePosition: restorePosition, resetCounts: resetCounts
+                    )
+                }
+            }
+        case .copyNote:
+            CopyNoteSheet(
+                noteIDs: Array(selectionState.selectedNoteIDs),
+                cardIDs: Array(selectionState.selectedCardIDs),
+                model: model
+            )
+        case .export:
+            BrowseExportSheet(
+                noteIDs: Array(selectionState.selectedNoteIDs),
+                cardIDs: Array(selectionState.selectedCardIDs),
+                model: model
+            )
+        case .changeNotetype:
+            ChangeNotetypeSheet(
+                noteIDs: Array(selectionState.selectedNoteIDs),
+                cardIDs: Array(selectionState.selectedCardIDs),
+                model: model
+            )
+        case .filteredDeck:
+            FilteredDeckSheet(query: model.buildQuery())
+        case .columns:
+            BrowserColumnsSheet(model: model)
+        case .savedSearchManage:
+            SavedSearchManageSheet(model: model)
+        case .previewNav:
+            EmptyView()
         }
     }
 
     private func openDuplicateGroup(_ noteIds: [NoteID]) {
-        let fragment = "nid:(\(noteIds.map { String($0.rawValue) }.joined(separator: " ")))"
+        // Comma-separated `nid:` per the bundled parser (`check_id_list`:
+        // digits and commas only — never `nid:(1 2)`).
+        let fragment = BrowseSearchGrammar.noteIDs(noteIds) ?? ""
         model.searchText = fragment
         activeSheet = nil
     }
@@ -591,8 +695,17 @@ package struct BrowseView: View {
                         Label(model.undoMenuTitle, systemImage: "arrow.uturn.backward")
                     }
                     .disabled(!model.canUndo)
+                    .keyboardShortcut("z", modifiers: .command)
+                    Button {
+                        Task { await model.redoLast() }
+                    } label: {
+                        Label(model.redoMenuTitle, systemImage: "arrow.uturn.forward")
+                    }
+                    .disabled(!model.canRedo)
+                    .keyboardShortcut("z", modifiers: [.command, .shift])
                 }
                 toolsSection
+                selectionSection
                 saveSearchSection
             } label: {
                 Image(systemName: "ellipsis")
@@ -612,6 +725,11 @@ package struct BrowseView: View {
             Label("Filter Rail…", systemImage: "line.3.horizontal.decrease.circle")
         }
         Button {
+            activeSheet = .columns
+        } label: {
+            Label("Columns…", systemImage: "tablecells")
+        }
+        Button {
             showDrafts = true
         } label: {
             Label("Drafts", systemImage: "doc.text")
@@ -627,6 +745,47 @@ package struct BrowseView: View {
             activeSheet = .findReplace
         } label: {
             Label("Find & Replace…", systemImage: "arrow.2.squarepath")
+        }
+        Button {
+            activeSheet = .filteredDeck
+        } label: {
+            Label("Create Filtered Deck…", systemImage: "square.stack.3d.down.right")
+        }
+        Button {
+            activeSheet = .savedSearchManage
+        } label: {
+            Label("Manage Saved Searches…", systemImage: "heart.text.square")
+        }
+    }
+
+    @ViewBuilder
+    private var selectionSection: some View {
+        Section("Selection") {
+            Button {
+                selectAllResults()
+            } label: {
+                Label("Select All Results", systemImage: "checkmark.square")
+            }
+            .disabled(model.ids.isEmpty)
+            .keyboardShortcut("a", modifiers: .command)
+            Button {
+                invertSelection()
+            } label: {
+                Label("Invert Selection", systemImage: "arrow.triangle.2.circlepath.square")
+            }
+            .disabled(model.ids.isEmpty)
+            .keyboardShortcut("a", modifiers: [.command, .shift])
+            Button {
+                Task { await revealSiblings() }
+            } label: {
+                Label("Select Sibling Cards", systemImage: "square.on.square")
+            }
+            .disabled(selectionState.isEmpty)
+            Button {
+                model.searchText = "deck:current"
+            } label: {
+                Label("Current Deck", systemImage: "book")
+            }
         }
     }
 
@@ -658,6 +817,14 @@ package struct BrowseView: View {
             }
             .disabled(selectionState.isEmpty)
 
+            Button {
+                unsuspendSelected()
+            } label: {
+                Label("Restore", systemImage: "play.circle")
+            }
+            .disabled(selectionState.isEmpty)
+            .help("Unsuspend / unbury selection")
+
             flagMenu
 
             markButton
@@ -669,14 +836,36 @@ package struct BrowseView: View {
             }
             .disabled(selectionState.isEmpty)
 
-            schedulingMenu
-
-            Button(role: .destructive) {
-                showDeleteConfirm = true
+            Button {
+                activeSheet = .removeTags
             } label: {
-                Label("Delete", systemImage: "trash")
+                Label("Remove Tags", systemImage: "tag.slash")
             }
             .disabled(selectionState.isEmpty)
+
+            schedulingMenu
+
+            Menu {
+                Button {
+                    activeSheet = .copyNote
+                } label: { Label("Create Copy…", systemImage: "doc.on.doc") }
+                Button {
+                    activeSheet = .export
+                } label: { Label("Export Selected…", systemImage: "square.and.arrow.up") }
+                Button {
+                    activeSheet = .changeNotetype
+                } label: { Label("Change Note Type…", systemImage: "arrow.triangle.2.circlepath.doc") }
+                Divider()
+                Button(role: .destructive) {
+                    showDeleteConfirm = true
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+            } label: {
+                Image(systemName: "square.and.pencil")
+            }
+            .disabled(selectionState.isEmpty)
+            .accessibilityLabel("Note actions")
         }
     }
 
@@ -716,16 +905,18 @@ package struct BrowseView: View {
 
     private var markButton: some View {
         Button {
-            let ids = selectionState.selectedNoteIDs
-            Task { await model.toggleMarkSelected(ids) }
+            let notes = selectionState.selectedNoteIDs
+            let cards = selectionState.selectedCardIDs
+            Task { await model.toggleMarkSelected(notes, cardIDs: Array(cards)) }
         } label: {
             Label("Mark", systemImage: "star")
         }
         .disabled(selectionState.isEmpty)
     }
 
-    /// Change deck / due date / grade-now / reposition / bury — desktop's
-    /// Cards menu, consolidated for touch.
+    /// Change deck / due date / grade-now / reposition / bury / forget —
+    /// desktop's Cards menu, consolidated for touch. All card-scope aware:
+    /// cards mode passes card IDs so siblings are untouched.
     private var schedulingMenu: some View {
         Menu {
             Button {
@@ -747,12 +938,17 @@ package struct BrowseView: View {
                 activeSheet = .reposition
             } label: { Label("Reposition New Cards…", systemImage: "list.number") }
 
+            Button {
+                activeSheet = .forget
+            } label: { Label("Forget…", systemImage: "arrow.counterclockwise") }
+
             Divider()
             Button {
-                let ids = selectionState.selectedNoteIDs
-                selectionState.exitSelectMode()
-                Task { await model.burySelected(ids) }
+                burySelected()
             } label: { Label("Bury Until Tomorrow", systemImage: "archivebox") }
+            Button {
+                unsuspendSelected()
+            } label: { Label("Unsuspend / Unbury", systemImage: "play.circle") }
         } label: {
             Image(systemName: "ellipsis.circle")
         }
@@ -761,9 +957,10 @@ package struct BrowseView: View {
     }
 
     private func applyGradeNow(_ rating: Rating) {
-        let ids = selectionState.selectedNoteIDs
+        let notes = selectionState.selectedNoteIDs
+        let cards = selectionState.selectedCardIDs
         selectionState.exitSelectMode()
-        Task { await model.gradeNowSelectedNotes(ids, rating: rating) }
+        Task { await model.gradeNowSelectedNotes(notes, cardIDs: Array(cards), rating: rating) }
     }
 
     // MARK: - Selection actions
@@ -771,21 +968,90 @@ package struct BrowseView: View {
     /// Capture the current selection, drop out of select mode for snappy
     /// feedback, then run the batch mutation on the model.
     private func suspendSelected() {
-        let ids = selectionState.selectedNoteIDs
+        let notes = selectionState.selectedNoteIDs
+        let cards = selectionState.selectedCardIDs
         selectionState.exitSelectMode()
-        Task { await model.suspendSelected(ids) }
+        Task { await model.suspendSelected(notes, cardIDs: Array(cards)) }
+    }
+
+    private func unsuspendSelected() {
+        let notes = selectionState.selectedNoteIDs
+        let cards = Array(selectionState.selectedCardIDs)
+        selectionState.exitSelectMode()
+        Task { await model.unSuspendSelected(notes, cardIDs: cards) }
+    }
+
+    private func burySelected() {
+        let notes = selectionState.selectedNoteIDs
+        let cards = selectionState.selectedCardIDs
+        selectionState.exitSelectMode()
+        Task { await model.burySelected(notes, cardIDs: Array(cards)) }
     }
 
     private func applyFlag(_ value: UInt32) {
-        let ids = selectionState.selectedNoteIDs
+        let notes = selectionState.selectedNoteIDs
+        let cards = selectionState.selectedCardIDs
         selectionState.exitSelectMode()
-        Task { await model.flagSelected(ids, value: value) }
+        Task { await model.flagSelected(notes, cardIDs: Array(cards), value: value) }
     }
 
     private func deleteSelected() {
         let ids = selectionState.selectedNoteIDs
         selectionState.exitSelectMode()
         Task { await model.deleteSelected(ids) }
+    }
+
+    // MARK: - Selection commands (P2)
+
+    private func selectAllResults() {
+        switch model.mode {
+        case .notes:
+            selectionState.selectedNoteIDs = Set(model.allResultNoteIDs)
+            selectionState.selectedCardIDs = []
+        case .cards:
+            selectionState.selectedCardIDs = Set(model.allResultCardIDs)
+            selectionState.selectedNoteIDs = []
+        }
+        selectionState.isSelectMode = true
+    }
+
+    private func invertSelection() {
+        switch model.mode {
+        case .notes:
+            let all = Set(model.allResultNoteIDs)
+            selectionState.selectedNoteIDs = all.subtracting(selectionState.selectedNoteIDs)
+            selectionState.selectedCardIDs = []
+        case .cards:
+            let all = Set(model.allResultCardIDs)
+            selectionState.selectedCardIDs = all.subtracting(selectionState.selectedCardIDs)
+            selectionState.selectedNoteIDs = []
+        }
+        selectionState.isSelectMode = true
+    }
+
+    /// Desktop "select notes / reveal siblings": expand the current note
+    /// selection to all sibling cards (cards mode) for inspection.
+    private func revealSiblings() async {
+        let notes = Array(selectionState.selectedNoteIDs)
+        var cards = Array(selectionState.selectedCardIDs)
+        if !notes.isEmpty {
+            let siblings = await model.siblingCards(of: notes)
+            cards = Array(Set(cards + siblings))
+        } else if !cards.isEmpty {
+            let derived = await model.noteIDsOfCards(cards)
+            let siblings = await model.siblingCards(of: derived)
+            cards = Array(Set(siblings))
+        }
+        guard !cards.isEmpty else { return }
+        if model.mode == .cards {
+            selectionState.selectedCardIDs = Set(cards)
+        } else {
+            // Notes mode stays note-scoped; siblings are a card-mode concept.
+            model.mode = .cards
+            selectionState.selectedCardIDs = Set(cards)
+            selectionState.selectedNoteIDs = []
+        }
+        selectionState.isSelectMode = true
     }
 }
 

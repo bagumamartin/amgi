@@ -204,8 +204,15 @@ extension Request where Response == Void {
     }
 
     /// Resets the given cards to "new" state. `log: true` records the
-    /// operation in the undo stack.
-    public static func scheduleCardsAsNew(cardIds: [CardID], log: Bool) -> Self {
+    /// operation in the undo stack. Desktop's Forget dialog options map to
+    /// `restorePosition` (restore original position vs. end of new queue)
+    /// and `resetCounts` (reset repetition/lapse counts).
+    public static func scheduleCardsAsNew(
+        cardIds: [CardID],
+        log: Bool,
+        restorePosition: Bool = false,
+        resetCounts: Bool = false
+    ) -> Self {
         Self(
             serviceId: ServiceID.scheduler,
             methodId: SchedulerMethod.scheduleCardsAsNew,
@@ -213,6 +220,8 @@ extension Request where Response == Void {
                 var proto = Anki_Scheduler_ScheduleCardsAsNewRequest()
                 proto.cardIds = cardIds.map(\.rawValue)
                 proto.log = log
+                proto.restorePosition = restorePosition
+                proto.resetCounts = resetCounts
                 return try proto.serializedData()
             },
             decode: { _ in () }

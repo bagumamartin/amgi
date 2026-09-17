@@ -39,13 +39,20 @@ final class BrowseModel {
 
     /// Sort options map 1:1 to engine column keys (probed set in
     /// BrowseEngineProbesTests; rslib browser_table.rs serializations).
+    /// Direction is independent state (`sortReverseOverride`): the case
+    /// names the column, the override flips desktop's default per column.
     enum SortOrder: String, CaseIterable, Identifiable {
         case due = "cardDue"
         case createdDesc = "noteCrt"
         case modifiedDesc = "noteMod"
+        case cardModifiedDesc = "cardMod"
         case sortFieldAsc = "noteFld"
         case notetypeAsc = "note"
         case tagsAsc = "noteTags"
+        case intervalDesc = "cardIvl"
+        case easeDesc = "cardEase"
+        case repsDesc = "cardReps"
+        case lapsesDesc = "cardLapses"
 
         var id: String { rawValue }
 
@@ -54,19 +61,33 @@ final class BrowseModel {
             case .due: "Due date"
             case .createdDesc: "Date created"
             case .modifiedDesc: "Date edited"
+            case .cardModifiedDesc: "Card modified"
             case .sortFieldAsc: "Sort field"
             case .notetypeAsc: "Note type"
             case .tagsAsc: "Tags"
+            case .intervalDesc: "Interval"
+            case .easeDesc: "Ease"
+            case .repsDesc: "Reviews"
+            case .lapsesDesc: "Lapses"
             }
         }
 
-        var reverse: Bool {
+        var defaultReverse: Bool {
             switch self {
             case .due: false
-            case .createdDesc, .modifiedDesc: true
+            case .createdDesc, .modifiedDesc, .cardModifiedDesc,
+                 .intervalDesc, .easeDesc, .repsDesc, .lapsesDesc: true
             case .sortFieldAsc, .notetypeAsc, .tagsAsc: false
             }
         }
+
+        /// Back-compat: default direction for callers that predate the
+        /// independent toggle.
+        var reverse: Bool { defaultReverse }
+
+        /// Flips direction while staying on the same column. The view
+        /// persists the flip via `sortReverseOverride`, not by switching cases.
+        var toggledDirection: SortOrder { self }
     }
 
     // MARK: View-facing state
@@ -108,6 +129,19 @@ final class BrowseModel {
     var notetypeNames: [NotetypeID: String] = [:]
     var mode: Mode = .notes
     var sortOrder: SortOrder = .modifiedDesc
+    /// Independent direction override (nil = column default). Persisted per
+    /// mode so ascending/descending survives relaunches, desktop-style.
+    var sortReverseOverride: Bool?
+
+    /// Effective engine direction for the active sort.
+    var effectiveSortReverse: Bool {
+        sortReverseOverride ?? sortOrder.defaultReverse
+    }
+
+    func toggleSortDirection() {
+        sortReverseOverride = !effectiveSortReverse
+        persistViewPrefs()
+    }
 
     /// Deck backing the current source, when it is a deck.
     var activeDeck: DeckInfo? {
@@ -125,6 +159,7 @@ final class BrowseModel {
     private(set) var undoStatus: UndoStatusInfo?
 
     var canUndo: Bool { undoStatus?.canUndo ?? false }
+    var canRedo: Bool { undoStatus?.canRedo ?? false }
 
     var undoMenuTitle: String {
         let text = undoStatus?.undoText.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -132,6 +167,25 @@ final class BrowseModel {
         if text.lowercased().hasPrefix("undo") { return text }
         return "Undo \(text)"
     }
+
+    var redoMenuTitle: String {
+        let text = undoStatus?.redoText.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !canRedo || text.isEmpty { return "Redo" }
+        if text.lowercased().hasPrefix("redo") { return text }
+        return "Redo \(text)"
+    }
+
+    /// Engine-rendered browser rows keyed by result id. Cell order follows
+    /// the active column set; populated lazily alongside record hydration.
+    private(set) var browserRows: [Int64: BrowserRowData] = [:]
+    /// Catalog of engine columns (`AllBrowserColumns`) for the column picker.
+    private(set) var browserColumns: [BrowserColumnSpec] = []
+    /// Persisted per-mode columns/sort (profile-scoped). Nil until loaded.
+    var viewPrefs = BrowseViewPrefs()
+    /// Hierarchical tag tree for the sidebar (desktop parity).
+    private(set) var tagTree: TagTreeNodeData?
+    /// Last Set Due Date input (desktop remembers the browser value).
+    var lastSetDueExpression = "1"
 
     /// Select-mode plumbing stays view-owned via BrowseSelectionState.
 
@@ -158,7 +212,7 @@ final class BrowseModel {
     /// Drives `.task(id:)` on `BrowseView` so text, source, mode, and sort
     /// all restart one search — SwiftUI cancels the previous run.
     var searchIdentity: String {
-        "\(buildQuery())|\(mode.rawValue)|\(sortOrder.rawValue)"
+        "\(buildQuery())|\(mode.rawValue)|\(sortOrder.rawValue)|\(effectiveSortReverse)"
     }
 
     /// First card of each note, resolved lazily by the row context menu.
@@ -166,7 +220,10 @@ final class BrowseModel {
     /// other row's menu button.
     @ObservationIgnored private var firstCardIDs: [NoteID: CardID] = [:]
 
-    private static let historyKey = "browse.searchHistory"
+    /// Profile-scoped history: the shared key leaked queries across profiles.
+    private static var historyKey: String {
+        "browse.searchHistory.\(AccountStore.shared.current.id)"
+    }
     /// Query recorded for history when this committed run started.
     private var lastCommittedQuery = ""
 
@@ -280,6 +337,25 @@ final class BrowseModel {
         defer { isLoading = false }
         let query = buildQuery()
         let order = order()
+        // Validate first so grammar errors surface inline instead of
+        // masquerading as legitimate zero-result searches.
+        do {
+            _ = try await noteClient.validateQuery(query)
+            await MainActor.run { self.searchError = nil }
+        } catch is CancellationError {
+            return
+        } catch {
+            await MainActor.run {
+                self.searchError = error.localizedDescription
+                self.ids = []
+                self.noteRecords.removeAll()
+                self.cardRecords.removeAll()
+                self.windowEnd = 0
+                self.hasMorePages = false
+                self.resultDeckIDs = []
+            }
+            return
+        }
         do {
             let newIDs: [Int64]
             switch mode {
@@ -289,12 +365,19 @@ final class BrowseModel {
                 newIDs = try await cardClient.searchIds(query, order).map(\.rawValue)
             }
             guard !Task.isCancelled else { return }
-            // Records for ids that remain in results stay valid; drop the
-            // rest so stale rows can't outlive the query.
-            noteRecords = noteRecords.filter { newIDs.contains($0.key) }
-            cardRecords = cardRecords.filter { newIDs.contains($0.key) }
+            // Desktop invalidates row data after every query: cached records
+            // for surviving ids are stale the moment any mutation landed, so
+            // drop everything and re-hydrate the visible window fresh.
+            // (Filtering to `newIDs.contains` kept pre-edit field text on screen.)
+            noteRecords.removeAll()
+            cardRecords.removeAll()
+            browserRows.removeAll()
             ids = newIDs
-            windowEnd = min(ids.count, max(windowSize, windowEnd))
+            if windowEnd == 0 || windowEnd > ids.count {
+                windowEnd = min(ids.count, windowSize)
+            } else {
+                windowEnd = min(ids.count, max(windowSize, windowEnd))
+            }
             hasMorePages = windowEnd < ids.count
             await hydrateWindow()
             resolveResultDecks()
@@ -303,9 +386,11 @@ final class BrowseModel {
             ids = []
             noteRecords.removeAll()
             cardRecords.removeAll()
+            browserRows.removeAll()
             windowEnd = 0
             hasMorePages = false
             resultDeckIDs = []
+            searchError = error.localizedDescription
         }
     }
 
@@ -361,7 +446,7 @@ final class BrowseModel {
     }
 
     private func order() -> SearchOrder {
-        SearchOrder(.builtin(column: sortOrder.rawValue, reverse: sortOrder.reverse))
+        SearchOrder(.builtin(column: sortOrder.rawValue, reverse: effectiveSortReverse))
     }
 
     func loadDecks() async {
@@ -369,14 +454,21 @@ final class BrowseModel {
     }
 
     func loadInitial() async {
+        loadViewPrefs()
+        applyDefaultSearchIfEmpty()
         await loadDecks()
         allTags = ((try? await tagClient.getAllTags()) ?? []).sorted()
+        if let tree = try? await tagClient.tagTree() {
+            tagTree = tree
+        }
         // Nothing loaded saved searches at startup, so the sidebar section and
         // the tools menu stayed empty until the user saved or deleted one.
         savedSearches.refresh()
         // Same for history: `recentQueries` only ever grew in-session, so the
         // search field offered no suggestions on a fresh launch.
         loadHistory()
+        await loadBrowserColumns()
+        Task { await loadNotetypeChildren() }
         let notetypes = notetypesService
         if let pairs = try? await backendOffload({ try notetypes.getNotetypeNames() }) {
             notetypeNames = Dictionary(uniqueKeysWithValues: pairs.map { ($0.id, $0.name) })
@@ -461,28 +553,83 @@ final class BrowseModel {
         await run("delete") { try await self.noteClient.deleteBatch([id]) }
     }
 
-    func suspendSelected(_ noteIDs: Set<NoteID>) async {
-        await run("suspend") { try await self.cardClient.suspendCards([], Array(noteIDs)) }
+    // MARK: Card-scope resolution (P1A)
+    //
+    // Upstream card mode operates on selected CARD ids; note mode expands
+    // selected notes to all their cards. Every batch entry point therefore
+    // takes explicit card ids plus note ids and prefers the card set when
+    // non-empty, so one template's card never drags its siblings along.
+
+    /// Cards of the given notes via ONE comma-form `nid:` search.
+    private func cardsOfNotes(_ noteIds: [NoteID]) async -> [CardID] {
+        guard !noteIds.isEmpty else { return [] }
+        guard let query = BrowseSearchGrammar.noteIDs(noteIds) else { return [] }
+        return (try? await cardClient.searchIds(query, nil)) ?? []
+    }
+
+    /// Notes backing the given cards (for tag/mark/delete paths).
+    func noteIDsOfCards(_ cardIds: [CardID]) async -> [NoteID] {
+        var seen = Set<NoteID>()
+        var ordered: [NoteID] = []
+        for cid in cardIds {
+            let nid: NoteID?
+            if let cached = cardRecords[cid.rawValue]?.nid {
+                nid = cached
+            } else {
+                nid = (try? await cardClient.getCard(cid))?.nid
+            }
+            if let nid, seen.insert(nid).inserted { ordered.append(nid) }
+        }
+        return ordered
+    }
+
+    /// Resolve the effective card set: explicit cards win; otherwise expand notes.
+    func resolveTargetCards(cardIDs: [CardID], noteIDs: [NoteID]) async -> [CardID] {
+        if !cardIDs.isEmpty { return cardIDs }
+        return await cardsOfNotes(noteIDs)
+    }
+
+    /// Resolve the effective note set: explicit notes win; otherwise derive
+    /// from cards (tag/mark/delete operate on notes).
+    func resolveTargetNotes(cardIDs: [CardID], noteIDs: [NoteID]) async -> [NoteID] {
+        if !noteIDs.isEmpty { return Array(noteIDs) }
+        return await noteIDsOfCards(cardIDs)
+    }
+
+    func suspendSelected(_ noteIDs: Set<NoteID>, cardIDs: [CardID] = []) async {
+        let cards = await resolveTargetCards(cardIDs: cardIDs, noteIDs: Array(noteIDs))
+        await run("suspend") { try await self.cardClient.suspendCards(cards, []) }
     }
 
     func unSuspendSelected(_ noteIDs: Set<NoteID>, cardIDs: [CardID]) async {
-        await run("unsuspend") { try await self.cardClient.restoreBuriedAndSuspended(cardIDs) }
+        // Card scope when present; note expansion otherwise (never both —
+        // passing both would double-cover siblings).
+        let cards: [CardID]
+        if !cardIDs.isEmpty {
+            cards = cardIDs
+        } else {
+            cards = await cardsOfNotes(Array(noteIDs))
+        }
+        await run("unsuspend") { try await self.cardClient.restoreBuriedAndSuspended(cards) }
     }
 
-    func burySelected(_ noteIDs: Set<NoteID>) async {
-        await run("bury") { try await self.cardClient.buryUserCards([], Array(noteIDs)) }
+    func burySelected(_ noteIDs: Set<NoteID>, cardIDs: [CardID] = []) async {
+        let cards = await resolveTargetCards(cardIDs: cardIDs, noteIDs: Array(noteIDs))
+        await run("bury") { try await self.cardClient.buryUserCards(cards, []) }
     }
 
-    func flagSelected(_ noteIDs: Set<NoteID>, value: UInt32) async {
-        let cardIds = await cardsOfNotes(Array(noteIDs))
-        await runBatch("flag", over: cardIds) { try await self.cardClient.flag($0, value) }
+    func flagSelected(_ noteIDs: Set<NoteID>, cardIDs: [CardID] = [], value: UInt32) async {
+        let cards = await resolveTargetCards(cardIDs: cardIDs, noteIDs: Array(noteIDs))
+        // One setFlag RPC → one undo entry (per-card loop broke undo grouping).
+        await run("flag") { try await self.cardClient.setFlags(cards, value) }
     }
 
-    /// Cards of selected notes — ONE engine search instead of N fetches.
-    private func cardsOfNotes(_ noteIds: [NoteID]) async -> [CardID] {
-        guard !noteIds.isEmpty else { return [] }
-        let query = noteIds.map { "nid:\($0.rawValue)" }.joined(separator: " OR ")
-        return (try? await cardClient.searchIds(query, nil)) ?? []
+    /// Bulk forget with desktop options (restore position / reset counts).
+    func forgetSelected(_ noteIDs: Set<NoteID>, cardIDs: [CardID] = [], restorePosition: Bool, resetCounts: Bool) async {
+        let cards = await resolveTargetCards(cardIDs: cardIDs, noteIDs: Array(noteIDs))
+        await run("forget") {
+            try await self.cardClient.forgetCards(cards, restorePosition, resetCounts)
+        }
     }
 
     func deleteSelected(_ noteIDs: Set<NoteID>) async {
@@ -550,16 +697,45 @@ final class BrowseModel {
 
     func undoLast() async {
         guard canUndo else { return }
-        try? await cardClient.undoLast()
+        do {
+            try await cardClient.undoLast()
+        } catch {
+            errorMessage = "Couldn't undo: \(error.localizedDescription)"
+        }
+        await refreshAfterMutation()
+    }
+
+    func redoLast() async {
+        guard canRedo else { return }
+        do {
+            try await cardClient.redoLast()
+        } catch {
+            errorMessage = "Couldn't redo: \(error.localizedDescription)"
+        }
         await refreshAfterMutation()
     }
 
     /// After any engine op the CollectionStore generation bumps itself via
     /// OpChanges observation (same rails as deck icons); we re-run the
-    /// search against fresh data here.
+    /// search against fresh data here. Focused row/inspector records are
+    /// re-fetched so Preview/Info never show pre-mutation field text.
     func refreshAfterMutation() async {
         collectionStore.invalidateAll(origin: .localUser)
+        // Drop focused records — performSearch clears the caches, and the
+        // ids below re-resolve against the post-mutation collection.
+        let noteID = focusedNote?.id
+        let cardID = focusedCard?.id
         await performSearch()
+        if let noteID {
+            focusedNote = try? await noteClient.fetch(noteID)
+        }
+        if let cardID {
+            focusedCard = try? await cardClient.getCard(cardID)
+        } else if let noteID, focusedCard == nil {
+            if let cid = (try? await cardClient.searchIds("nid:\(noteID.rawValue)", nil))?.first {
+                focusedCard = try? await cardClient.getCard(cid)
+            }
+        }
         await refreshUndoStatus()
     }
 
@@ -599,6 +775,23 @@ final class BrowseModel {
         }
     }
 
+    /// Desktop "replace existing search nodes of the same type" (e.g. picking
+    /// a different card state swaps the old `is:` node instead of AND-ing).
+    func replaceNodeOfSameType(with fragment: String) async {
+        let existing = searchText
+        guard !existing.trimmingCharacters(in: .whitespaces).isEmpty else {
+            searchText = fragment
+            return
+        }
+        if let replaced = try? await ankiBackend.invoke(
+            .replaceSearchNode(previous: existing, replacement: fragment)
+        ) {
+            searchText = replaced
+        } else {
+            searchText = fragment
+        }
+    }
+
     private func activeBaseQuery() -> String { searchText }
 
     /// Synchronous textual composition — engine AND is a space join;
@@ -631,9 +824,14 @@ final class BrowseModel {
         let candidate = buildQuery()
         guard !candidate.isEmpty else { searchError = nil; return }
         Task { [weak self] in
-            _ = try? await self?.noteClient.validateQuery(candidate)
-            // Errors surface through performSearch's failure branch today;
-            // dedicated inline error UI lands with engine-row columns.
+            guard let self else { return }
+            do {
+                _ = try await self.noteClient.validateQuery(candidate)
+                await MainActor.run { self.searchError = nil }
+            } catch is CancellationError {
+            } catch {
+                await MainActor.run { self.searchError = error.localizedDescription }
+            }
         }
     }
 
@@ -717,66 +915,126 @@ final class BrowseModel {
 
     // MARK: - Power-tool plumbing (selection-scope resolution)
 
-    /// Card IDs for the given notes via one nid:(OR) search.
+    /// Card IDs for the given notes via one comma-form `nid:` search.
+    /// Legacy helper kept for single-scope callers; prefer the
+    /// card-scope `resolveTargetCards` pair above for batch actions.
     func resolveCardIds(for noteIds: [NoteID]) async -> [CardID] {
-        guard !noteIds.isEmpty else { return [] }
-        let query = noteIds.map { "nid:\($0.rawValue)" }.joined(separator: " OR ")
-        return (try? await cardClient.searchIds(query, nil)) ?? []
+        await cardsOfNotes(noteIds)
     }
 
-    func changeDeckSelected(_ noteIDs: Set<NoteID>, deckId: DeckID) async {
-        let cardIds = await resolveCardIds(for: Array(noteIDs))
-        _ = try? await cardClient.changeDeck(cardIds, deckId)
-        await refreshAfterMutation()
+    func changeDeckSelected(_ noteIDs: Set<NoteID>, cardIDs: [CardID] = [], deckId: DeckID) async {
+        let cards = await resolveTargetCards(cardIDs: cardIDs, noteIDs: Array(noteIDs))
+        await run("move") { _ = try await self.cardClient.changeDeck(cards, deckId) }
     }
 
-    func setDueDateSelected(_ noteIDs: Set<NoteID>, expression: String) async {
-        let cardIds = await resolveCardIds(for: Array(noteIDs))
-        try? await cardClient.setDueDate(cardIds, expression)
-        await refreshAfterMutation()
+    func setDueDateSelected(_ noteIDs: Set<NoteID>, cardIDs: [CardID] = [], expression: String) async {
+        let cards = await resolveTargetCards(cardIDs: cardIDs, noteIDs: Array(noteIDs))
+        lastSetDueExpression = expression
+        await run("set due date") { try await self.cardClient.setDueDate(cards, expression) }
     }
 
-    func gradeNowSelectedNotes(_ noteIDs: Set<NoteID>, rating: Rating) async {
-        let cardIds = await resolveCardIds(for: Array(noteIDs))
-        try? await cardClient.gradeNow(cardIds, rating)
-        await refreshAfterMutation()
+    func gradeNowSelectedNotes(_ noteIDs: Set<NoteID>, cardIDs: [CardID] = [], rating: Rating) async {
+        let cards = await resolveTargetCards(cardIDs: cardIDs, noteIDs: Array(noteIDs))
+        await run("grade") { try await self.cardClient.gradeNow(cards, rating) }
     }
 
-    func repositionSelectedNotes(_ noteIDs: Set<NoteID>, start: UInt32, step: UInt32, randomize: Bool, shift: Bool) async {
-        let cardIds = await resolveCardIds(for: Array(noteIDs))
-        _ = try? await cardClient.repositionCards(cardIds, start, step, randomize, shift)
-        await refreshAfterMutation()
+    func repositionSelectedNotes(_ noteIDs: Set<NoteID>, cardIDs: [CardID] = [], start: UInt32, step: UInt32, randomize: Bool, shift: Bool) async {
+        let cards = await resolveTargetCards(cardIDs: cardIDs, noteIDs: Array(noteIDs))
+        await run("reposition") { _ = try await self.cardClient.repositionCards(cards, start, step, randomize, shift) }
     }
 
-    func toggleMarkSelected(_ noteIDs: Set<NoteID>) async {
-        let anyMarked = noteIDs.contains { id in
+    func toggleMarkSelected(_ noteIDs: Set<NoteID>, cardIDs: [CardID] = []) async {
+        let notes = await resolveTargetNotes(cardIDs: cardIDs, noteIDs: Array(noteIDs))
+        guard !notes.isEmpty else { return }
+        let anyMarked = notes.contains { id in
             noteRecords[id.rawValue]?.tags.split(separator: " ")
                 .contains { $0.caseInsensitiveCompare("marked") == .orderedSame } == true
         }
         if anyMarked {
-            try? await tagClient.removeTagFromNotes("marked", Array(noteIDs))
+            await run("unmark") { try await self.tagClient.removeTagFromNotes("marked", notes) }
         } else {
-            try? await tagClient.addTagToNotes("marked", Array(noteIDs))
+            await run("mark") { try await self.tagClient.addTagToNotes("marked", notes) }
         }
-        await refreshAfterMutation()
     }
 
-    /// Find & Replace scoped to selection when present, else to current results.
-    func findAndReplace(search: String, replacement: String, regex: Bool, matchCase: Bool, fieldName: String?, scopeNoteIds: [NoteID]?) async -> Int {
+    /// Find & Replace.
+    ///
+    /// - Selection present → that scope (cards resolve to their notes).
+    /// - No selection → **every** result id (not just the loaded window),
+    ///   with Cards mode resolving through card records + fallback fetches.
+    /// - `tagsTarget` routes to the tag engine op (desktop "Tags" picker row).
+    /// - Empty scope (no selection AND no results) with `selectedScopeOnly ==
+    ///   false` means collection-wide, matching desktop's unchecked box.
+    func findAndReplace(
+        search: String, replacement: String, regex: Bool, matchCase: Bool,
+        fieldName: String?, tagsTarget: Bool = false,
+        scopeNoteIds: [NoteID]? = nil, scopeCardIds: [CardID]? = nil,
+        selectedScopeOnly: Bool = true
+    ) async -> Int {
+        let scopeNotes = scopeNoteIds ?? []
+        let scopeCards = scopeCardIds ?? []
         let targets: [NoteID]
-        if let scopeNoteIds, !scopeNoteIds.isEmpty {
-            targets = scopeNoteIds
+        if !scopeNotes.isEmpty {
+            targets = scopeNotes
+        } else if !scopeCards.isEmpty {
+            targets = await noteIDsOfCards(scopeCards)
+        } else if mode == .notes {
+            targets = ids.map { NoteID($0) }
         } else {
-            targets = mode == .notes
-                ? ids.prefix(loadedCount).map { NoteID($0) }
-                : []
+            // Cards mode, no selection: resolve ALL result cards to notes.
+            var seen = Set<NoteID>()
+            var ordered: [NoteID] = []
+            for cidRaw in ids {
+                let nid: NoteID?
+                if let cached = cardRecords[cidRaw]?.nid {
+                    nid = cached
+                } else {
+                    nid = (try? await cardClient.getCard(CardID(cidRaw)))?.nid
+                }
+                if let nid, seen.insert(nid).inserted { ordered.append(nid) }
+            }
+            targets = ordered
         }
-        guard !targets.isEmpty else { return 0 }
-        let count = (try? await noteClient.findAndReplace(
-            noteIds: targets, search: search, replacement: replacement,
-            regex: regex, matchCase: matchCase, fieldName: fieldName)) ?? 0
-        await refreshAfterMutation()
-        return count
+        // Desktop: unchecked "selected notes" with an empty scope = all notes.
+        let effectiveTargets = targets
+        let collectionWide = effectiveTargets.isEmpty && !selectedScopeOnly
+        guard !effectiveTargets.isEmpty || collectionWide else { return 0 }
+        do {
+            let count: Int
+            if tagsTarget {
+                try await tagClient.findAndReplaceTag(
+                    effectiveTargets, search, replacement, regex, matchCase
+                )
+                // Tag op returns OpChangesWithCount; count surfaces via refresh.
+                count = effectiveTargets.isEmpty ? 0 : effectiveTargets.count
+            } else {
+                count = try await noteClient.findAndReplace(
+                    noteIds: effectiveTargets, search: search, replacement: replacement,
+                    regex: regex, matchCase: matchCase, fieldName: fieldName
+                )
+            }
+            await refreshAfterMutation()
+            return count
+        } catch {
+            errorMessage = "Couldn't find & replace: \(error.localizedDescription)"
+            return 0
+        }
+    }
+
+    /// Union of field names across the effective scope (desktop picker source).
+    func fieldNamesForScope(noteIDs: [NoteID], cardIDs: [CardID]) async -> [String] {
+        var notes = noteIDs
+        if notes.isEmpty, !cardIDs.isEmpty {
+            notes = await noteIDsOfCards(cardIDs)
+        }
+        if notes.isEmpty {
+            notes = ids.prefix(200).map { mode == .notes ? NoteID($0) : nil }.compactMap { $0 }
+            if notes.isEmpty, mode == .cards {
+                notes = await noteIDsOfCards(ids.prefix(200).map { CardID($0) })
+            }
+        }
+        guard !notes.isEmpty else { return [] }
+        return (try? await noteClient.fieldNames(Array(notes.prefix(200)))) ?? []
     }
 
     // MARK: - Duplicates data (spec §5.9)
@@ -798,13 +1056,7 @@ final class BrowseModel {
     /// structural searches never get "search meaning of…" noise.
     var searchTextIsPlainFreeText: Bool {
         guard rootDeck == nil else { return false }
-        let prefixes = ["deck:", "tag:", "is:", "due:", "added:", "edited:",
-                        "rated:", "prop:", "nid:", "note:", "flag:", "introduced:"]
-        for word in searchText.split(separator: " ") {
-            let lowered = word.lowercased()
-            if prefixes.contains(where: { lowered.hasPrefix($0) }) { return false }
-        }
-        return true
+        return BrowseSearchGrammar.isPlainFreeText(searchText)
     }
 
     // MARK: - Query assembly (phase 3 replaces chips with tokens)
@@ -841,6 +1093,312 @@ final class BrowseModel {
         // fragment the semantic corpus build already relies on.
         guard !parts.isEmpty else { return "deck:*" }
         return parts.joined(separator: " ")
+    }
+
+    /// Synchronous note resolution for sheet presentation (cached records
+    /// only — async `resolveTargetNotes` runs at apply time for the rest).
+    func cachedNotesForSelection(noteIDs: Set<NoteID>, cardIDs: Set<CardID>) -> Set<NoteID> {
+        if !noteIDs.isEmpty { return noteIDs }
+        let derived = cardIDs.compactMap { cardRecords[$0.rawValue]?.nid }
+        return Set(derived)
+    }
+
+    // MARK: - Selection commands (P2)
+
+    /// All result ids in the active mode (not just the loaded window).
+    var allResultNoteIDs: [NoteID] { mode == .notes ? ids.map { NoteID($0) } : [] }
+    var allResultCardIDs: [CardID] { mode == .cards ? ids.map { CardID($0) } : [] }
+
+    /// Sibling cards of the given notes (reveal-siblings / select-notes).
+    func siblingCards(of noteIDs: [NoteID]) async -> [CardID] {
+        await cardsOfNotes(noteIDs)
+    }
+
+    // MARK: - Saved searches CRUD (P4)
+
+    /// Returns false when `name` collides and `allowOverwrite` is false.
+    @discardableResult
+    func saveCurrentQuery(as name: String, allowOverwrite: Bool) -> Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        if !allowOverwrite, savedSearches.searches.contains(where: { $0.name == trimmed }) {
+            return false
+        }
+        saveCurrentQuery(as: trimmed)
+        return true
+    }
+
+    func renameSavedSearch(from oldName: String, to newName: String) -> Bool {
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != oldName else { return false }
+        guard !savedSearches.searches.contains(where: { $0.name == trimmed }) else { return false }
+        savedSearches.rename(from: oldName, to: trimmed)
+        if case .saved(let current) = source, current == oldName {
+            source = .saved(trimmed)
+        }
+        collectionStore.invalidateAll(origin: .localUser)
+        return true
+    }
+
+    func updateSavedSearch(named name: String) {
+        let query = buildQuery()
+        guard !query.isEmpty else { return }
+        savedSearches.save(name: name, query: query)
+        collectionStore.invalidateAll(origin: .localUser)
+    }
+
+    // MARK: - Default search + current-deck shortcut (P4 search QoL)
+
+    private var defaultSearchKey: String {
+        "browse.defaultSearch.\(AccountStore.shared.current.id)"
+    }
+
+    var defaultSearch: String {
+        UserDefaults.standard.string(forKey: defaultSearchKey) ?? ""
+    }
+
+    func setDefaultSearch(_ query: String) {
+        UserDefaults.standard.set(query, forKey: defaultSearchKey)
+    }
+
+    func applyDefaultSearchIfEmpty() {
+        guard searchText.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        let d = defaultSearch.trimmingCharacters(in: .whitespaces)
+        guard !d.isEmpty else { return }
+        searchText = d
+    }
+
+    /// `deck:current` shortcut — the engine resolves the reviewer's current
+    /// deck server-side (`SearchNode(deck: "current")` writes this exact
+    /// fragment on desktop too).
+    func applyCurrentDeckShortcut() {
+        searchText = "deck:current"
+    }
+
+    // MARK: - View prefs persistence (P4)
+
+    private var viewPrefsKey: String {
+        "browse.viewPrefs.\(AccountStore.shared.current.id)"
+    }
+
+    func loadViewPrefs() {
+        guard let data = UserDefaults.standard.data(forKey: viewPrefsKey),
+              let prefs = try? JSONDecoder().decode(BrowseViewPrefs.self, from: data)
+        else { return }
+        viewPrefs = prefs
+        // Adopt persisted per-mode sort on launch.
+        if mode == .notes {
+            if let match = SortOrder(rawValue: prefs.notesSortColumn) {
+                sortOrder = match
+            }
+            sortReverseOverride = prefs.notesSortReverse
+        } else {
+            if let match = SortOrder(rawValue: prefs.cardsSortColumn) {
+                sortOrder = match
+            }
+            sortReverseOverride = prefs.cardsSortReverse
+        }
+    }
+
+    func persistViewPrefs() {
+        var prefs = viewPrefs
+        switch mode {
+        case .notes:
+            prefs.notesSortColumn = sortOrder.rawValue
+            prefs.notesSortReverse = effectiveSortReverse
+        case .cards:
+            prefs.cardsSortColumn = sortOrder.rawValue
+            prefs.cardsSortReverse = effectiveSortReverse
+        }
+        viewPrefs = prefs
+        if let data = try? JSONEncoder().encode(prefs) {
+            UserDefaults.standard.set(data, forKey: viewPrefsKey)
+        }
+    }
+
+    // MARK: - Engine columns / rows (P2)
+
+    func loadBrowserColumns() async {
+        if let cols = try? await ankiBackend.invoke(.allBrowserColumns()) {
+            browserColumns = cols
+        }
+    }
+
+    func browserRow(for id: Int64) async -> BrowserRowData? {
+        if let cached = browserRows[id] { return cached }
+        guard let row = try? await ankiBackend.invoke(.browserRowForId(id: id)) else { return nil }
+        browserRows[id] = row
+        return row
+    }
+
+    func setActiveColumns(_ keys: [String]) async {
+        try? await ankiBackend.invoke(.setActiveBrowserColumns(keys))
+        browserRows.removeAll()
+        var prefs = viewPrefs
+        switch mode {
+        case .notes: prefs.notesColumns = keys
+        case .cards: prefs.cardsColumns = keys
+        }
+        viewPrefs = prefs
+        persistViewPrefs()
+    }
+
+    // MARK: - Sidebar management (P4)
+
+    func renameSidebarTag(from old: String, to new: String) async {
+        let trimmed = new.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != old else { return }
+        await run("rename tag") { try await self.tagClient.renameTag(old, trimmed) }
+        allTags = ((try? await tagClient.getAllTags()) ?? []).sorted()
+        if let tree = try? await tagClient.tagTree() { tagTree = tree }
+    }
+
+    /// Applies a sidebar tag to the current batch selection (card-scope
+    /// aware: cards resolve to their notes async).
+    func addSidebarTagToSelection(_ tag: String, noteIDs: Set<NoteID>, cardIDs: Set<CardID>) async {
+        let notes = await resolveTargetNotes(cardIDs: Array(cardIDs), noteIDs: Array(noteIDs))
+        guard !notes.isEmpty else {
+            errorMessage = "Select notes or cards first, then apply the tag."
+            return
+        }
+        await run("tag") { try await self.tagClient.addTagToNotes(tag, notes) }
+    }
+
+    func removeSidebarTagFromSelection(_ tag: String, noteIDs: Set<NoteID>, cardIDs: Set<CardID>) async {
+        let notes = await resolveTargetNotes(cardIDs: Array(cardIDs), noteIDs: Array(noteIDs))
+        guard !notes.isEmpty else {
+            errorMessage = "Select notes or cards first, then remove the tag."
+            return
+        }
+        await run("untag") { try await self.tagClient.removeTagFromNotes(tag, notes) }
+    }
+
+    /// Moves tags under a new parent (`""` = top level). Desktop drag/drop
+    /// parity via prompt instead of drag gesture (touch-first).
+    func reparentTag(_ tag: String, under newParent: String) async {
+        let parent = newParent.trimmingCharacters(in: .whitespacesAndNewlines)
+        await run("move tag") { try await self.tagClient.reparentTags([tag], parent) }
+        allTags = ((try? await tagClient.getAllTags()) ?? []).sorted()
+        if let tree = try? await tagClient.tagTree() { tagTree = tree }
+    }
+
+    /// Moves a deck under a new parent by renaming to `<parent>::<leaf>`.
+    /// Empty parent moves it to the top level.
+    func reparentDeck(id: DeckID, under newParent: String) async {
+        guard let deck = availableDecks.first(where: { $0.id == id }) else { return }
+        let leaf = BrowseDeckTree.leafName(deck.name)
+        let parent = newParent.trimmingCharacters(in: .whitespacesAndNewlines)
+        let target = parent.isEmpty ? leaf : parent + "::" + leaf
+        guard target != deck.name else { return }
+        await renameDeck(id: id, to: target)
+    }
+
+    /// Persists a sidebar tag parent's collapsed state engine-side
+    /// (`SetTagCollapsed`, the same store desktop reads) and reloads the tree.
+    func toggleTagCollapsed(_ path: String) async {
+        func find(_ nodes: [TagTreeNodeData]) -> TagTreeNodeData? {
+            for node in nodes {
+                if node.fullPath == path { return node }
+                if let hit = find(node.children) { return hit }
+            }
+            return nil
+        }
+        guard let node = find(tagTree?.children ?? []) else { return }
+        try? await tagClient.setCollapsed(path, !node.collapsed)
+        if let tree = try? await tagClient.tagTree() { tagTree = tree }
+    }
+
+    func deleteCollectionTag(_ tag: String) async {
+        await run("delete tag") { try await self.tagClient.removeTag(tag) }
+        allTags = ((try? await tagClient.getAllTags()) ?? []).sorted()
+        if let tree = try? await tagClient.tagTree() { tagTree = tree }
+    }
+
+    func renameDeck(id: DeckID, to newName: String) async {
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let service = decksService
+        do {
+            _ = try await backendOffload { try service.renameDeck(id, trimmed) }
+        } catch {
+            errorMessage = "Couldn't rename deck: \(error.localizedDescription)"
+        }
+        await loadDecks()
+        await refreshAfterMutation()
+    }
+
+    @ObservationIgnored @Dependency(\.decksService) private var decksService
+    @ObservationIgnored @Dependency(\.notetypesClient) private var notetypesClient
+
+    /// Template/field children per notetype name for the filter rail
+    /// (desktop notetype tree parity). Loaded once per session.
+    private(set) var notetypeChildren: [String: (templates: [String], fields: [String])] = [:]
+
+    func loadNotetypeChildren() async {
+        guard notetypeChildren.isEmpty else { return }
+        let client = notetypesClient
+        guard let all = try? await client.listAll() else { return }
+        for entry in all.prefix(50) {
+            guard let nt = try? await client.get(entry.id) else { continue }
+            notetypeChildren[nt.name] = (
+                templates: nt.templates.map(\.name),
+                fields: nt.fields.map(\.name)
+            )
+        }
+    }
+
+    // MARK: - Copy note / export / change notetype / filtered deck (P3)
+
+    /// Prefilled add-note template from an existing note (Create Copy).
+    func copyTemplate(of noteID: NoteID) async -> NewNoteTemplate? {
+        guard let note = (try? await noteClient.fetch(noteID)) ?? nil else { return nil }
+        let fields = note.flds.split(separator: "\u{1f}", omittingEmptySubsequences: false).map(String.init)
+        var template = NewNoteTemplate(notetypeId: note.mid, fields: fields)
+        template.tags = note.tags.split(separator: " ").map(String.init)
+        return template
+    }
+
+    /// Tag every duplicate group (desktop Find Duplicates "Tag Duplicates").
+    func tagDuplicateGroups(_ groups: [[NoteID]], tag: String = "duplicate") async {
+        for group in groups where !group.isEmpty {
+            try? await tagClient.addTagToNotes(tag, group)
+        }
+        await refreshAfterMutation()
+    }
+
+    // MARK: - Due formatting (P1D interim, scheduler-aware)
+    //
+    // Engine `BrowserRow` cells carry the authoritative due text. This local
+    // formatter is the fallback for rows/records rendered without engine
+    // columns: it distinguishes new-position vs. learning-epoch vs. review
+    // day-index instead of the old coarse `due/86400` arithmetic.
+
+    /// Scheduler-aware due label for a card record. Nil = undue (suspended/
+    /// buried) where desktop shows no due date.
+    func dueLabel(for card: CardRecord) -> String? {
+        // Suspended / buried have no due date.
+        if card.queue == -1 || card.queue < -1 { return nil }
+        switch card.type {
+        case 0:
+            // New: due is the queue position.
+            return "#\(card.due)"
+        case 1, 3:
+            // Learning / relearning: due is a unix-epoch second.
+            let date = Date(timeIntervalSince1970: TimeInterval(card.due))
+            let cal = Calendar.current
+            if cal.isDateInToday(date) { return "Today" }
+            if cal.isDateInTomorrow(date) { return "Tomorrow" }
+            let fmt = DateFormatter()
+            fmt.dateStyle = .medium
+            fmt.timeStyle = .none
+            return fmt.string(from: date)
+        default:
+            // Review: due is a scheduler day index. Without the collection
+            // day-origin we cannot render a calendar date locally, so report
+            // the desktop-relative form and let engine rows supply exact dates.
+            if card.due <= 0 { return "Today" }
+            return "In \(card.due)d"
+        }
     }
 }
 

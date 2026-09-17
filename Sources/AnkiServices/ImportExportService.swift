@@ -26,6 +26,24 @@ public struct ImportExportService: Sendable {
     /// options (merge notetypes, update notes/notetypes if newer). Returns
     /// the import log summary string.
     public var importApkgForMerge: @Sendable (_ path: String) throws -> String
+    /// Export exactly the given notes to an .apkg. Returns exported count.
+    public var exportNotesPackage: @Sendable (
+        _ noteIds: [NoteID],
+        _ outPath: String,
+        _ withScheduling: Bool,
+        _ withDeckConfigs: Bool,
+        _ withMedia: Bool,
+        _ legacy: Bool
+    ) throws -> UInt32
+    /// Export exactly the given cards to an .apkg. Returns exported count.
+    public var exportCardsPackage: @Sendable (
+        _ cardIds: [CardID],
+        _ outPath: String,
+        _ withScheduling: Bool,
+        _ withDeckConfigs: Bool,
+        _ withMedia: Bool,
+        _ legacy: Bool
+    ) throws -> UInt32
 }
 
 extension ImportExportService: DependencyKey {
@@ -55,6 +73,26 @@ extension ImportExportService: DependencyKey {
             importApkgForMerge: { path in
                 let log = try backend.invoke(.importAnkiPackageForMerge(path: path))
                 return "Merged: \(log.newCount) new, \(log.updatedCount) updated, \(log.duplicateCount) duplicates"
+            },
+            exportNotesPackage: { noteIds, outPath, withScheduling, withDeckConfigs, withMedia, legacy in
+                try backend.invoke(.exportAnkiPackage(
+                    noteIds: noteIds,
+                    outPath: outPath,
+                    withScheduling: withScheduling,
+                    withDeckConfigs: withDeckConfigs,
+                    withMedia: withMedia,
+                    legacy: legacy
+                ))
+            },
+            exportCardsPackage: { cardIds, outPath, withScheduling, withDeckConfigs, withMedia, legacy in
+                try backend.invoke(.exportAnkiPackage(
+                    cardIds: cardIds,
+                    outPath: outPath,
+                    withScheduling: withScheduling,
+                    withDeckConfigs: withDeckConfigs,
+                    withMedia: withMedia,
+                    legacy: legacy
+                ))
             }
         )
     }()

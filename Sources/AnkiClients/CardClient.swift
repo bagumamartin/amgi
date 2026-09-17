@@ -14,7 +14,13 @@ public struct CardClient: Sendable {
     public var suspend: @Sendable (_ cardId: CardID) async throws -> Void
     public var bury: @Sendable (_ cardId: CardID) async throws -> Void
     public var flag: @Sendable (_ cardId: CardID, _ value: UInt32) async throws -> Void
+    /// Single-undo bulk flag (desktop parity: one op for the whole selection).
+    public var setFlags: @Sendable (_ cardIds: [CardID], _ value: UInt32) async throws -> Void
     public var resetToNew: @Sendable (_ cardId: CardID) async throws -> Void
+    /// Bulk forget (restore-to-new) with desktop's log + restore-position options.
+    public var forgetCards: @Sendable (_ cardIds: [CardID], _ restorePosition: Bool, _ resetCounts: Bool) async throws -> Void
+    /// Full card-stats payload (revlog + FSRS memory) for the Info pane.
+    public var cardStats: @Sendable (_ cardId: CardID) async throws -> CardStatsInfo
     public var undoLast: @Sendable () async throws -> Void
     public var redoLast: @Sendable () async throws -> Void
     public var undoStatus: @Sendable () async throws -> UndoStatusInfo

@@ -9,6 +9,10 @@ enum NoteFieldFormatAction: Equatable, Sendable {
     case `subscript`
     case code
     case math
+    case mathBlock
+    case mathLatex(environment: String)
+    case textColor(String?)
+    case highlight(String?)
     case clear
     case list(NoteFieldHTML.ListKind)
     case align(NoteFieldHTML.Alignment)
@@ -20,6 +24,10 @@ enum NoteFieldFormatAction: Equatable, Sendable {
     case camera
     case photoLibrary
     case attach
+    case recordAudio
+    /// Resize the selected image (`width` px, height auto; nil restores the
+    /// original dimensions by clearing stored attrs).
+    case imageSize(String?)
     case dismiss
 }
 
@@ -27,6 +35,13 @@ enum NoteFieldMediaSource: Equatable, Sendable {
     case camera
     case library
     case files
+}
+
+/// Image attachment under the tap cursor, for the resize menu.
+struct SelectedFieldImage: Equatable, Sendable {
+    var filename: String
+    var widthAttr: String?
+    var heightAttr: String?
 }
 
 struct NoteFieldChromeState: Equatable {
@@ -38,6 +53,9 @@ struct NoteFieldChromeState: Equatable {
     var canRedo = false
     var showsCloze = false
     var isHTMLSource = false
+    var selectedImage: SelectedFieldImage?
+    var sourceCursorLine: Int?
+    var sourceCursorColumn: Int?
 }
 
 @MainActor

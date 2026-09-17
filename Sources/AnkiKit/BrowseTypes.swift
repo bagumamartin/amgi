@@ -144,3 +144,110 @@ public struct DuplicateGroup: Sendable, Equatable {
         self.noteIDs = noteIDs
     }
 }
+
+/// Hierarchical tag tree node (desktop sidebar parity). Paths are
+/// `::`-joined; `collapsed` persists engine-side via SetTagCollapsed.
+public struct TagTreeNodeData: Sendable, Equatable {
+    public let name: String
+    public let fullPath: String
+    public let level: UInt32
+    public let collapsed: Bool
+    public let children: [TagTreeNodeData]
+
+    public init(name: String, fullPath: String, level: UInt32, collapsed: Bool, children: [TagTreeNodeData]) {
+        self.name = name
+        self.fullPath = fullPath
+        self.level = level
+        self.collapsed = collapsed
+        self.children = children
+    }
+}
+
+/// Field/template mapping preview for note-type conversion
+/// (desktop Change Notetype dialog).
+public struct ChangeNotetypeInfo: Sendable, Equatable {
+    public let oldFieldNames: [String]
+    public let oldTemplateNames: [String]
+    public let newFieldNames: [String]
+    public let newTemplateNames: [String]
+    public let oldNotetypeName: String
+    public let currentSchema: Int64
+
+    public init(
+        oldFieldNames: [String], oldTemplateNames: [String],
+        newFieldNames: [String], newTemplateNames: [String],
+        oldNotetypeName: String, currentSchema: Int64
+    ) {
+        self.oldFieldNames = oldFieldNames
+        self.oldTemplateNames = oldTemplateNames
+        self.newFieldNames = newFieldNames
+        self.newTemplateNames = newTemplateNames
+        self.oldNotetypeName = oldNotetypeName
+        self.currentSchema = currentSchema
+    }
+}
+
+/// One review-log row for the Card Info history table.
+public struct RevlogEntry: Sendable, Equatable {
+    public let id: Int64
+    public let rating: Int32
+    public let intervalSecs: Int64
+    public let easeFactor: Int32
+    public let takenSecs: Int64
+    public let reviewKind: Int32
+
+    public init(id: Int64, rating: Int32, intervalSecs: Int64, easeFactor: Int32, takenSecs: Int64, reviewKind: Int32) {
+        self.id = id
+        self.rating = rating
+        self.intervalSecs = intervalSecs
+        self.easeFactor = easeFactor
+        self.takenSecs = takenSecs
+        self.reviewKind = reviewKind
+    }
+}
+
+/// Full card-stats payload for the Info pane: scheduling facts plus
+/// newest-first review history with FSRS memory state where available.
+public struct CardStatsInfo: Sendable, Equatable {
+    public let revlog: [RevlogEntry]
+    public let stability: Float?
+    public let difficulty: Float?
+    public let retrievabilityPct: Float?
+
+    public init(revlog: [RevlogEntry], stability: Float?, difficulty: Float?, retrievabilityPct: Float?) {
+        self.revlog = revlog
+        self.stability = stability
+        self.difficulty = difficulty
+        self.retrievabilityPct = retrievabilityPct
+    }
+}
+
+/// Persisted Browse view preferences (per mode where noted). Stored in
+/// UserDefaults, profile-scoped where the key includes the profile id.
+public struct BrowseViewPrefs: Sendable, Equatable, Codable {
+    public var cardsColumns: [String]
+    public var notesColumns: [String]
+    public var cardsSortColumn: String
+    public var cardsSortReverse: Bool
+    public var notesSortColumn: String
+    public var notesSortReverse: Bool
+    public var previewBackSideOnly: Bool
+
+    public init(
+        cardsColumns: [String] = ["question", "deck", "cardDue"],
+        notesColumns: [String] = ["noteFld", "note", "noteTags"],
+        cardsSortColumn: String = "cardMod",
+        cardsSortReverse: Bool = true,
+        notesSortColumn: String = "noteMod",
+        notesSortReverse: Bool = true,
+        previewBackSideOnly: Bool = false
+    ) {
+        self.cardsColumns = cardsColumns
+        self.notesColumns = notesColumns
+        self.cardsSortColumn = cardsSortColumn
+        self.cardsSortReverse = cardsSortReverse
+        self.notesSortColumn = notesSortColumn
+        self.notesSortReverse = notesSortReverse
+        self.previewBackSideOnly = previewBackSideOnly
+    }
+}

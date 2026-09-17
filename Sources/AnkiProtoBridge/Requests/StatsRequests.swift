@@ -25,6 +25,42 @@ extension Request where Response == GraphsSnapshot {
     }
 }
 
+extension Request where Response == CardStatsInfo {
+    /// Full card-stats payload for the Browse Info history table:
+    /// newest-first revlog plus FSRS memory state where available.
+    public static func cardStatsInfo(cardId: Int64) -> Self {
+        Self(
+            serviceId: ServiceID.stats,
+            methodId: StatsMethod.cardStats,
+            encode: {
+                var req = Anki_Cards_CardId()
+                req.cid = cardId
+                return try req.serializedData()
+            },
+            decode: { bytes in
+                let response = try Anki_Stats_CardStatsResponse(serializedBytes: bytes)
+                let entries = response.revlog.map { e in
+                    RevlogEntry(
+                        id: e.time,
+                        rating: Int32(e.buttonChosen),
+                        intervalSecs: Int64(e.interval),
+                        easeFactor: Int32(e.ease),
+                        takenSecs: Int64(e.takenSecs),
+                        reviewKind: Int32(e.reviewKind.rawValue)
+                    )
+                }
+                let mem = response.hasMemoryState ? response.memoryState : nil
+                return CardStatsInfo(
+                    revlog: entries,
+                    stability: mem?.stability,
+                    difficulty: mem?.difficulty,
+                    retrievabilityPct: response.hasFsrsRetrievability ? response.fsrsRetrievability * 100 : nil
+                )
+            }
+        )
+    }
+}
+
 extension Request where Response == Rating? {
     /// The rating the card received on its most recent review, decoded from
     /// the last revlog entry; `nil` = the card has never been reviewed.

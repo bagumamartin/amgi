@@ -70,8 +70,22 @@ extension CardClient: DependencyKey {
             flag: { cardId, value in
                 try await backend.invoke(.setFlag(cardIds: [cardId], flag: value))
             },
+            setFlags: { cardIds, value in
+                guard !cardIds.isEmpty else { return }
+                try await backend.invoke(.setFlag(cardIds: cardIds, flag: value))
+            },
             resetToNew: { cardId in
                 try await backend.invoke(.scheduleCardsAsNew(cardIds: [cardId], log: true))
+            },
+            forgetCards: { cardIds, restorePosition, resetCounts in
+                guard !cardIds.isEmpty else { return }
+                try await backend.invoke(.scheduleCardsAsNew(
+                    cardIds: cardIds, log: true,
+                    restorePosition: restorePosition, resetCounts: resetCounts
+                ))
+            },
+            cardStats: { cardId in
+                try await backend.invoke(.cardStatsInfo(cardId: cardId.rawValue))
             },
             undoLast: {
                 try await backend.invoke(.undoLastAction)

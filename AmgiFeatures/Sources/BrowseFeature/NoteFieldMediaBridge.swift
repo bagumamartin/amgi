@@ -1,9 +1,12 @@
 import SwiftUI
+import AmgiUI
+import Combine
 import PhotosUI
 import UniformTypeIdentifiers
 import Dependencies
 import AnkiClients
 import AmgiTheme
+import AVFoundation
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -15,6 +18,7 @@ struct NoteFieldMediaBridge: ViewModifier {
     @State private var showLibrary = false
     @State private var showCamera = false
     @State private var showFiles = false
+    @State private var showRecorder = false
     #if os(iOS)
     @State private var showComposer = false
     @State private var composerPane: NotePhotoPane = .recents
@@ -40,6 +44,18 @@ struct NoteFieldMediaBridge: ViewModifier {
                 guard let source else { return }
                 session.pendingMediaSource = nil
                 handle(source)
+            }
+            .onChange(of: session.pendingAudioRecord) { _, requested in
+                guard requested else { return }
+                session.pendingAudioRecord = false
+                showRecorder = true
+            }
+            .sheet(isPresented: $showRecorder) {
+                NoteAudioRecorderSheet { url in
+                    showRecorder = false
+                    if let url { Task { await importAudio(url) } }
+                }
+                .presentationDetents([.medium])
             }
             .photosPicker(
                 isPresented: $showLibrary,
@@ -205,6 +221,12 @@ struct NoteFieldMediaBridge: ViewModifier {
     }
     #endif
 
+    private func importAudio(_ url: URL) async {
+        guard let data = try? Data(contentsOf: url) else { return }
+        try? FileManager.default.removeItem(at: url)
+        await addMedia(data: data, ext: "m4a")
+    }
+
     private func addMedia(data: Data, ext: String) async {
         let desired = "paste-\(UUID().uuidString).\(ext)"
         do {
@@ -225,6 +247,199 @@ struct NoteFieldMediaBridge: ViewModifier {
         if data.starts(with: [0x47, 0x49, 0x46]) { return "gif" }
         if data.count >= 3, data[0] == 0xFF, data[1] == 0xD8, data[2] == 0xFF { return "jpg" }
         return fallback
+    }
+}
+
+/// Audio recording + attachment-insertion playback (desktop editor parity).
+/// Records AAC/m4a, offers play-before-insert verification, then hands the
+/// file to the media bridge for collection-aware import (`[sound:…]`).
+struct NoteAudioRecorderSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let onDone: (URL?) -> Void
+
+    @StateObject private var recorder = NoteAudioRecorder()
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 16) {
+                Text(recorder.statusText)
+                    .font(.headline)
+                    .monospacedDigit()
+                HStack(spacing: 16) {
+                    Button(recorder.isRecording ? "Stop" : "Record") {
+                        recorder.toggle()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    Button("Play") {
+                        recorder.play()
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(recorder.recordedURL == nil || recorder.isRecording)
+                }
+                if recorder.recordedURL != nil, !recorder.isRecording {
+                    Text("Review the take, then insert it as a sound attachment.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            .padding()
+            .navigationTitle("Record Audio")
+            .navigationBarTitleDisplayMode(.inline)
+            .onDisappear { recorder.shutdown() }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        recorder.cancel()
+                        onDone(nil)
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Insert") {
+                        let url = recorder.recordedURL
+                        recorder.keep()
+                        onDone(url)
+                    }
+                    .disabled(recorder.recordedURL == nil || recorder.isRecording)
+                }
+            }
+        }
+    }
+}
+
+@MainActor
+final class NoteAudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate, AVAudioPlayerDelegate {
+    @Published private(set) var isRecording = false
+    @Published private(set) var recordedURL: URL?
+    @Published private(set) var statusText = "Ready"
+    @Published private(set) var elapsed: TimeInterval = 0
+
+    private var recorder: AVAudioRecorder?
+    private var player: AVAudioPlayer?
+    private var timer: Timer?
+    private var keepFile = false
+
+    override init() {
+        super.init()
+    }
+
+    func toggle() {
+        isRecording ? stop() : start()
+    }
+
+    func start() {
+        #if os(iOS)
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
+            try session.setActive(true)
+        } catch {
+            statusText = "Microphone unavailable"
+            return
+        }
+        session.requestRecordPermission { [weak self] granted in
+            Task { @MainActor in
+                guard let self else { return }
+                guard granted else {
+                    self.statusText = "Microphone permission denied"
+                    return
+                }
+                self.beginRecording()
+            }
+        }
+        #else
+        // macOS: AVAudioRecorder prompts for microphone access on first use.
+        beginRecording()
+        #endif
+    }
+
+    private func beginRecording() {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("amgi-audio-\(UUID().uuidString).m4a")
+        let settings: [String: Any] = [
+            AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+            AVSampleRateKey: 44100,
+            AVNumberOfChannelsKey: 1,
+            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue,
+        ]
+        do {
+            recorder = try AVAudioRecorder(url: url, settings: settings)
+            recorder?.delegate = self
+            recorder?.record()
+            isRecording = true
+            recordedURL = url
+            keepFile = false
+            elapsed = 0
+            statusText = "Recording… 0.0s"
+            timer?.invalidate()
+            timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.elapsed += 0.1
+                    self.statusText = String(format: "Recording… %.1fs", self.elapsed)
+                }
+            }
+        } catch {
+            statusText = "Couldn't start recording"
+        }
+    }
+
+    func stop() {
+        recorder?.stop()
+        timer?.invalidate()
+        timer = nil
+        isRecording = false
+        statusText = recordedURL == nil ? "Ready" : "Recorded — play to verify"
+        #if os(iOS)
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        #endif
+    }
+
+    func play() {
+        guard let url = recordedURL, !isRecording else { return }
+        do {
+            player = try AVAudioPlayer(contentsOf: url)
+            player?.delegate = self
+            player?.play()
+            statusText = "Playing…"
+        } catch {
+            statusText = "Couldn't play that take"
+        }
+    }
+
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        statusText = flag ? "Recorded — play to verify" : "Playback failed"
+    }
+
+    /// Discards the take file.
+    func cancel() {
+        timer?.invalidate()
+        timer = nil
+        recorder?.stop()
+        recorder = nil
+        player?.stop()
+        player = nil
+        if !keepFile, let url = recordedURL {
+            try? FileManager.default.removeItem(at: url)
+        }
+        recordedURL = nil
+        isRecording = false
+    }
+
+    /// Keeps the file for the caller (prevents cleanup on dismiss).
+    func keep() {
+        keepFile = true
+        shutdown()
+    }
+
+    /// Stops timers/recorder/player without deleting a kept file.
+    func shutdown() {
+        timer?.invalidate()
+        timer = nil
+        recorder?.stop()
+        recorder = nil
+        player?.stop()
+        player = nil
     }
 }
 

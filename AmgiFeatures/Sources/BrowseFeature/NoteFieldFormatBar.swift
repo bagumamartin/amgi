@@ -20,6 +20,9 @@ struct NoteFieldFormatBar: View {
     var chrome: NoteFieldChromeState = .init()
     var paletteOverride: Palette? = nil
     var perform: (NoteFieldFormatAction) -> Void
+    /// HTML-source auto-close state (session-backed by the host chrome).
+    var autoCloseEnabled = true
+    var onToggleAutoClose: (() -> Void)?
 
     @Environment(\.palette) private var environmentPalette
     private var palette: Palette { paletteOverride ?? environmentPalette }
@@ -70,7 +73,18 @@ struct NoteFieldFormatBar: View {
                         Button("Superscript") { perform(.superscript) }
                         Button("Subscript") { perform(.subscript) }
                         Button("Code") { perform(.code) }
-                        Button("MathJax") { perform(.math) }
+                        Menu("Math") {
+                            Button("Inline \\(\\)") { perform(.math) }
+                            Button("Block \\[\\]") { perform(.mathBlock) }
+                            Button("LaTeX chemistry \\ce") { perform(.mathLatex(environment: "ce")) }
+                            Button("LaTeX equation") { perform(.mathLatex(environment: "equation")) }
+                        }
+                        Menu("Text color") {
+                            colorButtons(isHighlight: false)
+                        }
+                        Menu("Highlight") {
+                            colorButtons(isHighlight: true)
+                        }
                         Button("Clear Formatting") { perform(.clear) }
                     } label: {
                         Image(systemName: "textformat.size")
@@ -153,6 +167,34 @@ struct NoteFieldFormatBar: View {
                     icon("camera", .camera, label: "Take photo")
                     icon("photo", .photoLibrary, label: "Choose from library")
                     icon("paperclip", .attach, label: "Attach file")
+                    icon("mic", .recordAudio, label: "Record audio")
+                    if chrome.isHTMLSource {
+                        separator
+                        group {
+                            autoCloseToggle
+                        }
+                        if let line = chrome.sourceCursorLine, let col = chrome.sourceCursorColumn {
+                            Text("Ln \(line), Col \(col)")
+                                .font(.system(size: 12, weight: .regular, design: .monospaced))
+                                .foregroundStyle(palette.textSecondary)
+                                .monospacedDigit()
+                                .accessibilityLabel("Cursor line \(line), column \(col)")
+                        }
+                    }
+                    Menu {
+                        Button("Small (320px)") { perform(.imageSize("320")) }
+                        Button("Medium (640px)") { perform(.imageSize("640")) }
+                        Button("Large (960px)") { perform(.imageSize("960")) }
+                        Divider()
+                        Button("Restore original size") { perform(.imageSize(nil)) }
+                    } label: {
+                        menuGlyph(
+                            "photo.artframe",
+                            selected: chrome.selectedImage != nil,
+                            label: imageSizeLabel
+                        )
+                    }
+                    .disabled(chrome.selectedImage == nil || chrome.isHTMLSource)
                 }
             }
             .padding(.horizontal, NoteFieldToolbarMetrics.contentPad)
@@ -183,6 +225,58 @@ struct NoteFieldFormatBar: View {
             .contentShape(Rectangle())
             .accessibilityLabel(label)
             .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private var autoCloseToggle: some View {
+        Button {
+            onToggleAutoClose?()
+        } label: {
+            Image(systemName: autoCloseEnabled ? "chevron.left.forwardslash.chevron.right.circle.fill" : "chevron.left.forwardslash.chevron.right.circle")
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(autoCloseEnabled ? palette.accent : palette.textPrimary)
+                .frame(width: NoteFieldToolbarMetrics.buttonWidth, height: NoteFieldToolbarMetrics.buttonHeight)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Automatic closing tags (\(autoCloseEnabled ? "on" : "off"))")
+        .accessibilityLabel("Automatic closing tags, currently \(autoCloseEnabled ? "on" : "off")")
+        .accessibilityAddTraits(autoCloseEnabled ? .isSelected : [])
+    }
+
+    private var imageSizeLabel: String {
+        if let image = chrome.selectedImage {
+            if let width = image.widthAttr {
+                return "Image width \(width)px — tap to resize"
+            }
+            return "Original image size — tap to resize"
+        }
+        return "Image size (tap an image first)"
+    }
+
+    /// Desktop-style text/highlight palette. "Default" clears back to the
+    /// label color (nil hex) so clearing never leaves a stale span behind.
+    @ViewBuilder
+    private func colorButtons(isHighlight: Bool) -> some View {
+        let colors: [(String, String)] = [
+            ("Default", ""),
+            ("Red", "#ff0000"),
+            ("Orange", "#ffa500"),
+            ("Yellow", "#ffff00"),
+            ("Green", "#008000"),
+            ("Blue", "#0000ff"),
+            ("Purple", "#800080"),
+            ("Gray", "#808080"),
+            ("Black", "#000000"),
+        ]
+        ForEach(colors, id: \.0) { name, hex in
+            Button(name) {
+                if isHighlight {
+                    perform(.highlight(hex.isEmpty ? nil : hex))
+                } else {
+                    perform(.textColor(hex.isEmpty ? nil : hex))
+                }
+            }
+        }
     }
 
     private func icon(

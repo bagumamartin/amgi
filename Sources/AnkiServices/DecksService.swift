@@ -13,6 +13,8 @@ public struct DecksService: Sendable {
     public var setCurrentDeck: @Sendable (_ deckId: DeckID) throws -> Void
     public var getCurrentDeck: @Sendable () throws -> DeckInfo
     public var createDeck: @Sendable (_ name: String) throws -> DeckCreation
+    /// Creates/updates a filtered deck from `spec` and returns its id.
+    public var createFilteredDeck: @Sendable (_ spec: FilteredDeckSpec) throws -> DeckCreation
     public var renameDeck: @Sendable (_ deckId: DeckID, _ name: String) throws -> CollectionChanges
     public var removeDeck: @Sendable (_ deckId: DeckID) throws -> CollectionChanges
     public var rebuildFilteredDeck: @Sendable (_ deckId: DeckID) throws -> Int
@@ -76,6 +78,9 @@ extension DecksService: DependencyKey {
             createDeck: { name in
                 let template = try backend.invoke(.newDeck)
                 return try backend.invoke(.addDeck(template: template, name: name))
+            },
+            createFilteredDeck: { spec in
+                try backend.invoke(.addOrUpdateFilteredDeck(spec))
             },
             renameDeck: { deckId, name in
                 try backend.invoke(.renameDeck(deckId: deckId, newName: name))

@@ -18,6 +18,14 @@ final class NoteEditorModel {
     var tags: String = ""
     var isSaving = false
     var isClozeNotetype = false
+    /// Per-field display config (font/RTL/collapsed) from the notetype.
+    /// Full `Notetype.Field` mirrors (not the `NotetypeFieldInfo` summary,
+    /// which drops `collapsed`/`rtl`/`sticky`).
+    var fieldConfigs: [Notetype.Field] = []
+    /// Live duplicate-field warning for the sort field (desktop parity).
+    var duplicateWarning: String?
+    /// Tag completions for the current tag token (collection-aware).
+    var tagCompletions: [String] = []
     private var originalFieldValues: [String] = []
     private var originalTags = ""
 
@@ -47,6 +55,12 @@ final class NoteEditorModel {
             let notetype = try await backendOffload { try service.getNotetype(mid) }
             fieldNames = notetype.fieldNames
             isClozeNotetype = notetype.kind == .cloze
+            @Dependency(\.notetypesClient) var fullClient
+            if let full = try? await fullClient.get(mid) {
+                fieldConfigs = full.fields
+            } else {
+                fieldConfigs = []
+            }
         } catch {
             Log.browse.error("Error loading notetype: \(error)")
         }
@@ -65,6 +79,30 @@ final class NoteEditorModel {
     }
 
     var noteID: NoteID { note.id }
+
+    /// Checks the sort field for duplicates elsewhere in the collection
+    /// (desktop live duplicate warning). Sets `duplicateWarning`; empty = none.
+    func refreshDuplicateWarning() async {
+        duplicateWarning = nil
+        guard let first = fieldValues.first?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !first.isEmpty else { return }
+        let client = noteClient
+        let ownID = note.id
+        // `dupe:` needs the notetype id + first-field text.
+        let query = "dupe:\(note.mid.rawValue),\(first)"
+        guard let hits = try? await client.searchIds(query, nil) else { return }
+        let others = hits.filter { $0 != ownID }
+        if !others.isEmpty {
+            duplicateWarning = "This field matches \(others.count) other note\(others.count == 1 ? "" : "s")."
+        }
+    }
+
+    /// Collection-aware tag completions for the in-progress token.
+    func refreshTagCompletions() async {
+        let token = tags.split(separator: " ").last.map(String.init) ?? ""
+        @Dependency(\.tagClient) var tagClient
+        tagCompletions = (try? await tagClient.completeTag(token)) ?? []
+    }
 
     func applyParkedDraftIfAny() {
         if let draft = NoteComposerDraftStore.loadEdit(noteID: note.id.rawValue) {

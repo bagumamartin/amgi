@@ -159,6 +159,44 @@ extension Request where Response == DeckInfo {
     }
 }
 
+// MARK: - filtered decks (create with search terms)
+
+extension Request where Response == DeckCreation {
+    /// Creates (or reuses by name) a filtered deck carrying the given search
+    /// terms, then returns its id. Routes through the dedicated
+    /// `AddOrUpdateFilteredDeck` RPC — no plain-deck-plus-manual-config
+    /// round trip, so ordering/reschedule/limit land atomically.
+    public static func addOrUpdateFilteredDeck(_ spec: FilteredDeckSpec) -> Self {
+        Self(
+            serviceId: ServiceID.decks,
+            methodId: DecksMethod.addOrUpdateFilteredDeck,
+            encode: {
+                var term = Anki_Decks_Deck.Filtered.SearchTerm()
+                term.search = spec.search
+                term.limit = spec.limit
+                term.order = Anki_Decks_Deck.Filtered.SearchTerm.Order(rawValue: spec.order.rawValue) ?? .oldestReviewedFirst
+
+                var config = Anki_Decks_Deck.Filtered()
+                config.reschedule = spec.reschedule
+                config.searchTerms = [term]
+
+                var proto = Anki_Decks_FilteredDeckForUpdate()
+                proto.name = spec.name
+                proto.config = config
+                proto.allowEmpty = spec.allowEmpty
+                return try proto.serializedData()
+            },
+            decode: { bytes in
+                let resp = try Anki_Collection_OpChangesWithId(serializedBytes: bytes)
+                return DeckCreation(
+                    id: DeckID(resp.id),
+                    changes: CollectionChanges(resp.changes)
+                )
+            }
+        )
+    }
+}
+
 // MARK: - addDeck (two-phase create)
 
 extension Request where Response == DeckTemplate {

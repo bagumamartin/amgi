@@ -26,6 +26,52 @@ extension Request where Response == [String] {
     }
 }
 
+extension Request where Response == TagTreeNodeData {
+    /// Structured tag tree for the hierarchical sidebar (desktop parity).
+    public static var tagTreeStructured: Self {
+        .empty(
+            serviceId: ServiceID.tags,
+            methodId: TagsMethod.tagTree,
+            decode: { bytes in
+                let root = try Anki_Tags_TagTreeNode(serializedBytes: bytes)
+                func convert(_ node: Anki_Tags_TagTreeNode, parent: String) -> [TagTreeNodeData] {
+                    node.children.map { child in
+                        let full = parent.isEmpty ? child.name : "\(parent)::\(child.name)"
+                        return TagTreeNodeData(
+                            name: child.name,
+                            fullPath: full,
+                            level: child.level,
+                            collapsed: child.collapsed,
+                            children: convert(child, parent: full)
+                        )
+                    }
+                }
+                return TagTreeNodeData(name: "", fullPath: "", level: 0, collapsed: false, children: convert(root, parent: ""))
+            }
+        )
+    }
+}
+
+extension Request where Response == [String] {
+    /// Collection-aware tag completions for `input` (desktop tag editor
+    /// autocomplete source). Empty input returns top-level tags.
+    public static func completeTag(input: String, limit: UInt32 = 20) -> Self {
+        Self(
+            serviceId: ServiceID.tags,
+            methodId: TagsMethod.completeTag,
+            encode: {
+                var proto = Anki_Tags_CompleteTagRequest()
+                proto.input = input
+                proto.matchLimit = limit
+                return try proto.serializedData()
+            },
+            decode: { bytes in
+                try Anki_Tags_CompleteTagResponse(serializedBytes: bytes).tags
+            }
+        )
+    }
+}
+
 private func flattenTagTree(_ node: Anki_Tags_TagTreeNode, parentPath: String, into paths: inout [String]) {
     let full = parentPath.isEmpty ? node.name : "\(parentPath)::\(node.name)"
     paths.append(full)
@@ -91,6 +137,47 @@ extension Request where Response == Void {
             encode: {
                 var proto = Anki_Generic_String()
                 proto.val = name
+                return try proto.serializedData()
+            },
+            decode: { _ in () }
+        )
+    }
+
+    /// Bulk tag text substitution (desktop Find & Replace "Tags" target).
+    /// Empty `noteIds` means collection-wide, matching the field path.
+    public static func findAndReplaceTag(
+        noteIds: [NoteID],
+        search: String,
+        replacement: String,
+        regex: Bool,
+        matchCase: Bool
+    ) -> Self {
+        Self(
+            serviceId: ServiceID.tags,
+            methodId: TagsMethod.findAndReplaceTag,
+            encode: {
+                var proto = Anki_Tags_FindAndReplaceTagRequest()
+                proto.noteIds = noteIds.map(\.rawValue)
+                proto.search = search
+                proto.replacement = replacement
+                proto.regex = regex
+                proto.matchCase = matchCase
+                return try proto.serializedData()
+            },
+            decode: { _ in () }
+        )
+    }
+
+    /// Reparents tags under a new parent (sidebar drag/drop parity).
+    /// Empty `newParent` moves tags to the top level.
+    public static func reparentTags(tags: [String], newParent: String) -> Self {
+        Self(
+            serviceId: ServiceID.tags,
+            methodId: TagsMethod.reparentTags,
+            encode: {
+                var proto = Anki_Tags_ReparentTagsRequest()
+                proto.tags = tags
+                proto.newParent = newParent
                 return try proto.serializedData()
             },
             decode: { _ in () }

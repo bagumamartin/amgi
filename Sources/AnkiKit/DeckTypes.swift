@@ -1,5 +1,63 @@
 package import Foundation
 
+/// Search-term ordering for a filtered deck (mirrors
+/// `Deck.Filtered.SearchTerm.Order` 1:1 so the wire values align).
+public enum FilteredDeckOrder: Int, Sendable, Hashable, CaseIterable {
+    case oldestReviewedFirst = 0
+    case random = 1
+    case intervalsAscending = 2
+    case intervalsDescending = 3
+    case lapses = 4
+    case added = 5
+    case due = 6
+    case reverseAdded = 7
+    case retrievabilityAscending = 8
+    case retrievabilityDescending = 9
+    case relativeOverdueness = 10
+
+    public var label: String {
+        switch self {
+        case .oldestReviewedFirst: "Oldest reviewed first"
+        case .random: "Random"
+        case .intervalsAscending: "Intervals ascending"
+        case .intervalsDescending: "Intervals descending"
+        case .lapses: "Most lapses"
+        case .added: "Order added"
+        case .due: "Due"
+        case .reverseAdded: "Reverse order added"
+        case .retrievabilityAscending: "Retrievability ascending"
+        case .retrievabilityDescending: "Retrievability descending"
+        case .relativeOverdueness: "Relative overdueness"
+        }
+    }
+}
+
+/// One-shot spec for creating/updating a filtered deck from Browse.
+public struct FilteredDeckSpec: Sendable, Equatable {
+    public var name: String
+    public var search: String
+    public var limit: UInt32
+    public var order: FilteredDeckOrder
+    public var reschedule: Bool
+    public var allowEmpty: Bool
+
+    public init(
+        name: String,
+        search: String,
+        limit: UInt32 = 100,
+        order: FilteredDeckOrder = .oldestReviewedFirst,
+        reschedule: Bool = true,
+        allowEmpty: Bool = false
+    ) {
+        self.name = name
+        self.search = search
+        self.limit = limit
+        self.order = order
+        self.reschedule = reschedule
+        self.allowEmpty = allowEmpty
+    }
+}
+
 /// Server-prepared blank deck returned by `Request.newDeck`. Carries
 /// the backend's default field values opaquely; consumers pair this
 /// with `Request.addDeck(template:name:)` to persist.

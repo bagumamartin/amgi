@@ -217,11 +217,24 @@ struct AddNoteContent: View {
             }
 
             Section("Fields") {
-                ForEach(Array(model.fieldNames.enumerated()), id: \.element) { index, name in
+                ForEach(Array(model.fieldNames.enumerated()), id: \.offset) { index, name in
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(name)
-                            .amgiFont(.caption)
-                            .foregroundStyle(palette.textSecondary)
+                        HStack {
+                            Text(name)
+                                .amgiFont(.caption)
+                                .foregroundStyle(palette.textSecondary)
+                            Spacer(minLength: 4)
+                            Button {
+                                model.setSticky(!(index < model.stickyFields.count ? model.stickyFields[index] : false), at: index)
+                            } label: {
+                                Image(systemName: (index < model.stickyFields.count && model.stickyFields[index]) ? "pin.fill" : "pin")
+                                    .amgiFont(.caption)
+                                    .foregroundStyle((index < model.stickyFields.count && model.stickyFields[index]) ? palette.accent : palette.textTertiary)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Pin field (kept for the next note)")
+                            .accessibilityLabel("Pin \(name) for next note")
+                        }
                         RichNoteFieldEditor(
                             htmlText: $model[fieldAt: index],
                             fieldIndex: index,
@@ -232,6 +245,13 @@ struct AddNoteContent: View {
             }
 
             Section("Tags") {
+                let parsed = model.tags.split(separator: " ").map(String.init).filter { !$0.isEmpty }
+                if !parsed.isEmpty {
+                    TagPillsView(tags: parsed) { removed in
+                        model.tags = parsed.filter { $0 != removed }.joined(separator: " ")
+                    }
+                    .padding(.bottom, 2)
+                }
                 TextField("Tags", text: $model.tags, prompt: Text("space-separated"))
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)

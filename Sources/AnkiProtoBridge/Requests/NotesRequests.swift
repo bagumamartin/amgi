@@ -127,6 +127,47 @@ extension Request where Response == Void {
     }
 }
 
+// MARK: - fieldNamesForNotes / clozeNumbers / fieldsCheck
+
+extension Request where Response == [String] {
+    /// Union of field names across the given notes (desktop Find & Replace
+    /// field picker source). Empty input returns empty, never throws.
+    public static func fieldNamesForNotes(noteIds: [NoteID]) -> Self {
+        Self(
+            serviceId: ServiceID.notes,
+            methodId: NotesMethod.fieldNamesForNotes,
+            encode: {
+                var proto = Anki_Notes_FieldNamesForNotesRequest()
+                proto.nids = noteIds.map(\.rawValue)
+                return try proto.serializedData()
+            },
+            decode: { bytes in
+                try Anki_Notes_FieldNamesForNotesResponse(serializedBytes: bytes).fields
+            }
+        )
+    }
+}
+
+extension Request where Response == [UInt32] {
+    /// Existing cloze ordinals in a note's fields. Used to initialise
+    /// "cloze same number" from content instead of always starting at 1.
+    public static func clozeNumbersInNote(fields: [String], notetypeId: NotetypeID) -> Self {
+        Self(
+            serviceId: ServiceID.notes,
+            methodId: NotesMethod.clozeNumbersInNote,
+            encode: {
+                var proto = Anki_Notes_Note()
+                proto.notetypeID = notetypeId.rawValue
+                proto.fields = fields
+                return try proto.serializedData()
+            },
+            decode: { bytes in
+                try Anki_Notes_ClozeNumbersInNoteResponse(serializedBytes: bytes).numbers
+            }
+        )
+    }
+}
+
 // MARK: - searchNotes
 
 extension Request where Response == [NoteID] {

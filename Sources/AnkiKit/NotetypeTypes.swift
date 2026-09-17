@@ -37,7 +37,7 @@ public struct NewNoteTemplate: Sendable {
     public var fields: [String]
     public var tags: [String]
 
-    package init(notetypeId: NotetypeID, fields: [String]) {
+    public init(notetypeId: NotetypeID, fields: [String]) {
         self.notetypeId = notetypeId
         self.fields = fields
         self.tags = []

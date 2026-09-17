@@ -26,10 +26,30 @@ final class NoteFieldEditingSession {
     var canUndo = false
     var canRedo = false
     var showsClozeTools = false
+    /// Image attachment tapped in the rich surface (nil in HTML-source mode).
+    /// Drives the format bar's Image Size menu; cleared on taps elsewhere.
+    var selectedImage: SelectedFieldImage?
     var clozeFields: [String] = []
     var lastClozeOrdinal = 1
     var pendingMediaSource: NoteFieldMediaSource?
     var htmlSourceFields: Set<Int> = []
+    /// Configurable automatic closing tags in HTML-source mode (desktop parity).
+    var htmlAutoCloseTags = true
+    /// Cursor line/column for the source status readout (HTML-source only).
+    var sourceCursor: (line: Int, column: Int)?
+
+    private static let autoCloseKey = "browse.html.autoCloseTags"
+
+    init() {
+        if let saved = UserDefaults.standard.object(forKey: Self.autoCloseKey) as? Bool {
+            htmlAutoCloseTags = saved
+        }
+    }
+
+    func setHTMLAutoClose(_ enabled: Bool) {
+        htmlAutoCloseTags = enabled
+        UserDefaults.standard.set(enabled, forKey: Self.autoCloseKey)
+    }
 
     var isEditing: Bool { responder != nil }
 
@@ -42,7 +62,10 @@ final class NoteFieldEditingSession {
             canUndo: canUndo,
             canRedo: canRedo,
             showsCloze: showsClozeTools,
-            isHTMLSource: focusedFieldIndex.map { htmlSourceFields.contains($0) } ?? false
+            isHTMLSource: focusedFieldIndex.map { htmlSourceFields.contains($0) } ?? false,
+            selectedImage: selectedImage,
+            sourceCursorLine: sourceCursor?.line,
+            sourceCursorColumn: sourceCursor?.column
         )
     }
 
@@ -86,6 +109,10 @@ final class NoteFieldEditingSession {
         canRedo = responder?.canRedo ?? false
     }
 
+    /// Audio recording request (handled by `NoteFieldMediaBridge`, which owns
+    /// the recorder lifecycle + media import, not the text responder).
+    var pendingAudioRecord = false
+
     func perform(_ action: NoteFieldFormatAction) {
         switch action {
         case .camera:
@@ -94,6 +121,8 @@ final class NoteFieldEditingSession {
             pendingMediaSource = .library
         case .attach:
             pendingMediaSource = .files
+        case .recordAudio:
+            pendingAudioRecord = true
         default:
             responder?.perform(action)
         }
@@ -113,10 +142,13 @@ final class NoteFieldEditingSession {
         "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "heic",
     ]
 
+    /// Cloze ordinals initialize from existing content (upstream parity):
+    /// "new number" is max+1, "same number" is max (or 1 when empty) —
+    /// never a session-fixed 1 that collides with existing clozes.
     func nextClozeOrdinal(increment: Bool) -> Int {
         if increment {
             lastClozeOrdinal = NoteFieldHTML.nextClozeOrdinal(in: clozeFields)
-        } else if lastClozeOrdinal < 1 {
+        } else {
             lastClozeOrdinal = max(1, NoteFieldHTML.nextClozeOrdinal(in: clozeFields) - 1)
         }
         return lastClozeOrdinal
@@ -180,7 +212,9 @@ struct NoteFieldFormatChrome: ViewModifier {
         NoteFieldFormatBar(
             showsDismiss: showsDismiss,
             chrome: session.chrome,
-            perform: { session.perform($0) }
+            perform: { session.perform($0) },
+            autoCloseEnabled: session.htmlAutoCloseTags,
+            onToggleAutoClose: { session.setHTMLAutoClose(!session.htmlAutoCloseTags) }
         )
     }
 

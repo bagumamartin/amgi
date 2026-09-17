@@ -27,6 +27,32 @@ final class AddNoteModel {
     var fieldFocusGeneration = 0
     var addedCount = 0
     var isClozeNotetype = false
+    /// Sticky flags per field index (desktop pinned-field workflow for
+    /// repeated Add entry). Persisted per notetype below.
+    var stickyFields: [Bool] = []
+
+    private var stickyKey: String {
+        "browse.addNote.sticky.\(selectedNotetypeId.rawValue)"
+    }
+
+    private func loadStickyFlags(count: Int) {
+        let saved = UserDefaults.standard.array(forKey: stickyKey) as? [Bool] ?? []
+        if saved.count == count {
+            stickyFields = saved
+        } else {
+            stickyFields = Array(repeating: false, count: count)
+        }
+    }
+
+    private func persistStickyFlags() {
+        UserDefaults.standard.set(stickyFields, forKey: stickyKey)
+    }
+
+    func setSticky(_ sticky: Bool, at index: Int) {
+        guard stickyFields.indices.contains(index) else { return }
+        stickyFields[index] = sticky
+        persistStickyFlags()
+    }
 
     @ObservationIgnored @Dependency(\.deckClient) private var deckClient
     @ObservationIgnored @Dependency(\.notetypesService) private var notetypesService
@@ -93,6 +119,7 @@ final class AddNoteModel {
             fieldValues = fieldNames.map { name in
                 previous[name] ?? initialDraft?.fieldValues[name] ?? ""
             }
+            loadStickyFlags(count: fieldNames.count)
         } catch {
             Log.browse.error("Error loading fields: \(error)")
         }
@@ -130,8 +157,16 @@ final class AddNoteModel {
         )
     }
 
+    /// Clears non-sticky fields for the next note; sticky (pinned) values
+    /// persist across adds (desktop Add-mode workflow).
     func resetForNextNote() {
-        fieldValues = Array(repeating: "", count: fieldNames.count)
+        if stickyFields.count == fieldValues.count {
+            fieldValues = fieldValues.enumerated().map { idx, value in
+                stickyFields[idx] ? value : ""
+            }
+        } else {
+            fieldValues = Array(repeating: "", count: fieldNames.count)
+        }
         errorMessage = nil
         fieldFocusGeneration += 1
     }

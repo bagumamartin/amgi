@@ -27,7 +27,13 @@ public struct NoteClient: Sendable {
     /// Engine-canonical AND/OR composition of two parsable fragments.
     public var composeQuery: @Sendable (_ existing: String, _ additional: String, _ joiner: SearchJoiner) async throws -> String
     /// Bulk field/tag substitution across notes; returns changed count.
+    /// Empty `noteIds` means collection-wide (desktop parity: unchecking
+    /// "selected notes" clears the scope to every note).
     public var findAndReplace: @Sendable (_ noteIds: [NoteID], _ search: String, _ replacement: String, _ regex: Bool, _ matchCase: Bool, _ fieldName: String?) async throws -> Int
+    /// Union of field names across notes (Find & Replace picker source).
+    public var fieldNames: @Sendable (_ noteIds: [NoteID]) async throws -> [String]
+    /// Existing cloze ordinals for draft content (cloze-same-number init).
+    public var clozeNumbers: @Sendable (_ fields: [String], _ notetypeId: NotetypeID) async throws -> [UInt32]
     public var save: @Sendable (_ note: NoteRecord) async throws -> Void
     public var delete: @Sendable (_ noteId: NoteID) async throws -> Void
 }

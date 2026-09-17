@@ -52,18 +52,24 @@ struct ChangeDeckSheet: View {
 struct SetDueDateSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.palette) private var palette
+    /// Last browser input (desktop remembers it per browser).
+    var initialExpression = "1"
     let onApply: (String) -> Void
 
     @State private var customDays = 3
+    /// Free-form day/range input with optional `!` interval-reset suffix.
+    @State private var freeform = ""
+    @State private var resetInterval = false
 
-    /// Interval expressions the engine parses for review cards.
+    /// Single-day presets use exact offsets (desktop parity); ranges stay
+    /// available through the free-form field below.
     private var presets: [(label: String, expression: String)] {
         [
             ("Today", "0"),
             ("Tomorrow", "1"),
-            ("In 3 days", "3-4"),
-            ("In 7 days", "7-8"),
-            ("In 2 weeks", "14-15"),
+            ("In 3 days", "3"),
+            ("In 7 days", "7"),
+            ("In 14 days", "14"),
         ]
     }
 
@@ -73,22 +79,33 @@ struct SetDueDateSheet: View {
                 Section("Preset") {
                     ForEach(presets, id: \.label) { preset in
                         Button(preset.label) {
-                            onApply(preset.expression)
+                            onApply(suffixed(preset.expression))
                             dismiss()
                         }
                     }
                 }
                 Section("Custom (days out)") {
-                    Stepper(value: $customDays, in: 1...365) {
-                        Text("+\(customDays) day\(customDays == 1 ? "" : "s")")
+                    Stepper(value: $customDays, in: 0...365) {
+                        Text(customDays == 0 ? "Today" : "+\(customDays) day\(customDays == 1 ? "" : "s")")
                     }
-                    Button("Set +\(customDays)") {
-                        onApply("\(customDays)-\(customDays + 1)")
+                    Button("Set \(customDays == 0 ? "today" : "+\(customDays)")") {
+                        onApply(suffixed("\(customDays)"))
                         dismiss()
                     }
                 }
+                Section("Free-form (day or range, e.g. 4 or 3-7)") {
+                    TextField("e.g. 4, 3-7, 2026-09-20", text: $freeform)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    Toggle("Reset interval (! suffix)", isOn: $resetInterval)
+                    Button("Apply") {
+                        onApply(suffixed(freeform.trimmingCharacters(in: .whitespaces)))
+                        dismiss()
+                    }
+                    .disabled(freeform.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
                 Section {
-                    Text("Applies to review cards; the engine rejects the rest with an explanatory error.")
+                    Text("Applies to review cards; the engine rejects the rest with an explanatory error. Last input is remembered for next time.")
                         .amgiFont(.caption)
                         .foregroundStyle(palette.textSecondary)
                 }
@@ -100,8 +117,13 @@ struct SetDueDateSheet: View {
                     Button("Cancel") { dismiss() }
                 }
             }
+            .onAppear { freeform = initialExpression }
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.medium, .large])
+    }
+
+    private func suffixed(_ expr: String) -> String {
+        resetInterval ? expr + "!" : expr
     }
 }
 
@@ -109,23 +131,37 @@ struct SetDueDateSheet: View {
 
 struct RepositionSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.palette) private var palette
     let onApply: (_ start: UInt32, _ step: UInt32, _ randomize: Bool, _ shift: Bool) -> Void
 
-    @State private var start = 1
-    @State private var step = 1
-    @State private var randomize = false
-    @State private var shift = false
+    @AppStorage("browse.reposition.start") private var start = 1
+    @AppStorage("browse.reposition.step") private var step = 1
+    @AppStorage("browse.reposition.randomize") private var randomize = false
+    @AppStorage("browse.reposition.shift") private var shift = false
+    @State private var resultMessage: String?
 
     var body: some View {
         NavigationStack {
             Form {
                 Section("Position") {
-                    Stepper("Start at \(start)", value: $start, in: 1...99_999)
+                    Stepper("Start at \(start)", value: $start, in: 0...99_999)
                     Stepper("Step \(step)", value: $step, in: 1...1000)
                 }
                 Section {
                     Toggle("Randomize order", isOn: $randomize)
                     Toggle("Shift existing positions", isOn: $shift)
+                }
+                if let resultMessage {
+                    Section {
+                        Text(resultMessage)
+                            .amgiFont(.caption)
+                            .foregroundStyle(palette.positive)
+                    }
+                }
+                Section {
+                    Text("New cards queue from position 0; start/step clamp to the queue bounds. Options are remembered for next time.")
+                        .amgiFont(.caption)
+                        .foregroundStyle(palette.textSecondary)
                 }
             }
             .navigationTitle("Reposition New Cards")
@@ -133,7 +169,8 @@ struct RepositionSheet: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Apply") {
-                        onApply(UInt32(start), UInt32(step), randomize, shift)
+                        onApply(UInt32(max(0, start)), UInt32(max(1, step)), randomize, shift)
+                        resultMessage = "Repositioned."
                         dismiss()
                     }
                 }
@@ -153,41 +190,67 @@ struct FindReplaceSheet: View {
     @Environment(\.palette) private var palette
     let fieldNames: [String]
     let selectionCount: Int
-    let onApply: (_ search: String, _ replacement: String, _ regex: Bool, _ matchCase: Bool, _ fieldName: String?) async -> Int
+    /// Total result count for the "all results" scope label.
+    var resultCount = 0
+    let onApply: (_ search: String, _ replacement: String, _ regex: Bool, _ matchCase: Bool, _ fieldName: String?, _ tagsTarget: Bool, _ selectedOnly: Bool) async -> Int
 
     @State private var searchText = ""
     @State private var replacement = ""
     @State private var isRegex = false
     @State private var matchCase = false
     @State private var selectedField: String?
+    @State private var tagsTarget = false
+    @State private var selectedOnly = true
     @State private var resultMessage: String?
+    @AppStorage("browse.find.history") private var findHistoryRaw = ""
+    @AppStorage("browse.replace.history") private var replaceHistoryRaw = ""
+
+    private var findHistory: [String] {
+        findHistoryRaw.split(separator: "\n").map(String.init)
+    }
+    private var replaceHistory: [String] {
+        replaceHistoryRaw.split(separator: "\n").map(String.init)
+    }
 
     var body: some View {
         NavigationStack {
             Form {
-                if selectionCount > 0 {
-                    Section {
-                        Text("Scoped to \(selectionCount) selected note\(selectionCount == 1 ? "" : "s").")
-                            .amgiFont(.caption)
-                            .foregroundStyle(palette.textSecondary)
-                    }
-                } else {
-                    Section {
-                        Text("Scope: current results.")
-                            .amgiFont(.caption)
-                            .foregroundStyle(palette.textSecondary)
-                    }
+                Section("Scope") {
+                    Toggle("Only selected (\(selectionCount))", isOn: $selectedOnly)
+                        .disabled(selectionCount == 0)
+                    Text(scopeDescription)
+                        .amgiFont(.caption)
+                        .foregroundStyle(palette.textSecondary)
                 }
                 Section("Find") {
                     TextField("Search text", text: $searchText, axis: .vertical)
                     Toggle("Regular expression", isOn: $isRegex)
                     Toggle("Match case", isOn: $matchCase)
+                    if !findHistory.isEmpty {
+                        Menu("Recent searches") {
+                            ForEach(findHistory.prefix(8), id: \.self) { h in
+                                Button(h) { searchText = h }
+                            }
+                        }
+                    }
                 }
                 Section("Replace with") {
                     TextField("Replacement", text: $replacement, axis: .vertical)
+                    if !replaceHistory.isEmpty {
+                        Menu("Recent replacements") {
+                            ForEach(replaceHistory.prefix(8), id: \.self) { h in
+                                Button(h) { replacement = h }
+                            }
+                        }
+                    }
                 }
-                if !fieldNames.isEmpty {
-                    Section("Field limit (optional)") {
+                Section("Target") {
+                    Picker("Target", selection: $tagsTarget) {
+                        Text("Fields").tag(false)
+                        Text("Tags").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    if !tagsTarget, !fieldNames.isEmpty {
                         Picker("Field", selection: Binding(
                             get: { selectedField ?? "" },
                             set: { selectedField = $0.isEmpty ? nil : $0 }
@@ -197,6 +260,15 @@ struct FindReplaceSheet: View {
                                 Text(name).tag(name)
                             }
                         }
+                    }
+                    if tagsTarget {
+                        Text("Replaces tag text across the scope (desktop Tags target).")
+                            .amgiFont(.caption)
+                            .foregroundStyle(palette.textSecondary)
+                    } else if fieldNames.isEmpty {
+                        Text("Field list loads from the current scope; all fields stay targeted until then.")
+                            .amgiFont(.caption)
+                            .foregroundStyle(palette.textSecondary)
                     }
                 }
                 if let resultMessage {
@@ -212,8 +284,11 @@ struct FindReplaceSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Apply") {
                         Task {
+                            recordHistories()
                             let count = await onApply(
-                                searchText, replacement, isRegex, matchCase, selectedField
+                                searchText, replacement, isRegex, matchCase,
+                                tagsTarget ? nil : selectedField, tagsTarget,
+                                selectedOnly && selectionCount > 0
                             )
                             resultMessage = count > 0
                                 ? "Updated \(count) note\(count == 1 ? "" : "s")."
@@ -228,6 +303,31 @@ struct FindReplaceSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
+    }
+
+    private var scopeDescription: String {
+        if selectedOnly, selectionCount > 0 {
+            return "Scoped to \(selectionCount) selected."
+        }
+        if resultCount > 0 {
+            return "Scope: all \(resultCount) results."
+        }
+        return "Scope: collection-wide (no selection, no results)."
+    }
+
+    private func recordHistories() {
+        if !searchText.isEmpty {
+            var h = findHistory
+            h.removeAll { $0 == searchText }
+            h.insert(searchText, at: 0)
+            findHistoryRaw = Array(h.prefix(20)).joined(separator: "\n")
+        }
+        if !replacement.isEmpty {
+            var h = replaceHistory
+            h.removeAll { $0 == replacement }
+            h.insert(replacement, at: 0)
+            replaceHistoryRaw = Array(h.prefix(20)).joined(separator: "\n")
+        }
     }
 }
 
@@ -251,6 +351,9 @@ struct FindDuplicatesView: View {
     @State private var exactGroups: [FindDuplicatesResult.Group] = []
     @State private var exactSummary: String?
     @State private var nearGroups: [[Int64]] = []
+    @State private var tagMessage: String?
+    @AppStorage("browse.dupes.field") private var rememberedField = ""
+    @AppStorage("browse.dupes.search") private var rememberedSearch = ""
 
     var body: some View {
         NavigationStack {
@@ -267,7 +370,15 @@ struct FindDuplicatesView: View {
                 }
             }
             .task {
-                if !notetypeFields.isEmpty { selectedFieldIndex = 0 }
+                if !notetypeFields.isEmpty {
+                    if !rememberedField.isEmpty,
+                       let idx = notetypeFields.firstIndex(of: rememberedField) {
+                        selectedFieldIndex = idx
+                    } else {
+                        selectedFieldIndex = 0
+                    }
+                }
+                if searchText.isEmpty { searchText = rememberedSearch }
                 nearGroups = runNearScan()
             }
         }
@@ -343,12 +454,14 @@ struct FindDuplicatesView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack {
-                TextField("Field contains…", text: $searchText)
+                TextField("Restrict to search (optional)", text: $searchText)
                     .textFieldStyle(.roundedBorder)
                 Button {
                     Task {
                         let field = selectedFieldIndex < notetypeFields.count
                             ? notetypeFields[selectedFieldIndex] : "Front"
+                        rememberedField = field
+                        rememberedSearch = searchText
                         let result = await runExactScan(field, searchText)
                         exactGroups = result?.groups ?? []
                         exactSummary = result.map {
@@ -359,12 +472,29 @@ struct FindDuplicatesView: View {
                     Image(systemName: "magnifyingglass")
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(searchText.isEmpty || notetypeFields.isEmpty)
+                .disabled(notetypeFields.isEmpty)
+            }
+            if !exactGroups.isEmpty {
+                Button {
+                    Task {
+                        let all = exactGroups.flatMap { $0.noteIds.map { NoteID($0) } }
+                        await onTagDuplicates(all)
+                    }
+                } label: {
+                    Label(
+                        tagMessage ?? "Tag Duplicates",
+                        systemImage: "tag"
+                    )
+                }
+                .buttonStyle(.bordered)
             }
         }
         .padding()
         .background(.bar)
     }
+
+    /// Injected by the caller (BrowseView) for the Tag Duplicates action.
+    var onTagDuplicates: ([NoteID]) async -> Void = { _ in }
 
     private func idRanges(_ ids: [Int64]) -> String {
         guard let first = ids.first, let last = ids.last else { return "" }

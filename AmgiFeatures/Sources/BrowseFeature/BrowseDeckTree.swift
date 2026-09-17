@@ -34,11 +34,11 @@ enum BrowseDeckTree {
     /// Free-text tokens from the search field — grammar fragments
     /// (`deck:`, `tag:`, `is:`, …) are not name filters.
     static func filterTokens(from searchText: String) -> [String] {
-        let prefixes = ["deck:", "tag:", "is:", "due:", "added:", "edited:",
-                        "rated:", "prop:", "nid:", "note:", "flag:", "introduced:"]
         return searchText.split(separator: " ")
             .map { $0.lowercased() }
-            .filter { token in !prefixes.contains { token.hasPrefix($0) } }
+            .filter { token in
+                !BrowseSearchGrammar.structuralPrefixes.contains { token.hasPrefix($0) }
+            }
     }
 
     static func nameMatches(_ name: String, tokens: [String]) -> Bool {

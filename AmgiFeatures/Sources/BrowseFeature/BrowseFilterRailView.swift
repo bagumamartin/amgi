@@ -19,6 +19,9 @@ struct BrowseFilterRailView: View {
 
     @State private var newSavedName = ""
     @State private var showSaveField = false
+    @State private var flagLabels = FlagLabelStore()
+    @State private var renameFlag: UInt32?
+    @State private var renameFlagTo = ""
 
     var body: some View {
         NavigationStack {
@@ -30,7 +33,7 @@ struct BrowseFilterRailView: View {
                 Section("Card State") { stateRows }
                 Section("Flags") { flagRows }
                 Section("Decks") { nodeRows(BrowseFilterSections.decks(model.allDecks.map(\.name))) }
-                Section("Note Types") { nodeRows(BrowseFilterSections.notetypes(Array(model.notetypeNames.values).sorted())) }
+                Section("Note Types") { notetypeRows }
                 Section("Tags") { nodeRows(BrowseFilterSections.tags(model.allTags)) }
             }
             .navigationTitle("Filters")
@@ -100,11 +103,108 @@ struct BrowseFilterRailView: View {
     }
 
     @ViewBuilder
+    private var notetypeRows: some View {
+        ForEach(Array(model.notetypeNames.values).sorted(), id: \.self) { name in
+            DisclosureGroup {
+                let children = model.notetypeChildren[name]
+                if let templates = children?.templates, !templates.isEmpty {
+                    ForEach(Array(templates.enumerated()), id: \.offset) { idx, tmpl in
+                        nodeRow(FilterNode(
+                            title: tmpl,
+                            systemImage: "application.braces",
+                            fragment: "note:\"\(name)\" card:\(idx + 1)",
+                            role: nil
+                        ))
+                    }
+                }
+                if let fields = children?.fields, !fields.isEmpty {
+                    ForEach(fields, id: \.self) { field in
+                        nodeRow(FilterNode(
+                            title: field,
+                            systemImage: "textbox",
+                            fragment: "note:\"\(name)\" \"\(field):*\"",
+                            role: nil
+                        ))
+                    }
+                }
+            } label: {
+                nodeRow(FilterNode(
+                    title: name, systemImage: "doc.text",
+                    fragment: "note:\"\(name)\"", role: nil
+                ))
+            }
+        }
+    }
+
+    @ViewBuilder
     private var flagRows: some View {
         ForEach(BrowseFilterSections.flags()) { node in
             HStack(spacing: 10) {
                 flagGlyph(for: node)
-                railRowContent(node)
+                flagRowContent(node)
+            }
+        }
+        .task { flagLabels.refresh() }
+        .alert("Rename flag", isPresented: Binding(
+            get: { renameFlag != nil },
+            set: { if !$0 { renameFlag = nil } }
+        )) {
+            TextField("Label", text: $renameFlagTo)
+            Button("Save") {
+                if let flag = renameFlag { flagLabels.rename(flag: flag, to: renameFlagTo) }
+                renameFlag = nil
+            }
+            Button("Reset", role: .destructive) {
+                if let flag = renameFlag { flagLabels.reset(flag: flag) }
+                renameFlag = nil
+            }
+            Button("Cancel", role: .cancel) { renameFlag = nil }
+        }
+    }
+
+    private func flagRowContent(_ node: FilterNode) -> some View {
+        let number: UInt32? = switch node.fragment {
+        case "flag:0": nil
+        case "flag:1": 1
+        case "flag:2": 2
+        case "flag:3": 3
+        case "flag:4": 4
+        case "flag:5": 5
+        case "flag:6": 6
+        case "flag:7": 7
+        default: nil
+        }
+        let title: String = if node.fragment == "flag:0" {
+            "No flag"
+        } else if let number {
+            flagLabels.label(for: number)
+        } else {
+            node.title
+        }
+        return HStack {
+            Text(title)
+                .foregroundStyle(palette.textPrimary)
+            Spacer()
+            if isActive(node) {
+                Image(systemName: "checkmark")
+                    .amgiFont(.caption)
+                    .foregroundStyle(palette.accent)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            model.searchText = node.fragment
+            dismiss()
+        }
+        .contextMenu {
+            compositionButtons(node)
+            if let number {
+                Button {
+                    renameFlag = number
+                    renameFlagTo = flagLabels.label(for: number)
+                } label: {
+                    Label("Rename flag label…", systemImage: "pencil")
+                }
             }
         }
     }
@@ -114,17 +214,18 @@ struct BrowseFilterRailView: View {
     }
 
     /// Flag colors reuse the selection-bar hues (Anki's seven brand flags).
+    /// Fragments are canonical numeric `flag:0…7` (parser rejects names).
     @ViewBuilder
     private func flagGlyph(for node: FilterNode) -> some View {
         let color: Color = switch node.fragment {
-        case "-flag:any": palette.textTertiary
-        case "flag:red": Color(hexFlag: 0xFF3B30)
-        case "flag:orange": Color(hexFlag: 0xFF9500)
-        case "flag:green": Color(hexFlag: 0x34C759)
-        case "flag:blue": Color(hexFlag: 0x007AFF)
-        case "flag:pink": Color(hexFlag: 0xFF2D55)
-        case "flag:turquoise": Color(hexFlag: 0x32ADE6)
-        case "flag:purple": Color(hexFlag: 0xAF52DE)
+        case "flag:0": palette.textTertiary
+        case "flag:1": Color(hexFlag: 0xFF3B30)
+        case "flag:2": Color(hexFlag: 0xFF9500)
+        case "flag:3": Color(hexFlag: 0x34C759)
+        case "flag:4": Color(hexFlag: 0x007AFF)
+        case "flag:5": Color(hexFlag: 0xFF2D55)
+        case "flag:6": Color(hexFlag: 0x32ADE6)
+        case "flag:7": Color(hexFlag: 0xAF52DE)
         default: palette.accent
         }
         Image(systemName: node.systemImage)
@@ -179,6 +280,12 @@ struct BrowseFilterRailView: View {
             Button {
                 apply(node, .orWithExisting)
             } label: { Label("OR with current search", systemImage: "arrow.triangle.branch") }
+            Button {
+                Task {
+                    await model.replaceNodeOfSameType(with: node.fragment)
+                }
+                dismiss()
+            } label: { Label("Replace same-type filters", systemImage: "arrow.triangle.2.circlepath") }
             Button(role: .destructive) {
                 apply(node, .negateAndAdd)
             } label: { Label("Exclude from current search", systemImage: "minus.circle") }

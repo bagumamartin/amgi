@@ -85,6 +85,26 @@ extension TagClient: DependencyKey {
                     logger.error("renameTag failed: \(error)")
                     throw error
                 }
+            },
+            findAndReplaceTag: { noteIds, search, replacement, regex, matchCase in
+                try await backend.invoke(.findAndReplaceTag(
+                    noteIds: noteIds, search: search,
+                    replacement: replacement, regex: regex, matchCase: matchCase
+                ))
+                logger.info("Tag find&replace '\(search)'→'\(replacement)' on \(noteIds.isEmpty ? "all notes" : "\(noteIds.count) notes")")
+            },
+            completeTag: { input in
+                (try? await backend.invoke(.completeTag(input: input))) ?? []
+            },
+            tagTree: {
+                try await backend.invoke(.tagTreeStructured)
+            },
+            reparentTags: { tags, newParent in
+                try await backend.invoke(.reparentTags(tags: tags, newParent: newParent))
+                logger.info("Reparented \(tags.count) tags under '\(newParent)'")
+            },
+            setCollapsed: { tag, collapsed in
+                try await backend.invoke(.setTagCollapsed(tag: tag, collapsed: collapsed))
             }
         )
     }()

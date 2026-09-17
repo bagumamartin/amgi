@@ -84,6 +84,52 @@ final class SavedSearchStore {
     }
 }
 
+// MARK: - Flag labels (desktop `flagLabels` collection config)
+
+/// Custom flag labels, stored under the same `flagLabels` config key
+/// desktop uses (`{"1": "My label", …}`). Absent keys fall back to the
+/// stock color names.
+@MainActor
+@Observable
+final class FlagLabelStore {
+    static let configKey = "flagLabels"
+    static let defaults = ["1": "Red", "2": "Orange", "3": "Green", "4": "Blue", "5": "Pink", "6": "Turquoise", "7": "Purple"]
+
+    private(set) var labels: [String: String] = defaults
+
+    @ObservationIgnored @Dependency(\.ankiBackend) private var backend
+
+    func refresh() {
+        let stored: [String: String]? = try? backend.getConfigJSONValue(for: Self.configKey)
+        var merged = Self.defaults
+        if let stored {
+            for (k, v) in stored where !v.isEmpty { merged[k] = v }
+        }
+        labels = merged
+    }
+
+    func label(for flag: UInt32) -> String {
+        labels[String(flag)] ?? Self.defaults[String(flag)] ?? "Flag \(flag)"
+    }
+
+    func rename(flag: UInt32, to name: String) {
+        var stored: [String: String] =
+            (try? backend.getConfigJSONValue(for: Self.configKey)) ?? [:]
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty || trimmed == Self.defaults[String(flag)] {
+            stored.removeValue(forKey: String(flag))
+        } else {
+            stored[String(flag)] = trimmed
+        }
+        try? backend.setConfigJSONValue(stored, for: Self.configKey)
+        refresh()
+    }
+
+    func reset(flag: UInt32) {
+        rename(flag: flag, to: Self.defaults[String(flag)] ?? "")
+    }
+}
+
 // MARK: - Filter rail sections (spec §5.5)
 
 /// One tappable sidebar/filter entry.
@@ -120,16 +166,22 @@ enum BrowseModelStateColor {
 }
 
 /// Static sections of the filter rail mirroring desktop stages.
+///
+/// Fragments are canonical engine grammar (rslib parser.rs / writer.rs):
+/// `prop:due=0` for due-today, numeric `flag:0…7`, `tag:none` for untagged.
+/// Never use `due:today`, named `flag:red`, `-flag:any`, or `-tag:*`
+/// (`tag:*` matches every note, so its negation is wrong).
 enum BrowseFilterSections {
     static func today() -> [FilterNode] {
         [
-            ("Due today", "clock.badge.checkmark", "due:today"),
+            ("Due today", "clock.badge.checkmark", "prop:due=0"),
             ("Added today", "plus.circle", "added:1"),
             ("Edited today", "pencil", "edited:1"),
             ("Studied today", "checkmark.seal", "rated:1"),
             ("First review", "flag.checkered", "introduced:1"),
             ("Again today", "arrow.uturn.backward", "rated:1:1"),
-            ("Overdue", "exclamationmark.triangle", "is:due -due:today"),
+            ("Rescheduled today", "arrow.triangle.2.circlepath", "resched:1"),
+            ("Overdue", "exclamationmark.triangle", "is:due -prop:due=0"),
         ]
         .map { FilterNode(title: $0.0, systemImage: $0.1, fragment: $0.2, role: nil) }
     }
@@ -151,14 +203,14 @@ enum BrowseFilterSections {
 
     static func flags() -> [FilterNode] {
         [
-            FilterNode(title: "No flag", systemImage: "flag.slash", fragment: "-flag:any", role: nil),
-            FilterNode(title: "Red", systemImage: "flag.fill", fragment: "flag:red", role: .flag(1)),
-            FilterNode(title: "Orange", systemImage: "flag.fill", fragment: "flag:orange", role: .flag(2)),
-            FilterNode(title: "Green", systemImage: "flag.fill", fragment: "flag:green", role: .flag(3)),
-            FilterNode(title: "Blue", systemImage: "flag.fill", fragment: "flag:blue", role: .flag(4)),
-            FilterNode(title: "Pink", systemImage: "flag.fill", fragment: "flag:pink", role: .flag(5)),
-            FilterNode(title: "Turquoise", systemImage: "flag.fill", fragment: "flag:turquoise", role: .flag(6)),
-            FilterNode(title: "Purple", systemImage: "flag.fill", fragment: "flag:purple", role: .flag(7)),
+            FilterNode(title: "No flag", systemImage: "flag.slash", fragment: "flag:0", role: nil),
+            FilterNode(title: "Red", systemImage: "flag.fill", fragment: "flag:1", role: .flag(1)),
+            FilterNode(title: "Orange", systemImage: "flag.fill", fragment: "flag:2", role: .flag(2)),
+            FilterNode(title: "Green", systemImage: "flag.fill", fragment: "flag:3", role: .flag(3)),
+            FilterNode(title: "Blue", systemImage: "flag.fill", fragment: "flag:4", role: .flag(4)),
+            FilterNode(title: "Pink", systemImage: "flag.fill", fragment: "flag:5", role: .flag(5)),
+            FilterNode(title: "Turquoise", systemImage: "flag.fill", fragment: "flag:6", role: .flag(6)),
+            FilterNode(title: "Purple", systemImage: "flag.fill", fragment: "flag:7", role: .flag(7)),
         ]
     }
 
@@ -181,7 +233,7 @@ enum BrowseFilterSections {
 
     static func tags(_ tags: [String]) -> [FilterNode] {
         var nodes = [
-            FilterNode(title: "Untagged", systemImage: "tag.slash", fragment: "-tag:*", role: nil),
+            FilterNode(title: "Untagged", systemImage: "tag.slash", fragment: "tag:none", role: nil),
         ]
         nodes.append(contentsOf: tags.map { tag in
             FilterNode(title: tag, systemImage: "tag", fragment: "tag:\"\(tag)\"", role: nil)

@@ -34,13 +34,26 @@ struct BrowseListColumn: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            if let error = model.searchError {
+                searchErrorBanner(error)
+            }
             Divider()
             statefulContent
         }
         .background(palette.background)
         #if os(macOS)
         .onChange(of: multiSelection) { _, new in applySelection(new) }
-        .onChange(of: model.mode) { _, _ in multiSelection = [] }
+        .onChange(of: model.mode) { _, _ in
+            multiSelection = []
+            model.persistViewPrefs()
+        }
+        .onChange(of: model.sortOrder) { _, _ in model.persistViewPrefs() }
+        #else
+        .onChange(of: model.mode) { _, _ in
+            selectionState.exitSelectMode()
+            model.persistViewPrefs()
+        }
+        .onChange(of: model.sortOrder) { _, _ in model.persistViewPrefs() }
         #endif
     }
 
@@ -67,6 +80,7 @@ struct BrowseListColumn: View {
                     .amgiFont(.caption)
                     .monospacedDigit()
                     .foregroundStyle(palette.textSecondary)
+                    .accessibilityLabel(selectionSummary)
             }
 
             Menu {
@@ -75,12 +89,21 @@ struct BrowseListColumn: View {
                         Text(order.label).tag(order)
                     }
                 }
+                Divider()
+                Button {
+                    model.toggleSortDirection()
+                } label: {
+                    Label(
+                        model.effectiveSortReverse ? "Sort descending" : "Sort ascending",
+                        systemImage: model.effectiveSortReverse ? "arrow.down" : "arrow.up"
+                    )
+                }
             } label: {
                 Label("Sort", systemImage: "arrow.up.arrow.down")
                     .labelStyle(.iconOnly)
             }
             .fixedSize()
-            .help("Sort")
+            .help("Sort (column and direction persist per mode)")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -90,7 +113,32 @@ struct BrowseListColumn: View {
     private var countLabel: String {
         let count = model.ids.count
         let noun = model.mode == .notes ? "note" : "card"
-        return "\(count) \(noun)\(count == 1 ? "" : "s")"
+        let base = "\(count) \(noun)\(count == 1 ? "" : "s")"
+        if selectionState.isEmpty { return base }
+        let sel = selectionState.count
+        let selNoun = model.mode == .notes ? "note" : "card"
+        return "\(base) · \(sel) selected \(selNoun)\(sel == 1 ? "" : "s")"
+    }
+
+    private var selectionSummary: String {
+        let count = model.ids.count
+        if selectionState.isEmpty { return "\(count) results" }
+        return "\(count) results, \(selectionState.count) selected"
+    }
+
+    private func searchErrorBanner(_ error: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(palette.warning)
+            Text(error)
+                .amgiFont(.caption)
+                .foregroundStyle(palette.textPrimary)
+                .lineLimit(2)
+            Spacer(minLength: 8)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(palette.warning.opacity(0.12))
     }
 
     // MARK: - Selection
@@ -98,27 +146,32 @@ struct BrowseListColumn: View {
     /// macOS multi-select feeds the batch toolbar; a lone selection focuses
     /// the detail column instead. Keeping the inspector pinned to the last
     /// single selection avoids it flickering through a ⇧-click range.
+    /// Cards mode publishes card IDs directly (upstream parity) so sibling
+    /// cards are never pulled in; notes mode publishes note IDs.
     #if os(macOS)
     private func applySelection(_ ids: Set<Int64>) {
         // A single click is a peek, not a batch scope: publishing it would
-        // silently narrow Find & Replace (which falls back to "all loaded
-        // results" when nothing is selected) to that one note.
-        selectionState.selectedNoteIDs = ids.count > 1 ? noteIDs(for: ids) : []
+        // silently narrow Find & Replace (which falls back to all results
+        // when nothing is selected) to that one row.
+        switch model.mode {
+        case .notes:
+            selectionState.selectedNoteIDs = ids.count > 1 ? Set(ids.map { NoteID($0) }) : []
+            selectionState.selectedCardIDs = []
+        case .cards:
+            selectionState.selectedCardIDs = ids.count > 1 ? Set(ids.map { CardID($0) }) : Set(ids.map { CardID($0) })
+            selectionState.selectedNoteIDs = []
+            // Single-card peek must still arm card scope (sibling-card
+            // toolbar hid before because it required >1 *note* id).
+            if ids.count == 1, let only = ids.first {
+                Task { await focusRow(only) }
+                return
+            }
+        }
         if ids.count == 1, let only = ids.first {
             Task { await focusRow(only) }
         }
     }
     #endif
-
-    private func noteIDs(for ids: Set<Int64>) -> Set<NoteID> {
-        switch model.mode {
-        case .notes:
-            return Set(ids.map { NoteID($0) })
-        case .cards:
-            // Only hydrated rows can resolve a note; every visible row is.
-            return Set(ids.compactMap { model.card(at: $0)?.nid })
-        }
-    }
 
     private func focusRow(_ idRaw: Int64) async {
         switch model.mode {
@@ -240,11 +293,33 @@ struct BrowseListColumn: View {
                 hydratingRow(index: index)
             }
         case .cards:
-            CardRowView(card: model.card(at: idRaw))
+            cardRow(idRaw: idRaw, index: index)
+        }
+    }
+
+    @ViewBuilder
+    private func cardRow(idRaw: Int64, index: Int) -> some View {
+        if showsCheckmarks, let card = model.card(at: idRaw) {
+            HStack {
+                Image(systemName: selectionState.contains(card: card.id) ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(
+                        selectionState.contains(card: card.id) ? palette.accent : palette.textSecondary
+                    )
+                CardRowView(card: card, dueText: model.dueLabel(for: card))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture { selectionState.toggle(card: card.id) }
+            .onAppear { loadMore(index) }
+        } else {
+            CardRowView(card: model.card(at: idRaw), dueText: model.card(at: idRaw).flatMap { model.dueLabel(for: $0) })
                 .frame(maxWidth: .infinity, alignment: .leading)
                 #if os(iOS)
                 .contentShape(Rectangle())
                 .onTapGesture { activateRow(idRaw) }
+                .onLongPressGesture(minimumDuration: 0.5) {
+                    selectionState.enterSelectMode(preselectCard: CardID(idRaw))
+                }
                 #endif
                 .onAppear { loadMore(index) }
         }
@@ -404,14 +479,23 @@ struct NoteRowView: View {
 
 /// Cards-mode row: per-card granularity with scheduling info.
 /// State dot colors bind to theme card-state slots (decisions.md rule).
+/// Titles prefer recognizable content: the parent note's sort field when the
+/// row's note is hydrated, else the template ordinal — never a bare id.
 struct CardRowView: View {
     @Environment(\.palette) private var palette
     let card: CardRecord?
+    /// Scheduler-aware due label from `BrowseModel.dueLabel(for:)`; nil hides the pill.
+    var dueText: String? = nil
+    /// Recognizable title source (parent note sort field, HTML-stripped).
+    var noteTitle: String? = nil
+    /// Engine-rendered row (question/answer cells + semantic color) when the
+    /// active column set has been fetched; takes precedence for title.
+    var engineRow: BrowserRowData? = nil
 
     var body: some View {
         HStack(spacing: 10) {
             if let card {
-                stateDot(queue: card.queue, type: card.type)
+                stateDot(queue: card.queue, type: card.type, flags: card.flags)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title(for: card))
                         .amgiFont(.body)
@@ -422,7 +506,8 @@ struct CardRowView: View {
                         .lineLimit(1)
                 }
                 Spacer(minLength: 8)
-                duePill(queue: card.queue, type: card.type, due: card.due)
+                flagPill(flags: card.flags)
+                duePill(queue: card.queue, type: card.type)
             } else {
                 // Hydrating placeholder mirrors hydratingRow geometry.
                 Circle().fill(palette.surfaceElevated).frame(width: 10, height: 10)
@@ -435,7 +520,11 @@ struct CardRowView: View {
     }
 
     private func title(for card: CardRecord) -> String {
-        "Card #\(card.id.rawValue)"
+        if let engineRow, let first = engineRow.cells.first, !first.text.isEmpty {
+            return first.text
+        }
+        if let noteTitle, !noteTitle.isEmpty { return noteTitle }
+        return "Card \(card.ord + 1)"
     }
 
     private func subtitle(for card: CardRecord) -> String {
@@ -448,10 +537,15 @@ struct CardRowView: View {
         }
         let flags = ["No flag", "Red", "Orange", "Green", "Blue", "Pink", "Turquoise", "Purple"]
         let flagName = flags[Int(card.flags & 0b111)]
-        return [typeName.isEmpty ? nil : typeName, "Ease \(card.factor / 10)%"].compactMap { $0 }.joined(separator: " · ") + (flagName == "No flag" ? "" : " · \(flagName)")
+        var parts = [String]()
+        if !typeName.isEmpty { parts.append(typeName) }
+        parts.append("Card \(card.ord + 1)")
+        if card.factor > 0 { parts.append("Ease \(card.factor / 10)%") }
+        if flagName != "No flag" { parts.append(flagName) }
+        return parts.joined(separator: " · ")
     }
 
-    private func stateDot(queue: Int16, type: Int16) -> some View {
+    private func stateDot(queue: Int16, type: Int16, flags: Int32? = nil) -> some View {
         Circle().fill(dotColor(queue: queue, type: type)).frame(width: 10, height: 10)
     }
 
@@ -467,8 +561,25 @@ struct CardRowView: View {
     }
 
     @ViewBuilder
-    private func duePill(queue: Int16, type: Int16, due: Int32) -> some View {
-        if let text = dueText(queue: queue, type: type, due: due) {
+    private func flagPill(flags: Int32) -> some View {
+        let idx = Int(flags & 0b111)
+        if idx != 0 {
+            let color: Color = switch idx {
+            case 1: Color(red: 1, green: 0.23, blue: 0.19)
+            case 2: Color(red: 1, green: 0.58, blue: 0)
+            case 3: Color(red: 0.2, green: 0.78, blue: 0.35)
+            case 4: Color(red: 0, green: 0.48, blue: 1)
+            case 5: Color(red: 1, green: 0.18, blue: 0.33)
+            case 6: Color(red: 0.2, green: 0.68, blue: 0.9)
+            default: Color(red: 0.69, green: 0.32, blue: 0.87)
+            }
+            Circle().fill(color).frame(width: 8, height: 8)
+        }
+    }
+
+    @ViewBuilder
+    private func duePill(queue: Int16, type: Int16) -> some View {
+        if let text = dueText {
             Text(text)
                 .amgiFont(.caption)
                 .padding(.horizontal, 8)
@@ -476,17 +587,6 @@ struct CardRowView: View {
                 .background(dotColor(queue: queue, type: type).opacity(0.14))
                 .foregroundStyle(dotColor(queue: queue, type: type))
                 .clipShape(Capsule())
-        }
-    }
-
-    private func dueText(queue: Int16, type: Int16, due: Int32) -> String? {
-        switch type {
-        case 0:
-            return "pos \(due)"
-        default:
-            // Learning epochs vs review days differ; coarse labels only —
-            // exact formatting arrives with engine rows (P2d follow-up).
-            return queue < 0 ? nil : (due > 86_400 ? "+\(due / 86_400)d" : "today")
         }
     }
 }

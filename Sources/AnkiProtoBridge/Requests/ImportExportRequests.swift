@@ -99,6 +99,89 @@ extension Request where Response == Void {
     }
 }
 
+// MARK: - exportAnkiPackage (note / card selection)
+
+extension Request where Response == UInt32 {
+    /// Exports exactly the given notes to an .apkg at `outPath`. Returns the
+    /// number of notes exported. Powers Browse selection export without
+    /// touching the collection (no temp-deck move; `ExportLimit.note_ids`).
+    public static func exportAnkiPackage(
+        noteIds: [NoteID],
+        outPath: String,
+        withScheduling: Bool,
+        withDeckConfigs: Bool,
+        withMedia: Bool,
+        legacy: Bool
+    ) -> Self {
+        Self(
+            serviceId: ServiceID.importExport,
+            methodId: ImportExportMethod.exportAnkiPackage,
+            encode: {
+                var proto = Anki_ImportExport_ExportAnkiPackageRequest()
+                proto.outPath = outPath
+
+                var options = Anki_ImportExport_ExportAnkiPackageOptions()
+                options.withScheduling = withScheduling
+                options.withDeckConfigs = withDeckConfigs
+                options.withMedia = withMedia
+                options.legacy = legacy
+                proto.options = options
+
+                var limit = Anki_ImportExport_ExportLimit()
+                var ids = Anki_Notes_NoteIds()
+                ids.noteIds = noteIds.map(\.rawValue)
+                limit.noteIds = ids
+                proto.limit = limit
+
+                return try proto.serializedData()
+            },
+            decode: { bytes in
+                let resp = try Anki_Generic_UInt32(serializedBytes: bytes)
+                return resp.val
+            }
+        )
+    }
+
+    /// Exports exactly the given cards (same `ExportLimit` oneof, `card_ids`
+    /// arm). Used when the Browse selection is card-scoped.
+    public static func exportAnkiPackage(
+        cardIds: [CardID],
+        outPath: String,
+        withScheduling: Bool,
+        withDeckConfigs: Bool,
+        withMedia: Bool,
+        legacy: Bool
+    ) -> Self {
+        Self(
+            serviceId: ServiceID.importExport,
+            methodId: ImportExportMethod.exportAnkiPackage,
+            encode: {
+                var proto = Anki_ImportExport_ExportAnkiPackageRequest()
+                proto.outPath = outPath
+
+                var options = Anki_ImportExport_ExportAnkiPackageOptions()
+                options.withScheduling = withScheduling
+                options.withDeckConfigs = withDeckConfigs
+                options.withMedia = withMedia
+                options.legacy = legacy
+                proto.options = options
+
+                var limit = Anki_ImportExport_ExportLimit()
+                var ids = Anki_Cards_CardIds()
+                ids.cids = cardIds.map(\.rawValue)
+                limit.cardIds = ids
+                proto.limit = limit
+
+                return try proto.serializedData()
+            },
+            decode: { bytes in
+                let resp = try Anki_Generic_UInt32(serializedBytes: bytes)
+                return resp.val
+            }
+        )
+    }
+}
+
 // MARK: - exportCollectionPackage
 
 extension Request where Response == Void {

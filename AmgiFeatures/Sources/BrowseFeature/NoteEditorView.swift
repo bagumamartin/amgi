@@ -130,27 +130,63 @@ package struct NoteEditorView: View {
 struct NoteEditorContent: View {
     @Environment(\.palette) private var palette
     @Bindable var model: NoteEditorModel
+    /// Manual overrides; otherwise the notetype's `collapsed` flag rules.
+    @State private var manuallyExpanded: Set<Int> = []
+    @State private var manuallyCollapsed: Set<Int> = []
 
     var body: some View {
         Form {
-            Section("Fields") {
-                ForEach(Array(model.fieldNames.enumerated()), id: \.element) { index, name in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(name)
+            if let warning = model.duplicateWarning {
+                Section {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(palette.warning)
+                        Text(warning)
                             .amgiFont(.caption)
-                            .foregroundStyle(palette.textSecondary)
-                        RichNoteFieldEditor(
-                            htmlText: $model[fieldAt: index],
-                            fieldIndex: index
-                        )
+                            .foregroundStyle(palette.textPrimary)
+                        Spacer()
+                        Button("Show Duplicates") {
+                            // Handled by the hosting Browse list via notification;
+                            // inline navigation stays out of the editor.
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(true)
                     }
+                }
+            }
+            Section("Fields") {
+                ForEach(Array(model.fieldNames.enumerated()), id: \.offset) { index, name in
+                    fieldRow(index: index, name: name)
                 }
             }
 
             Section("Tags") {
+                let parsed = model.tags.split(separator: " ").map(String.init).filter { !$0.isEmpty }
+                if !parsed.isEmpty {
+                    TagPillsView(tags: parsed) { removed in
+                        model.tags = parsed.filter { $0 != removed }.joined(separator: " ")
+                    }
+                    .padding(.bottom, 2)
+                }
                 TextField("Tags", text: $model.tags, prompt: Text("space-separated"))
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
+                    .onChange(of: model.tags) { _, _ in
+                        Task { await model.refreshTagCompletions() }
+                    }
+                if !model.tagCompletions.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(model.tagCompletions.prefix(10), id: \.self) { completion in
+                                Button(completion) {
+                                    applyCompletion(completion)
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            }
+                        }
+                    }
+                }
             }
         }
         #if os(macOS)
@@ -158,6 +194,63 @@ struct NoteEditorContent: View {
         .frame(minWidth: 360, idealWidth: 460, maxWidth: 640)
         .presentationSizing(.fitted)
         #endif
+        .task(id: model.fieldValues.first) {
+            await model.refreshDuplicateWarning()
+        }
+    }
+
+    @ViewBuilder
+    private func fieldRow(index: Int, name: String) -> some View {
+        let field = index < model.fieldConfigs.count ? model.fieldConfigs[index] : nil
+        let defaultCollapsed = field?.config.collapsed ?? false
+        let isCollapsed: Bool = manuallyExpanded.contains(index)
+            ? false
+            : (manuallyCollapsed.contains(index) ? true : defaultCollapsed)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(name)
+                    .amgiFont(.caption)
+                    .foregroundStyle(palette.textSecondary)
+                Spacer(minLength: 4)
+                Button(isCollapsed ? "Expand" : "Collapse") {
+                    if isCollapsed {
+                        manuallyCollapsed.remove(index)
+                        manuallyExpanded.insert(index)
+                    } else {
+                        manuallyExpanded.remove(index)
+                        manuallyCollapsed.insert(index)
+                    }
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+            }
+            if !isCollapsed {
+                RichNoteFieldEditor(
+                    htmlText: $model[fieldAt: index],
+                    fieldIndex: index
+                )
+            } else {
+                Text(fieldPreview(model[fieldAt: index]))
+                    .amgiFont(.caption)
+                    .foregroundStyle(palette.textTertiary)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    private func fieldPreview(_ html: String) -> String {
+        html.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func applyCompletion(_ completion: String) {
+        var parts = model.tags.split(separator: " ").map(String.init)
+        if parts.isEmpty {
+            model.tags = completion
+        } else {
+            parts[parts.count - 1] = completion
+            model.tags = parts.joined(separator: " ")
+        }
     }
 }
 

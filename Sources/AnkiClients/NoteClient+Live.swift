@@ -92,6 +92,17 @@ extension NoteClient: DependencyKey {
                     ))
                 }
             },
+            fieldNames: { noteIds in
+                guard !noteIds.isEmpty else { return [] }
+                return try await backendOffload {
+                    try backend.invoke(.fieldNamesForNotes(noteIds: noteIds))
+                }
+            },
+            clozeNumbers: { fields, notetypeId in
+                try await backendOffload {
+                    try backend.invoke(.clozeNumbersInNote(fields: fields, notetypeId: notetypeId))
+                }
+            },
             save: { note in
                 try await backendOffload { try notes.saveNote(note) }
             },

@@ -143,7 +143,18 @@ enum NoteFieldHTML {
         var superscript = false
         var `subscript` = false
         var code = false
+        /// Hex CSS color (`#rrggbb`), round-tripped through `<span style>`
+        /// / `<font color>`. Nil = default label color (no span emitted).
+        var textColorHex: String?
+        /// Hex CSS highlight, round-tripped as `background-color`. Nil = none.
+        var highlightHex: String?
+        /// Hyperlink target, round-tripped through `<a href>`. Nil = no link.
+        var linkHref: String?
     }
+
+    static let linkHrefKey = NSAttributedString.Key("amgi.noteField.linkHref")
+    static let textColorHexKey = NSAttributedString.Key("amgi.noteField.textColorHex")
+    static let highlightHexKey = NSAttributedString.Key("amgi.noteField.highlightHex")
 
     struct BlockStyle: Equatable, Sendable {
         var listKind: ListKind = .none
@@ -345,8 +356,24 @@ enum NoteFieldHTML {
     ) -> [NSAttributedString.Key: Any] {
         var attrs: [NSAttributedString.Key: Any] = [
             .font: fontByApplying(style, to: font),
-            .foregroundColor: labelColor,
+            .foregroundColor: platformColor(hex: style.textColorHex) ?? labelColor,
         ]
+        if let highlightHex = style.highlightHex,
+           let bg = platformColor(hex: highlightHex) {
+            attrs[.backgroundColor] = bg
+            attrs[highlightHexKey] = highlightHex
+        }
+        if let textColorHex = style.textColorHex {
+            attrs[textColorHexKey] = textColorHex
+        }
+        if let href = style.linkHref, !href.isEmpty {
+            attrs[linkHrefKey] = href
+            #if canImport(UIKit)
+            attrs[.link] = href
+            #else
+            attrs[.link] = href
+            #endif
+        }
         if style.underline {
             attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue
         }
@@ -416,7 +443,285 @@ enum NoteFieldHTML {
             if offset.doubleValue > 0.5 { style.superscript = true }
             if offset.doubleValue < -0.5 { style.subscript = true }
         }
+        if let hex = attributes[textColorHexKey] as? String, !hex.isEmpty {
+            style.textColorHex = hex
+        }
+        if let hex = attributes[highlightHexKey] as? String, !hex.isEmpty {
+            style.highlightHex = hex
+        }
+        if let href = attributes[linkHrefKey] as? String, !href.isEmpty {
+            style.linkHref = href
+        } else if let link = attributes[.link] as? String, !link.isEmpty {
+            style.linkHref = link
+        } else if let url = attributes[.link] as? URL {
+            style.linkHref = url.absoluteString
+        }
         return style
+    }
+
+    /// Hex (`#rrggbb` / `#rgb` / named subset) → platform color. Nil on
+    /// unparseable input so callers fall back to the label color.
+    // MARK: - HTML source IDE (highlight / match / auto-close / lines)
+
+    /// Void elements that never get an auto-close tag.
+    static let voidElements: Set<String> = [
+        "area", "base", "br", "col", "embed", "hr", "img", "input",
+        "link", "meta", "source", "track", "wbr",
+    ]
+
+    /// Syntax-highlighted source attributed string (mono font): tags, attr
+    /// names, quoted values, comments, and entities each get a dynamic
+    /// system color so both appearances stay legible.
+    static func highlightSource(_ source: String, font: Font) -> NSAttributedString {
+        let result = NSMutableAttributedString(string: source)
+        let full = NSRange(location: 0, length: (source as NSString).length)
+        guard full.length > 0 else { return result }
+        result.addAttribute(.font, value: font, range: full)
+        #if canImport(UIKit)
+        let textColor = UIColor.label
+        let tagColor = UIColor.systemBlue
+        let attrColor = UIColor.systemTeal
+        let stringColor = UIColor.systemBrown
+        let commentColor = UIColor.systemGray
+        let entityColor = UIColor.systemPurple
+        #else
+        let textColor = NSColor.labelColor
+        let tagColor = NSColor.systemBlue
+        let attrColor = NSColor.systemTeal
+        let stringColor = NSColor.brown
+        let commentColor = NSColor.systemGray
+        let entityColor = NSColor.systemPurple
+        #endif
+        result.addAttribute(.foregroundColor, value: textColor, range: full)
+
+        func paint(_ pattern: String, options: NSRegularExpression.Options = [], color: Any) {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: options) else { return }
+            regex.enumerateMatches(in: source, range: full) { match, _, _ in
+                guard let match else { return }
+                result.addAttribute(.foregroundColor, value: color, range: match.range)
+            }
+        }
+        // Comments first (highest precedence).
+        paint(#"<!--.*?-->"#, options: [.dotMatchesLineSeparators], color: commentColor)
+        // Entities.
+        paint(#"&[a-zA-Z0-9#]+;"#, color: entityColor)
+        // Quoted attribute values.
+        paint(#""[^"\n]*"|'[^'\n]*'"#, color: stringColor)
+        // Tag-name + brackets: `<`, `</`, name, `/`, `>`.
+        guard let tagRegex = try? NSRegularExpression(
+            pattern: #"</?[a-zA-Z][a-zA-Z0-9-]*|/?>"#,
+            options: []
+        ) else { return result }
+        tagRegex.enumerateMatches(in: source, range: full) { match, _, _ in
+            guard let match else { return }
+            let ns = source as NSString
+            let token = ns.substring(with: match.range)
+            // Skip tokens already claimed by comments is overkill at field
+            // sizes; comments paint first but tag paint would overpaint. To
+            // keep precedence correct, verify the token is not inside a comment.
+            if insideComment(ns, index: match.range.location) { return }
+            result.addAttribute(.foregroundColor, value: tagColor, range: match.range)
+            _ = token
+        }
+        // Attribute names: word followed by `=` outside comments/strings.
+        guard let attrRegex = try? NSRegularExpression(
+            pattern: #"[a-zA-Z_:][a-zA-Z0-9_:.-]*(?=\s*=\s*["'])"#,
+            options: []
+        ) else { return result }
+        attrRegex.enumerateMatches(in: source, range: full) { match, _, _ in
+            guard let match else { return }
+            let ns = source as NSString
+            if insideComment(ns, index: match.range.location) { return }
+            // Must sit inside a tag: nearest `<` ahead without an
+            // intervening `>`.
+            let prefix = ns.substring(to: match.range.location)
+            guard let open = prefix.lastIndex(of: "<"),
+                  !prefix[open...].contains(">") else { return }
+            result.addAttribute(.foregroundColor, value: attrColor, range: match.range)
+        }
+        return result
+    }
+
+    private static func insideComment(_ ns: NSString, index: Int) -> Bool {
+        let text = ns as String
+        var cursor = text.startIndex
+        while let open = text.range(of: "<!--", range: cursor..<text.endIndex) {
+            guard let close = text.range(of: "-->", range: open.upperBound..<text.endIndex) else {
+                // Unclosed comment runs to the end.
+                return index >= text.distance(from: text.startIndex, to: open.lowerBound)
+            }
+            let openIdx = text.distance(from: text.startIndex, to: open.lowerBound)
+            let closeIdx = text.distance(from: text.startIndex, to: close.upperBound)
+            if index >= openIdx, index < closeIdx { return true }
+            cursor = close.upperBound
+        }
+        return false
+    }
+
+    /// Line/column (1-based) of a character index for the status readout.
+    static func lineColumn(in source: NSString, index: Int) -> (line: Int, column: Int) {
+        let clamped = max(0, min(index, source.length))
+        let prefix = source.substring(to: clamped)
+        let line = prefix.components(separatedBy: "\n").count
+        let lastBreak = prefix.lastIndex(of: "\n")
+        let lineStart = lastBreak.map { prefix.distance(from: prefix.startIndex, to: $0) + 1 } ?? 0
+        return (line, clamped - lineStart + 1)
+    }
+
+    /// 1-based line number gutter text (`"1\n2\n3…"`) for a source string.
+    /// Counts real paragraphs (matching the gutter's fragment walk) plus the
+    /// phantom line when the text ends with a newline.
+    static func lineNumbers(for source: String) -> String {
+        var count = 0
+        (source as NSString).enumerateSubstrings(
+            in: NSRange(location: 0, length: (source as NSString).length),
+            options: .byParagraphs
+        ) { _, _, _, _ in count += 1 }
+        if source.hasSuffix("\n") { count += 1 }
+        count = max(1, count)
+        return (1...count).map(String.init).joined(separator: "\n")
+    }
+
+    /// Matching open/close tag pair around `cursor` (either side inside the
+    /// tag or its content). Nil for void elements, comments, and unmatched.
+    static func matchingTagPair(in source: NSString, cursor: Int) -> (open: NSRange, close: NSRange)? {
+        let text = source as String
+        let full = NSRange(location: 0, length: source.length)
+        guard full.length > 0 else { return nil }
+        guard let tagRegex = try? NSRegularExpression(
+            pattern: #"<!--.*?-->|<(/?)([a-zA-Z][a-zA-Z0-9-]*)[^<>]*?(/?)>"#,
+            options: [.dotMatchesLineSeparators, .caseInsensitive]
+        ) else { return nil }
+        struct Tag { let name: String; let range: NSRange; let isClose: Bool; let selfClose: Bool }
+        var tags: [Tag] = []
+        tagRegex.enumerateMatches(in: text, range: full) { match, _, _ in
+            guard let match, match.range.location != NSNotFound else { return }
+            let ns = text as NSString
+            let token = ns.substring(with: match.range)
+            if token.hasPrefix("<!--") { return }
+            let nameRange = match.range(at: 2)
+            guard nameRange.location != NSNotFound else { return }
+            let name = ns.substring(with: nameRange).lowercased()
+            let closeRange = match.range(at: 1)
+            let selfRange = match.range(at: 3)
+            let isClose = closeRange.location != NSNotFound
+                && ns.substring(with: closeRange) == "/"
+            let selfClose = selfRange.location != NSNotFound
+                && !ns.substring(with: selfRange).isEmpty
+            tags.append(Tag(name: name, range: match.range, isClose: isClose, selfClose: selfClose))
+        }
+        // Anchor: innermost tag containing the cursor, else the tag just before it.
+        var anchor: Int?
+        for (i, tag) in tags.enumerated() {
+            if NSLocationInRange(cursor, tag.range)
+                || (cursor == tag.range.location + tag.range.length && cursor > 0) {
+                anchor = i
+            }
+        }
+        if anchor == nil {
+            for (i, tag) in tags.enumerated() where tag.range.location + tag.range.length <= cursor {
+                anchor = i
+            }
+        }
+        guard let a = anchor else { return nil }
+        let pivot = tags[a]
+        guard !pivot.selfClose, !voidElements.contains(pivot.name) else { return nil }
+        if pivot.isClose {
+            var depth = 0
+            for i in stride(from: a, through: 0, by: -1) {
+                let t = tags[i]
+                guard t.name == pivot.name, !t.selfClose, !voidElements.contains(t.name) else { continue }
+                if t.isClose { depth += 1 } else {
+                    depth -= 1
+                    if depth == 0 { return (t.range, pivot.range) }
+                }
+            }
+        } else {
+            var depth = 0
+            for i in a..<tags.count {
+                let t = tags[i]
+                guard t.name == pivot.name, !t.selfClose, !voidElements.contains(t.name) else { continue }
+                if !t.isClose { depth += 1 } else {
+                    depth -= 1
+                    if depth == 0 { return (pivot.range, t.range) }
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Auto-close insertion for a just-typed `>` at `gtIndex` (the `>`'s own
+    /// index). Returns the closing tag to insert, or nil for closing tags,
+    /// self-closed tags, void elements, and non-tag `>` (e.g. math `a>b`).
+    static func autoCloseTag(in source: NSString, gtIndex: Int) -> String? {
+        guard gtIndex > 0, gtIndex <= source.length else { return nil }
+        let text = source as String
+        // Walk back over the tag body to its `<`.
+        var i = gtIndex - 1
+        let ns = text as NSString
+        // `/` immediately before `>` means self-closed.
+        if ns.character(at: i) == 47 { return nil } // "/"
+        while i >= 0 {
+            let ch = ns.character(at: i)
+            if ch == 60 { break } // "<"
+            if ch == 62 { return nil } // ">" — not inside a tag
+            i -= 1
+        }
+        guard i >= 0 else { return nil }
+        let body = ns.substring(with: NSRange(location: i + 1, length: gtIndex - i - 1))
+        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.hasPrefix("/"), !trimmed.hasPrefix("!") else { return nil }
+        let name = trimmed.split(whereSeparator: { $0.isWhitespace || $0 == "/" }).first.map(String.init) ?? ""
+        guard !name.isEmpty, !voidElements.contains(name.lowercased()) else { return nil }
+        // Don't duplicate when the text right after already closes it.
+        let rest = ns.substring(from: gtIndex)
+        if rest.hasPrefix("</\(name)>") || rest.hasPrefix("</\(name.lowercased())>") { return nil }
+        return "</\(name)>"
+    }
+
+    static func platformColor(hex: String?) -> Any? {
+        guard var hex = hex?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !hex.isEmpty else { return nil }
+        if hex.hasPrefix("#") { hex.removeFirst() }
+        let named: [String: String] = [
+            "red": "ff0000", "green": "008000", "blue": "0000ff",
+            "black": "000000", "white": "ffffff", "gray": "808080",
+            "grey": "808080", "yellow": "ffff00", "orange": "ffa500",
+            "purple": "800080", "pink": "ffc0cb",
+        ]
+        if let mapped = named[hex] { hex = mapped }
+        if hex.count == 3 {
+            hex = hex.map { "\($0)\($0)" }.joined()
+        }
+        guard hex.count == 6, let rgb = UInt32(hex, radix: 16) else { return nil }
+        let r = CGFloat((rgb >> 16) & 0xFF) / 255
+        let g = CGFloat((rgb >> 8) & 0xFF) / 255
+        let b = CGFloat(rgb & 0xFF) / 255
+        #if canImport(UIKit)
+        return UIColor(red: r, green: g, blue: b, alpha: 1)
+        #else
+        return NSColor(srgbRed: r, green: g, blue: b, alpha: 1)
+        #endif
+    }
+
+    /// Normalizes a CSS/HTML color to `#rrggbb` for round-tripping.
+    static func normalizeHex(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !trimmed.isEmpty else { return nil }
+        if trimmed.hasPrefix("#") {
+            var hex = String(trimmed.dropFirst())
+            if hex.count == 3 { hex = hex.map { "\($0)\($0)" }.joined() }
+            guard hex.count == 6, UInt32(hex, radix: 16) != nil else { return nil }
+            return "#" + hex
+        }
+        if trimmed.hasPrefix("rgb") { return nil }
+        let named: [String: String] = [
+            "red": "#ff0000", "green": "#008000", "blue": "#0000ff",
+            "black": "#000000", "white": "#ffffff", "gray": "#808080",
+            "grey": "#808080", "yellow": "#ffff00", "orange": "#ffa500",
+            "purple": "#800080", "pink": "#ffc0cb",
+        ]
+        return named[trimmed]
     }
 
     static func fontByApplying(_ style: Style, to font: Font) -> Font {
@@ -493,8 +798,11 @@ enum NoteFieldHTML {
                     break
                 }
                 let tagBody = String(html[html.index(after: index)..<close])
-                if let filename = imageSource(from: tagBody) {
-                    result.append(imagePlaceholder(filename: filename, font: font, style: style, block: block))
+                if let info = imageInfo(from: tagBody) {
+                    result.append(imagePlaceholder(
+                        filename: info.filename, font: font, style: style, block: block,
+                        widthAttr: info.width, heightAttr: info.height
+                    ))
                     index = html.index(after: close)
                     continue
                 }
@@ -621,8 +929,31 @@ enum NoteFieldHTML {
              (true, _, "i"), (true, _, "em"),
              (true, _, "u"),
              (true, _, "s"), (true, _, "strike"), (true, _, "del"),
-             (true, _, "sup"), (true, _, "sub"), (true, _, "code"):
+             (true, _, "sup"), (true, _, "sub"), (true, _, "code"),
+             (true, _, "a"), (true, _, "span"), (true, _, "font"):
             style = stack.popLast() ?? Style()
+        case (false, _, "a"):
+            stack.append(style)
+            if let href = attrs["href"], !href.isEmpty {
+                style.linkHref = href
+            }
+        case (false, _, "font"):
+            stack.append(style)
+            if let color = attrs["color"], let hex = normalizeHex(color) {
+                style.textColorHex = hex
+            }
+        case (false, _, "span"):
+            stack.append(style)
+            if let css = attrs["style"] {
+                let map = cssMap(css)
+                if let color = map["color"], let hex = normalizeHex(color) {
+                    style.textColorHex = hex
+                }
+                if let bg = map["background-color"] ?? map["background"],
+                   let hex = normalizeHex(bg) {
+                    style.highlightHex = hex
+                }
+            }
         default:
             break
         }
@@ -636,7 +967,17 @@ enum NoteFieldHTML {
         var output = ""
         attributed.enumerateAttributes(in: range, options: []) { attributes, subrange, _ in
             if let filename = imageFilename(from: attributes), !filename.isEmpty {
-                output += #"<img src="\#(escapeAttribute(filename))">"#
+                var tag = #"<img src="\#(escapeAttribute(filename))""#
+                if let attachment = attributes[.attachment] as? NoteFieldImageAttachment {
+                    if let w = attachment.widthAttr, !w.isEmpty {
+                        tag += #" width="\#(escapeAttribute(w))""#
+                    }
+                    if let h = attachment.heightAttr, !h.isEmpty {
+                        tag += #" height="\#(escapeAttribute(h))""#
+                    }
+                }
+                tag += ">"
+                output += tag
                 return
             }
             let raw = (attributed.string as NSString).substring(with: subrange)
@@ -656,19 +997,45 @@ enum NoteFieldHTML {
         if style.underline { wrapped = "<u>\(wrapped)</u>" }
         if style.italic { wrapped = "<i>\(wrapped)</i>" }
         if style.bold { wrapped = "<b>\(wrapped)</b>" }
+        // Colors/links wrap last (outermost) so inner tags stay intact.
+        var css = ""
+        if let c = style.textColorHex { css += "color: \(c);" }
+        if let h = style.highlightHex { css += "background-color: \(h);" }
+        if !css.isEmpty {
+            wrapped = "<span style=\"\(css.trimmingCharacters(in: .whitespaces))\">\(wrapped)</span>"
+        }
+        if let href = style.linkHref, !href.isEmpty {
+            wrapped = "<a href=\"\(escapeAttribute(href))\">\(wrapped)</a>"
+        }
         return wrapped
     }
 
-    private static func imageSource(from tag: String) -> String? {
+    /// Image tag info: filename plus author-specified dimensions (width /
+    /// height attributes or inline `style="width:…;height:…"`), preserved
+    /// through the rich round-trip instead of discarded.
+    struct ImageTagInfo {
+        let filename: String
+        let width: String?
+        let height: String?
+    }
+
+    private static func imageInfo(from tag: String) -> ImageTagInfo? {
         let trimmed = tag.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.lowercased().hasPrefix("img") else { return nil }
-        guard let regex = try? NSRegularExpression(pattern: #"src\s*=\s*["']([^"']+)["']"#, options: .caseInsensitive) else {
-            return nil
+        let attrs = tagAttributes(trimmed)
+        guard let src = attrs["src"], !src.isEmpty else { return nil }
+        var width = attrs["width"]
+        var height = attrs["height"]
+        if let style = attrs["style"] {
+            let css = cssMap(style)
+            width = width ?? css["width"]
+            height = height ?? css["height"]
         }
-        let ns = tag as NSString
-        guard let match = regex.firstMatch(in: tag, range: NSRange(location: 0, length: ns.length)),
-              match.numberOfRanges > 1 else { return nil }
-        return ns.substring(with: match.range(at: 1))
+        return ImageTagInfo(filename: src, width: width, height: height)
+    }
+
+    private static func imageSource(from tag: String) -> String? {
+        imageInfo(from: tag)?.filename
     }
 
     static func imageFilename(from attributes: [NSAttributedString.Key: Any]) -> String? {
@@ -702,15 +1069,63 @@ enum NoteFieldHTML {
         style: Style = .init(),
         listKind: ListKind = .none,
         block: BlockStyle? = nil,
-        image: PlatformImage? = nil
+        image: PlatformImage? = nil,
+        widthAttr: String? = nil,
+        heightAttr: String? = nil
     ) -> NSAttributedString {
         let attachment = NoteFieldImageAttachment(filename: filename)
         attachment.image = framedImage(image) ?? loadingPlaceholderImage()
+        attachment.widthAttr = widthAttr
+        attachment.heightAttr = heightAttr
         var attrs = attributes(for: style, font: font, block: block ?? BlockStyle(listKind: listKind))
         attrs[imageFilenameKey] = filename
         let result = NSMutableAttributedString(attachment: attachment)
         result.addAttributes(attrs, range: NSRange(location: 0, length: result.length))
         return result
+    }
+
+    /// Info about the image attachment at `index` (the tapped glyph), for
+    /// the resize menu. Nil when the index is not on an image.
+    static func imageInfo(
+        in attributed: NSAttributedString,
+        at index: Int
+    ) -> (filename: String, width: String?, height: String?)? {
+        guard index >= 0, index < attributed.length else { return nil }
+        var result: (String, String?, String?)?
+        attributed.enumerateAttribute(
+            .attachment,
+            in: NSRange(location: index, length: 1),
+            options: []
+        ) { value, _, _ in
+            guard let attachment = value as? NoteFieldImageAttachment else { return }
+            result = (attachment.filename, attachment.widthAttr, attachment.heightAttr)
+        }
+        return result
+    }
+
+    /// Sets (`width` px, height auto) or clears (nil) the stored dimensions
+    /// of the image attachment at `index`. Returns false when no attachment
+    /// was found there. Operates on the attachment object in place so the
+    /// text layout is untouched — the next encode re-emits the tag.
+    @discardableResult
+    static func setImageWidth(
+        _ width: String?,
+        in attributed: NSAttributedString,
+        at index: Int
+    ) -> Bool {
+        guard index >= 0, index < attributed.length else { return false }
+        var applied = false
+        attributed.enumerateAttribute(
+            .attachment,
+            in: NSRange(location: index, length: 1),
+            options: []
+        ) { value, _, _ in
+            guard let attachment = value as? NoteFieldImageAttachment else { return }
+            attachment.widthAttr = width
+            attachment.heightAttr = nil
+            applied = true
+        }
+        return applied
     }
 
     static func framedImage(_ image: PlatformImage?) -> PlatformImage? {
@@ -1042,6 +1457,10 @@ enum NoteFieldHTML {
 /// attributes, and sizes the bitmap to the field width.
 final class NoteFieldImageAttachment: NSTextAttachment {
     var filename: String
+    /// Author-specified dimensions from the source `<img>` tag, re-emitted
+    /// on encode so the rich round-trip preserves them.
+    var widthAttr: String?
+    var heightAttr: String?
 
     init(filename: String) {
         self.filename = filename
@@ -1050,12 +1469,16 @@ final class NoteFieldImageAttachment: NSTextAttachment {
 
     required init?(coder: NSCoder) {
         filename = (coder.decodeObject(of: NSString.self, forKey: "amgi.filename") as String?) ?? ""
+        widthAttr = coder.decodeObject(of: NSString.self, forKey: "amgi.width") as String?
+        heightAttr = coder.decodeObject(of: NSString.self, forKey: "amgi.height") as String?
         super.init(coder: coder)
     }
 
     override func encode(with coder: NSCoder) {
         super.encode(with: coder)
         coder.encode(filename as NSString, forKey: "amgi.filename")
+        if let widthAttr { coder.encode(widthAttr as NSString, forKey: "amgi.width") }
+        if let heightAttr { coder.encode(heightAttr as NSString, forKey: "amgi.height") }
     }
 
     override func attachmentBounds(

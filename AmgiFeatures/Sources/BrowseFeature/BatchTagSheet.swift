@@ -7,6 +7,8 @@ import AmgiTheme
 
 struct BatchTagSheet: View {
     let noteIDs: Set<NoteID>
+    var cardIDs: Set<CardID> = []
+    var browseModel: BrowseModel?
     let onApplied: () -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -81,7 +83,15 @@ struct BatchTagSheet: View {
 private extension BatchTagSheet {
     func apply() {
         Task {
-            await model.apply(noteIDs: noteIDs, tags: checkedTags)
+            if let browseModel {
+                // Resolve card-derived notes async (uncached siblings included).
+                let notes = await browseModel.resolveTargetNotes(
+                    cardIDs: Array(cardIDs), noteIDs: Array(noteIDs)
+                )
+                await model.apply(noteIDs: Set(notes), tags: checkedTags)
+            } else {
+                await model.apply(noteIDs: noteIDs, tags: checkedTags)
+            }
             onApplied()
             dismiss()
         }

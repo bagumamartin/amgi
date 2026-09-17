@@ -58,6 +58,8 @@ enum DecksMethod {
     static let getDeckNames: UInt32 = 13
     static let removeDecks: UInt32 = 16
     static let renameDeck: UInt32 = 18
+    static let getOrCreateFilteredDeck: UInt32 = 19
+    static let addOrUpdateFilteredDeck: UInt32 = 20
     static let setCurrentDeck: UInt32 = 22
     static let getCurrentDeck: UInt32 = 23
 }
@@ -96,6 +98,9 @@ enum NotetypesMethod {
     static let getNotetype: UInt32 = 6
     static let getNotetypeNames: UInt32 = 8
     static let removeNotetype: UInt32 = 11
+    static let getChangeNotetypeInfo: UInt32 = 14
+    static let changeNotetype: UInt32 = 15
+    static let getFieldNames: UInt32 = 16
 }
 
 enum StatsMethod {
@@ -120,6 +125,9 @@ enum NotesMethod {
     static let updateNotes: UInt32 = 5
     static let getNote: UInt32 = 6
     static let cardsOfNote: UInt32 = 12
+    static let fieldNamesForNotes: UInt32 = 10
+    static let noteFieldsCheck: UInt32 = 11
+    static let clozeNumbersInNote: UInt32 = 8
 }
 
 enum SearchMethod {
