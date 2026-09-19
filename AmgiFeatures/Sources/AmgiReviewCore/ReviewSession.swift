@@ -537,7 +537,7 @@ public final class ReviewSession {
     }
 }
 
-private extension ReviewSession {
+extension ReviewSession {
 
     /// Re-renders the current card after the note or template was edited.
     /// The whole engine round-trip runs off the main actor — it used to call

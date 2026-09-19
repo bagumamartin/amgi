@@ -37,7 +37,7 @@ struct NoteComposerDraft: Codable, Equatable, Hashable, Identifiable, Sendable {
         case id, updatedAt, deckID, notetypeID, fieldNames, fieldValues, tags, noteID
     }
 
-    init(from decoder: Decoder) throws {
+    init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? Date()
@@ -49,7 +49,7 @@ struct NoteComposerDraft: Codable, Equatable, Hashable, Identifiable, Sendable {
         noteID = try container.decodeIfPresent(Int64.self, forKey: .noteID)
     }
 
-    func encode(to encoder: Encoder) throws {
+    func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
         try container.encode(updatedAt, forKey: .updatedAt)

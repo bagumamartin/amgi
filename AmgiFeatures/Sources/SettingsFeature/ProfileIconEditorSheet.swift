@@ -5,13 +5,8 @@ import AmgiAppShared
 import AmgiTheme
 import AnkiClients
 import Dependencies
-#if os(iOS)
-// Vendored iOS-only static library (see Vendor/MCEmojiPicker/VENDOR_NOTE.md).
-import MCEmojiPicker
-#endif
 
-/// Editor for a profile's emoji icon. iOS uses MCEmojiPicker; macOS has no
-/// system emoji-picker view, so it takes a validated single-emoji field.
+/// Editor for a profile's emoji icon.
 /// Commits write through `ProfileIconStore` (col.conf → collection sync)
 /// and bump the generation so the Library switcher updates immediately.
 struct ProfileIconEditorSheet: View {
@@ -20,7 +15,6 @@ struct ProfileIconEditorSheet: View {
 
     @Dependency(\.collectionStore) private var store
     @State private var iconStore = ProfileIconStore.shared
-    @State private var showPicker = false
     @State private var draftText = ""
     @Environment(\.dismiss) private var dismiss
     @Environment(\.palette) private var palette
@@ -51,9 +45,7 @@ struct ProfileIconEditorSheet: View {
                         }
                     }
                 } footer: {
-                    #if os(macOS)
-                    Text("Paste any emoji — e.g. 🙂 📚 🇰🇷 — then Save.")
-                    #endif
+                    Text("Enter or paste any emoji — e.g. 🙂 📚 🇰🇷 — then Save.")
                 }
             }
             .navigationTitle("Profile Icon")
@@ -84,47 +76,24 @@ struct ProfileIconEditorSheet: View {
         .frame(width: 44, height: 44)
     }
 
-    @ViewBuilder
     private var pickerSection: some View {
-        #if os(iOS)
-        Section {
-            Button {
-                showPicker.toggle()
-            } label: {
-                HStack {
-                    Text("Choose Emoji")
-                    Spacer()
-                    if let current = iconStore.icon(for: account.id) {
-                        Text(current).amgiFont(.cardTitle)
-                    } else {
-                        Image(systemName: "face.smiling")
-                            .foregroundStyle(palette.textSecondary)
+        Section("Emoji") {
+            HStack {
+                TextField("🙂", text: $draftText)
+                    .autocorrectionDisabled()
+                if !draftText.isEmpty {
+                    Button("Clear") {
+                        draftText = ""
                     }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(palette.textSecondary)
                 }
             }
-        }
-        .emojiPicker(
-            isPresented: $showPicker,
-            // Wrapper takes a non-optional String; empty writes (dismissal)
-            // are ignored.
-            selectedEmoji: Binding(
-                get: { iconStore.icon(for: account.id) ?? "" },
-                set: { newValue in
-                    guard !newValue.isEmpty else { return }
-                    Task { await commit(newValue) }
-                }
-            )
-        )
-        #else
-        Section {
-            TextField("🙂", text: $draftText)
-                .autocorrectionDisabled()
             Button("Save Emoji") {
                 Task { await commit(ProfileIconStore.sanitizedEmoji(from: draftText)) }
             }
             .disabled(ProfileIconStore.sanitizedEmoji(from: draftText) == nil)
         }
-        #endif
     }
 
     // MARK: - Commit

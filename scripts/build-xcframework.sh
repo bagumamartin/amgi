@@ -8,6 +8,7 @@ OUTPUT_DIR="$ROOT_DIR/AnkiRustLib.xcframework"
 STAGE_DIR="$BRIDGE_DIR/target/xcframework-stage"
 HEADER="$BRIDGE_DIR/include/anki_bridge.h"
 
+export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:$PATH"
 export PROTOC="${PROTOC:-$(which protoc 2>/dev/null || echo /opt/homebrew/bin/protoc)}"
 
 # anki_proto's build script writes the protobuf descriptor pool and anki's build
@@ -53,14 +54,23 @@ cargo build \
     --target aarch64-apple-ios-sim \
     --release
 
-echo "==> Building for watchOS simulator (aarch64-apple-watchos-sim, build-std)..."
-# Simulator slice only. The watchOS *device* target is arm64_32-apple-watchos
-# (ILP32); add it here the same way once a physical-watch build is actually needed.
-cargo "+$NIGHTLY" build \
-    -Z build-std=std,panic_abort \
-    --manifest-path "$BRIDGE_DIR/Cargo.toml" \
-    --target aarch64-apple-watchos-sim \
-    --release
+HAS_WATCHOS=0
+if cargo "+$NIGHTLY" --version >/dev/null 2>&1; then
+    echo "==> Building for watchOS simulator (aarch64-apple-watchos-sim, build-std)..."
+    # Simulator slice only. The watchOS *device* target is arm64_32-apple-watchos
+    # (ILP32); add it here the same way once a physical-watch build is actually needed.
+    if cargo "+$NIGHTLY" build \
+        -Z build-std=std,panic_abort \
+        --manifest-path "$BRIDGE_DIR/Cargo.toml" \
+        --target aarch64-apple-watchos-sim \
+        --release; then
+        HAS_WATCHOS=1
+    else
+        echo "==> Warning: watchOS simulator build failed; continuing without it..."
+    fi
+else
+    echo "==> Skipping watchOS simulator (nightly toolchain not installed)"
+fi
 
 echo "==> Building for macOS (aarch64-apple-darwin)..."
 # Native macOS app (personal/main). Arm64-only: this machine and every
@@ -143,16 +153,24 @@ echo "==> Staging frameworks..."
 rm -rf "$STAGE_DIR"
 make_framework aarch64-apple-ios            ios-device  iPhoneOS        "$IPHONEOS_DEPLOYMENT_TARGET"
 make_framework aarch64-apple-ios-sim        ios-sim     iPhoneSimulator "$IPHONEOS_DEPLOYMENT_TARGET"
-make_framework aarch64-apple-watchos-sim    watchos-sim WatchSimulator  "$WATCHOS_DEPLOYMENT_TARGET"
+if [ "$HAS_WATCHOS" = "1" ]; then
+    make_framework aarch64-apple-watchos-sim watchos-sim WatchSimulator  "$WATCHOS_DEPLOYMENT_TARGET"
+fi
 make_framework aarch64-apple-darwin         macos       MacOSX          "$MACOSX_DEPLOYMENT_TARGET" versioned
 
 echo "==> Packaging XCFramework..."
 rm -rf "$OUTPUT_DIR"
+FRAMEWORK_ARGS=(
+    -framework "$STAGE_DIR/ios-device/AnkiRustLib.framework"
+    -framework "$STAGE_DIR/ios-sim/AnkiRustLib.framework"
+    -framework "$STAGE_DIR/macos/AnkiRustLib.framework"
+)
+if [ "$HAS_WATCHOS" = "1" ]; then
+    FRAMEWORK_ARGS+=(-framework "$STAGE_DIR/watchos-sim/AnkiRustLib.framework")
+fi
+
 xcodebuild -create-xcframework \
-    -framework "$STAGE_DIR/ios-device/AnkiRustLib.framework" \
-    -framework "$STAGE_DIR/ios-sim/AnkiRustLib.framework" \
-    -framework "$STAGE_DIR/watchos-sim/AnkiRustLib.framework" \
-    -framework "$STAGE_DIR/macos/AnkiRustLib.framework" \
+    "${FRAMEWORK_ARGS[@]}" \
     -output "$OUTPUT_DIR"
 
 echo "==> Done! XCFramework at: $OUTPUT_DIR"

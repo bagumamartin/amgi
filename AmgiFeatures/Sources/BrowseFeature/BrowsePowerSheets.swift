@@ -196,7 +196,7 @@ struct BrowseExportSheet: View {
     @State private var includeDeckConfigs = true
     @State private var status: String?
     @State private var working = false
-    @State private var shareURL: URL?
+    @State private var shareURL: IdentifiableURL?
     @State private var resolvedNotes: [NoteID]?
     @State private var resolvedCards: [CardID] = []
 
@@ -231,8 +231,8 @@ struct BrowseExportSheet: View {
                 }
             }
             .task { await resolve() }
-            .sheet(item: $shareURL) { url in
-                BrowseShareSheet(url: url)
+            .sheet(item: $shareURL) { item in
+                BrowseShareSheet(url: item.url)
             }
         }
         .presentationDetents([.medium, .large])
@@ -296,15 +296,16 @@ struct BrowseExportSheet: View {
                 }
             }
             status = "Exported \(count) note\(count == 1 ? "" : "s") to \(fileName)."
-            shareURL = outURL
+            shareURL = IdentifiableURL(url: outURL)
         } catch {
             status = "Couldn't export: \(error.localizedDescription)"
         }
     }
 }
 
-extension URL: Identifiable {
-    var id: String { absoluteString }
+private struct IdentifiableURL: Identifiable {
+    let url: URL
+    var id: String { url.absoluteString }
 }
 
 #if canImport(UIKit)

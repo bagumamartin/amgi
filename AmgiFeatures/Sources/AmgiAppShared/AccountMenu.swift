@@ -74,20 +74,20 @@ private struct AccountMenuControlModifier: ViewModifier {
 package extension View {
     /// Installs the profile/account toolbar control plus its push
     /// destinations. Use once per root view, inside its NavigationStack.
-    package func accountMenu(placement: ToolbarItemPlacement = .topBarLeading) -> some View {
+    func accountMenu(placement: ToolbarItemPlacement = .topBarLeading) -> some View {
         modifier(AccountMenuModifier(placement: placement))
     }
 
     /// Toolbar control only; pair with `accountMenuDestinations(_:)` on an
     /// enclosing stack.
-    package func accountMenuControl(
+    func accountMenuControl(
         placement: ToolbarItemPlacement = .topBarLeading,
         open: Binding<AccountMenuDestination?>
     ) -> some View {
         modifier(AccountMenuControlModifier(placement: placement, open: open))
     }
 
-    package func accountMenuDestinations(_ destination: Binding<AccountMenuDestination?>) -> some View {
+    func accountMenuDestinations(_ destination: Binding<AccountMenuDestination?>) -> some View {
         modifier(AccountMenuDestinationModifier(destination: destination))
     }
 }

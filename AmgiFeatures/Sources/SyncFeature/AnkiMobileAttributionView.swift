@@ -11,37 +11,17 @@ package struct AnkiMobileAttributionView: View {
 
     package var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label("Sync provided by AnkiWeb", systemImage: "icloud.and.arrow.up.fill")
+            Label("Sync Server Compatibility", systemImage: "arrow.triangle.2.circlepath")
                 .amgiFont(.bodyEmphasis)
                 .foregroundStyle(palette.textPrimary)
-            Text("AnkiWeb is supported by sales of AnkiMobile. Please consider purchasing a copy to support the sync servers.")
+            Text("Amgi syncs with self-hosted and custom Anki-compatible sync servers. Amgi is an independent application and is not affiliated with, sponsored by, or endorsed by AnkiWeb or Damien Elmes.")
                 .amgiFont(.caption)
                 .foregroundStyle(palette.textSecondary)
-            Button {
-                openAnkiMobile()
-            } label: {
-                Label("View AnkiMobile in App Store", systemImage: "apps.iphone")
-            }
-            .amgiFont(.captionBold)
         }
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(palette.surface.opacity(0.5))
         .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.inset))
-    }
-}
-
-private extension AnkiMobileAttributionView {
-    func openAnkiMobile() {
-        #if canImport(UIKit)
-        guard let url = URL(string: "itms-apps://itunes.apple.com/app/id373493387") else { return }
-        UIApplication.shared.open(url)
-        #elseif canImport(AppKit)
-        // The itms-apps scheme doesn't resolve on macOS; use the web App
-        // Store link, which the system routes to the App Store app.
-        guard let url = URL(string: "https://apps.apple.com/app/id373493387") else { return }
-        NSWorkspace.shared.open(url)
-        #endif
     }
 }
 

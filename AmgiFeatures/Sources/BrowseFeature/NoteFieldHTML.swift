@@ -874,7 +874,7 @@ enum NoteFieldHTML {
             let parsed = listKind(from: attrs, ordered: name == "ol")
             block.listKind = parsed
             block.alignment = .left
-            if !blockStack.isEmpty, blockStack.last?.listKind != .none {
+            if let parentList = blockStack.last?.listKind, parentList != .none {
                 block.indent = min(maxIndent, block.indent + 1)
             }
         case (true, _, "ul"), (true, _, "ol"):

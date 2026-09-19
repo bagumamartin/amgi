@@ -27,7 +27,7 @@ private struct DeckImportModifier: ViewModifier {
 }
 
 private extension DeckImportModifier {
-    func handleImport(_ result: Result<URL, Error>) {
+    func handleImport(_ result: Result<URL, any Error>) {
         switch result {
         case .success(let url):
             let ext = url.pathExtension.lowercased()

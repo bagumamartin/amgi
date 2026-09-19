@@ -694,7 +694,7 @@ private struct NoteFieldUIKitHost: UIViewRepresentable {
         }
 
         private func wrapCloze(increment: Bool) {
-            guard let textView else { return }
+            guard textView != nil else { return }
             let ordinal = session.nextClozeOrdinal(increment: increment)
             wrapPlain("{{c\(ordinal)::", suffix: "}}")
         }

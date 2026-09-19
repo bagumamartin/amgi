@@ -28,7 +28,7 @@ package final class CardWebViewPrewarmer {
     private var isPrewarming = false
 
     #if os(iOS)
-    private var memoryWarningToken: NSObjectProtocol?
+    private var memoryWarningToken: (any NSObjectProtocol)?
     #endif
 
     private init() {

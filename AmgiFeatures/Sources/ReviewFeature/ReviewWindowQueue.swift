@@ -1,11 +1,8 @@
 #if os(macOS)
 package import SwiftUI
 import AmgiTheme
-#endif
 import Foundation
 package import AnkiKit
-
-#if os(macOS)
 
 /// One-shot queue of deck requests for the macOS review windows.
 ///

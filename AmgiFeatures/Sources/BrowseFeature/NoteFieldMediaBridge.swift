@@ -337,7 +337,7 @@ final class NoteAudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelega
             statusText = "Microphone unavailable"
             return
         }
-        session.requestRecordPermission { [weak self] granted in
+        AVAudioApplication.requestRecordPermission { [weak self] granted in
             Task { @MainActor in
                 guard let self else { return }
                 guard granted else {

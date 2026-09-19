@@ -1,5 +1,5 @@
 #if os(iOS)
-import AVFoundation
+@preconcurrency import AVFoundation
 import Photos
 import PhotosUI
 import SwiftUI

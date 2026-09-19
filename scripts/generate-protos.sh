@@ -6,6 +6,8 @@ ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 PROTO_DIR="$ROOT_DIR/anki-upstream/proto"
 OUTPUT_DIR="$ROOT_DIR/Sources/AnkiProto"
 
+export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:$PATH"
+
 mkdir -p "$OUTPUT_DIR"
 rm -f "$OUTPUT_DIR"/*.pb.swift
 

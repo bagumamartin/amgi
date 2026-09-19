@@ -1,12 +1,12 @@
-package import SwiftUI
 import AmgiTheme
 import AmgiUI
-package import AmgiAppCore
 import BrowseFeature
 import TemplatesFeature
 import ReaderFeature
 
 #if os(macOS)
+package import SwiftUI
+package import AmgiAppCore
 
 /// macOS Settings window: a source-list sidebar of panes (the classic
 /// macOS preferences pattern) instead of the iOS drill-down `Form` of

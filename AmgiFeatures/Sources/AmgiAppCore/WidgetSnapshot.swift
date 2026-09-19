@@ -43,7 +43,7 @@ public struct WidgetSnapshot: Codable, Sendable {
         self.forecast = forecast
     }
 
-    public init(from decoder: Decoder) throws {
+    public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         deckId = try container.decode(Int64.self, forKey: .deckId)
         deckName = try container.decode(String.self, forKey: .deckName)

@@ -3,7 +3,7 @@ import AnkiKit
 import SwiftNavigation
 import SwiftUINavigation
 import AmgiUI
-package import ReviewFeature
+import ReviewFeature
 import UniformTypeIdentifiers  // UTType.data
 
 // Two ViewModifiers split out from `DeckDetailView.body` so the SwiftUI
