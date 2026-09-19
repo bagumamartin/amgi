@@ -4,18 +4,19 @@ import AnkiKit
 import MCP
 
 /// Everything a tool handler needs: the (lazily opened) engine, the
-/// resolved paths, and the active settings snapshot (fixed for the
-/// process lifetime — the app rewrites `mcp.json` and users restart
-/// their MCP client to apply changes, matching how MCP clients cache
-/// server configs).
+/// resolved paths, and MCP configuration. The initial settings determine
+/// the advertised tool list; policy is reloaded by the dispatcher per call.
 struct EngineContext: Sendable {
     let engine: EngineHolder
     let settings: MCPSettings
+    let configPath: String
     let paths: CollectionPaths
+    let caller: EngineCaller?
 
     /// Convenience for handlers: resolves bridged-or-direct engine access.
     func backend() throws -> EngineCaller {
-        try engine.caller()
+        if let caller { return caller }
+        return try engine.caller()
     }
 }
 

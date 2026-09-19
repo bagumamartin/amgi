@@ -1,3 +1,4 @@
+import Foundation
 import AnkiKit
 import MCP
 
@@ -43,6 +44,7 @@ enum Schema {
         var body: [String: MCP.Value] = [
             "type": .string("object"),
             "properties": .object(properties),
+            "additionalProperties": .bool(false),
         ]
         if !required.isEmpty {
             body["required"] = .array(required.map { .string($0) })
@@ -89,7 +91,7 @@ enum Schema {
 
 enum ToolCatalog {
     static var allTools: [AmgiTool] {
-        DeckTools.tools + SearchTools.tools + NoteTools.tools
+        GuidanceTools.tools + DeckTools.tools + SearchTools.tools + NoteTools.tools
             + RenderStatsTools.tools + ConfigMediaTools.tools + ReviewContextTools.tools
     }
 
@@ -100,7 +102,21 @@ enum ToolCatalog {
 
     static func definitions(for tier: ToolTier) -> [MCP.Tool] {
         tools(for: tier).map {
-            MCP.Tool(name: $0.name, description: $0.description, inputSchema: $0.inputSchema)
+            MCP.Tool(
+                name: $0.name,
+                title: $0.name
+                    .split(separator: "_")
+                    .map { $0.capitalized }
+                    .joined(separator: " "),
+                description: $0.description,
+                inputSchema: $0.inputSchema,
+                annotations: .init(
+                    readOnlyHint: !$0.mutates,
+                    destructiveHint: $0.destructive,
+                    idempotentHint: !$0.mutates,
+                    openWorldHint: false
+                )
+            )
         }
     }
 }

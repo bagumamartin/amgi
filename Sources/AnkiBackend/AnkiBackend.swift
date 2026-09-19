@@ -7,6 +7,11 @@ private import SwiftProtobuf
 public final class AnkiBackend: Sendable {
     private let backendPtr: Int64
     private let lock = NSLock()
+    /// Count of bridge-dispatched agent RPCs that are waiting on or executing
+    /// inside the backend. Interactive app calls use this to request Anki's
+    /// cooperative abort before waiting for the serialization lock.
+    private let agentCallCount = Mutex<Int>(0)
+    private let interactiveCallCount = Mutex<Int>(0)
 
     /// Written during `openCollection` and read from arbitrary threads —
     /// the card asset scheme handler and the watch's review screen among
@@ -110,6 +115,15 @@ public final class AnkiBackend: Sendable {
         try callVoid(service: Service.collection, method: CollectionMethod.close, request: req)
     }
 
+    /// Runs non-engine work while excluding every backend RPC. Intended for
+    /// coordinated filesystem snapshots only; calling `invoke` from inside
+    /// `operation` would recursively acquire the same lock and deadlock.
+    public func withExclusiveAccess<T>(_ operation: () throws -> T) rethrows -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return try operation()
+    }
+
     // MARK: - Collection Config (typed JSON helpers)
 
     /// Fetches a JSON-encoded value from the Anki collection config under
@@ -184,9 +198,35 @@ public final class AnkiBackend: Sendable {
 
     // MARK: - Raw FFI
 
-    private func callRaw(service: UInt32, method: UInt32, input: Data) throws(BackendError) -> Data {
+    private func callRaw(
+        service: UInt32,
+        method: UInt32,
+        input: Data,
+        prioritizeInteractive: Bool = true
+    ) throws(BackendError) -> Data {
+        if prioritizeInteractive {
+            interactiveCallCount.withLock { $0 += 1 }
+            if agentCallCount.withLock({ $0 > 0 }) {
+                requestAgentAbortWithoutLock()
+            }
+        }
         lock.lock()
-        defer { lock.unlock() }
+        defer {
+            lock.unlock()
+            if prioritizeInteractive {
+                interactiveCallCount.withLock { $0 -= 1 }
+            }
+        }
+
+        // An agent call may have queued before the interactive caller raised
+        // the abort signal. Once it reaches the lock, yield instead of
+        // starting more work ahead of the app.
+        if !prioritizeInteractive, interactiveCallCount.withLock({ $0 > 0 }) {
+            throw BackendError(
+                kind: .interrupted,
+                message: "Agent operation yielded to an interactive Amgi request."
+            )
+        }
 
         var outPtr: UnsafeMutablePointer<UInt8>? = nil
         var outLen: Int = 0
@@ -226,7 +266,44 @@ public final class AnkiBackend: Sendable {
     /// already has a framed service/method/payload; this forwards it without
     /// a typed `Request<R>`.
     public func performRawCall(service: UInt32, method: UInt32, input: Data) throws -> Data {
-        try callRaw(service: service, method: method, input: input)
+        agentCallCount.withLock { $0 += 1 }
+        defer { agentCallCount.withLock { $0 -= 1 } }
+        return try callRaw(
+            service: service,
+            method: method,
+            input: input,
+            prioritizeInteractive: false
+        )
+    }
+
+    /// Cooperatively interrupts a cancellable operation from outside the
+    /// normal serialized RPC path. Used both by the app's interactive-priority
+    /// path and by a direct MCP helper yielding collection ownership as the
+    /// app launches.
+    public func requestAbort() {
+        requestAgentAbortWithoutLock()
+    }
+
+    /// Anki's progress state is specifically designed to receive this method
+    /// concurrently with a long-running RPC. This bypasses `lock`; routing it
+    /// through `callRaw` would queue behind the operation it needs to stop.
+    /// Errors are intentionally ignored because the waiting interactive call
+    /// remains correct even when the active operation is not cancellable.
+    private func requestAgentAbortWithoutLock() {
+        var output: UnsafeMutablePointer<UInt8>?
+        var outputLength = 0
+        _ = anki_run_method(
+            backendPtr,
+            3, // BackendCollectionService
+            5, // setWantsAbort
+            nil,
+            0,
+            &output,
+            &outputLength
+        )
+        if let output {
+            anki_free_response(output, outputLength)
+        }
     }
 
     // MARK: - Typed Request invocation (public — preferred entry point)

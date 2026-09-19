@@ -31,12 +31,8 @@ enum ReviewContextTools {
                 inputSchema: Schema.object([:]),
                 minimumTier: .readOnly
             ) { ctx, _ in
-                // Probe the bridge FIRST: ctx.backend() would fall back to
-                // opening the collection directly (and could die on the
-                // engine lock held by sibling helpers) before we can tell
-                // the agent "the app simply isn't running".
-                let socketPath = MCPBridge.socketPath()
-                guard ProxyCaller.ping(socketPath: socketPath) else {
+                let caller = try ctx.backend()
+                guard case .bridged(let session) = caller.kind else {
                     throw ToolError.blocked(
                         """
                         Amgi.app is not running. The current-card context only exists while \
@@ -45,17 +41,8 @@ enum ReviewContextTools {
                         """
                     )
                 }
-                let caller = try ctx.backend()
-                guard case .bridged(let bridgePath) = caller.kind else {
-                    throw ToolError.blocked(
-                        "Amgi.app's bridge is not accepting connections — restart Amgi."
-                    )
-                }
-                let path = bridgePath
-
                 // 1) Live session snapshot from the app.
-                let (status, payload) = try ProxyCaller.transact(
-                    socketPath: path,
+                let (status, payload) = try session.transact(
                     service: MCPBridge.pingService,
                     method: MCPBridge.sessionStateMethod,
                     payload: Data()

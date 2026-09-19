@@ -11,8 +11,8 @@ enum NoteTools {
             AmgiTool(
                 name: "notetypes_list",
                 description: """
-                    Lists every notetype with its field names and template count. \
-                    Consult before add_note so field names match exactly.
+                    Lists every notetype with exact field names and whether it is cloze. \
+                    Always call before add_note; never invent a notetype or field name.
                     """,
                 inputSchema: Schema.object([:]),
                 minimumTier: .readOnly
@@ -29,9 +29,11 @@ enum NoteTools {
             AmgiTool(
                 name: "add_note",
                 description: """
-                    Adds one note into a deck. `fields` keys must match the notetype's \
-                    field names exactly (see notetypes_list). HTML is allowed; reference \
-                    media added via add_media_file as <img src="name.jpg"> or [sound:name.mp3].
+                    Adds one note, which may generate one or more scheduled cards. Inspect \
+                    notetypes_list and representative target-deck notes first; preserve the \
+                    user's style and write a focused active-retrieval prompt. Field names \
+                    must match exactly. Prefer plain text/minimal semantic HTML; reference \
+                    uploaded media as <img src="name.jpg"> or [sound:name.mp3].
                     """,
                 inputSchema: Schema.object(
                     [
@@ -85,7 +87,8 @@ enum NoteTools {
                 name: "update_note_fields",
                 description: """
                     Partially updates a note's fields — only the keys you provide are \
-                    changed. Fetch first with get_note to see current values.
+                    changed. Always fetch first with get_note, preserve unrelated content \
+                    and formatting, and use render_card when presentation may change.
                     """,
                 inputSchema: Schema.object(
                     [

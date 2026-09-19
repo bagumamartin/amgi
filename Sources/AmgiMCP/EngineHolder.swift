@@ -9,15 +9,16 @@ import AnkiKit
 ///      bridge; RPCs are forwarded to the app's live engine. This is the
 ///      simultaneous-operation path: agents work while the app is open,
 ///      changes flow through the app's own UI/sync machinery.
-///   2. **Direct mode** — no bridge (app quit), so we open the
-///      collection here. If the app grabbed the lock between checks,
-///      the open fails with a clear "quit Amgi" message and the next
-///      call retries.
+///   2. **Direct mode** — no bridge (app quit), so we open the collection
+///      for the duration of the active tool call. Idle MCP servers never
+///      retain the collection lock. If the app starts before its bridge is
+///      ready, direct access is refused so the app always wins ownership.
 final class EngineHolder: Sendable {
     struct State {
         var proxyActive = false
         var localBackend: AnkiBackend?
         var lastError: String?
+        var activeToolCalls = 0
     }
 
     private let paths: CollectionPaths
@@ -25,6 +26,30 @@ final class EngineHolder: Sendable {
 
     init(paths: CollectionPaths) {
         self.paths = paths
+    }
+
+    /// Brackets one MCP tool request. Direct backends are shared by
+    /// concurrent requests, then closed as soon as the final request ends.
+    /// This is the key ownership rule: an idle MCP process owns nothing.
+    func beginToolCall() {
+        stateBox.withLock { $0.activeToolCalls += 1 }
+    }
+
+    func endToolCall() {
+        stateBox.withLock { state in
+            precondition(state.activeToolCalls > 0, "unbalanced MCP engine lease")
+            state.activeToolCalls -= 1
+            guard state.activeToolCalls == 0, let backend = state.localBackend else { return }
+            do {
+                try backend.closeCollection()
+                state.lastError = nil
+            } catch {
+                // Dropping the backend still closes the Rust backend handle;
+                // retain the diagnostic for collection_status.
+                state.lastError = "direct collection close failed: \(error.localizedDescription)"
+            }
+            state.localBackend = nil
+        }
     }
 
     /// Human-readable description for the collection_status tool.
@@ -48,13 +73,33 @@ final class EngineHolder: Sendable {
             // (force-quit) and reappear later (relaunch). The probe is
             // sub-millisecond against a live app and fails fast against
             // a dead/stale socket (which gets swept as a bonus).
-            if ProxyCaller.ping(socketPath: MCPBridge.socketPath()) {
+            let probe = ProxyCaller.probe(
+                socketPath: MCPBridge.socketPath(),
+                profileID: paths.profileID
+            )
+            if case .live(let session) = probe {
                 state.proxyActive = true
                 state.localBackend = nil
                 state.lastError = nil
-                return EngineCaller(kind: .bridged(socketPath: MCPBridge.socketPath()))
+                return EngineCaller(kind: .bridged(session: session))
+            }
+            if case .unavailable(let message) = probe {
+                state.proxyActive = false
+                state.lastError = message
+                throw ToolError.blocked(message)
             }
             state.proxyActive = false
+
+            // The GUI is the collection authority. There is a small launch
+            // window between NSWorkspace seeing it and mcp.sock accepting;
+            // never use that window to steal the collection from the app.
+            if AppRunningCheck.isAmgiRunning {
+                state.lastError = "Amgi.app is starting; its MCP bridge is not ready yet"
+                throw ToolError.blocked(
+                    "Amgi.app is starting and taking ownership of the collection. " +
+                    "Retry this tool call in a moment; it will run through the app bridge."
+                )
+            }
 
             if let existing = state.localBackend {
                 return EngineCaller(kind: .local(existing))
@@ -71,13 +116,32 @@ final class EngineHolder: Sendable {
                 )
                 state.localBackend = backend
                 state.lastError = nil
+                monitorForAppLaunch(whileOwning: backend)
                 return EngineCaller(kind: .local(backend))
             } catch {
                 state.lastError = error.localizedDescription
                 throw ToolError.blocked(
                     "collection '\(paths.profileID)' is not accessible right now — " +
-                    "Amgi.app may be running and holding it. Quit the app and retry. (\(error.localizedDescription))"
+                    "another process may be finishing a request. Retry in a moment. " +
+                    "(\(error.localizedDescription))"
                 )
+            }
+        }
+    }
+
+    /// Direct ownership is only a fallback while the GUI is absent. If Amgi
+    /// starts during a long engine RPC, request Anki's cooperative abort so
+    /// the request lease can unwind and the app can acquire the collection.
+    private func monitorForAppLaunch(whileOwning backend: AnkiBackend) {
+        Thread.detachNewThread { [weak self, backend] in
+            while let self {
+                let stillOwned = self.stateBox.withLock { $0.localBackend === backend }
+                guard stillOwned else { return }
+                if AppRunningCheck.isAmgiRunning {
+                    backend.requestAbort()
+                    return
+                }
+                Thread.sleep(forTimeInterval: 0.1)
             }
         }
     }

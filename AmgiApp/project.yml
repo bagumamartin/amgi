@@ -273,6 +273,10 @@ targets:
       base:
         PRODUCT_NAME: amgi-mcp
         PRODUCT_BUNDLE_IDENTIFIER: com.bagumamartin.AmgiApp.helper
+        # Mac App Store ingestion requires every nested executable to opt in
+        # to App Sandbox. A command-line helper must carry exactly these two
+        # sandbox entitlements so it inherits the launching process's sandbox.
+        CODE_SIGN_ENTITLEMENTS: AmgiMCPHelper.entitlements
         GENERATE_INFOPLIST_FILE: YES
         SKIP_INSTALL: YES
         SWIFT_VERSION: "6.0"

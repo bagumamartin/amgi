@@ -74,17 +74,24 @@ public struct MCPSettings: Codable, Sendable {
     /// Loads settings from `path`, falling back to defaults for missing
     /// fields so new options don't invalidate existing config files.
     public static func load(from path: String) -> Self {
-        guard let data = FileManager.default.contents(atPath: path) else {
-            return .default
-        }
         do {
-            return try JSONDecoder().decode(Self.self, from: data)
+            return try loadStrict(from: path)
         } catch {
             FileHandle.standardError.write(
                 Data("amgi-mcp: malformed \(path) (\(error)); using defaults\n".utf8)
             )
             return .default
         }
+    }
+
+    /// Security-sensitive loader for request authorization. A missing file
+    /// still means defaults on first launch, but malformed policy must fail
+    /// closed instead of silently enabling the default write tier.
+    public static func loadStrict(from path: String) throws -> Self {
+        guard let data = FileManager.default.contents(atPath: path) else {
+            return .default
+        }
+        return try JSONDecoder().decode(Self.self, from: data)
     }
 }
 

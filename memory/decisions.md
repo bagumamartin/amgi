@@ -224,10 +224,57 @@
   so the app HOSTS the engine and serves AnkiKit.MCPBridge framing over
   `<root>/mcp.sock`; helper probes it per call (ProxyCaller) and falls
   back to direct open when absent. App bumps CollectionStore after
-  forwarded mutations (hardcoded service/method table in
-  MCPBridgeServer — mirrors tier metadata). GOTCHA that hung the app:
+  forwarded mutations (shared `MCPCallPolicy` service/method table in
+  AnkiKit enforces tiers and drives refresh). GOTCHA that hung the app:
   `Task {}` from App.init inherits MainActor — the blocking accept loop
   must run on `Thread.detachNewThread`.
+- **App-authoritative collection ownership (2026-09)**: direct-mode MCP
+  ownership is request-scoped, reference-counted across concurrent tool calls,
+  and closed when the final call ends. Idle MCP client processes hold no rslib
+  collection lock. Once NSWorkspace reports Amgi running, helpers refuse new
+  direct opens during the short pre-bridge launch window; all subsequent calls
+  use the app bridge. The app's busy-state retry starts immediately and backs
+  off from 250 ms to 1 s, and its Retry button now actually interrupts sleep.
+  Stale-socket cleanup is suppressed while the app process exists, avoiding a
+  bind-to-listen race where a helper could unlink the app's brand-new socket.
+  Each tool pins one direct/bridged route for its full lifetime; bridged tools
+  reuse one socket session across all engine RPCs. Frames carry the profile id,
+  and the app rejects mismatches before touching its backend. Accepted sockets
+  are bounded (16), independently served, owner-only (0600), deadline-bound,
+  and protected from SIGPIPE. The wire header has an `AMGI` magic and explicit
+  protocol version so stale or unrelated clients fail closed instead of being
+  misparsed as engine calls.
+- **Cross-process app priority (2026-09)**: while a helper owns the collection
+  directly, a lightweight ownership-lifetime monitor watches for Amgi launch.
+  It sends Anki's cooperative abort to cancellable work, and the pinned local
+  caller refuses every subsequent RPC once the app exists. The request lease
+  then closes the backend, so a live external agent cannot indefinitely keep
+  the GUI on its collection waiting screen.
+- **Interactive app priority (2026-09)**: bridge-dispatched raw calls are marked
+  as agent work inside `AnkiBackend`. When a normal app RPC arrives, it sends
+  Anki's `setWantsAbort` signal outside the Swift serialization lock; long
+  cancellable agent work yields, while atomic mutations finish safely. Queued
+  agent calls are rejected while interactive calls are waiting, so they cannot
+  jump ahead of the UI.
+- **Live MCP policy (2026-09)**: each tool call re-reads `mcp.json`. Turning
+  MCP off, lowering the tier, blocking writes while the app runs, and changing
+  destructive snapshot policy therefore affect already-running MCP clients.
+  Raising the tier still requires reconnecting so the client receives the
+  expanded tool list; lowering is enforced immediately even if cached tools
+  remain visible client-side. Security-sensitive reads use strict decoding:
+  a malformed policy file disables access rather than silently restoring the
+  default safe-write tier.
+- **Self-instructing MCP surface (2026-09)**: initialization now advertises
+  the human title “Amgi Flashcards & Active Retrieval” plus concise domain and
+  workflow instructions, and runs the SDK in strict protocol mode. A first-in-
+  list `amgi_guide` tool carries deeper card-writing guidance for clients that
+  ignore server instructions. Tool definitions include titles and MCP safety
+  annotations (`readOnly`, `destructive`, `idempotent`, closed-world), and
+  schemas reject unknown properties. Guidance teaches proactive Amgi use,
+  current-card routing, read-before-write, retrieval-focused card design,
+  exact notetype fields, minimal semantic HTML, cloze rules, and the native-vs-
+  HTML rendering distinction. Keep shared guidance centralized in
+  `MCPGuidance.swift` rather than duplicating a long preamble on every tool.
 - **Canonical Mac root = group container** (`…/Group Containers/
   group.com.bagumamartin.AmgiApp/AnkiCollection`): sole location both
   sandboxed app and unsandboxed helper can write. NOTE:
@@ -236,16 +283,17 @@
   always go through CollectionLayout. Migration
   (migrateIntoCanonicalRoot) moved container/home legacy data in on
   first launch.
-- **Live-refresh rail**: after each mutation the helper posts a distributed
-  notification `com.amgi.collection.changed`; the app observes it and bumps
-  CollectionStore generation (origin `.helperMutation`, which also rides
-  automatic sync like localUser).
+- **Live-refresh rail**: direct-mode mutations post the distributed notification
+  `com.amgi.collection.changed`; bridged mutations invalidate CollectionStore
+  and request sync inside the app server. Never do both for the same mutation.
 - **Tiers** (mcp.json next to profiles, written by Settings → Agent):
   readOnly / safeWrite (default) / full; destructive ops snapshot db+wal+shm
-  trio first (SQLite online-backup API contends with rslib's read state —
-  file-copy is the reliable route). Service/method index audit found ONE
-  catalog drift: NotesMethod.removeNotes was 3, actually **7** (verified by
-  behavioral probe of every mutating index).
+  trio first under the owning backend's exclusive lock (SQLite online-backup
+  API contends with rslib's read state — file-copy is the reliable route).
+  Raw bridge calls are deny-by-default through `MCPCallPolicy`; the 2026-09
+  audit fixed stale tag/media service ids as well as Notes.removeNotes=7.
+  Snapshot names use millisecond timestamps plus a random suffix, and failed
+  copies remove their partial directory before surfacing the error.
 - **Helper embedded in app bundle**: project.yml target `AmgiMCPHelper`
   (type: tool, macOS) compiles Sources/AmgiMCP; an AmgiApp post-build
   script cp's it to Contents/Helpers/amgi-mcp (ditto denied by script
@@ -255,6 +303,13 @@
   then ~/bin (install script now optional). AnkiProtoBridge became a
   package product for this target. Request.serviceId/.methodId/.body/
   .decode made public as IPC plumbing.
+- **Mac App Store nested-code compliance (2026-09)**: `AmgiMCPHelper`
+  is signed with `AmgiMCPHelper.entitlements`, containing exactly
+  `com.apple.security.app-sandbox` and `com.apple.security.inherit`.
+  Apple requires every nested executable in a Mac App Store submission to
+  opt into App Sandbox, and command-line children must use sandbox inheritance
+  rather than declaring their own capabilities. Do not add app-group, file,
+  or network entitlements to this helper file.
 - **App Intents** (AmgiApp/Sources/Intents/): force-quit-proof on-device
   actions; system cold-launches the app. Gotcha recorded: @Dependency
   property wrappers inside AppIntent structs explode the type checker

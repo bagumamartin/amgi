@@ -17,7 +17,7 @@ The Swift helper is still the real server; this package just finds the bundled b
 # One-off / trial — no install, uses cached env after first run:
 uvx amgi-mcp --help
 # Pin for reproducibility:
-uvx amgi-mcp==1.0.2 --help
+uvx amgi-mcp==1.2.0 --help
 
 # Daily / multi-client — persistent, fastest, no cache-lock contention:
 uv tool install amgi-mcp

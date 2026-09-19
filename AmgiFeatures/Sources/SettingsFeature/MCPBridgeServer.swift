@@ -14,40 +14,15 @@ import SyncFeature
 /// serves the other. When the app quits, its socket vanishes and the
 /// helper falls back to opening the collection directly.
 ///
-/// Protocol: AnkiKit.MCPBridge framing. Stateless per connection — one
-/// request, one response, close. The helper probes the socket before
-/// every tool call, so lifecycle flips are transparent to agents.
+/// Protocol: AnkiKit.MCPBridge framing. Each MCP tool owns one persistent
+/// connection, so its engine calls share a route and avoid reconnect churn.
 ///
-/// Threading: the accept loop BLOCKS forever, so it owns a dedicated
-/// Foundation thread. (A `Task { }` from App.init would inherit the
-/// MainActor and hang the app at launch — learned the hard way.)
+/// Threading: the blocking accept loop owns a dedicated Foundation thread;
+/// accepted sessions use a bounded worker pool so one slow agent cannot
+/// prevent the app from serving others.
 /// The master switch in Settings → Agent is honored live: each new
 /// connection re-reads mcp.json and is refused when disabled.
 package enum MCPBridgeServer {
-    /// Methods whose success should refresh the app's UI state. Mirrors
-    /// the mutating tools in Sources/AmgiMCP/Tools (see the service
-    /// index audit in memory/decisions.md).
-    private static let mutatingCalls: Set<UInt64> = {
-        func key(_ service: UInt32, _ method: UInt32) -> UInt64 {
-            (UInt64(service) << 32) | UInt64(method)
-        }
-        return [
-            key(25, 1),   // notes.addNote
-            key(25, 5),   // notes.updateNotes
-            key(25, 7),   // notes.removeNotes
-            key(43, 7),   // tags.addNoteTags
-            key(43, 8),   // tags.removeNoteTags
-            key(5, 4),    // cards.setFlag
-            key(5, 2),    // cards.removeCards
-            key(7, 1),    // decks.addDeck
-            key(7, 18),   // decks.renameDeck
-            key(7, 16),   // decks.removeDecks
-            key(39, 1),   // media.addMediaFile
-            key(9, 2),    // config.setConfigJsonNoUndo
-            key(3, 8),    // collectionOps.undo
-        ]
-    }()
-
     /// Called once from App.init after prepareDependencies — on the main
     /// actor, where dependency resolution sees the opened backend.
     package static func start() {
@@ -91,20 +66,55 @@ package enum MCPBridgeServer {
             guard bindResult == 0, listen(fd, 4) == 0 else {
                 return
             }
+            _ = chmod(socketPath, S_IRUSR | S_IWUSR)
 
+            let clientSlots = DispatchSemaphore(value: 16)
             while true {
                 let client = accept(fd, nil, nil)
                 guard client >= 0 else { continue }
-                serve(client: client)
-                close(client)
+                guard clientSlots.wait(timeout: .now()) == .success else {
+                    close(client)
+                    continue
+                }
+                Thread.detachNewThread { [self] in
+                    self.serve(client: client)
+                    close(client)
+                    clientSlots.signal()
+                }
             }
         }
 
         private func serve(client: Int32) {
-            // Kill switch honored live: refuse connections when disabled.
-            let settings = MCPSettings.load(
-                from: CollectionLayout.rootDirectory().appendingPathComponent("mcp.json").path
+            var noSigPipe: Int32 = 1
+            _ = setsockopt(
+                client, SOL_SOCKET, SO_NOSIGPIPE,
+                &noSigPipe, socklen_t(MemoryLayout.size(ofValue: noSigPipe))
             )
+            var timeout = timeval(tv_sec: 120, tv_usec: 0)
+            _ = setsockopt(
+                client, SOL_SOCKET, SO_RCVTIMEO,
+                &timeout, socklen_t(MemoryLayout.size(ofValue: timeout))
+            )
+            _ = setsockopt(
+                client, SOL_SOCKET, SO_SNDTIMEO,
+                &timeout, socklen_t(MemoryLayout.size(ofValue: timeout))
+            )
+
+            // Kill switch honored live: refuse connections when disabled.
+            let settings: MCPSettings
+            do {
+                settings = try MCPSettings.loadStrict(
+                    from: CollectionLayout.rootDirectory()
+                        .appendingPathComponent("mcp.json").path
+                )
+            } catch {
+                reply(
+                    client,
+                    status: .unavailable,
+                    payload: Data("MCP settings are malformed; access is disabled until Amgi rewrites them.".utf8)
+                )
+                return
+            }
             guard settings.enabled else {
                 reply(client, status: .unavailable, payload: Data("The agent server is switched off in Amgi settings.".utf8))
                 return
@@ -113,23 +123,66 @@ package enum MCPBridgeServer {
             var buffer = Data()
             var scratch = [UInt8](repeating: 0, count: 65_536)
             while true {
-                if let parsed = try? MCPBridge.decodeFrame(from: buffer), parsed.consumed > 0 {
-                    buffer.removeSubrange(buffer.startIndex..<buffer.startIndex + parsed.consumed)
-                    handleFrame(parsed.frame, client: client)
-                    continue
+                do {
+                    if let parsed = try MCPBridge.decodeFrame(from: buffer), parsed.consumed > 0 {
+                        buffer.removeSubrange(buffer.startIndex..<buffer.startIndex + parsed.consumed)
+                        handleFrame(parsed.frame, client: client, settings: settings)
+                        continue
+                    }
+                } catch {
+                    reply(
+                        client,
+                        status: .unavailable,
+                        payload: Data(error.localizedDescription.utf8)
+                    )
+                    return
                 }
                 let n = recv(client, &scratch, scratch.count, 0)
                 if n <= 0 { return }  // EOF or error → done with this client
                 buffer.append(contentsOf: scratch[0..<n])
-                if buffer.count > 32 * 1_024 * 1_024 { return }  // abusive client
+                if buffer.count > MCPBridge.maximumPayloadBytes + 8_192 { return }
             }
         }
 
-        private func handleFrame(_ frame: MCPBridge.Frame, client: Int32) {
+        private func handleFrame(
+            _ frame: MCPBridge.Frame,
+            client: Int32,
+            settings: MCPSettings
+        ) {
+            let activeProfile = UserDefaults.standard.string(forKey: "amgi.selectedUser")
+                ?? "default"
+            guard frame.profileID == activeProfile else {
+                reply(
+                    client, status: .unavailable,
+                    payload: Data(
+                        "Profile mismatch: agent requested '\(frame.profileID)' but Amgi has '\(activeProfile)' open.".utf8
+                    )
+                )
+                return
+            }
+
             // App-level sentinel service (ping + session state) never
             // touches the engine — answered from process state.
             if frame.service == MCPBridge.pingService {
-                if frame.method == MCPBridge.sessionStateMethod {
+                if frame.method == MCPBridge.snapshotMethod {
+                    do {
+                        let profileDirectory = CollectionLayout.profileDirectory(for: activeProfile)
+                        let collectionPath = profileDirectory
+                            .appendingPathComponent("collection.anki2").path
+                        let snapshot = try backend.withExclusiveAccess {
+                            try CollectionSnapshotter.snapshot(
+                                collectionPath: collectionPath,
+                                profileDirectory: profileDirectory
+                            )
+                        }
+                        reply(client, status: .ok, payload: Data(snapshot.path.utf8))
+                    } catch {
+                        reply(
+                            client, status: .engineError,
+                            payload: Data(error.localizedDescription.utf8)
+                        )
+                    }
+                } else if frame.method == MCPBridge.sessionStateMethod {
                     if let payload = ReviewSessionContext.shared.encodedSnapshot() {
                         reply(client, status: .ok, payload: payload)
                     } else {
@@ -145,13 +198,40 @@ package enum MCPBridgeServer {
                 return
             }
 
+            guard let requiredTier = MCPCallPolicy.requiredTier(
+                service: frame.service,
+                method: frame.method
+            ) else {
+                reply(
+                    client, status: .unavailable,
+                    payload: Data("This raw engine operation is not exposed through Amgi MCP.".utf8)
+                )
+                return
+            }
+            guard requiredTier <= settings.tier else {
+                reply(
+                    client, status: .unavailable,
+                    payload: Data(
+                        "This engine operation requires the \(requiredTier.rawValue) MCP tier; the current tier is \(settings.tier.rawValue).".utf8
+                    )
+                )
+                return
+            }
+            if requiredTier > .readOnly && settings.blockWritesWhileAppRunning {
+                reply(
+                    client, status: .unavailable,
+                    payload: Data("Agent writes are blocked while Amgi is running.".utf8)
+                )
+                return
+            }
+
             do {
                 let response = try backend.performRawCall(
                     service: frame.service, method: frame.method, input: frame.payload
                 )
                 reply(client, status: .ok, payload: response)
 
-                if frame.mutates || Self.isMutating(frame) {
+                if MCPCallPolicy.isMutating(service: frame.service, method: frame.method) {
                     Task { @MainActor in
                         store.invalidateAll(origin: .helperMutation)
                         @Dependency(\.syncCoordinator) var syncCoordinator
@@ -169,13 +249,19 @@ package enum MCPBridgeServer {
 
         private func reply(_ fd: Int32, status: MCPBridge.ResponseStatus, payload: Data) {
             let encoded = MCPBridge.encodeResponse(status: status, payload: payload)
-            encoded.withUnsafeBytes { buf in
-                _ = send(fd, buf.baseAddress, buf.count, 0)
+            var sent = 0
+            while sent < encoded.count {
+                let count = encoded.withUnsafeBytes { buffer -> Int in
+                    send(
+                        fd,
+                        buffer.baseAddress!.advanced(by: sent),
+                        buffer.count - sent,
+                        0
+                    )
+                }
+                guard count > 0 else { return }
+                sent += count
             }
-        }
-
-        private static func isMutating(_ frame: MCPBridge.Frame) -> Bool {
-            mutatingCalls.contains((UInt64(frame.service) << 32) | UInt64(frame.method))
         }
     }
 }

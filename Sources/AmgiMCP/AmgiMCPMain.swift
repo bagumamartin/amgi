@@ -20,7 +20,7 @@ import Logging
 ///     cross-device propagation rides the app's normal sync cycle.
 @main
 struct AmgiMCPMain {
-    static let version = "1.0.0"
+    static let version = "1.2.0"
 
     static func main() async {
         LoggingSystem.bootstrap { label in
@@ -45,17 +45,29 @@ struct AmgiMCPMain {
                 environment: options.environment
             )
 
-            // The collection opens lazily on first tool call — rslib's
-            // exclusive lock means Amgi.app may hold it right now, and
-            // the server must stay useful the moment that frees up.
+            // The collection opens lazily and is held only for an active
+            // tool call. Long-lived MCP client processes therefore retain no
+            // collection lock while idle, and Amgi.app always wins startup.
             let engine = EngineHolder(paths: paths)
-            let context = EngineContext(engine: engine, settings: settings, paths: paths)
+            let context = EngineContext(
+                engine: engine,
+                settings: settings,
+                configPath: options.configPath,
+                paths: paths,
+                caller: nil
+            )
             let registry = ToolCatalog.tools(for: settings.tier)
 
             let server = Server(
                 name: "amgi",
                 version: version,
-                capabilities: .init(tools: .init(listChanged: false))
+                title: "Amgi Flashcards & Active Retrieval",
+                instructions: MCPGuidance.serverInstructions(
+                    profileID: paths.profileID,
+                    tier: settings.tier
+                ),
+                capabilities: .init(tools: .init(listChanged: false)),
+                configuration: .strict
             )
 
             await server.withMethodHandler(ListTools.self) { _ in

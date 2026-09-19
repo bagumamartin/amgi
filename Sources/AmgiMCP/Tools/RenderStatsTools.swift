@@ -10,9 +10,10 @@ enum RenderStatsTools {
             AmgiTool(
                 name: "render_card",
                 description: """
-                    Renders a card's front and back templates exactly as the app shows \
-                    them (HTML + CSS). Use to verify template/field edits produce sane \
-                    output before the user reviews.
+                    Returns canonical Anki template output (front HTML, back HTML, CSS). \
+                    Use after field/markup/media edits. Amgi may show compatible text cards \
+                    through its native renderer instead, so this verifies HTML/template \
+                    semantics rather than native typography or a screenshot.
                     """,
                 inputSchema: Schema.object(
                     ["card_id": Schema.int("Card id")],
