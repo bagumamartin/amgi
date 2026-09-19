@@ -19,6 +19,7 @@
 		5206D53A52E116E129C0E956 /* AnkiSync in Frameworks */ = {isa = PBXBuildFile; productRef = 1D52A2C890DE8794E39904C4 /* AnkiSync */; };
 		5540802A47E5AE6133162993 /* Sharing in Frameworks */ = {isa = PBXBuildFile; productRef = E246B9A74FC08245970AE0E4 /* Sharing */; };
 		5754B0778625FE2768D481B1 /* ToolSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD151CFBEBBCF1FCBE1ACE48 /* ToolSupport.swift */; };
+		5A08BF65B561740464CDF767 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 4885F9B8D778EF6F864BC74F /* PrivacyInfo.xcprivacy */; };
 		5F5B77D77DD4749D9539DE34 /* AmgiReviewCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8A765015A79B5CB13C813D22 /* AmgiReviewCore */; };
 		60B69310C88C2D8A40003F1C /* AnkiBackend in Frameworks */ = {isa = PBXBuildFile; productRef = DD5890EDB35E8D4E49F8D973 /* AnkiBackend */; };
 		62FB707339C0EE68F1E8B78F /* EngineCaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37016E9BBA745295293899FC /* EngineCaller.swift */; };
@@ -26,7 +27,6 @@
 		67A2ED31F59B08EBD06A4FED /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A12D2167226A912462BF60EA /* Assets.xcassets */; };
 		67F238E56336E1C26AA49969 /* MCP in Frameworks */ = {isa = PBXBuildFile; productRef = B39AF3393326FBF0B00763DC /* MCP */; };
 		684C05A213345CB16179612D /* AppRunningCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E12BF8F111557136F7EF29F /* AppRunningCheck.swift */; };
-		6B851FA8AC13A9601B3028B5 /* MCEmojiPicker.bundle in Resources */ = {isa = PBXBuildFile; fileRef = D91D2E1670E4C4D43B2E4AD4 /* MCEmojiPicker.bundle */; };
 		6CF26B3108E38F231B7113AC /* WatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86204AF7D14861EEF82FF7E2 /* WatchApp.swift */; };
 		6D9546E7AF2022FCFD49CA90 /* RenderStatsTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12D1F96A64605CB44FD1CFE /* RenderStatsTools.swift */; };
 		71AE38CA139F2A8EF3001CB2 /* ChangeNotifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF1E21F0AFAD0F5947178AF8 /* ChangeNotifier.swift */; };
@@ -58,7 +58,6 @@
 		E6BE21BC5A61C4092A7FC6D7 /* Logging in Frameworks */ = {isa = PBXBuildFile; productRef = 3700917CD2D93ABAFC3E22D1 /* Logging */; };
 		EE47EE8C1E4ECF82D7F50B14 /* ConfigMediaTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99AAB4F4A250C25390C41616 /* ConfigMediaTools.swift */; };
 		EFAED9EB74B7DA7CA80638AF /* AnkiProtoBridge in Frameworks */ = {isa = PBXBuildFile; productRef = 8A6BCECEB3799B2D77E5839C /* AnkiProtoBridge */; };
-		F25376DBFA40EBE0DBF46395 /* libMCEmojiPicker.a in Frameworks */ = {isa = PBXBuildFile; fileRef = ABD98B5C199D73EE83E50243 /* libMCEmojiPicker.a */; platformFilters = (ios, ); };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -68,13 +67,6 @@
 			proxyType = 1;
 			remoteGlobalIDString = EC06CF27C7F91CB0BE10A50E;
 			remoteInfo = AmgiMCPHelper;
-		};
-		2F6AC693133FDA4C1E7D296E /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = CCE55545D9F1ABEDD48DB366 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 0CFCEB6FDC3E2F903B4F48AA;
-			remoteInfo = MCEmojiPicker;
 		};
 		405A1DF95A869267A4FF267C /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -118,6 +110,7 @@
 		37016E9BBA745295293899FC /* EngineCaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineCaller.swift; sourceTree = "<group>"; };
 		39C2C9422C9A994272F8C208 /* AmgiIcons */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AmgiIcons; path = ../AmgiIcons; sourceTree = SOURCE_ROOT; };
 		47A47989B41EF49393C9F8FD /* Resolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Resolver.swift; sourceTree = "<group>"; };
+		4885F9B8D778EF6F864BC74F /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		4E12BF8F111557136F7EF29F /* AppRunningCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRunningCheck.swift; sourceTree = "<group>"; };
 		5121F74D27DF5F619282934A /* ToolCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolCatalog.swift; sourceTree = "<group>"; };
 		5D70629000B99CCDDAB94703 /* AmgiMCPMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmgiMCPMain.swift; sourceTree = "<group>"; };
@@ -133,14 +126,12 @@
 		A12D1F96A64605CB44FD1CFE /* RenderStatsTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenderStatsTools.swift; sourceTree = "<group>"; };
 		A12D2167226A912462BF60EA /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A837EB0A30B6E90B20D5C1CD /* AmgiWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = AmgiWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		ABD98B5C199D73EE83E50243 /* libMCEmojiPicker.a */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = archive.ar; path = libMCEmojiPicker.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		BE483847946FEF9EF1B1043E /* EngineHolder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineHolder.swift; sourceTree = "<group>"; };
 		BE8DDAC853DEF5B6112EB833 /* AmgiFeatures */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AmgiFeatures; path = ../AmgiFeatures; sourceTree = SOURCE_ROOT; };
 		BF1E21F0AFAD0F5947178AF8 /* ChangeNotifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangeNotifier.swift; sourceTree = "<group>"; };
 		C57E0A30A0C5B7FE232BF0C3 /* amgi */ = {isa = PBXFileReference; lastKnownFileType = folder; name = amgi; path = ..; sourceTree = SOURCE_ROOT; };
 		CAE0DE68DC7E04F773A57E14 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		CB2D8F06E7E2260796925750 /* AmgiMCPHelper */ = {isa = PBXFileReference; includeInIndex = 0; path = AmgiMCPHelper; sourceTree = BUILT_PRODUCTS_DIR; };
-		D91D2E1670E4C4D43B2E4AD4 /* MCEmojiPicker.bundle */ = {isa = PBXFileReference; lastKnownFileType = folder; name = MCEmojiPicker.bundle; path = Resources/MCEmojiPicker.bundle; sourceTree = SOURCE_ROOT; };
 		DD151CFBEBBCF1FCBE1ACE48 /* ToolSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolSupport.swift; sourceTree = "<group>"; };
 		DE61E854280804F08BB1DD31 /* AmgiApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = AmgiApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E52A1F699FA8746826E4EAB0 /* AmgiWatchApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AmgiWatchApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -182,16 +173,6 @@
 			path = AmgiAppTests;
 			sourceTree = "<group>";
 		};
-		722A830D564426E2752C2A76 /* MCEmojiPicker */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			explicitFileTypes = {
-			};
-			explicitFolders = (
-			);
-			name = MCEmojiPicker;
-			path = MCEmojiPicker;
-			sourceTree = "<group>";
-		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -211,7 +192,6 @@
 			files = (
 				8037088122D7F4739E1D412A /* RootFeature in Frameworks */,
 				2F6CCEA4FF8B775FCA9299DA /* WidgetKit.framework in Frameworks */,
-				F25376DBFA40EBE0DBF46395 /* libMCEmojiPicker.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -313,14 +293,6 @@
 			path = ..;
 			sourceTree = "<group>";
 		};
-		ACD895E0EA0029EB72359A41 /* Vendor */ = {
-			isa = PBXGroup;
-			children = (
-				722A830D564426E2752C2A76 /* MCEmojiPicker */,
-			);
-			path = Vendor;
-			sourceTree = "<group>";
-		};
 		C2DEE343E176258185B95328 /* Tests */ = {
 			isa = PBXGroup;
 			children = (
@@ -356,7 +328,6 @@
 				795E67571E8B9C7014F5A3E7 /* EPUBReader */,
 				32D10E5F584CDD7816F8408A /* Fonts */,
 				308AC2057FB8232A7A730D15 /* mathjax */,
-				D91D2E1670E4C4D43B2E4AD4 /* MCEmojiPicker.bundle */,
 				1B84A2ADB8D6A599253D2E78 /* Review */,
 			);
 			path = Resources;
@@ -370,7 +341,6 @@
 				CB2D8F06E7E2260796925750 /* AmgiMCPHelper */,
 				E52A1F699FA8746826E4EAB0 /* AmgiWatchApp.app */,
 				A837EB0A30B6E90B20D5C1CD /* AmgiWidget.appex */,
-				ABD98B5C199D73EE83E50243 /* libMCEmojiPicker.a */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -386,12 +356,12 @@
 		F90D9C10E2CEF0656D9B04B5 = {
 			isa = PBXGroup;
 			children = (
+				4885F9B8D778EF6F864BC74F /* PrivacyInfo.xcprivacy */,
 				9E8676797DB5CFAC1112664F /* amgi */,
 				652799243D2BEF4E5B7E34D5 /* Packages */,
 				EDDFF8B62843241810A3F531 /* Resources */,
 				852CFC1C0D03FE7967E700AA /* Sources */,
 				C2DEE343E176258185B95328 /* Tests */,
-				ACD895E0EA0029EB72359A41 /* Vendor */,
 				54701E5FE2188037820D21A7 /* Frameworks */,
 				F25D5B8FD2D15F7D2AD5DB36 /* Products */,
 			);
@@ -400,27 +370,6 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		0CFCEB6FDC3E2F903B4F48AA /* MCEmojiPicker */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 76BF61144DF75F0267C68D0D /* Build configuration list for PBXNativeTarget "MCEmojiPicker" */;
-			buildPhases = (
-				01659D8A06C88EDD47E39286 /* Sources */,
-				9FCF2C1E2748B5D5369B9ABA /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			fileSystemSynchronizedGroups = (
-				722A830D564426E2752C2A76 /* MCEmojiPicker */,
-			);
-			name = MCEmojiPicker;
-			packageProductDependencies = (
-			);
-			productName = MCEmojiPicker;
-			productReference = ABD98B5C199D73EE83E50243 /* libMCEmojiPicker.a */;
-			productType = "com.apple.product-type.library.static";
-		};
 		95284AD6E89B9B84191749DE /* AmgiApp */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 508649333842CC573F536F96 /* Build configuration list for PBXNativeTarget "AmgiApp" */;
@@ -435,7 +384,6 @@
 			);
 			dependencies = (
 				3267403ADAD9A214E1235DFB /* PBXTargetDependency */,
-				4A72B3D0B8FA3D078DCD2297 /* PBXTargetDependency */,
 				BE7D8569A49C48984B1FECEE /* PBXTargetDependency */,
 			);
 			name = AmgiApp;
@@ -556,10 +504,6 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
-					0CFCEB6FDC3E2F903B4F48AA = {
-						DevelopmentTeam = 39557WW39R;
-						ProvisioningStyle = Automatic;
-					};
 					95284AD6E89B9B84191749DE = {
 						DevelopmentTeam = 39557WW39R;
 						ProvisioningStyle = Automatic;
@@ -610,7 +554,6 @@
 			projectRoot = "";
 			targets = (
 				95284AD6E89B9B84191749DE /* AmgiApp */,
-				0CFCEB6FDC3E2F903B4F48AA /* MCEmojiPicker */,
 				EC06CF27C7F91CB0BE10A50E /* AmgiMCPHelper */,
 				9B3B324834735D7AA9620491 /* AmgiWidget */,
 				D799962EF4F5CA4D32203063 /* AmgiWatchApp */,
@@ -627,20 +570,13 @@
 				67A2ED31F59B08EBD06A4FED /* Assets.xcassets in Resources */,
 				914745C4D1A6A52334194F09 /* EPUBReader in Resources */,
 				9063E7D11DDAA9D8A7A0CF5D /* Fonts in Resources */,
-				6B851FA8AC13A9601B3028B5 /* MCEmojiPicker.bundle in Resources */,
+				5A08BF65B561740464CDF767 /* PrivacyInfo.xcprivacy in Resources */,
 				8AE5F2F0A719B566CC316F35 /* Review in Resources */,
 				9E79CAC91DE4DC297BDB10DE /* mathjax in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		578672C92F93DCD94D12A37E /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		9FCF2C1E2748B5D5369B9ABA /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -684,13 +620,6 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		01659D8A06C88EDD47E39286 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		94A732235DD20EF95236BEE1 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -757,14 +686,6 @@
 			target = 9B3B324834735D7AA9620491 /* AmgiWidget */;
 			targetProxy = EE34BEA2D08D4B4B3CE4BF7A /* PBXContainerItemProxy */;
 		};
-		4A72B3D0B8FA3D078DCD2297 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			platformFilters = (
-				ios,
-			);
-			target = 0CFCEB6FDC3E2F903B4F48AA /* MCEmojiPicker */;
-			targetProxy = 2F6AC693133FDA4C1E7D296E /* PBXContainerItemProxy */;
-		};
 		BE7D8569A49C48984B1FECEE /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			platformFilters = (
@@ -818,7 +739,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				COMPILATION_CACHE_ENABLE_CACHING = YES;
+				COMPILATION_CACHE_ENABLE_CACHING = NO;
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 6;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
@@ -850,10 +771,12 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_ENABLE_COMPILE_CACHE = NO;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.0;
 				WATCHOS_DEPLOYMENT_TARGET = 11.0;
+				_SWIFT_EXPLICIT_MODULES_ALLOW_CXX_INTEROP = NO;
 			};
 			name = Release;
 		};
@@ -863,6 +786,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CLANG_CXX_LANGUAGE_STANDARD = "c++20";
 				CLANG_CXX_LIBRARY = "libc++";
+				COMPILATION_CACHE_ENABLE_CACHING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -882,26 +806,10 @@
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
 				SWIFT_CXX_INTEROPERABILITY_MODE = default;
+				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AmgiApp.app/AmgiApp";
 				"TEST_HOST[sdk=macosx*]" = "$(BUILT_PRODUCTS_DIR)/AmgiApp.app/Contents/MacOS/AmgiApp";
-			};
-			name = Debug;
-		};
-		22AD37E594F05B73F1D35D86 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-				);
-				OTHER_SWIFT_FLAGS = "";
-				PRODUCT_BUNDLE_IDENTIFIER = com.bagumamartin.MCEmojiPicker;
-				SDKROOT = iphoneos;
-				SKIP_INSTALL = YES;
-				SWIFT_STRICT_CONCURRENCY = minimal;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
 		};
@@ -914,14 +822,11 @@
 				CODE_SIGN_ENTITLEMENTS = AmgiApp.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "AmgiApp-macOS.entitlements";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				COMPILATION_CACHE_ENABLE_CACHING = NO;
 				INFOPLIST_FILE = Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
-				);
-				OTHER_LDFLAGS = (
-					"$(inherited)",
-					"-ObjC",
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -cxx-interoperability-mode=default";
 				PRODUCT_BUNDLE_IDENTIFIER = com.bagumamartin.AmgiApp;
@@ -931,6 +836,7 @@
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
 				SWIFT_CXX_INTEROPERABILITY_MODE = default;
+				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
@@ -954,6 +860,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CLANG_CXX_LANGUAGE_STANDARD = "c++20";
 				CLANG_CXX_LIBRARY = "libc++";
+				COMPILATION_CACHE_ENABLE_CACHING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -973,26 +880,10 @@
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
 				SWIFT_CXX_INTEROPERABILITY_MODE = default;
+				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AmgiApp.app/AmgiApp";
 				"TEST_HOST[sdk=macosx*]" = "$(BUILT_PRODUCTS_DIR)/AmgiApp.app/Contents/MacOS/AmgiApp";
-			};
-			name = Release;
-		};
-		7ECDBB7D96C9026C2C45C38F /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-				);
-				OTHER_SWIFT_FLAGS = "";
-				PRODUCT_BUNDLE_IDENTIFIER = com.bagumamartin.MCEmojiPicker;
-				SDKROOT = iphoneos;
-				SKIP_INSTALL = YES;
-				SWIFT_STRICT_CONCURRENCY = minimal;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
 		};
@@ -1064,7 +955,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				COMPILATION_CACHE_ENABLE_CACHING = YES;
+				COMPILATION_CACHE_ENABLE_CACHING = NO;
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 6;
 				DEBUG_INFORMATION_FORMAT = dwarf;
@@ -1101,10 +992,12 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_ENABLE_COMPILE_CACHE = NO;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.0;
 				WATCHOS_DEPLOYMENT_TARGET = 11.0;
+				_SWIFT_EXPLICIT_MODULES_ALLOW_CXX_INTEROP = NO;
 			};
 			name = Debug;
 		};
@@ -1117,14 +1010,11 @@
 				CODE_SIGN_ENTITLEMENTS = AmgiApp.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "AmgiApp-macOS.entitlements";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				COMPILATION_CACHE_ENABLE_CACHING = NO;
 				INFOPLIST_FILE = Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
-				);
-				OTHER_LDFLAGS = (
-					"$(inherited)",
-					"-ObjC",
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -cxx-interoperability-mode=default";
 				PRODUCT_BUNDLE_IDENTIFIER = com.bagumamartin.AmgiApp;
@@ -1134,6 +1024,7 @@
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
 				SWIFT_CXX_INTEROPERABILITY_MODE = default;
+				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
@@ -1222,15 +1113,6 @@
 			buildConfigurations = (
 				1D180DB342CB1285F3F30774 /* Debug */,
 				5987A44A773D53DA29C4E928 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Debug;
-		};
-		76BF61144DF75F0267C68D0D /* Build configuration list for PBXNativeTarget "MCEmojiPicker" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				22AD37E594F05B73F1D35D86 /* Debug */,
-				7ECDBB7D96C9026C2C45C38F /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

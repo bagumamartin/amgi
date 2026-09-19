@@ -33,39 +33,35 @@ settings:
     EXCLUDED_ARCHS[sdk=iphoneos*]: arm64e
     LOCALIZED_STRING_SWIFTUI_SUPPORT: YES
     STRING_CATALOG_GENERATE_SYMBOLS: YES
-    # Build perf: CAS-backed compilation caching. The CAS path and explicit
-    # modules are already configured by Xcode; this turns the cache on so
-    # unchanged inputs are served from it. Measured here: warm-cache clean
-    # builds 50.9s → 25.8s (−49%); the cache persists in shared DerivedData so
-    # this is the steady state (branch switches / Clean Build Folder). One-time
-    # cost: first cold build is ~20s slower while the CAS populates. No
-    # incremental-build change. See .build-benchmark/optimization-plan.md.
-    COMPILATION_CACHE_ENABLE_CACHING: YES
-    # The two "swift compiler caching requires explicit module build" warnings
-    # (targets AmgiApp and AmgiReaderDictionary) are expected and unfixable
-    # here: swift-build force-disables explicit modules — and therefore
-    # caching — for any target in the Cxx-interop chain, i.e. one whose
-    # OTHER_SWIFT_FLAGS mention -cxx-interoperability-mode or whose
-    # SWIFT_OBJC_INTEROP_MODE is objcxx (rdar://122829880, see
-    # SwiftCompiler.swift:swiftExplicitModuleBuildEnabled). The underscored
-    # _SWIFT_EXPLICIT_MODULES_ALLOW_CXX_INTEROP=YES escape hatch does silence
-    # them, but the build then fails scanning: "Module dependency cycle:
-    # '_DarwinFoundation3.swiftmodule -> CxxStdlib.swiftinterface ->
-    # _DarwinFoundation3.swiftmodule'" (verified 2026-08-06). Every other
-    # target still caches; leave these two alone.
+    # Xcode 27 + C++ interop: compilation caching feeds Clang include-tree
+    # / CAS, and ClangImporter then ignores libcxxshim.modulemap
+    # (diag::module_map_ignored). Emit-module of that warning is what
+    # Xcode fans out onto every file in AmgiApp, ReaderFeature,
+    # SettingsFeature, RootFeature, and AmgiReaderDictionary.
     #
-    # Do NOT trust the xcode-build-benchmark "cached clean" leg here — it
-    # reports ~65-75s and looks like caching is pure overhead. It is not:
-    # COMPILATION_CACHE_CAS_PATH is *derived from* -derivedDataPath, so under
-    # the script's temp DerivedData the CAS lands inside it and the leg's
-    # rmtree(dd_path) deletes the cache it exists to measure, timing CAS
-    # population instead. Its fast "clean" leg meanwhile uses shared
-    # DerivedData with the real warm CAS, so the two legs are different
-    # scenarios and the gap between them is virgin-DD cache misses.
-    # Measured 2026-08-11, shared DerivedData + `xcodebuild clean`, same 1355
-    # compile tasks: caching ON 20s, OFF 30s. Virgin DerivedData: ON 74s,
-    # OFF 75s. Caching is a win in the realistic case and never a loss.
-    # Benchmark this project with --no-cached-clean.
+    # swift-build (rdar://154310191) turns caching on for *every* package
+    # target whenever *any* native Xcode target has it on. Re-enabling
+    # it on the widget / watch / MCP helper therefore poisons the Cxx
+    # chain. SWIFT_ENABLE_COMPILE_CACHE=NO does not stop -cache-compile-job
+    # on packages, and SPM unsafeFlags("-no-cache-compile-job") races
+    # with the driver flag and poisons the CAS (missing SwiftShims).
+    # Leave caching off for the whole project.
+    #
+    # The YES value of _SWIFT_EXPLICIT_MODULES_ALLOW_CXX_INTEROP was
+    # also tried on 2026-08-06 and failed scanning ("Module dependency
+    # cycle: '_DarwinFoundation3.swiftmodule -> CxxStdlib.swiftinterface
+    # -> _DarwinFoundation3.swiftmodule'"). Pin the hatch to NO.
+    COMPILATION_CACHE_ENABLE_CACHING: NO
+    SWIFT_ENABLE_COMPILE_CACHE: NO
+    _SWIFT_EXPLICIT_MODULES_ALLOW_CXX_INTEROP: NO
+    # Historical (2026-08-11, caching ON): shared DerivedData + `xcodebuild
+    # clean` was 20s vs 30s off. Xcode 27's Cxx include-tree path made that
+    # cache emit libcxxshim ignored warnings on every file in the chain, so
+    # the project is off until Apple fixes the diagnostic. Do not re-enable
+    # without checking that warning. The xcode-build-benchmark "cached
+    # clean" leg is also misleading: COMPILATION_CACHE_CAS_PATH is derived
+    # from -derivedDataPath, so its temp DerivedData rmtree deletes the CAS
+    # it exists to measure. Benchmark with --no-cached-clean.
     # Shared App Group container ID. Used by the app/widget entitlements via
     # $(APP_GROUP_IDENTIFIER) and mirrored by the runtime constants
     # `AppGroup.identifier` in AmgiAppCore and AmgiTheme. Keep those in sync.
@@ -158,9 +154,6 @@ targets:
         excludes:
           - "Widgets"
           - "Watch"
-      - path: Resources/MCEmojiPicker.bundle
-        type: folder
-        buildPhase: resources
       - path: Resources/Assets.xcassets
       - path: Resources/mathjax
         type: folder
@@ -170,6 +163,7 @@ targets:
         type: folder
       - path: Resources/EPUBReader
         type: folder
+      - path: PrivacyInfo.xcprivacy
     dependencies:
       - package: AmgiFeatures
         product: RootFeature
@@ -178,8 +172,6 @@ targets:
       - target: AmgiWidget
         embed: true
         destinationFilters: [iOS, macOS]
-      - target: MCEmojiPicker
-        destinationFilters: [iOS]
       - target: AmgiMCPHelper
         embed: false
         link: false
@@ -244,28 +236,16 @@ targets:
         # OTHER_SWIFT_FLAGS variants were tried and both fail. The app
         # target therefore stays out of explicit modules / compilation
         # caching as long as hoshidicts is anywhere in its package graph.
+        #
+        # Xcode 27 + compilation cache ignores libcxxshim.modulemap on the
+        # include-tree path (diag::module_map_ignored). Opt this target off
+        # caching / explicit modules — it could not use them anyway.
         SWIFT_CXX_INTEROPERABILITY_MODE: default
         CLANG_CXX_LANGUAGE_STANDARD: "c++20"
         CLANG_CXX_LIBRARY: "libc++"
+        SWIFT_ENABLE_EXPLICIT_MODULES: NO
+        COMPILATION_CACHE_ENABLE_CACHING: NO
         OTHER_SWIFT_FLAGS: "$(inherited) -cxx-interoperability-mode=default"
-
-  # Vendored izyumkin/MCEmojiPicker 1.2.5 (iOS-only upstream). Kept as its
-  # own Swift 5 static-library target because the sources predate strict
-  # concurrency and can't compile under the app's Swift 6 mode. The emoji
-  # definition JSONs ship via Resources/MCEmojiPicker.bundle — the vendor's
-  # CocoaPods-style Bundle.module shim locates them by that name.
-  MCEmojiPicker:
-    type: library.static
-    platform: iOS
-    sources:
-      - path: Vendor/MCEmojiPicker
-        excludes:
-          - "Resources"
-    settings:
-      base:
-        SWIFT_VERSION: "5.0"
-        SWIFT_STRICT_CONCURRENCY: minimal
-        OTHER_SWIFT_FLAGS: ""
 
   # MCP helper executable. Compiles Sources/AmgiMCP (shared with the
   # AnkiBridge package's `amgi-mcp` product) as a first-class Xcode
@@ -396,4 +376,6 @@ targets:
         SWIFT_CXX_INTEROPERABILITY_MODE: default
         CLANG_CXX_LANGUAGE_STANDARD: "c++20"
         CLANG_CXX_LIBRARY: "libc++"
+        SWIFT_ENABLE_EXPLICIT_MODULES: NO
+        COMPILATION_CACHE_ENABLE_CACHING: NO
         OTHER_SWIFT_FLAGS: "$(inherited) -cxx-interoperability-mode=default"
