@@ -16,6 +16,11 @@ settings:
     SWIFT_VERSION: "6.0"
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: 6
+    # AnkiRustLib currently ships only a macOS arm64 slice. Keep the archive
+    # architecture honest instead of asking Xcode to link an impossible
+    # x86_64 helper (which then produces misleading missing-FFI-symbol errors).
+    ARCHS: arm64
+    VALID_ARCHS: arm64
     SWIFT_STRICT_CONCURRENCY: complete
     # Must match the SPM packages: NonisolatedNonsendingByDefault changes the
     # mangling of `nonisolated async` function types, so the app target has to
@@ -33,6 +38,11 @@ settings:
     EXCLUDED_ARCHS[sdk=iphoneos*]: arm64e
     LOCALIZED_STRING_SWIFTUI_SUPPORT: YES
     STRING_CATALOG_GENERATE_SYMBOLS: YES
+    # PhosphorSwift's vendor asset names include both `file` and `file-image`;
+    # Xcode's generated Swift asset-symbol normalizer maps both to `file`.
+    # PhosphorSwift loads these assets by runtime name, so generated symbols
+    # are unnecessary and the collision should be disabled project-wide.
+    ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOLS: NO
     # Xcode 27 + C++ interop: compilation caching feeds Clang include-tree
     # / CAS, and ClangImporter then ignores libcxxshim.modulemap
     # (diag::module_map_ignored). Emit-module of that warning is what
