@@ -17,8 +17,6 @@
 	<true/>
 	<key>com.apple.security.hardened-process.checked-allocations</key>
 	<true/>
-	<key>com.apple.security.hardened-process.checked-allocations.enforce-checked-pointer-arithmetic-overflow</key>
-	<true/>
 	<key>com.apple.security.hardened-process.enhanced-security-version-string</key>
 	<string>2</string>
 	<key>com.apple.security.hardened-process.hardened-heap</key>
