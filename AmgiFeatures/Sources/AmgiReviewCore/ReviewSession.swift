@@ -12,6 +12,7 @@ public import AnkiKit
 import AnkiServices
 import Dependencies
 import Foundation
+import Synchronization
 
 /// How the current card is rendered (R11): parsed native content or the
 /// sandboxed WebView. Resolved per card in `prepareCard`.
@@ -68,8 +69,10 @@ public final class ReviewSession {
     /// these with the live current-queue counts keeps progress meaningful
     /// while a collection-wide session moves from deck to deck.
     private var remainingAllDeckCounts: [DeckID: DeckCounts] = [:]
-    /// Original learn-ahead window in seconds before temporary review-ahead expansion.
-    nonisolated private var originalLearnAheadSecs: UInt32? = nil
+    /// Original learn-ahead window in seconds before temporary review-ahead
+    /// expansion. This stays outside Observation's generated mutable storage:
+    /// `deinit` may run off the main actor and must restore the value safely.
+    nonisolated private let originalLearnAheadSecs = Mutex<UInt32?>(nil)
 
     public private(set) var frontHTML: String = ""
     public private(set) var backHTML: String = ""
@@ -233,7 +236,7 @@ public final class ReviewSession {
         // Session gone (user backed out / view torn down) — agents must not
         // see a stale "current card". Lock-based registry, safe off-actor.
         ReviewSessionContext.shared.clear()
-        if let orig = originalLearnAheadSecs {
+        if let orig = originalLearnAheadSecs.withLock({ $0 }) {
             Task {
                 @Dependency(\.schedulerService) var scheduler
                 try? scheduler.setLearnAheadSecs(orig)
@@ -770,8 +773,9 @@ public final class ReviewSession {
         Task {
             defer { isAdvancing = false }
             do {
-                if originalLearnAheadSecs == nil {
-                    originalLearnAheadSecs = try? scheduler.getLearnAheadSecs()
+                if originalLearnAheadSecs.withLock({ $0 }) == nil {
+                    let original = try? scheduler.getLearnAheadSecs()
+                    originalLearnAheadSecs.withLock { $0 = original }
                 }
                 try scheduler.setLearnAheadSecs(86_400)
 
