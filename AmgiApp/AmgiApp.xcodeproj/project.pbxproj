@@ -505,7 +505,7 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
-				LastUpgradeCheck = 1430;
+				LastUpgradeCheck = 2700;
 				TargetAttributes = {
 					95284AD6E89B9B84191749DE = {
 						DevelopmentTeam = 39557WW39R;
@@ -829,6 +829,7 @@
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "AmgiApp-macOS.entitlements";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				COMPILATION_CACHE_ENABLE_CACHING = NO;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				INFOPLIST_FILE = Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1021,6 +1022,7 @@
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "AmgiApp-macOS.entitlements";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				COMPILATION_CACHE_ENABLE_CACHING = NO;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				INFOPLIST_FILE = Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

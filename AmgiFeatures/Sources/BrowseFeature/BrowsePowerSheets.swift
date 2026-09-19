@@ -357,7 +357,7 @@ struct BrowseShareSheet: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(url: url) }
 
-    final class Coordinator: NSObject {
+    @MainActor final class Coordinator: NSObject {
         let url: URL
         init(url: URL) { self.url = url }
 

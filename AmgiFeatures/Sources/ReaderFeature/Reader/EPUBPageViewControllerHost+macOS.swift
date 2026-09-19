@@ -389,7 +389,7 @@ struct EPUBPageViewControllerHost: NSViewRepresentable {
 /// letting WebKit free-scroll: page turns snap column-by-column through the
 /// injection JS.
 private final class EPUBPagingWebView: WKWebView {
-    @MainActor weak var pagingDelegate: EPUBPagingWebViewDelegate?
+    @MainActor weak var pagingDelegate: (any EPUBPagingWebViewDelegate)?
 
     override func scrollWheel(with event: NSEvent) {
         pagingDelegate?.webViewDidScroll(event)

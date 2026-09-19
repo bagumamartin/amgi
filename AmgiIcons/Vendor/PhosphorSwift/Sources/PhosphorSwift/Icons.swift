@@ -591,7 +591,10 @@ public enum Ph: String, CaseIterable, Identifiable {
     case fileDashed = "file-dashed"
     case fileDoc = "file-doc"
     case fileHtml = "file-html"
-    case fileImage = "file-image"
+    // Xcode's generated asset-symbol pass strips `-image`, which collides
+    // with the separate `file` asset while archiving. Preserve the public case
+    // name but use an unambiguous catalog name at runtime.
+    case fileImage = "file-picture"
     case fileIni = "file-ini"
     case fileJpg = "file-jpg"
     case fileJs = "file-js"

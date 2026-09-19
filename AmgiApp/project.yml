@@ -1,5 +1,9 @@
 name: AmgiApp
 options:
+  # Keep generated project metadata aligned with the installed Xcode so its
+  # stale "Update to recommended settings" banner does not invite manual
+  # edits to the generated .pbxproj.
+  xcodeVersion: "27.0"
   bundleIdPrefix: com.bagumamartin
   deploymentTarget:
     iOS: "18.0"
@@ -223,6 +227,12 @@ targets:
     settings:
       base:
         INFOPLIST_FILE: Info.plist
+        # Archive selects the helper from one of several installation product
+        # locations. Xcode's user-script sandbox cannot authorize that dynamic
+        # read even when every candidate is declared as an input, so it denies
+        # the final `cp`. Keep sandboxing enabled project-wide; exempt only
+        # this local, deterministic bundle-copy phase.
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
         PRODUCT_BUNDLE_IDENTIFIER: com.bagumamartin.AmgiApp
         CODE_SIGN_ENTITLEMENTS: AmgiApp.entitlements
         "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": AmgiApp-macOS.entitlements

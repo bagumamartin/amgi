@@ -69,7 +69,7 @@ public final class ReviewSession {
     /// while a collection-wide session moves from deck to deck.
     private var remainingAllDeckCounts: [DeckID: DeckCounts] = [:]
     /// Original learn-ahead window in seconds before temporary review-ahead expansion.
-    nonisolated(unsafe) private var originalLearnAheadSecs: UInt32? = nil
+    nonisolated private var originalLearnAheadSecs: UInt32? = nil
 
     public private(set) var frontHTML: String = ""
     public private(set) var backHTML: String = ""
