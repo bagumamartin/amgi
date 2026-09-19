@@ -27,6 +27,8 @@ struct DesignConformanceTests {
             "Same — template CSS parsing.",
         "ReviewFeature/CardHTMLBuilder.swift":
             "Same — template CSS parsing. Split out of CardWebView.swift.",
+        "BrowseFeature/NoteFieldHTML.swift":
+            "Parses note HTML and generates rich-text media representations. Note content, not app chrome.",
         "ReaderFeature/Reader/ReaderThemeColor.swift":
             "Reader's own sepia/dark/light reading themes, deliberately independent of the app palette.",
         "ReaderFeature/Reader/ReaderTypographyPreferences.swift":

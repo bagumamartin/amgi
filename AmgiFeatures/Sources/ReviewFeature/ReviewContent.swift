@@ -47,7 +47,7 @@ struct ReviewContent: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                if showRemainingDays && session.startError == nil {
+                if showRemainingDays && session.startError == nil && !session.isFinished && !session.isWaitingForLearning {
                     DailyProgressBar(
                         completedToday: session.dailyCompletedToday,
                         remainingToday: session.dailyRemainingToday,
@@ -59,8 +59,15 @@ struct ReviewContent: View {
 
                 if let startError = session.startError {
                     startFailureView(startError)
+                } else if session.isWaitingForLearning {
+                    waitingForLearningView
                 } else if session.isFinished {
-                    finishedView
+                    ReviewCelebrationCard(
+                        deckName: session.deckName,
+                        sessionStats: session.sessionStats,
+                        dailyCompletedToday: session.dailyCompletedToday,
+                        onDismiss: onDismiss
+                    )
                 } else {
                     ReviewCardArea(
                         session: session,
@@ -232,25 +239,28 @@ struct ReviewContent: View {
         // Undo · Edit share one glass capsule. The Menu is a separate
         // toolbar item so iOS 26 cannot fold it into the system overflow
         // chevron (that was the nested-ellipsis: tap … to get another …).
-        ToolbarItemGroup(placement: .topBarTrailing) {
-            Button {
-                session.undo()
-            } label: {
-                Image(systemName: "arrow.uturn.backward")
-            }
-            .disabled(!session.canUndo)
-            .accessibilityLabel(session.canUndo ? "Undo" : "Nothing to undo")
+        // Only visible when actively reviewing cards.
+        if !session.isFinished && !session.isWaitingForLearning {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button {
+                    session.undo()
+                } label: {
+                    Image(systemName: "arrow.uturn.backward")
+                }
+                .disabled(!session.canUndo)
+                .accessibilityLabel(session.canUndo ? "Undo" : "Nothing to undo")
 
-            Button {
-                destination = session.currentNote.map(ReviewDestination.editNote)
-            } label: {
-                Image(systemName: "pencil")
+                Button {
+                    destination = session.currentNote.map(ReviewDestination.editNote)
+                } label: {
+                    Image(systemName: "pencil")
+                }
+                .disabled(session.currentNote == nil)
+                .accessibilityLabel("Edit Note")
             }
-            .disabled(session.currentNote == nil)
-            .accessibilityLabel("Edit Note")
-        }
-        ToolbarItem(placement: .topBarTrailing) {
-            cardActionsMenu
+            ToolbarItem(placement: .topBarTrailing) {
+                cardActionsMenu
+            }
         }
     }
 
@@ -272,16 +282,38 @@ struct ReviewContent: View {
                 .minimumScaleFactor(0.8)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(session.deckName.replacingOccurrences(of: "::", with: ", "))
+        .accessibilityLabel(accessibilityTitle)
+    }
+
+    private var accessibilityTitle: String {
+        if session.isAllDecksScope {
+            return session.activeDeckName.isEmpty
+                ? "All Decks"
+                : "All Decks, \(session.activeDeckName.replacingOccurrences(of: "::", with: ", "))"
+        }
+        return session.deckName.replacingOccurrences(of: "::", with: ", ")
     }
 
     /// Leaf deck name with the parent path stripped.
     private var deckTitle: String {
-        session.deckName.components(separatedBy: "::").last?.trimmingCharacters(in: .whitespaces) ?? session.deckName
+        if session.isAllDecksScope {
+            return session.activeDeckName.isEmpty
+                ? "All Decks"
+                : session.activeDeckName.components(separatedBy: "::").last?.trimmingCharacters(in: .whitespaces) ?? session.activeDeckName
+        }
+        return session.deckName.components(separatedBy: "::").last?.trimmingCharacters(in: .whitespaces) ?? session.deckName
     }
 
     /// Parent path of the current deck. Empty for top-level decks.
     private var deckSubtitle: String {
+        if session.isAllDecksScope {
+            guard !session.activeDeckName.isEmpty else { return "" }
+            let parts = session.activeDeckName.components(separatedBy: "::")
+            if parts.count > 1 {
+                return "All Decks › " + parts.dropLast().joined(separator: " - ")
+            }
+            return "All Decks"
+        }
         let parts = session.deckName.components(separatedBy: "::")
         guard parts.count > 1 else { return "" }
         return parts.dropLast().joined(separator: " - ")
@@ -289,7 +321,17 @@ struct ReviewContent: View {
 
     /// "Parent::Child" as "Parent › Child" for the macOS window title.
     private var navigationBreadcrumb: String {
-        session.deckName
+        if session.isAllDecksScope {
+            if session.activeDeckName.isEmpty {
+                return "All Decks"
+            }
+            let active = session.activeDeckName
+                .components(separatedBy: "::")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .joined(separator: " › ")
+            return "All Decks › \(active)"
+        }
+        return session.deckName
             .components(separatedBy: "::")
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .joined(separator: " › ")
@@ -489,33 +531,73 @@ struct ReviewContent: View {
         }
     }
 
-    private var finishedView: some View {
-        VStack(spacing: AmgiSpacing.lg) {
-            Spacer()
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 64))
-                .foregroundStyle(palette.positive)
-                .accessibilityHidden(true)   // "Congratulations!" below says it
-            Text("Congratulations!")
-                .amgiFont(.sectionHeading)
-                .foregroundStyle(palette.textPrimary)
-            Text("You've reviewed \(session.sessionStats.reviewed) cards")
-                .amgiFont(.body)
-                .foregroundStyle(palette.textSecondary)
-            if session.sessionStats.reviewed > 0 {
-                Text("Accuracy: \(Int(session.sessionStats.accuracy * 100))%")
-                    .amgiFont(.body)
+    private var waitingForLearningView: some View {
+        ScrollView {
+            VStack(spacing: AmgiSpacing.xl) {
+                Spacer(minLength: AmgiSpacing.xl)
+
+                ZStack {
+                    Circle()
+                        .fill(palette.accent.opacity(0.15))
+                        .frame(width: 88, height: 88)
+                    Image(systemName: "clock.badge.checkmark")
+                        .font(.system(size: 44))
+                        .foregroundStyle(palette.accent)
+                }
+                .accessibilityHidden(true)
+
+                VStack(spacing: AmgiSpacing.xs) {
+                    Text("Cards Cooling Down")
+                        .amgiFont(.displayHero)
+                        .foregroundStyle(palette.textPrimary)
+                        .multilineTextAlignment(.center)
+
+                    let count = session.waitingLearningCount
+                    Text("You've reviewed all immediate cards. \(count) learning card\(count == 1 ? " is" : "s are") scheduled for later today.")
+                        .amgiFont(.body)
+                        .foregroundStyle(palette.textSecondary)
+                        .multilineTextAlignment(.center)
+                }
+
+                VStack(spacing: AmgiSpacing.md) {
+                    Button {
+                        session.reviewAhead()
+                    } label: {
+                        HStack(spacing: AmgiSpacing.xs) {
+                            Image(systemName: "forward.fill")
+                            Text("Review Ahead Now (\(session.waitingLearningCount))")
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(AmgiPrimaryButtonStyle())
+                    .keyboardShortcut(.defaultAction)
+
+                    Button {
+                        session.checkWaitingQueue()
+                    } label: {
+                        HStack(spacing: AmgiSpacing.xs) {
+                            Image(systemName: "arrow.clockwise")
+                            Text("Check Ready Cards")
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(AmgiSecondaryButtonStyle())
+
+                    Button("Finish for Now") {
+                        session.finishEarly()
+                    }
+                    .amgiFont(.caption)
                     .foregroundStyle(palette.textSecondary)
+                    .padding(.top, AmgiSpacing.xs)
+                }
+                .padding(.top, AmgiSpacing.md)
+
+                Spacer(minLength: AmgiSpacing.xl)
             }
-            if session.dailyRemainingToday > 0 {
-                Text("\(session.dailyRemainingToday) due later today")
-                    .amgiFont(.body)
-                    .foregroundStyle(palette.textSecondary)
-            }
-            Spacer()
-            Button("Done") { onDismiss() }
-                .buttonStyle(AmgiPrimaryButtonStyle())
-                .padding()
+            .padding(.horizontal, AmgiSpacing.lg)
+            .padding(.vertical, AmgiSpacing.xl)
+            .frame(maxWidth: 480)
+            .frame(maxWidth: .infinity)
         }
     }
 }

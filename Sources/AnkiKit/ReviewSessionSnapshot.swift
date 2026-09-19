@@ -32,6 +32,8 @@ public struct ReviewSessionSnapshot: Codable, Sendable, Equatable {
     /// card on screen).
     public var queueRemaining: Int
     public var isFinished: Bool
+    /// Whether the session is currently paused waiting for learning cards to mature.
+    public var isWaitingForLearning: Bool
     /// Whether the back/answer side is currently revealed for the current card.
     /// Maps directly to `ReviewSession.showAnswer` (false = front/question visible,
     /// true = back/answer visible / card flipped).
@@ -68,7 +70,7 @@ public struct ReviewSessionSnapshot: Codable, Sendable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, updatedAtMs, deckId, deckName, isAllDecksScope
-        case currentCardId, currentNoteId, cardOrdinal, queueRemaining, isFinished
+        case currentCardId, currentNoteId, cardOrdinal, queueRemaining, isFinished, isWaitingForLearning
         case isAnswerRevealed
         case reviewed, correct, streak, remainingNew, remainingLearning, remainingReview
         case answered
@@ -86,6 +88,7 @@ public struct ReviewSessionSnapshot: Codable, Sendable, Equatable {
         cardOrdinal = try c.decode(UInt32.self, forKey: .cardOrdinal)
         queueRemaining = try c.decode(Int.self, forKey: .queueRemaining)
         isFinished = try c.decode(Bool.self, forKey: .isFinished)
+        isWaitingForLearning = try c.decodeIfPresent(Bool.self, forKey: .isWaitingForLearning) ?? false
         isAnswerRevealed = try c.decodeIfPresent(Bool.self, forKey: .isAnswerRevealed) ?? false
         reviewed = try c.decode(Int.self, forKey: .reviewed)
         correct = try c.decode(Int.self, forKey: .correct)
@@ -108,6 +111,7 @@ public struct ReviewSessionSnapshot: Codable, Sendable, Equatable {
         try c.encode(cardOrdinal, forKey: .cardOrdinal)
         try c.encode(queueRemaining, forKey: .queueRemaining)
         try c.encode(isFinished, forKey: .isFinished)
+        try c.encode(isWaitingForLearning, forKey: .isWaitingForLearning)
         try c.encode(isAnswerRevealed, forKey: .isAnswerRevealed)
         try c.encode(reviewed, forKey: .reviewed)
         try c.encode(correct, forKey: .correct)
@@ -127,6 +131,7 @@ public struct ReviewSessionSnapshot: Codable, Sendable, Equatable {
         cardOrdinal: UInt32,
         queueRemaining: Int,
         isFinished: Bool,
+        isWaitingForLearning: Bool = false,
         isAnswerRevealed: Bool = false,
         reviewed: Int,
         correct: Int,
@@ -146,6 +151,7 @@ public struct ReviewSessionSnapshot: Codable, Sendable, Equatable {
         self.cardOrdinal = cardOrdinal
         self.queueRemaining = queueRemaining
         self.isFinished = isFinished
+        self.isWaitingForLearning = isWaitingForLearning
         self.isAnswerRevealed = isAnswerRevealed
         self.reviewed = reviewed
         self.correct = correct

@@ -53,13 +53,16 @@ public struct LibraryHeroCard: View {
 
     private var startReviewButton: some View {
         Button(action: onStartReview) {
-            Label("Start today's review", systemImage: "play.fill")
-                .frame(maxWidth: .infinity)
-                .amgiFont(size: 16, weight: .semibold, relativeTo: .body)
+            Label(
+                data.totalDue > 0 ? "Start today's review" : "All caught up for today",
+                systemImage: data.totalDue > 0 ? "play.fill" : "checkmark"
+            )
+            .frame(maxWidth: .infinity)
+            .amgiFont(size: 16, weight: .semibold, relativeTo: .body)
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
-        .tint(.white.opacity(0.22))
+        .tint(data.totalDue > 0 ? .white.opacity(0.22) : .white.opacity(0.12))
         .foregroundStyle(.white)
         .disabled(data.totalDue == 0)
     }

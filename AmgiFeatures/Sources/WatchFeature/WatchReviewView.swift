@@ -28,7 +28,9 @@ struct WatchReviewView: View {
     }
     var body: some View {
         VStack {
-            if session.isFinished {
+            if session.isWaitingForLearning {
+                waitingForLearningView
+            } else if session.isFinished {
                 finishedView
             } else {
                 VStack(spacing: 0) {
@@ -84,15 +86,70 @@ struct WatchReviewView: View {
         .onChange(of: session.frontHTML) { _, new in playAudio(from: new) }
         .onChange(of: session.showAnswer) { _, show in if show { playAudio(from: session.backHTML) } }
     }
+    private var waitingForLearningView: some View {
+        ScrollView {
+            VStack(spacing: 8) {
+                Image(systemName: "clock.badge.checkmark")
+                    .font(.title2)
+                    .foregroundStyle(.orange)
+                Text("Cooling Down")
+                    .font(.headline)
+                Text("\(session.waitingLearningCount) card\(session.waitingLearningCount == 1 ? "" : "s") due later")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Button("Review Ahead") {
+                    session.reviewAhead()
+                }
+                .buttonStyle(.borderedProminent)
+                Button("Done") {
+                    session.finishEarly()
+                    onDismiss()
+                }
+                .buttonStyle(.bordered)
+            }
+            .padding()
+        }
+    }
     private var finishedView: some View {
-        VStack {
-            Spacer()
-            Image(systemName: "checkmark.circle.fill").font(.largeTitle).foregroundStyle(.green)
-            Text("Finished!").font(.headline)
-            Text("\(session.sessionStats.reviewed) cards").font(.caption).foregroundStyle(.secondary)
-            Spacer()
-            Button("Done") { onDismiss() }.buttonStyle(.borderedProminent)
-        }.padding()
+        ScrollView {
+            VStack(spacing: 8) {
+                ZStack {
+                    Circle()
+                        .fill(Color.green.opacity(0.18))
+                        .frame(width: 46, height: 46)
+                    Circle()
+                        .fill(Color.green)
+                        .frame(width: 36, height: 36)
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+                .padding(.top, 4)
+
+                Text("All Caught Up!")
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+
+                VStack(spacing: 3) {
+                    Text("\(session.sessionStats.reviewed) cards reviewed")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+
+                    if session.sessionStats.reviewed > 0 {
+                        Text("\(Int(session.sessionStats.accuracy * 100))% accuracy")
+                            .font(.caption2)
+                            .foregroundStyle(.green)
+                    }
+                }
+
+                Button("Done") { onDismiss() }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.green)
+                    .padding(.top, 6)
+            }
+            .padding(.horizontal)
+            .padding(.bottom, 8)
+        }
     }
     private func reviewButton(_ title: String, color: Color, font: Font = .headline, action: @escaping () -> Void) -> some View {
         Button(action: action) {

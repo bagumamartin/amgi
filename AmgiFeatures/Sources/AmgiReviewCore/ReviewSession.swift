@@ -22,11 +22,30 @@ public enum ResolvedRenderMode: Equatable, Sendable {
     case html
 }
 
+private struct AnswerRecord {
+    let queued: QueuedReviewCard
+    var cardID: CardID { queued.card.id }
+    let rating: Rating
+    let timeSpent: Int
+    let graduated: Bool
+    let streakBefore: Int
+    let extraEngineOpsAfter: Int
+    let at: Date
+}
+
+private enum ReviewUndoError: Error {
+    case cardNotRestored(CardID)
+}
+
 @Observable @MainActor
 public final class ReviewSession {
     public let deckId: DeckID
+    public var isAllDecksScope: Bool { deckId.rawValue == 0 }
+    public private(set) var activeDeckName: String = ""
 
     @ObservationIgnored @Dependency(\.decksService) var decks
+    @ObservationIgnored @Dependency(\.deckClient) var deckClient
+    @ObservationIgnored @Dependency(\.cardClient) var cardClient
     @ObservationIgnored @Dependency(\.schedulerService) var scheduler
     @ObservationIgnored @Dependency(\.cardRenderingService) var cardRendering
     @ObservationIgnored @Dependency(\.collectionService) var collection
@@ -39,6 +58,18 @@ public final class ReviewSession {
     /// Stable identity for this session's live-count publications, so the
     /// Study ring can re-anchor its collection snapshot once per session.
     private let liveSessionID = UUID()
+
+    /// Active pool of deck IDs in this session. In all-decks mode, decks with
+    /// ungraduated learning cards cooling down are retained so they can be
+    /// revisited as other decks complete or as time elapses.
+    private var activeDeckPool: [DeckID] = []
+    private var currentDeckID: DeckID? = nil
+    /// Snapshot counts for scopes that have not yet been selected. Combining
+    /// these with the live current-queue counts keeps progress meaningful
+    /// while a collection-wide session moves from deck to deck.
+    private var remainingAllDeckCounts: [DeckID: DeckCounts] = [:]
+    /// Original learn-ahead window in seconds before temporary review-ahead expansion.
+    nonisolated(unsafe) private var originalLearnAheadSecs: UInt32? = nil
 
     public private(set) var frontHTML: String = ""
     public private(set) var backHTML: String = ""
@@ -56,6 +87,10 @@ public final class ReviewSession {
     public private(set) var dailyBaseGraduatedToday: Int = 0
     public private(set) var deckName: String = ""
     public private(set) var isFinished: Bool = false
+    /// True when immediate queues are empty but cards are cooling down in
+    /// learning/relearning steps for today. Prevents premature session completion.
+    public private(set) var isWaitingForLearning: Bool = false
+    public private(set) var waitingLearningCount: Int = 0
     public private(set) var canUndo: Bool = false
     public private(set) var nextIntervals: [Rating: String] = [:]
     public private(set) var replayRequestID: Int = 0       // plumbed; consumer is PR 1b
@@ -89,8 +124,8 @@ public final class ReviewSession {
     /// off it — kept separate from `answerTapCount` so only graduating
     /// answers (not any answer) trigger it.
     public private(set) var graduationPulse: Int = 0
-    /// Session answers oldest-first, for the agent-facing answered timeline.
-    private var answerTrail: [(cardID: CardID, rating: Rating, at: Date)] = []
+    /// LIFO history of answers this session for undo and snapshot publishing.
+    private var answerStack: [AnswerRecord] = []
     /// Card IDs graduated past today this session (next review ≥ tomorrow).
     /// Re-answers (Again, mid-step learning) never land here, so the daily
     /// bar completes exactly when today's cards are actually done.
@@ -198,6 +233,12 @@ public final class ReviewSession {
         // Session gone (user backed out / view torn down) — agents must not
         // see a stale "current card". Lock-based registry, safe off-actor.
         ReviewSessionContext.shared.clear()
+        if let orig = originalLearnAheadSecs {
+            Task {
+                @Dependency(\.schedulerService) var scheduler
+                try? scheduler.setLearnAheadSecs(orig)
+            }
+        }
     }
 
     // MARK: - Agent context (get_review_context)
@@ -224,6 +265,7 @@ public final class ReviewSession {
             cardOrdinal: currentCardOrdinal,
             queueRemaining: max(cardQueue.count - (currentQueuedCard == nil ? 0 : 1), 0),
             isFinished: isFinished,
+            isWaitingForLearning: isWaitingForLearning,
             isAnswerRevealed: showAnswer,
             reviewed: sessionStats.reviewed,
             correct: sessionStats.correct,
@@ -231,7 +273,7 @@ public final class ReviewSession {
             remainingNew: remainingCounts.newCount,
             remainingLearning: remainingCounts.learnCount,
             remainingReview: remainingCounts.reviewCount,
-            answered: answerTrail.map { record in
+            answered: answerStack.map { record in
                 .init(
                     cardId: record.cardID.rawValue,
                     rating: ratingName(record.rating),
@@ -251,6 +293,7 @@ public final class ReviewSession {
         // Resolve the Sendable service facades here, in the caller's
         // dependency scope, then hand them to the off-actor work.
         let decks = self.decks
+        let deckClient = self.deckClient
         let scheduler = self.scheduler
         let notes = self.notes
         let notetypes = self.notetypes
@@ -258,27 +301,112 @@ public final class ReviewSession {
         let cardRendering = self.cardRendering
         let statsClient = self.statsClient
         let deckId = self.deckId
+        let allDeckScope = self.isAllDecksScope
         Task {
             defer { isAdvancing = false }
             do {
-                let (queue, name) = try await Task.detached { () -> (QueuedCardsResult, String) in
-                    try decks.setCurrentDeck(deckId)
-                    let name = (try? decks.getCurrentDeck().name) ?? ""
-                    return (try scheduler.getQueuedCards(200), name)
-                }.value
-                cardQueue = queue.cards
-                deckName = name
-                remainingCounts = DeckCounts(
-                    newCount: queue.newCount,
-                    learnCount: queue.learningCount,
-                    reviewCount: queue.reviewCount
-                )
-                await refineRemainingLearning(statsClient: statsClient)
-                sessionInitialCounts = remainingCounts
-                publishLiveCounts()
-                Log.review.info("Started with \(self.cardQueue.count) cards, counts: new=\(queue.newCount) learn=\(queue.learningCount) review=\(queue.reviewCount)")
-                await loadDailyProgress(statsClient: statsClient)
-                await advanceToNextCard(notes: notes, notetypes: notetypes, notetypesClient: notetypesClient, cardRendering: cardRendering, statsClient: statsClient)
+                var activeDeckIDs: [DeckID] = []
+                var initialCounts: [DeckID: DeckCounts] = [:]
+                if allDeckScope {
+                    let tree = try await deckClient.fetchTree()
+                    for node in tree {
+                        if node.counts.total > 0 {
+                            activeDeckIDs.append(node.id)
+                            initialCounts[node.id] = node.counts
+                        } else {
+                            let learnToday = (try? await statsClient.learningDueToday(search: DeckSearch.term(node.fullName))) ?? 0
+                            if learnToday > 0 {
+                                activeDeckIDs.append(node.id)
+                                initialCounts[node.id] = DeckCounts(newCount: 0, learnCount: learnToday, reviewCount: 0)
+                            }
+                        }
+                    }
+                } else {
+                    activeDeckIDs = [deckId]
+                    initialCounts = [:]
+                }
+                activeDeckPool = activeDeckIDs
+                remainingAllDeckCounts = initialCounts
+
+                guard !activeDeckIDs.isEmpty else {
+                    let scopeSearch = allDeckScope ? "" : DeckSearch.term(deckName)
+                    let learnDue = (try? await statsClient.learningDueToday(search: scopeSearch)) ?? 0
+                    if learnDue > 0 {
+                        isWaitingForLearning = true
+                        waitingLearningCount = learnDue
+                        isFinished = false
+                        deckName = allDeckScope ? "All Decks" : ""
+                        activeDeckName = deckName
+                        remainingCounts = DeckCounts(newCount: 0, learnCount: learnDue, reviewCount: 0)
+                        publishLiveCounts()
+                        publishContext()
+                    } else {
+                        deckName = allDeckScope ? "All Decks" : ""
+                        activeDeckName = ""
+                        isFinished = true
+                        isWaitingForLearning = false
+                        publishContext()
+                    }
+                    return
+                }
+
+                var foundQueue: QueuedCardsResult? = nil
+                var foundDeckID: DeckID? = nil
+                var foundName: String = ""
+
+                for candidateID in activeDeckIDs {
+                    let res = try await Task.detached { () -> (QueuedCardsResult, String) in
+                        try decks.setCurrentDeck(candidateID)
+                        let name = (try? decks.getCurrentDeck().name) ?? ""
+                        return (try scheduler.getQueuedCards(200), name)
+                    }.value
+                    if !res.0.cards.isEmpty {
+                        foundQueue = res.0
+                        foundDeckID = candidateID
+                        foundName = res.1
+                        break
+                    } else if foundName.isEmpty {
+                        foundName = res.1
+                    }
+                }
+
+                if let queue = foundQueue, let pickedID = foundDeckID {
+                    currentDeckID = pickedID
+                    activeDeckName = foundName
+                    deckName = allDeckScope ? "All Decks" : foundName
+                    remainingAllDeckCounts.removeValue(forKey: pickedID)
+                    cardQueue = queue.cards
+                    remainingCounts = countsIncludingUnselectedDecks(queue)
+                    await refineRemainingLearning(statsClient: statsClient)
+                    sessionInitialCounts = remainingCounts
+                    publishLiveCounts()
+                    Log.review.info("Started with \(self.cardQueue.count) cards, counts: new=\(queue.newCount) learn=\(queue.learningCount) review=\(queue.reviewCount)")
+                    await loadDailyProgress(statsClient: statsClient)
+                    await advanceToNextCard(notes: notes, notetypes: notetypes, notetypesClient: notetypesClient, cardRendering: cardRendering, statsClient: statsClient)
+                } else {
+                    let scopeSearch = allDeckScope ? "" : DeckSearch.term(foundName)
+                    let learnDue = (try? await statsClient.learningDueToday(search: scopeSearch)) ?? 0
+                    if learnDue > 0 {
+                        isWaitingForLearning = true
+                        waitingLearningCount = learnDue
+                        isFinished = false
+                        deckName = allDeckScope ? "All Decks" : foundName
+                        activeDeckName = deckName
+                        remainingCounts = DeckCounts(newCount: 0, learnCount: learnDue, reviewCount: 0)
+                        sessionInitialCounts = remainingCounts
+                        publishLiveCounts()
+                        publishContext()
+                    } else {
+                        deckName = allDeckScope ? "All Decks" : foundName
+                        activeDeckName = ""
+                        isFinished = true
+                        isWaitingForLearning = false
+                        remainingCounts = .zero
+                        sessionInitialCounts = .zero
+                        publishLiveCounts()
+                        publishContext()
+                    }
+                }
             } catch {
                 // NOT isFinished: that is the "queue ran dry" state and drives
                 // the congratulations surface plus a success haptic. A start
@@ -293,7 +421,7 @@ public final class ReviewSession {
     /// Fetches today's graduated count and the rollover hour for the current
     /// scope. Best-effort: a failure never blocks the session.
     private func loadDailyProgress(statsClient: StatsClient) async {
-        let search = DeckSearch.term(deckName)
+        let search = isAllDecksScope ? "" : DeckSearch.term(deckName)
 
         do {
             let graphs = try await statsClient.fetchGraphs(search, 1)
@@ -361,6 +489,8 @@ public final class ReviewSession {
         let notetypesClient = self.notetypesClient
         let cardRendering = self.cardRendering
         let statsClient = self.statsClient
+        let decks = self.decks
+        let allDeckScope = self.isAllDecksScope
 
         answerTapCount += 1
         tappedRating = rating
@@ -373,10 +503,52 @@ public final class ReviewSession {
             defer { isAdvancing = false }
             await AppSignpost.measure("AnswerCard") {
                 do {
-                    let queue = try await Task.detached {
+                    var queue = try await Task.detached {
                         try scheduler.answerReviewCard(cardId, rating, timeSpent, states)
                         return try scheduler.getQueuedCards(200)
                     }.value
+
+                    // An all-decks session keeps Anki's scheduler on one real
+                    // deck at a time. Once that deck's queue is empty, cycle
+                    // through other decks in the active pool instead of ending
+                    // the aggregate session or discarding cooling decks.
+                    var extraEngineOpsAfter = 0
+                    if allDeckScope, queue.cards.isEmpty {
+                        let currentTerm = DeckSearch.term(activeDeckName)
+                        let currentRemainingLearn = (try? await statsClient.learningDueToday(search: currentTerm)) ?? 0
+                        if currentRemainingLearn == 0, let curID = currentDeckID {
+                            activeDeckPool.removeAll { $0 == curID }
+                            remainingAllDeckCounts.removeValue(forKey: curID)
+                        }
+
+                        var switched = false
+                        for candidateID in activeDeckPool where candidateID != currentDeckID {
+                            extraEngineOpsAfter += 1
+                            let candidateResult = try await Task.detached { () -> (QueuedCardsResult, String) in
+                                try decks.setCurrentDeck(candidateID)
+                                let name = (try? decks.getCurrentDeck().name) ?? ""
+                                return (try scheduler.getQueuedCards(200), name)
+                            }.value
+                            if !candidateResult.0.cards.isEmpty {
+                                queue = candidateResult.0
+                                currentDeckID = candidateID
+                                activeDeckName = candidateResult.1
+                                remainingAllDeckCounts.removeValue(forKey: candidateID)
+                                switched = true
+                                break
+                            }
+                        }
+
+                        if !switched, let curID = currentDeckID {
+                            let retryQueue = try await Task.detached { () -> QueuedCardsResult in
+                                try decks.setCurrentDeck(curID)
+                                return try scheduler.getQueuedCards(200)
+                            }.value
+                            if !retryQueue.cards.isEmpty {
+                                queue = retryQueue
+                            }
+                        }
+                    }
 
                     answerError = nil
                     sessionStats.reviewed += 1
@@ -392,17 +564,21 @@ public final class ReviewSession {
                         graduatedCardIDs.insert(queued.card.id)
                         graduationPulse += 1
                     }
-                    answerTrail.append((cardID: queued.card.id, rating: rating, at: .now))
+                    answerStack.append(AnswerRecord(
+                        queued: queued,
+                        rating: rating,
+                        timeSpent: Int(timeSpent),
+                        graduated: graduated,
+                        streakBefore: streakBeforeAnswer,
+                        extraEngineOpsAfter: extraEngineOpsAfter,
+                        at: .now
+                    ))
                     lastRating = rating
                     correctStreak = rating != .again ? correctStreak + 1 : 0
                     canUndo = true
 
                     cardQueue = queue.cards
-                    remainingCounts = DeckCounts(
-                        newCount: queue.newCount,
-                        learnCount: queue.learningCount,
-                        reviewCount: queue.reviewCount
-                    )
+                    remainingCounts = countsIncludingUnselectedDecks(queue)
                     await refineRemainingLearning(statsClient: statsClient)
                     publishLiveCounts()
                     await advanceToNextCard(notes: notes, notetypes: notetypes, notetypesClient: notetypesClient, cardRendering: cardRendering, statsClient: statsClient)
@@ -429,55 +605,79 @@ public final class ReviewSession {
     }
 
     public func undo() {
-        guard canUndo, !isAdvancing else { return }
+        guard canUndo, !isAdvancing, let record = answerStack.last else { return }
         isAdvancing = true
 
-        let collection = self.collection
+        let cardClient = self.cardClient
         let scheduler = self.scheduler
         let notes = self.notes
         let notetypes = self.notetypes
         let notetypesClient = self.notetypesClient
         let cardRendering = self.cardRendering
         let statsClient = self.statsClient
+        let decks = self.decks
+        let allDeckScope = self.isAllDecksScope
+        let target = record.queued
+        let originalCard = target.card
+        let undoneCardID = target.card.id
 
         Task {
             defer { isAdvancing = false }
             do {
-                let queue = try await Task.detached {
-                    try collection.undoLast()
-                    // Re-fetch queue — Anki places the undone card at the front
-                    return try scheduler.getQueuedCards(200)
+                // One user undo must revert exactly this answer. Deck switches
+                // after the answer leave `SetCurrentDeck` entries on top of
+                // the engine stack; pop those, then the AnswerCard.
+                var current = try await cardClient.getCard(undoneCardID)
+                var undoCount = 0
+                let undoBudget = record.extraEngineOpsAfter + 1 + 2
+                do {
+                    while !cardIsRestored(current, to: originalCard) {
+                        guard undoCount < undoBudget else {
+                            throw ReviewUndoError.cardNotRestored(undoneCardID)
+                        }
+                        try await cardClient.undoLast()
+                        undoCount += 1
+                        current = try await cardClient.getCard(undoneCardID)
+                    }
+                } catch {
+                    for _ in 0..<undoCount {
+                        try? await cardClient.redoLast()
+                    }
+                    throw error
+                }
+
+                // Re-fetch queue — Anki places the undone card at the front
+                let (queue, currentName) = try await Task.detached { () -> (QueuedCardsResult, String) in
+                    let q = try scheduler.getQueuedCards(200)
+                    let name = (try? decks.getCurrentDeck().name) ?? ""
+                    return (q, name)
                 }.value
 
-                canUndo = false
+                answerStack.removeLast()
+                canUndo = !answerStack.isEmpty
                 undoneCount += 1
+
                 // Roll back session stats only if the operation we just
-                // undid was actually an answer. undoLast() undoes the last
-                // *collection* operation, and a note edit is reachable from
-                // this screen (refreshAfterEdit) — decrementing regardless
-                // drove the counters below their true value, and negative.
-                if let last = lastRating {
-                    sessionStats.reviewed = max(0, sessionStats.reviewed - 1)
-                    if last != .again {
-                        sessionStats.correct = max(0, sessionStats.correct - 1)
-                    }
-                    // The undone answer leaves the session trail and streak
-                    // with it. Graduations are card-id keyed, so re-answering
-                    // the restored card re-graduates cleanly.
-                    if !answerTrail.isEmpty {
-                        let undone = answerTrail.removeLast()
-                        graduatedCardIDs.remove(undone.cardID)
-                    }
-                    correctStreak = streakBeforeAnswer
+                // undid was actually an answer.
+                sessionStats.reviewed = max(0, sessionStats.reviewed - 1)
+                if record.rating != .again {
+                    sessionStats.correct = max(0, sessionStats.correct - 1)
+                }
+                sessionStats.totalTimeMs = max(0, sessionStats.totalTimeMs - record.timeSpent)
+                if record.graduated {
+                    graduatedCardIDs.remove(undoneCardID)
                 }
                 lastRating = nil
+                correctStreak = record.streakBefore
 
-                cardQueue = queue.cards
-                remainingCounts = DeckCounts(
-                    newCount: queue.newCount,
-                    learnCount: queue.learningCount,
-                    reviewCount: queue.reviewCount
-                )
+                // Put the undone card back at the front of the display queue.
+                cardQueue = [target] + queue.cards.filter { $0.card.id != undoneCardID }
+                isWaitingForLearning = false
+                isFinished = false
+                if allDeckScope, !currentName.isEmpty {
+                    activeDeckName = currentName
+                }
+                remainingCounts = countsIncludingUnselectedDecks(queue)
                 await refineRemainingLearning(statsClient: statsClient)
                 publishLiveCounts()
                 await advanceToNextCard(notes: notes, notetypes: notetypes, notetypesClient: notetypesClient, cardRendering: cardRendering, statsClient: statsClient)
@@ -513,6 +713,23 @@ public final class ReviewSession {
         )
     }
 
+    /// Current scheduler counts cover the selected deck; the virtual
+    /// all-decks scope adds the untouched top-level decks that are still
+    /// waiting to be selected.
+    private func countsIncludingUnselectedDecks(_ queue: QueuedCardsResult) -> DeckCounts {
+        var counts = DeckCounts(
+            newCount: queue.newCount,
+            learnCount: queue.learningCount,
+            reviewCount: queue.reviewCount
+        )
+        for pending in remainingAllDeckCounts.values {
+            counts.newCount += pending.newCount
+            counts.learnCount += pending.learnCount
+            counts.reviewCount += pending.reviewCount
+        }
+        return counts
+    }
+
     /// Replaces the queue-derived learn count with the TRUE number of
     /// learning/relearning cards still due before the next rollover. The
     /// scheduler's counts only include intraday learning within its
@@ -522,7 +739,7 @@ public final class ReviewSession {
     /// compares against the next day start) and excludes buried/suspended.
     /// Best-effort: on failure the queue-derived count stands.
     private func refineRemainingLearning(statsClient: StatsClient) async {
-        let search = DeckSearch.term(deckName)
+        let search = isAllDecksScope ? "" : DeckSearch.term(deckName)
         if let learning = try? await statsClient.learningDueToday(search: search) {
             remainingCounts.learnCount = learning
         }
@@ -534,6 +751,136 @@ public final class ReviewSession {
 
     public func bumpStopAudioRequest() {
         stopAudioRequestID += 1
+    }
+
+    /// Temporarily expands the intraday learn-ahead window to pull cooling
+    /// learning cards into the queue immediately, allowing the user to finish
+    /// today's remaining cards without waiting.
+    public func reviewAhead() {
+        guard !isAdvancing else { return }
+        isAdvancing = true
+        let scheduler = self.scheduler
+        let decks = self.decks
+        let statsClient = self.statsClient
+        let notes = self.notes
+        let notetypes = self.notetypes
+        let notetypesClient = self.notetypesClient
+        let cardRendering = self.cardRendering
+
+        Task {
+            defer { isAdvancing = false }
+            do {
+                if originalLearnAheadSecs == nil {
+                    originalLearnAheadSecs = try? scheduler.getLearnAheadSecs()
+                }
+                try scheduler.setLearnAheadSecs(86_400)
+
+                var foundQueue: QueuedCardsResult? = nil
+                for deckID in activeDeckPool {
+                    let res = try await Task.detached { () -> (QueuedCardsResult, String) in
+                        try decks.setCurrentDeck(deckID)
+                        let name = (try? decks.getCurrentDeck().name) ?? ""
+                        return (try scheduler.getQueuedCards(200), name)
+                    }.value
+                    if !res.0.cards.isEmpty {
+                        foundQueue = res.0
+                        currentDeckID = deckID
+                        activeDeckName = res.1
+                        break
+                    }
+                }
+
+                if let queue = foundQueue, !queue.cards.isEmpty {
+                    cardQueue = queue.cards
+                    isWaitingForLearning = false
+                    waitingLearningCount = 0
+                    remainingCounts = countsIncludingUnselectedDecks(queue)
+                    await refineRemainingLearning(statsClient: statsClient)
+                    publishLiveCounts()
+                    await advanceToNextCard(
+                        notes: notes,
+                        notetypes: notetypes,
+                        notetypesClient: notetypesClient,
+                        cardRendering: cardRendering,
+                        statsClient: statsClient
+                    )
+                } else {
+                    isWaitingForLearning = false
+                    isFinished = true
+                    publishContext()
+                }
+            } catch {
+                Log.review.error("reviewAhead failed: \(error)")
+            }
+        }
+    }
+
+    /// Re-evaluates queues to see if any cooling learning cards have matured.
+    public func checkWaitingQueue() {
+        guard isWaitingForLearning, !isAdvancing else { return }
+        isAdvancing = true
+        let scheduler = self.scheduler
+        let decks = self.decks
+        let statsClient = self.statsClient
+        let notes = self.notes
+        let notetypes = self.notetypes
+        let notetypesClient = self.notetypesClient
+        let cardRendering = self.cardRendering
+
+        Task {
+            defer { isAdvancing = false }
+            do {
+                var foundQueue: QueuedCardsResult? = nil
+                for deckID in activeDeckPool {
+                    let res = try await Task.detached { () -> (QueuedCardsResult, String) in
+                        try decks.setCurrentDeck(deckID)
+                        let name = (try? decks.getCurrentDeck().name) ?? ""
+                        return (try scheduler.getQueuedCards(200), name)
+                    }.value
+                    if !res.0.cards.isEmpty {
+                        foundQueue = res.0
+                        currentDeckID = deckID
+                        activeDeckName = res.1
+                        break
+                    }
+                }
+
+                if let queue = foundQueue, !queue.cards.isEmpty {
+                    cardQueue = queue.cards
+                    isWaitingForLearning = false
+                    waitingLearningCount = 0
+                    remainingCounts = countsIncludingUnselectedDecks(queue)
+                    await refineRemainingLearning(statsClient: statsClient)
+                    publishLiveCounts()
+                    await advanceToNextCard(
+                        notes: notes,
+                        notetypes: notetypes,
+                        notetypesClient: notetypesClient,
+                        cardRendering: cardRendering,
+                        statsClient: statsClient
+                    )
+                } else {
+                    let scopeSearch = isAllDecksScope ? "" : DeckSearch.term(deckName)
+                    let learnDue = (try? await statsClient.learningDueToday(search: scopeSearch)) ?? 0
+                    if learnDue == 0 {
+                        isWaitingForLearning = false
+                        isFinished = true
+                        publishContext()
+                    } else {
+                        waitingLearningCount = learnDue
+                    }
+                }
+            } catch {
+                Log.review.error("checkWaitingQueue failed: \(error)")
+            }
+        }
+    }
+
+    /// Explicitly finishes the session early even if learning cards are cooling down.
+    public func finishEarly() {
+        isWaitingForLearning = false
+        isFinished = true
+        publishContext()
     }
 }
 
@@ -633,13 +980,29 @@ private extension ReviewSession {
         statsClient: StatsClient
     ) async {
         guard let next = cardQueue.first else {
-            isFinished = true
+            let scopeSearch = isAllDecksScope ? "" : DeckSearch.term(deckName)
+            let learnDue = (try? await statsClient.learningDueToday(search: scopeSearch)) ?? 0
+            if learnDue > 0 {
+                isWaitingForLearning = true
+                waitingLearningCount = learnDue
+                isFinished = false
+                remainingCounts = DeckCounts(newCount: 0, learnCount: learnDue, reviewCount: 0)
+                publishLiveCounts()
+            } else {
+                isFinished = true
+                isWaitingForLearning = false
+                remainingCounts = .zero
+                publishLiveCounts()
+            }
             currentQueuedCard = nil
             currentNote = nil
             invalidatePrefetch()
             publishContext()
             return
         }
+
+        isWaitingForLearning = false
+        waitingLearningCount = 0
 
         let prepared: PreparedCard
         if let hit = preparedNext, hit.id == next.card.id {
@@ -751,6 +1114,24 @@ private extension ReviewSession {
 
 }
 
+/// True when `card` has been reverted to its scheduling state at queue time
+/// (`original`). Excludes volatile fields the answer/undo cycle updates for
+/// bookkeeping (`mod`, `usn`). `undo()` uses this to detect whether the last
+/// backend undo actually reverted this card — an auto deck-switch in an
+/// all-decks session can leave a `SetCurrentDeck` entry on top of an answer.
+private func cardIsRestored(_ card: CardRecord, to original: CardRecord) -> Bool {
+    card.did == original.did
+        && card.type == original.type
+        && card.queue == original.queue
+        && card.due == original.due
+        && card.ivl == original.ivl
+        && card.left == original.left
+        && card.odue == original.odue
+        && card.odid == original.odid
+        && card.factor == original.factor
+        && card.reps == original.reps
+}
+
 #if DEBUG
 extension ReviewSession {
     /// Builds a session with canned display state for SwiftUI previews.
@@ -761,6 +1142,8 @@ extension ReviewSession {
     public static func preview(
         showAnswer: Bool = false,
         isFinished: Bool = false,
+        isWaitingForLearning: Bool = false,
+        waitingLearningCount: Int = 0,
         front: String = "<div class=\"card\">猫</div>",
         back: String = "<div class=\"card\">猫<hr>cat — a small domesticated feline</div>",
         reviewed: Int = 7,
@@ -775,6 +1158,8 @@ extension ReviewSession {
         """
         session.showAnswer = showAnswer
         session.isFinished = isFinished
+        session.isWaitingForLearning = isWaitingForLearning
+        session.waitingLearningCount = waitingLearningCount
         session.sessionStats = SessionStats(reviewed: reviewed, correct: 6, totalTimeMs: 42_000)
         session.remainingCounts = counts
         session.deckName = "한국어 · Vocab Typing"

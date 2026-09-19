@@ -166,7 +166,7 @@ struct MainTabView: View {
         switch section {
         case .library:
             NavigationStack {
-                DeckListView()
+                DeckListView(onStartReview: { onSelectStudyDeck(DeckID(0)) })
                     .accountMenu()
             }
         case .read:

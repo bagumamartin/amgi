@@ -134,6 +134,21 @@ final class ModelDownloadCoordinator {
         }
     }
 
+    // MARK: - User Actions
+
+    func cancel() {
+        cancelDismiss()
+        toast = nil
+        Task {
+            await ModelAssetManager.shared.cancelDownload()
+        }
+    }
+
+    func dismissToast() {
+        cancelDismiss()
+        toast = nil
+    }
+
     // MARK: - Toast mapping
 
     private func handle(_ status: ModelAssetManager.Status) {
@@ -145,18 +160,27 @@ final class ModelDownloadCoordinator {
         case .downloading(let fraction, let received, let total):
             announceReady = true
             cancelDismiss()
-            toast = .progress(
-                "Downloading AI model \(formatMB(received))/\(formatMB(total ?? 0)) · \(Int(fraction * 100))%"
-            )
-        case .verifying, .extracting, .compiling:
+            toast = .progress(.downloading(fraction: fraction, receivedBytes: received, totalBytes: total))
+        case .verifying:
             announceReady = true
             cancelDismiss()
-            toast = .progress("Preparing AI model\u{2026}")
+            toast = .progress(.verifying)
+        case .extracting:
+            announceReady = true
+            cancelDismiss()
+            toast = .progress(.extracting)
+        case .compiling:
+            announceReady = true
+            cancelDismiss()
+            toast = .progress(.compiling)
         case .ready:
             cancelDismiss()
             if announceReady {
                 announceReady = false
-                toast = .success("AI model ready — smarter icons & search")
+                toast = .success(
+                    title: "AI Model Ready",
+                    subtitle: "Smarter search & deck icons enabled"
+                )
                 dismissTask = Task { @MainActor [weak self] in
                     try? await Task.sleep(for: .seconds(4))
                     if !(Task.isCancelled) { self?.toast = nil }
@@ -164,22 +188,19 @@ final class ModelDownloadCoordinator {
             } else {
                 toast = nil
             }
-        case .failed:
+        case .failed(let reason):
             announceReady = false
             cancelDismiss()
-            toast = .failure("AI model download failed")
+            let cleanReason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+            toast = .failure(
+                message: "AI Model Download Incomplete",
+                reason: cleanReason.isEmpty ? nil : cleanReason
+            )
         }
     }
 
     private func cancelDismiss() {
         dismissTask?.cancel()
         dismissTask = nil
-    }
-
-    private func formatMB(_ bytes: Int64) -> String {
-        ByteCountFormatter.string(
-            fromByteCount: max(0, bytes),
-            countStyle: .file
-        )
     }
 }

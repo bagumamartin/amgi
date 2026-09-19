@@ -1,0 +1,9 @@
+{
+  "id" : "a5b04ee9-0dc2-4e88-98a4-05175c5decae",
+  "targets" : [
+    {
+      "id" : "0a318336-7c83-4cca-816e-34b5cbb7e86b",
+      "name" : "AmgiApp"
+    }
+  ]
+}

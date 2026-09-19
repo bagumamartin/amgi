@@ -55,10 +55,9 @@ private struct SyncFlowModifier: ViewModifier {
             .onChange(of: NetworkMonitor.shared.usesWiFi) { _, _ in
                 modelDownloads.retryIfAllowed()
             }
-            .confirmationDialog(
+            .alert(
                 modelDownloads.consent?.offline == true ? "You're Offline" : "Download AI Model?",
-                isPresented: modelDownloads.consentBinding,
-                titleVisibility: .visible
+                isPresented: modelDownloads.consentBinding
             ) {
                 if modelDownloads.consent?.offline == true {
                     Button("OK") { modelDownloads.consentOfflineAcknowledged() }
@@ -74,7 +73,11 @@ private struct SyncFlowModifier: ViewModifier {
                 if modelDownloads.consent?.offline == true {
                     Text("The AI model powers smarter deck icons and meaning-based search. We'll ask again when you're back online — the app works fully without it.")
                 } else if modelDownloads.consent?.cellular == true {
-                    Text("\(modelDownloads.consentSizeText), and you're on mobile data — this may use your data plan. The app works fully without it; future updates follow your network setting in Maintenance.")
+                    #if os(macOS)
+                    Text("\(modelDownloads.consentSizeText) download on a metered or personal hotspot connection — this may use your data plan. The app works fully without it; future updates follow your network setting in Maintenance.")
+                    #else
+                    Text("\(modelDownloads.consentSizeText) download on mobile data — this may use your data plan. The app works fully without it; future updates follow your network setting in Maintenance.")
+                    #endif
                 } else {
                     Text("\(modelDownloads.consentSizeText) download. Powers smarter deck icons and meaning-based search — the app works fully without it. Future updates follow your network setting in Maintenance.")
                 }
@@ -82,7 +85,9 @@ private struct SyncFlowModifier: ViewModifier {
             .combinedToastOverlay(
                 sync: toast.toast,
                 model: modelDownloads.toast,
-                onModelRetry: { modelDownloads.retry() }
+                onModelRetry: { modelDownloads.retry() },
+                onModelCancel: { modelDownloads.cancel() },
+                onModelDismiss: { modelDownloads.dismissToast() }
             )
     }
 }

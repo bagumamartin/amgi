@@ -255,6 +255,7 @@ struct NoteFieldMediaBridge: ViewModifier {
 /// file to the media bridge for collection-aware import (`[sound:…]`).
 struct NoteAudioRecorderSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.palette) private var palette
     let onDone: (URL?) -> Void
 
     @StateObject private var recorder = NoteAudioRecorder()
@@ -263,8 +264,7 @@ struct NoteAudioRecorderSheet: View {
         NavigationStack {
             VStack(spacing: 16) {
                 Text(recorder.statusText)
-                    .font(.headline)
-                    .monospacedDigit()
+                    .amgiFont(.bodyEmphasis, .monospacedDigits)
                 HStack(spacing: 16) {
                     Button(recorder.isRecording ? "Stop" : "Record") {
                         recorder.toggle()
@@ -278,8 +278,8 @@ struct NoteAudioRecorderSheet: View {
                 }
                 if recorder.recordedURL != nil, !recorder.isRecording {
                     Text("Review the take, then insert it as a sound attachment.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .amgiFont(.caption)
+                        .foregroundStyle(palette.textSecondary)
                 }
                 Spacer()
             }

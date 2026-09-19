@@ -511,4 +511,333 @@ import AnkiServices
             #expect(!s.isAdvancing, "prefetch must not hold the transition gate shut")
         }
     }
+
+    // MARK: - Virtual All-Decks Scope (DeckID(0))
+
+    @Test func startAllDecksWithActiveDecksLoadsFirstAndAggregatesCounts() async throws {
+        let card1 = QueuedReviewCard.preview(cardId: CardID(1), noteId: NoteID(100), ord: 0)
+        let tree = [
+            DeckTreeNode(
+                id: DeckID(10),
+                name: "Korean",
+                fullName: "Korean",
+                counts: DeckCounts(newCount: 5, learnCount: 2, reviewCount: 3)
+            ),
+            DeckTreeNode(
+                id: DeckID(20),
+                name: "German",
+                fullName: "German",
+                counts: DeckCounts(newCount: 1, learnCount: 0, reviewCount: 4)
+            )
+        ]
+
+        try await withDependencies {
+            $0.deckClient.fetchTree = { tree }
+            $0.decksService.setCurrentDeck = { _ in }
+            $0.decksService.getCurrentDeck = { DeckInfo(id: DeckID(10), name: "Korean") }
+            var stats = Self.stubStatsClient
+            stats.learningDueToday = { _ in 2 }
+            $0.statsClient = stats
+            $0.schedulerService.getQueuedCards = { _ in
+                QueuedCardsResult(cards: [card1], newCount: 5, learningCount: 2, reviewCount: 3)
+            }
+            $0.notesService.getNote = { id in
+                NoteRecord(id: id, guid: "g", mid: NotetypeID(200), mod: 0, flds: "", sfld: "", csum: 0)
+            }
+            $0.cardRenderingService.renderCard = { _ in
+                RenderedCard(frontHTML: "f", backHTML: "b", cardCSS: "")
+            }
+        } operation: {
+            let s = ReviewSession(deckId: DeckID(0))
+            #expect(s.isAllDecksScope)
+            s.start()
+            try await pollUntil { s.currentCardId != nil && !s.isAdvancing }
+
+            #expect(s.deckName == "All Decks")
+            #expect(s.activeDeckName == "Korean")
+            #expect(s.remainingCounts.newCount == 6) // 5 (deck 10) + 1 (deck 20)
+            #expect(s.remainingCounts.learnCount == 2) // 2 + 0
+            #expect(s.remainingCounts.reviewCount == 7) // 3 + 4
+            #expect(!s.isFinished)
+        }
+    }
+
+    @Test func startAllDecksWithNoDueCardsFinishesImmediately() async throws {
+        try await withDependencies {
+            $0.deckClient.fetchTree = { [] }
+            $0.statsClient = Self.stubStatsClient
+        } operation: {
+            let s = ReviewSession(deckId: DeckID(0))
+            s.start()
+            try await pollUntil { s.isFinished && !s.isAdvancing }
+
+            #expect(s.isAllDecksScope)
+            #expect(s.isFinished)
+            #expect(s.deckName == "All Decks")
+            #expect(s.activeDeckName == "")
+        }
+    }
+
+    @Test func allDecksTransitionsToNextDeckWhenQueueEmpties() async throws {
+        let card1 = QueuedReviewCard.preview(cardId: CardID(1), noteId: NoteID(100), ord: 0)
+        let card2 = QueuedReviewCard.preview(cardId: CardID(2), noteId: NoteID(101), ord: 0)
+        let tree = [
+            DeckTreeNode(
+                id: DeckID(10),
+                name: "Korean",
+                fullName: "Korean",
+                counts: DeckCounts(newCount: 1, learnCount: 0, reviewCount: 0)
+            ),
+            DeckTreeNode(
+                id: DeckID(20),
+                name: "German",
+                fullName: "German",
+                counts: DeckCounts(newCount: 1, learnCount: 0, reviewCount: 0)
+            )
+        ]
+
+        final class CurrentDeckHolder: @unchecked Sendable {
+            var currentID: DeckID = DeckID(10)
+            var card1Answered: Bool = false
+        }
+        let holder = CurrentDeckHolder()
+
+        try await withDependencies {
+            $0.deckClient.fetchTree = { tree }
+            $0.decksService.setCurrentDeck = { id in holder.currentID = id }
+            $0.decksService.getCurrentDeck = {
+                DeckInfo(id: holder.currentID, name: holder.currentID == DeckID(10) ? "Korean" : "German")
+            }
+            $0.statsClient = Self.stubStatsClient
+            $0.schedulerService.getQueuedCards = { _ in
+                if holder.currentID == DeckID(10) {
+                    if holder.card1Answered {
+                        return QueuedCardsResult(cards: [], newCount: 0, learningCount: 0, reviewCount: 0)
+                    } else {
+                        return QueuedCardsResult(cards: [card1], newCount: 1, learningCount: 0, reviewCount: 0)
+                    }
+                } else {
+                    return QueuedCardsResult(cards: [card2], newCount: 1, learningCount: 0, reviewCount: 0)
+                }
+            }
+            $0.schedulerService.answerReviewCard = { cardID, _, _, _ in
+                if cardID == CardID(1) {
+                    holder.card1Answered = true
+                }
+            }
+            $0.notesService.getNote = { id in
+                NoteRecord(id: id, guid: "g", mid: NotetypeID(200), mod: 0, flds: "", sfld: "", csum: 0)
+            }
+            $0.cardRenderingService.renderCard = { _ in
+                RenderedCard(frontHTML: "f", backHTML: "b", cardCSS: "")
+            }
+        } operation: {
+            let s = ReviewSession(deckId: DeckID(0))
+            s.start()
+            try await pollUntil { s.currentCardId != nil && !s.isAdvancing }
+            #expect(s.activeDeckName == "Korean")
+            #expect(s.currentCardId == CardID(1))
+
+            // Answering card 1 empties Korean's queue and causes transition to German
+            s.answer(rating: .good)
+            try await pollUntil { s.activeDeckName == "German" && !s.isAdvancing }
+
+            #expect(s.activeDeckName == "German")
+            #expect(s.currentCardId == CardID(2))
+        }
+    }
+
+    @Test func sessionDoesNotFinishWhenLearningCardsRemainDueToday() async throws {
+        let card1 = QueuedReviewCard.preview(cardId: CardID(1), noteId: NoteID(100), ord: 0)
+
+        final class StateHolder: @unchecked Sendable {
+            var answered: Bool = false
+        }
+        let holder = StateHolder()
+
+        try await withDependencies {
+            $0.decksService.setCurrentDeck = { _ in }
+            $0.decksService.getCurrentDeck = { DeckInfo(id: DeckID(1), name: "Japanese") }
+            $0.statsClient = StatsClient(
+                fetchGraphs: { _, _ in GraphsSnapshot() },
+                graduatedToday: { _ in 0 },
+                learningDueToday: { _ in holder.answered ? 2 : 0 },
+                lastRating: { _ in nil }
+            )
+            $0.schedulerService.getQueuedCards = { _ in
+                if holder.answered {
+                    return QueuedCardsResult(cards: [], newCount: 0, learningCount: 0, reviewCount: 0)
+                } else {
+                    return QueuedCardsResult(cards: [card1], newCount: 1, learningCount: 0, reviewCount: 0)
+                }
+            }
+            $0.schedulerService.answerReviewCard = { _, _, _, _ in
+                holder.answered = true
+            }
+            $0.notesService.getNote = { id in
+                NoteRecord(id: id, guid: "g", mid: NotetypeID(200), mod: 0, flds: "", sfld: "", csum: 0)
+            }
+            $0.cardRenderingService.renderCard = { _ in
+                RenderedCard(frontHTML: "f", backHTML: "b", cardCSS: "")
+            }
+        } operation: {
+            let s = ReviewSession(deckId: DeckID(1))
+            s.start()
+            try await pollUntil { s.currentCardId != nil && !s.isAdvancing }
+            #expect(s.currentCardId == CardID(1))
+
+            s.answer(rating: .again)
+            try await pollUntil { s.isWaitingForLearning && !s.isAdvancing }
+
+            #expect(!s.isFinished)
+            #expect(s.isWaitingForLearning)
+            #expect(s.waitingLearningCount == 2)
+            #expect(s.currentCardId == nil)
+        }
+    }
+
+    @Test func reviewAheadPullsCoolingCards() async throws {
+        let card1 = QueuedReviewCard.preview(cardId: CardID(1), noteId: NoteID(100), ord: 0)
+        let coolingCard = QueuedReviewCard.preview(cardId: CardID(99), noteId: NoteID(199), ord: 0)
+
+        final class StateHolder: @unchecked Sendable {
+            var learnAhead: UInt32 = 1200
+        }
+        let holder = StateHolder()
+
+        try await withDependencies {
+            $0.decksService.setCurrentDeck = { _ in }
+            $0.decksService.getCurrentDeck = { DeckInfo(id: DeckID(1), name: "Japanese") }
+            $0.statsClient = StatsClient(
+                fetchGraphs: { _, _ in GraphsSnapshot() },
+                graduatedToday: { _ in 0 },
+                learningDueToday: { _ in 1 },
+                lastRating: { _ in nil }
+            )
+            $0.schedulerService.getLearnAheadSecs = { holder.learnAhead }
+            $0.schedulerService.setLearnAheadSecs = { secs in holder.learnAhead = secs }
+            $0.schedulerService.getQueuedCards = { _ in
+                if holder.learnAhead >= 86400 {
+                    return QueuedCardsResult(cards: [coolingCard], newCount: 0, learningCount: 1, reviewCount: 0)
+                } else {
+                    return QueuedCardsResult(cards: [], newCount: 0, learningCount: 0, reviewCount: 0)
+                }
+            }
+            $0.notesService.getNote = { id in
+                NoteRecord(id: id, guid: "g", mid: NotetypeID(200), mod: 0, flds: "", sfld: "", csum: 0)
+            }
+            $0.cardRenderingService.renderCard = { _ in
+                RenderedCard(frontHTML: "f", backHTML: "b", cardCSS: "")
+            }
+        } operation: {
+            let s = ReviewSession(deckId: DeckID(1))
+            s.start()
+            try await pollUntil { s.isWaitingForLearning && !s.isAdvancing }
+
+            #expect(!s.isFinished)
+            #expect(s.isWaitingForLearning)
+            #expect(s.waitingLearningCount == 1)
+
+            s.reviewAhead()
+            try await pollUntil { s.currentCardId == CardID(99) && !s.isAdvancing }
+
+            #expect(!s.isWaitingForLearning)
+            #expect(!s.isFinished)
+            #expect(s.currentCardId == CardID(99))
+            #expect(holder.learnAhead == 86400)
+        }
+    }
+
+    @Test func allDecksRetainsCoolingDecksAcrossInterleaving() async throws {
+        let card1 = QueuedReviewCard.preview(cardId: CardID(1), noteId: NoteID(100), ord: 0)
+        let card2 = QueuedReviewCard.preview(cardId: CardID(2), noteId: NoteID(101), ord: 0)
+        let tree = [
+            DeckTreeNode(
+                id: DeckID(10),
+                name: "DeckA",
+                fullName: "DeckA",
+                counts: DeckCounts(newCount: 1, learnCount: 0, reviewCount: 0)
+            ),
+            DeckTreeNode(
+                id: DeckID(20),
+                name: "DeckB",
+                fullName: "DeckB",
+                counts: DeckCounts(newCount: 1, learnCount: 0, reviewCount: 0)
+            )
+        ]
+
+        final class CurrentDeckHolder: @unchecked Sendable {
+            var currentID: DeckID = DeckID(10)
+            var card1Answered: Bool = false
+            var card2Answered: Bool = false
+        }
+        let holder = CurrentDeckHolder()
+
+        try await withDependencies {
+            $0.deckClient.fetchTree = { tree }
+            $0.decksService.setCurrentDeck = { id in holder.currentID = id }
+            $0.decksService.getCurrentDeck = {
+                DeckInfo(id: holder.currentID, name: holder.currentID == DeckID(10) ? "DeckA" : "DeckB")
+            }
+            $0.statsClient = StatsClient(
+                fetchGraphs: { _, _ in GraphsSnapshot() },
+                graduatedToday: { _ in 0 },
+                learningDueToday: { search in
+                    // DeckA still has 1 cooling learning card
+                    if search.contains("DeckA") || search.isEmpty {
+                        return 1
+                    }
+                    return 0
+                },
+                lastRating: { _ in nil }
+            )
+            $0.schedulerService.getQueuedCards = { _ in
+                if holder.currentID == DeckID(10) {
+                    if holder.card1Answered {
+                        return QueuedCardsResult(cards: [], newCount: 0, learningCount: 0, reviewCount: 0)
+                    } else {
+                        return QueuedCardsResult(cards: [card1], newCount: 1, learningCount: 0, reviewCount: 0)
+                    }
+                } else {
+                    if holder.card2Answered {
+                        return QueuedCardsResult(cards: [], newCount: 0, learningCount: 0, reviewCount: 0)
+                    } else {
+                        return QueuedCardsResult(cards: [card2], newCount: 1, learningCount: 0, reviewCount: 0)
+                    }
+                }
+            }
+            $0.schedulerService.answerReviewCard = { cardID, _, _, _ in
+                if cardID == CardID(1) {
+                    holder.card1Answered = true
+                } else if cardID == CardID(2) {
+                    holder.card2Answered = true
+                }
+            }
+            $0.notesService.getNote = { id in
+                NoteRecord(id: id, guid: "g", mid: NotetypeID(200), mod: 0, flds: "", sfld: "", csum: 0)
+            }
+            $0.cardRenderingService.renderCard = { _ in
+                RenderedCard(frontHTML: "f", backHTML: "b", cardCSS: "")
+            }
+        } operation: {
+            let s = ReviewSession(deckId: DeckID(0))
+            s.start()
+            try await pollUntil { s.currentCardId == CardID(1) && !s.isAdvancing }
+
+            // Rate card 1: DeckA queue empties, but DeckA has 1 learning card due today.
+            // Transitions to DeckB.
+            s.answer(rating: .again)
+            try await pollUntil { s.currentCardId == CardID(2) && !s.isAdvancing }
+            #expect(s.activeDeckName == "DeckB")
+
+            // Rate card 2: DeckB queue empties, DeckB has 0 learning cards.
+            // Session must NOT end with isFinished = true, because DeckA still has 1 cooling card!
+            s.answer(rating: .good)
+            try await pollUntil { s.isWaitingForLearning && !s.isAdvancing }
+
+            #expect(!s.isFinished)
+            #expect(s.isWaitingForLearning)
+            #expect(s.waitingLearningCount == 1)
+        }
+    }
 }

@@ -99,9 +99,7 @@ public struct RootView: View {
     /// sense once the scene is up). DeckID(0) means "no specific deck".
     private func consumeIntentRouterHandoff() {
         guard let deckID = IntentRouter.shared.consumePendingReviewDeck() else { return }
-        if deckID.rawValue != 0 {
-            pendingReviewDeckId = deckID
-        }
+        pendingReviewDeckId = deckID
         $sectionRaw.withLock { $0 = MainSection.study.rawValue }
     }
 

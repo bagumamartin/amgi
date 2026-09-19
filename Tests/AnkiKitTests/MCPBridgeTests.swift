@@ -13,7 +13,7 @@ struct MCPBridgeTests {
         )
 
         let encoded = MCPBridge.encode(frame)
-        let decoded = try #require(MCPBridge.decodeFrame(from: encoded))
+        let decoded = try #require(try MCPBridge.decodeFrame(from: encoded))
 
         #expect(decoded.frame == frame)
         #expect(decoded.consumed == encoded.count)

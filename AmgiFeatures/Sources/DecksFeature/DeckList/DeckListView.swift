@@ -21,14 +21,18 @@ package struct DeckListView: View {
     /// in from the trailing edge — the row and the screen are the same thing.
     @Namespace private var deckTransition
 
+    private let onStartReview: () -> Void
+
     /// Profile switching lives on the root stack (MainTabView `.accountMenu()`),
     /// not here — applying it twice doubled the leading profile pill.
-    package init() {
+    package init(onStartReview: @escaping () -> Void = {}) {
+        self.onStartReview = onStartReview
         _model = State(initialValue: DeckListModel())
     }
 
     /// Preview / test seam — internal so the model stays module-private.
-    init(model: DeckListModel) {
+    init(model: DeckListModel, onStartReview: @escaping () -> Void = {}) {
+        self.onStartReview = onStartReview
         _model = State(initialValue: model)
     }
 
@@ -36,7 +40,7 @@ package struct DeckListView: View {
         LibraryListContent(
             state: model.state,
             onRefresh: { await model.load() },
-            onStartReview: { pendingDeck = model.firstReviewableDeck() },
+            onStartReview: onStartReview,
             onTapDeck: { row in pendingDeck = row.asDeckInfo },
             onDeleteDeck: { rawID in await model.delete(DeckID(rawID)) },
             onRenameDeck: { row in renameTarget = row },

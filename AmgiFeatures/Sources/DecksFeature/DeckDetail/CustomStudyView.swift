@@ -197,7 +197,7 @@ struct CustomStudyView: View {
                             }
                             .padding(.horizontal, 16)
                             .frame(maxWidth: .infinity, minHeight: 54)
-                            .background(palette.surface, in: RoundedRectangle(cornerRadius: 12))
+                            .background(palette.surface, in: RoundedRectangle(cornerRadius: AmgiRadius.inset))
                         }
                         Text(modeDescription)
                             .font(.system(size: 14))
@@ -207,7 +207,7 @@ struct CustomStudyView: View {
 
                     if let availabilityText {
                         Text(availabilityText)
-                            .font(.footnote)
+                            .amgiFont(.caption)
                             .foregroundStyle(palette.textSecondary)
                     }
 
@@ -251,15 +251,15 @@ struct CustomStudyView: View {
                 Divider().frame(height: 24)
                 amountButton(systemImage: "plus", delta: 1)
             }
-            .background(palette.background, in: RoundedRectangle(cornerRadius: 10))
+            .background(palette.background, in: RoundedRectangle(cornerRadius: AmgiRadius.control))
             .overlay {
-                RoundedRectangle(cornerRadius: 10)
+                RoundedRectangle(cornerRadius: AmgiRadius.control)
                     .strokeBorder(palette.separator, lineWidth: 0.5)
             }
         }
         .padding(.horizontal, 16)
         .frame(minHeight: 64)
-        .background(palette.surface, in: RoundedRectangle(cornerRadius: 12))
+        .background(palette.surface, in: RoundedRectangle(cornerRadius: AmgiRadius.inset))
     }
 
     private func amountButton(systemImage: String, delta: Int) -> some View {
@@ -278,19 +278,20 @@ struct CustomStudyView: View {
     private var settingsForm: some View {
         VStack(alignment: .leading, spacing: 22) {
             Text("\(deck.name) · Includes subdecks")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .amgiFont(.caption)
+                .foregroundStyle(palette.textSecondary)
             VStack(alignment: .leading, spacing: 6) {
                 Text(mode.rawValue)
-                    .font(.title3.weight(.semibold))
+                    .amgiFont(.sectionHeading)
                 Text(modeDescription)
-                    .foregroundStyle(.secondary)
+                    .amgiFont(.body)
+                    .foregroundStyle(palette.textSecondary)
             }
 
             if let availabilityText {
                 Text(availabilityText)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .amgiFont(.caption)
+                    .foregroundStyle(palette.textSecondary)
             }
 
             if mode == .stateAndTag {
@@ -300,18 +301,19 @@ struct CustomStudyView: View {
                     LabeledContent(fieldLabel, value: "\(amount) \(fieldUnit)")
                 }
                 .padding(16)
-                .background(palette.surface, in: RoundedRectangle(cornerRadius: 12))
+                .background(palette.surface, in: RoundedRectangle(cornerRadius: AmgiRadius.inset))
             }
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(consequenceTitle)
-                    .font(.headline)
+                    .amgiFont(.bodyEmphasis)
                 Text(consequenceDetail)
-                    .foregroundStyle(.secondary)
+                    .amgiFont(.body)
+                    .foregroundStyle(palette.textSecondary)
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(palette.surfaceElevated, in: RoundedRectangle(cornerRadius: 12))
+            .background(palette.surfaceElevated, in: RoundedRectangle(cornerRadius: AmgiRadius.inset))
         }
         .frame(maxWidth: 560, alignment: .leading)
     }
@@ -328,13 +330,13 @@ struct CustomStudyView: View {
 
             if !tags.isEmpty {
                 Divider()
-                Text("Tags").font(.headline)
+                Text("Tags").amgiFont(.bodyEmphasis)
                 Text("Included tags match any selection. Cards matching any excluded tag are removed.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .amgiFont(.caption)
+                    .foregroundStyle(palette.textSecondary)
                 ForEach(tags) { tag in
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(tag.name).font(.subheadline)
+                        Text(tag.name).amgiFont(.captionBold)
                         Picker(tag.name, selection: tagBinding(tag.name)) {
                             ForEach(TagChoice.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                         }
@@ -344,23 +346,24 @@ struct CustomStudyView: View {
             }
         }
         .padding(16)
-        .background(palette.surface, in: RoundedRectangle(cornerRadius: 12))
+        .background(palette.surface, in: RoundedRectangle(cornerRadius: AmgiRadius.inset))
     }
 
     private func readyBody(_ session: DeckInfo) -> some View {
         VStack(spacing: 22) {
             Image(systemName: "rectangle.stack.fill")
                 .font(.system(size: 38))
-                .foregroundStyle(.tint)
+                .foregroundStyle(palette.accent)
             Text("Custom Study Session is ready")
-                .font(.title2.weight(.bold))
+                .amgiFont(.sectionHeading)
             Text("Built from \(deck.name) and its subdecks. The session is a standard Anki filtered deck.")
-                .foregroundStyle(.secondary)
+                .amgiFont(.body)
+                .foregroundStyle(palette.textSecondary)
                 .multilineTextAlignment(.center)
             HStack {
-                countPill("New", session.counts.newCount, .blue)
-                countPill("Learning", session.counts.learnCount, .orange)
-                countPill("Review", session.counts.reviewCount, .green)
+                countPill("New", session.counts.newCount, palette.cardStateNew)
+                countPill("Learning", session.counts.learnCount, palette.cardStateLearning)
+                countPill("Review", session.counts.reviewCount, palette.cardStateReview)
             }
             .padding(.vertical, 8)
             Button("Study Now") { onStudySession(session) }
@@ -375,12 +378,12 @@ struct CustomStudyView: View {
 
     private func countPill(_ title: String, _ count: Int, _ color: Color) -> some View {
         VStack(spacing: 4) {
-            Text(title).font(.caption).foregroundStyle(.secondary)
-            Text(count.formatted()).font(.title2.weight(.semibold)).foregroundStyle(color)
+            Text(title).amgiFont(.caption).foregroundStyle(palette.textSecondary)
+            Text(count.formatted()).amgiFont(.sectionHeading).foregroundStyle(color)
         }
         .frame(maxWidth: .infinity)
         .padding()
-        .background(palette.surface, in: RoundedRectangle(cornerRadius: 12))
+        .background(palette.surface, in: RoundedRectangle(cornerRadius: AmgiRadius.inset))
     }
 
     private func loadDefaults() async {

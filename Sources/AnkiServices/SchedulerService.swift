@@ -13,6 +13,9 @@ public struct SchedulerService: Sendable {
     public var getQueuedCards: @Sendable (_ fetchLimit: Int32) throws -> QueuedCardsResult
     /// Answer with scheduling states previously returned by getQueuedCards.
     public var answerReviewCard: @Sendable (_ cardId: CardID, _ rating: Rating, _ timeSpent: UInt32, _ states: ReviewSchedulingStates) throws -> Void
+    /// Intraday learn-ahead window in seconds (Anki's "collapseTime" config, defaults to 1200 / 20 min).
+    public var getLearnAheadSecs: @Sendable () throws -> UInt32 = { 1200 }
+    public var setLearnAheadSecs: @Sendable (_ secs: UInt32) throws -> Void = { _ in }
 }
 
 extension SchedulerService: DependencyKey {
@@ -31,6 +34,12 @@ extension SchedulerService: DependencyKey {
                 try backend.invoke(.answerReviewCard(
                     cardId: cardId, rating: rating, timeSpentMs: timeSpent, states: states
                 ))
+            },
+            getLearnAheadSecs: {
+                (try backend.getConfigJSONValue(for: "collapseTime")) ?? 1200
+            },
+            setLearnAheadSecs: { secs in
+                try backend.setConfigJSONValue(secs, for: "collapseTime")
             }
         )
     }()

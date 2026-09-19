@@ -690,7 +690,7 @@ struct SavedSearchManageSheet: View {
                                 renameFrom = saved.name
                                 renameTo = saved.name
                             }
-                            .tint(.blue)
+                            .tint(palette.accent)
                         }
                     }
                     .onDelete { offsets in
