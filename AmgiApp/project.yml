@@ -227,6 +227,12 @@ targets:
     settings:
       base:
         INFOPLIST_FILE: Info.plist
+        # The macOS executable is in Contents/MacOS, while embedded dynamic
+        # frameworks are in Contents/Frameworks. XcodeGen's multiplatform
+        # app default uses the iOS layout and otherwise crashes at launch.
+        "LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]":
+          - $(inherited)
+          - "@executable_path/../Frameworks"
         # Archive selects the helper from one of several installation product
         # locations. Xcode's user-script sandbox cannot authorize that dynamic
         # read even when every candidate is declared as an input, so it denies

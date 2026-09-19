@@ -111,7 +111,7 @@
 		37016E9BBA745295293899FC /* EngineCaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineCaller.swift; sourceTree = "<group>"; };
 		39C2C9422C9A994272F8C208 /* AmgiIcons */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AmgiIcons; path = ../AmgiIcons; sourceTree = SOURCE_ROOT; };
 		47A47989B41EF49393C9F8FD /* Resolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Resolver.swift; sourceTree = "<group>"; };
-		4885F9B8D778EF6F864BC74F /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		4885F9B8D778EF6F864BC74F /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		4E12BF8F111557136F7EF29F /* AppRunningCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRunningCheck.swift; sourceTree = "<group>"; };
 		5121F74D27DF5F619282934A /* ToolCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolCatalog.swift; sourceTree = "<group>"; };
 		5D70629000B99CCDDAB94703 /* AmgiMCPMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmgiMCPMain.swift; sourceTree = "<group>"; };
@@ -125,23 +125,23 @@
 		99AAB4F4A250C25390C41616 /* ConfigMediaTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigMediaTools.swift; sourceTree = "<group>"; };
 		A12D1F96A64605CB44FD1CFE /* RenderStatsTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenderStatsTools.swift; sourceTree = "<group>"; };
 		A12D2167226A912462BF60EA /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		A837EB0A30B6E90B20D5C1CD /* AmgiWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = AmgiWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		A837EB0A30B6E90B20D5C1CD /* AmgiWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AmgiWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		BE483847946FEF9EF1B1043E /* EngineHolder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineHolder.swift; sourceTree = "<group>"; };
 		BE8DDAC853DEF5B6112EB833 /* AmgiFeatures */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AmgiFeatures; path = ../AmgiFeatures; sourceTree = SOURCE_ROOT; };
 		BF1E21F0AFAD0F5947178AF8 /* ChangeNotifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangeNotifier.swift; sourceTree = "<group>"; };
 		C03B13490AFFE71AFF5A4E67 /* MCPGuidance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPGuidance.swift; sourceTree = "<group>"; };
 		C57E0A30A0C5B7FE232BF0C3 /* amgi */ = {isa = PBXFileReference; lastKnownFileType = folder; name = amgi; path = ..; sourceTree = SOURCE_ROOT; };
 		CAE0DE68DC7E04F773A57E14 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
-		CB2D8F06E7E2260796925750 /* AmgiMCPHelper */ = {isa = PBXFileReference; includeInIndex = 0; path = AmgiMCPHelper; sourceTree = BUILT_PRODUCTS_DIR; };
+		CB2D8F06E7E2260796925750 /* amgi-mcp */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "amgi-mcp"; sourceTree = BUILT_PRODUCTS_DIR; };
 		DD151CFBEBBCF1FCBE1ACE48 /* ToolSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolSupport.swift; sourceTree = "<group>"; };
-		DE61E854280804F08BB1DD31 /* AmgiApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = AmgiApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DE61E854280804F08BB1DD31 /* AmgiApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AmgiApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E52A1F699FA8746826E4EAB0 /* AmgiWatchApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AmgiWatchApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F3AF732973FF00E8A4DF24AB /* SearchTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchTools.swift; sourceTree = "<group>"; };
 		FEF6D1A33091968455963805 /* AmgiAppTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AmgiAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		1B98150CA7E87F8DFC46FAE3 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+		1B98150CA7E87F8DFC46FAE3 /* Exceptions for "Widgets" folder in "AmgiWidget" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -154,23 +154,13 @@
 		004874923745BECF98EEBD18 /* Widgets */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				1B98150CA7E87F8DFC46FAE3 /* PBXFileSystemSynchronizedBuildFileExceptionSet */,
+				1B98150CA7E87F8DFC46FAE3 /* Exceptions for "Widgets" folder in "AmgiWidget" target */,
 			);
-			explicitFileTypes = {
-			};
-			explicitFolders = (
-			);
-			name = Widgets;
 			path = Widgets;
 			sourceTree = "<group>";
 		};
 		70BB06347ADF26FA0276AD23 /* AmgiAppTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			explicitFileTypes = {
-			};
-			explicitFolders = (
-			);
-			name = AmgiAppTests;
 			path = AmgiAppTests;
 			sourceTree = "<group>";
 		};
@@ -340,7 +330,7 @@
 			children = (
 				DE61E854280804F08BB1DD31 /* AmgiApp.app */,
 				FEF6D1A33091968455963805 /* AmgiAppTests.xctest */,
-				CB2D8F06E7E2260796925750 /* AmgiMCPHelper */,
+				CB2D8F06E7E2260796925750 /* amgi-mcp */,
 				E52A1F699FA8746826E4EAB0 /* AmgiWatchApp.app */,
 				A837EB0A30B6E90B20D5C1CD /* AmgiWidget.appex */,
 			);
@@ -473,7 +463,7 @@
 				C5A24C4D5F13BC7BB8CCCFA6 /* SwiftProtobuf */,
 			);
 			productName = AmgiMCPHelper;
-			productReference = CB2D8F06E7E2260796925750 /* AmgiMCPHelper */;
+			productReference = CB2D8F06E7E2260796925750 /* amgi-mcp */;
 			productType = "com.apple.product-type.tool";
 		};
 		EE6CF1FAA191BC2F0404B752 /* AmgiAppTests */ = {
@@ -822,6 +812,7 @@
 		48CAD2B8E5E76236A9CE3FF8 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ARCHS = "$(ARCHS_STANDARD)";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_CXX_LANGUAGE_STANDARD = "c++20";
 				CLANG_CXX_LIBRARY = "libc++";
@@ -831,9 +822,15 @@
 				COMPILATION_CACHE_ENABLE_CACHING = NO;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Amgi;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
+				);
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -cxx-interoperability-mode=default";
 				PRODUCT_BUNDLE_IDENTIFIER = com.bagumamartin.AmgiApp;
@@ -897,6 +894,7 @@
 		94FE636D28ABC07D086C4D1C /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ARCHS = "$(ARCHS_STANDARD)";
 				CODE_SIGN_ENTITLEMENTS = AmgiMCPHelper.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -909,7 +907,12 @@
 				PRODUCT_NAME = "amgi-mcp";
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = macosx;
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 6;
 			};
 			name = Debug;
 		};
@@ -1015,6 +1018,7 @@
 		BCA1A313BD0827666D6635B3 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ARCHS = "$(ARCHS_STANDARD)";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_CXX_LANGUAGE_STANDARD = "c++20";
 				CLANG_CXX_LIBRARY = "libc++";
@@ -1024,9 +1028,15 @@
 				COMPILATION_CACHE_ENABLE_CACHING = NO;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Amgi;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
+				);
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -cxx-interoperability-mode=default";
 				PRODUCT_BUNDLE_IDENTIFIER = com.bagumamartin.AmgiApp;
@@ -1044,6 +1054,7 @@
 		CDA499720B04E282D7607B17 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ARCHS = "$(ARCHS_STANDARD)";
 				CODE_SIGN_ENTITLEMENTS = AmgiWidget.entitlements;
 				INFOPLIST_FILE = Sources/Widgets/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1064,6 +1075,7 @@
 		DA5608BBDBA218288D59134B /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ARCHS = "$(ARCHS_STANDARD)";
 				CODE_SIGN_ENTITLEMENTS = AmgiWidget.entitlements;
 				INFOPLIST_FILE = Sources/Widgets/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1084,6 +1096,7 @@
 		E0AC086FA2F6920484EC41C3 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ARCHS = "$(ARCHS_STANDARD)";
 				CODE_SIGN_ENTITLEMENTS = AmgiMCPHelper.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -1096,7 +1109,12 @@
 				PRODUCT_NAME = "amgi-mcp";
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = macosx;
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 6;
 			};
 			name = Release;
 		};
