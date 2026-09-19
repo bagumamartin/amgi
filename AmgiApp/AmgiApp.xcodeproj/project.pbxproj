@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		02745DF7E92D98594E468425 /* ToolCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5121F74D27DF5F619282934A /* ToolCatalog.swift */; };
 		05B3C09F3B96E96D972F0424 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CAE0DE68DC7E04F773A57E14 /* SwiftUI.framework */; };
+		07F9650E366ACCDB391D7D99 /* SwiftProtobuf in Frameworks */ = {isa = PBXBuildFile; productRef = C5A24C4D5F13BC7BB8CCCFA6 /* SwiftProtobuf */; };
 		1BA1F93AC6C6FF8C357063BA /* SwiftNavigation in Frameworks */ = {isa = PBXBuildFile; productRef = 5E4DD888EA7B00AFD7922CBF /* SwiftNavigation */; };
 		1CCF36BA63528C1E2FA3F9FD /* AnkiClients in Frameworks */ = {isa = PBXBuildFile; productRef = 1D9F9CD702DB5DC5DC8AAB30 /* AnkiClients */; };
 		2F6CCEA4FF8B775FCA9299DA /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2B60A11C277A30E8180CB0F1 /* WidgetKit.framework */; platformFilters = (ios, macos, ); };
@@ -21,11 +22,11 @@
 		5754B0778625FE2768D481B1 /* ToolSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD151CFBEBBCF1FCBE1ACE48 /* ToolSupport.swift */; };
 		5A08BF65B561740464CDF767 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 4885F9B8D778EF6F864BC74F /* PrivacyInfo.xcprivacy */; };
 		5F5B77D77DD4749D9539DE34 /* AmgiReviewCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8A765015A79B5CB13C813D22 /* AmgiReviewCore */; };
-		60B69310C88C2D8A40003F1C /* AnkiBackend in Frameworks */ = {isa = PBXBuildFile; productRef = DD5890EDB35E8D4E49F8D973 /* AnkiBackend */; };
+		60B69310C88C2D8A40003F1C /* AnkiKit in Frameworks */ = {isa = PBXBuildFile; productRef = D2C0C7D3B58824E25342E7B9 /* AnkiKit */; };
 		62FB707339C0EE68F1E8B78F /* EngineCaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37016E9BBA745295293899FC /* EngineCaller.swift */; };
 		652134A3080AAB2E8524794F /* WidgetFeature in Frameworks */ = {isa = PBXBuildFile; productRef = DDECB4DC220C7664DB15D012 /* WidgetFeature */; };
 		67A2ED31F59B08EBD06A4FED /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A12D2167226A912462BF60EA /* Assets.xcassets */; };
-		67F238E56336E1C26AA49969 /* MCP in Frameworks */ = {isa = PBXBuildFile; productRef = B39AF3393326FBF0B00763DC /* MCP */; };
+		67F238E56336E1C26AA49969 /* AnkiProtoBridge in Frameworks */ = {isa = PBXBuildFile; productRef = 8A6BCECEB3799B2D77E5839C /* AnkiProtoBridge */; };
 		684C05A213345CB16179612D /* AppRunningCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E12BF8F111557136F7EF29F /* AppRunningCheck.swift */; };
 		6CF26B3108E38F231B7113AC /* WatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86204AF7D14861EEF82FF7E2 /* WatchApp.swift */; };
 		6D9546E7AF2022FCFD49CA90 /* RenderStatsTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12D1F96A64605CB44FD1CFE /* RenderStatsTools.swift */; };
@@ -44,20 +45,20 @@
 		938EF7ABF80A57D9E9FC507B /* EngineHolder.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE483847946FEF9EF1B1043E /* EngineHolder.swift */; };
 		9E79CAC91DE4DC297BDB10DE /* mathjax in Resources */ = {isa = PBXBuildFile; fileRef = 308AC2057FB8232A7A730D15 /* mathjax */; };
 		A93978D7EA5D702A9FEC5B1B /* AmgiTheme in Frameworks */ = {isa = PBXBuildFile; productRef = A8F51D85BA3DE2215333A244 /* AmgiTheme */; };
-		AF4AA5B20D4581D9ADE7A377 /* Snapshotter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E4DB7E021FAEEE8B4D7EA97 /* Snapshotter.swift */; };
-		B5374C0C057DC1F187E06E16 /* SwiftProtobuf in Frameworks */ = {isa = PBXBuildFile; productRef = C5A24C4D5F13BC7BB8CCCFA6 /* SwiftProtobuf */; };
+		B5374C0C057DC1F187E06E16 /* Logging in Frameworks */ = {isa = PBXBuildFile; productRef = 3700917CD2D93ABAFC3E22D1 /* Logging */; };
+		B8C6ACBF1AB679E0F00D6500 /* MCPGuidance.swift in Sources */ = {isa = PBXBuildFile; fileRef = C03B13490AFFE71AFF5A4E67 /* MCPGuidance.swift */; };
 		BACB47768ED666F021895142 /* IPCProxy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660DF04E495DD3AA48E8062D /* IPCProxy.swift */; };
 		BB3E89CDD647E53D949E751D /* AmgiAppApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8194F942C511DFA83C0CB371 /* AmgiAppApp.swift */; };
 		C18CB5D6DD7E52E6765E9450 /* Resolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47A47989B41EF49393C9F8FD /* Resolver.swift */; };
-		C1D3E4931E31F7289038AF85 /* AnkiKit in Frameworks */ = {isa = PBXBuildFile; productRef = D2C0C7D3B58824E25342E7B9 /* AnkiKit */; };
+		C1D3E4931E31F7289038AF85 /* AnkiRustLib in Frameworks */ = {isa = PBXBuildFile; productRef = A3C6B3F330ACC3D6A915AF16 /* AnkiRustLib */; };
 		C5CF6E06870D94F408E8174E /* AmgiMCPMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D70629000B99CCDDAB94703 /* AmgiMCPMain.swift */; };
 		C5FD266B7ECA827522CA2A72 /* ToolDispatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EB42C84136C3B43A32F3674 /* ToolDispatcher.swift */; };
 		C7E42C769A4C5821E0D2A65E /* AnkiServices in Frameworks */ = {isa = PBXBuildFile; productRef = 38DEF6B96461889F8EAAAE48 /* AnkiServices */; };
 		CD7A425CC4ECBA61920F09E6 /* AmgiUI in Frameworks */ = {isa = PBXBuildFile; productRef = 87D0CB2695723E94A8F6EEE4 /* AmgiUI */; };
 		E45540503268E00A3CAC9B04 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2B60A11C277A30E8180CB0F1 /* WidgetKit.framework */; };
-		E6BE21BC5A61C4092A7FC6D7 /* Logging in Frameworks */ = {isa = PBXBuildFile; productRef = 3700917CD2D93ABAFC3E22D1 /* Logging */; };
+		E6BE21BC5A61C4092A7FC6D7 /* MCP in Frameworks */ = {isa = PBXBuildFile; productRef = B39AF3393326FBF0B00763DC /* MCP */; };
 		EE47EE8C1E4ECF82D7F50B14 /* ConfigMediaTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99AAB4F4A250C25390C41616 /* ConfigMediaTools.swift */; };
-		EFAED9EB74B7DA7CA80638AF /* AnkiProtoBridge in Frameworks */ = {isa = PBXBuildFile; productRef = 8A6BCECEB3799B2D77E5839C /* AnkiProtoBridge */; };
+		EFAED9EB74B7DA7CA80638AF /* AnkiBackend in Frameworks */ = {isa = PBXBuildFile; productRef = DD5890EDB35E8D4E49F8D973 /* AnkiBackend */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -114,7 +115,6 @@
 		4E12BF8F111557136F7EF29F /* AppRunningCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRunningCheck.swift; sourceTree = "<group>"; };
 		5121F74D27DF5F619282934A /* ToolCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolCatalog.swift; sourceTree = "<group>"; };
 		5D70629000B99CCDDAB94703 /* AmgiMCPMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmgiMCPMain.swift; sourceTree = "<group>"; };
-		5E4DB7E021FAEEE8B4D7EA97 /* Snapshotter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Snapshotter.swift; sourceTree = "<group>"; };
 		660DF04E495DD3AA48E8062D /* IPCProxy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IPCProxy.swift; sourceTree = "<group>"; };
 		6FC065BB94EC4D03C744D66D /* AmgiUI */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AmgiUI; path = ../AmgiUI; sourceTree = SOURCE_ROOT; };
 		795E67571E8B9C7014F5A3E7 /* EPUBReader */ = {isa = PBXFileReference; lastKnownFileType = folder; name = EPUBReader; path = Resources/EPUBReader; sourceTree = SOURCE_ROOT; };
@@ -129,6 +129,7 @@
 		BE483847946FEF9EF1B1043E /* EngineHolder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineHolder.swift; sourceTree = "<group>"; };
 		BE8DDAC853DEF5B6112EB833 /* AmgiFeatures */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AmgiFeatures; path = ../AmgiFeatures; sourceTree = SOURCE_ROOT; };
 		BF1E21F0AFAD0F5947178AF8 /* ChangeNotifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangeNotifier.swift; sourceTree = "<group>"; };
+		C03B13490AFFE71AFF5A4E67 /* MCPGuidance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPGuidance.swift; sourceTree = "<group>"; };
 		C57E0A30A0C5B7FE232BF0C3 /* amgi */ = {isa = PBXFileReference; lastKnownFileType = folder; name = amgi; path = ..; sourceTree = SOURCE_ROOT; };
 		CAE0DE68DC7E04F773A57E14 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		CB2D8F06E7E2260796925750 /* AmgiMCPHelper */ = {isa = PBXFileReference; includeInIndex = 0; path = AmgiMCPHelper; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -199,12 +200,13 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				C1D3E4931E31F7289038AF85 /* AnkiKit in Frameworks */,
-				60B69310C88C2D8A40003F1C /* AnkiBackend in Frameworks */,
-				EFAED9EB74B7DA7CA80638AF /* AnkiProtoBridge in Frameworks */,
-				67F238E56336E1C26AA49969 /* MCP in Frameworks */,
-				E6BE21BC5A61C4092A7FC6D7 /* Logging in Frameworks */,
-				B5374C0C057DC1F187E06E16 /* SwiftProtobuf in Frameworks */,
+				C1D3E4931E31F7289038AF85 /* AnkiRustLib in Frameworks */,
+				60B69310C88C2D8A40003F1C /* AnkiKit in Frameworks */,
+				EFAED9EB74B7DA7CA80638AF /* AnkiBackend in Frameworks */,
+				67F238E56336E1C26AA49969 /* AnkiProtoBridge in Frameworks */,
+				E6BE21BC5A61C4092A7FC6D7 /* MCP in Frameworks */,
+				B5374C0C057DC1F187E06E16 /* Logging in Frameworks */,
+				07F9650E366ACCDB391D7D99 /* SwiftProtobuf in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -310,9 +312,9 @@
 				37016E9BBA745295293899FC /* EngineCaller.swift */,
 				BE483847946FEF9EF1B1043E /* EngineHolder.swift */,
 				660DF04E495DD3AA48E8062D /* IPCProxy.swift */,
+				C03B13490AFFE71AFF5A4E67 /* MCPGuidance.swift */,
 				47A47989B41EF49393C9F8FD /* Resolver.swift */,
 				17A85D01BAE1A3E571EFA15C /* ReviewContextTools.swift */,
-				5E4DB7E021FAEEE8B4D7EA97 /* Snapshotter.swift */,
 				5121F74D27DF5F619282934A /* ToolCatalog.swift */,
 				2EB42C84136C3B43A32F3674 /* ToolDispatcher.swift */,
 				DD151CFBEBBCF1FCBE1ACE48 /* ToolSupport.swift */,
@@ -462,6 +464,7 @@
 			);
 			name = AmgiMCPHelper;
 			packageProductDependencies = (
+				A3C6B3F330ACC3D6A915AF16 /* AnkiRustLib */,
 				D2C0C7D3B58824E25342E7B9 /* AnkiKit */,
 				DD5890EDB35E8D4E49F8D973 /* AnkiBackend */,
 				8A6BCECEB3799B2D77E5839C /* AnkiProtoBridge */,
@@ -632,12 +635,12 @@
 				62FB707339C0EE68F1E8B78F /* EngineCaller.swift in Sources */,
 				938EF7ABF80A57D9E9FC507B /* EngineHolder.swift in Sources */,
 				BACB47768ED666F021895142 /* IPCProxy.swift in Sources */,
+				B8C6ACBF1AB679E0F00D6500 /* MCPGuidance.swift in Sources */,
 				495EAE9B5490F80BAB879DBB /* NoteTools.swift in Sources */,
 				6D9546E7AF2022FCFD49CA90 /* RenderStatsTools.swift in Sources */,
 				C18CB5D6DD7E52E6765E9450 /* Resolver.swift in Sources */,
 				9235AF7633FE305D5538EBF2 /* ReviewContextTools.swift in Sources */,
 				7713A1D7C8FA738EC469A962 /* SearchTools.swift in Sources */,
-				AF4AA5B20D4581D9ADE7A377 /* Snapshotter.swift in Sources */,
 				02745DF7E92D98594E468425 /* ToolCatalog.swift in Sources */,
 				C5FD266B7ECA827522CA2A72 /* ToolDispatcher.swift in Sources */,
 				5754B0778625FE2768D481B1 /* ToolSupport.swift in Sources */,
@@ -1276,6 +1279,10 @@
 		8A765015A79B5CB13C813D22 /* AmgiReviewCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = AmgiReviewCore;
+		};
+		A3C6B3F330ACC3D6A915AF16 /* AnkiRustLib */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = AnkiRustLib;
 		};
 		A8F51D85BA3DE2215333A244 /* AmgiTheme */ = {
 			isa = XCSwiftPackageProductDependency;

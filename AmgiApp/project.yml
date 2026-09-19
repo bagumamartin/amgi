@@ -258,6 +258,8 @@ targets:
         type: group
     dependencies:
       - package: AnkiBridge
+        product: AnkiRustLib
+      - package: AnkiBridge
         product: AnkiKit
       - package: AnkiBridge
         product: AnkiBackend

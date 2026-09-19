@@ -71,6 +71,12 @@ let package = Package(
     // (AnkiClients depends on AmgiReader, which requires watchOS 11).
     platforms: [.iOS(.v18), .macOS(.v15), .watchOS(.v11)],
     products: [
+        // Explicit product for executable consumers that import AnkiBackend
+        // directly (for example the embedded MCP helper). Keeping the binary
+        // target visible here makes the FFI link transitive at the Xcode
+        // target boundary instead of relying on another package product to
+        // pull it in incidentally.
+        .library(name: "AnkiRustLib", targets: ["AnkiRustLib"]),
         .library(name: "AnkiKit", targets: ["AnkiKit"]),
         .library(name: "AnkiBackend", targets: ["AnkiBackend"]),
         .library(name: "AnkiProtoBridge", targets: ["AnkiProtoBridge"]),
