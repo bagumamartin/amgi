@@ -312,7 +312,12 @@ struct BrowseListColumn: View {
             .onTapGesture { selectionState.toggle(card: card.id) }
             .onAppear { loadMore(index) }
         } else {
-            CardRowView(card: model.card(at: idRaw), dueText: model.card(at: idRaw).flatMap { model.dueLabel(for: $0) })
+            let card = model.card(at: idRaw)
+            CardRowView(
+                card: card,
+                dueText: card.flatMap { model.dueLabel(for: $0) },
+                noteTitle: card.flatMap { model.parentNoteTitle(for: $0) }
+            )
                 .frame(maxWidth: .infinity, alignment: .leading)
                 #if os(iOS)
                 .contentShape(Rectangle())
@@ -455,30 +460,13 @@ struct NoteRowView: View {
     }
 
     private var strippedTitle: String {
-        let clean = note.sfld.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if !clean.isEmpty { return clean }
-        let fields = note.flds.components(separatedBy: "\u{1f}")
-        for fld in fields {
-            let fldClean = fld.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if !fldClean.isEmpty { return fldClean }
-        }
-        if note.flds.contains("<img") {
-            return "(Image note)"
-        }
-        if note.flds.contains("[sound:") {
-            return "(Audio note)"
-        }
-        return notetypeName ?? "(Untitled note)"
+        browsePlainTextTitle(for: note, fallback: notetypeName)
     }
 
     @ViewBuilder
     private var subtitleView: some View {
-        let parts = [notetypeName].compactMap { $0?.isEmpty == false ? $0 : nil } +
-            note.tags.split(separator: " ").filter { $0 != "marked" }.map(String.init)
-        if !parts.isEmpty {
-            Text(parts.joined(separator: " · "))
+        if let subtitle = composeNoteSubtitle(notetypeName: notetypeName, tags: note.tags) {
+            Text(subtitle)
                 .amgiFont(.caption)
                 .foregroundStyle(palette.textSecondary)
                 .lineLimit(1)

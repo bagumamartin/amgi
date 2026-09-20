@@ -27,13 +27,13 @@ struct TagPill: View {
                 .amgiFont(.micro)
                 .foregroundStyle(palette.textTertiary)
             if components.count > 1 {
-                Text(components.dropLast().joined(separator: "::") + "::")
+                Text(components.dropLast().joined(separator: " › ") + " ›")
                     .amgiFont(.caption)
                     .foregroundStyle(palette.textTertiary)
                     .lineLimit(1)
                     .truncationMode(.head)
             }
-            Text(components.last ?? tag)
+            Text((components.last ?? tag).replacingOccurrences(of: "-", with: " "))
                 .amgiFont(.captionBold)
                 .foregroundStyle(palette.textPrimary)
                 .lineLimit(1)

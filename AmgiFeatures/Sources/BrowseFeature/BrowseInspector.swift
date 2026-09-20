@@ -143,30 +143,11 @@ struct CardPreviewPane: View {
     var body: some View {
         Group {
             if let rendered {
-                ScrollView {
-                    VStack(spacing: 12) {
-                        indicatorRow
-                        navRow
-                        flipCard(rendered)
-                        HStack(spacing: 12) {
-                            if !backSideOnly {
-                                Button(showAnswer ? "Show question" : "Show answer") {
-                                    withAnimation(AmgiMotion.quick) { showAnswer.toggle() }
-                                }
-                                .buttonStyle(.bordered)
-                            }
-                            Toggle("Answer only", isOn: $backSideOnly)
-                                .toggleStyle(.button)
-                            Button {
-                                replayToken += 1
-                            } label: {
-                                Label("Replay Audio", systemImage: "speaker.wave.2")
-                            }
-                            .buttonStyle(.bordered)
-                        }
-                        .padding(.bottom, 16)
-                    }
-                    .padding()
+                VStack(spacing: 0) {
+                    previewHeader
+                    flipCard(rendered)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    previewControls
                 }
             } else if failed {
                 emptyState("Preview unavailable for this row.")
@@ -183,6 +164,80 @@ struct CardPreviewPane: View {
         }
     }
 
+    private var previewHeader: some View {
+        HStack(spacing: 12) {
+            if let nav {
+                Button {
+                    Task { await step(nav, by: -1) }
+                } label: {
+                    Label("Previous", systemImage: "chevron.left")
+                }
+                .disabled(!nav.canPrev)
+
+                Spacer()
+                if let idx = nav.currentIndex {
+                    Text("Card \(idx + 1) of \(nav.ids.count)")
+                        .amgiFont(.caption)
+                        .foregroundStyle(palette.textSecondary)
+                        .monospacedDigit()
+                }
+                Spacer()
+
+                Button {
+                    Task { await step(nav, by: 1) }
+                } label: {
+                    Label("Next", systemImage: "chevron.right")
+                        .labelStyle(.titleAndIcon)
+                }
+                .disabled(!nav.canNext)
+            } else {
+                Spacer()
+            }
+            indicatorRow
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(palette.accent)
+        .padding(.horizontal, 18)
+        .frame(minHeight: 52)
+        .background(palette.surface)
+        .overlay(alignment: .bottom) { Divider() }
+    }
+
+    private var previewControls: some View {
+        HStack(spacing: 8) {
+            Button {
+                withAnimation(AmgiMotion.quick) { showAnswer.toggle() }
+            } label: {
+                Label(
+                    showAnswer ? "Show Question" : "Show Answer",
+                    systemImage: showAnswer ? "arrow.uturn.backward" : "eye"
+                )
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(backSideOnly)
+
+            Button {
+                backSideOnly.toggle()
+            } label: {
+                Label("Answer Only", systemImage: backSideOnly ? "checkmark.circle.fill" : "circle")
+            }
+            .buttonStyle(.bordered)
+
+            Button {
+                replayToken += 1
+            } label: {
+                Label("Replay Audio", systemImage: "speaker.wave.2")
+            }
+            .buttonStyle(.bordered)
+        }
+        .controlSize(.large)
+        .padding(.horizontal, 18)
+        .frame(minHeight: 72)
+        .frame(maxWidth: .infinity)
+        .background(.bar)
+        .overlay(alignment: .top) { Divider() }
+    }
+
     @ViewBuilder
     private var indicatorRow: some View {
         if markIndicator || (flagValue ?? 0) != 0 {
@@ -197,37 +252,7 @@ struct CardPreviewPane: View {
                         .amgiFont(.caption)
                         .foregroundStyle(palette.textSecondary)
                 }
-                Spacer(minLength: 0)
             }
-        }
-    }
-
-    @ViewBuilder
-    private var navRow: some View {
-        if let nav {
-            HStack {
-                Button {
-                    Task { await step(nav, by: -1) }
-                } label: {
-                    Label("Previous", systemImage: "chevron.left")
-                }
-                .disabled(!nav.canPrev)
-                Spacer()
-                if let idx = nav.currentIndex {
-                    Text("\(idx + 1) / \(nav.ids.count)")
-                        .amgiFont(.caption)
-                        .foregroundStyle(palette.textSecondary)
-                        .monospacedDigit()
-                }
-                Spacer()
-                Button {
-                    Task { await step(nav, by: 1) }
-                } label: {
-                    Label("Next", systemImage: "chevron.right")
-                }
-                .disabled(!nav.canNext)
-            }
-            .buttonStyle(.bordered)
         }
     }
 
@@ -249,12 +274,7 @@ struct CardPreviewPane: View {
             css: rendered.css,
             replayToken: replayToken
         )
-        .frame(minHeight: 220)
-        .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.hero))
-        .overlay(
-            RoundedRectangle(cornerRadius: AmgiRadius.hero)
-                .strokeBorder(palette.separator, lineWidth: 1)
-        )
+        .background(palette.background)
     }
 
     private func load() async {
@@ -300,99 +320,155 @@ struct CardInfoPane: View {
 
     @State private var stats: CardStatsInfo?
     @State private var statsFailed = false
+    @State private var showsTechnicalDetails = false
     @Dependency(\.cardClient) private var cards
 
     var body: some View {
-        List {
+        ScrollView {
             if let card {
-                Section("Scheduling") {
-                    factRow("Type", typeName(card.type))
-                    factRow("Queue", queueName(card.queue))
-                    factRow("Due", dueDescription(card))
-                    if card.ivl > 0 {
-                        factRow("Interval", "\(card.ivl)d")
+                VStack(alignment: .leading, spacing: 24) {
+                    infoHeading("Study status", systemImage: "calendar.badge.clock")
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: 150), spacing: 12)],
+                        spacing: 12
+                    ) {
+                        metricCard("State", typeName(card.type), systemImage: "circle.fill")
+                        metricCard("Due", dueDescription(card), systemImage: "calendar")
+                        metricCard("Reviews", "\(card.reps)", systemImage: "checkmark.circle")
+                        metricCard("Lapses", "\(card.lapses)", systemImage: "arrow.counterclockwise")
+                        if card.ivl > 0 {
+                            metricCard("Interval", "\(card.ivl) days", systemImage: "clock")
+                        }
+                        if card.factor > 0 {
+                            metricCard("Ease", "\(card.factor / 10)%", systemImage: "gauge.with.dots.needle.50percent")
+                        }
                     }
-                    if card.factor > 0 {
-                        factRow("Ease factor", "\(card.factor.formatted(.number.precision(.fractionLength(1))))‰")
-                    }
-                    factRow("Reviews", "\(card.reps)")
-                    factRow("Lapses", "\(card.lapses)")
-                }
-                Section("Identity") {
-                    factRow("Card ID", "\(card.id.rawValue)")
-                    factRow("Note ID", "\(card.nid.rawValue)")
-                    factRow("Deck ID", "\(card.did.rawValue)")
-                    if card.odid != DeckID(0) {
-                        factRow("Original deck", "\(card.odid.rawValue)")
-                        factRow("Original due", "\(card.odue)")
-                    }
-                }
-                Section("Flags") {
-                    factRow("Flag color", flagName(card.flags & 0b111))
-                }
-                if let stats {
-                    if stats.stability != nil || stats.difficulty != nil || stats.retrievabilityPct != nil {
-                        Section("FSRS Memory") {
-                            if let s = stats.stability {
-                                factRow("Stability", String(format: "%.2f days", s))
+
+                    if let stats, stats.stability != nil || stats.difficulty != nil || stats.retrievabilityPct != nil {
+                        infoHeading("Memory", systemImage: "brain.head.profile")
+                        LazyVGrid(
+                            columns: [GridItem(.adaptive(minimum: 170), spacing: 12)],
+                            spacing: 12
+                        ) {
+                            if let value = stats.retrievabilityPct {
+                                metricCard("Recall chance", String(format: "%.0f%%", value), systemImage: "chart.line.uptrend.xyaxis")
                             }
-                            if let d = stats.difficulty {
-                                factRow("Difficulty", String(format: "%.1f%%", d * 100))
+                            if let value = stats.stability {
+                                metricCard("Stability", String(format: "%.1f days", value), systemImage: "waveform.path.ecg")
                             }
-                            if let r = stats.retrievabilityPct {
-                                factRow("Retrievability", String(format: "%.1f%%", r))
+                            if let value = stats.difficulty {
+                                metricCard("Difficulty", String(format: "%.0f%%", value * 100), systemImage: "speedometer")
                             }
                         }
                     }
-                    Section("Review History (\(stats.revlog.count))") {
-                        if stats.revlog.isEmpty {
-                            Text("No reviews logged yet.")
-                                .amgiFont(.body)
-                                .foregroundStyle(palette.textSecondary)
-                        } else {
-                            ForEach(stats.revlog.prefix(50), id: \.id) { entry in
-                                VStack(alignment: .leading, spacing: 2) {
-                                    HStack {
-                                        Text(ratingName(entry.rating))
-                                            .amgiFont(.bodyEmphasis)
-                                        Spacer()
-                                        Text(reviewDate(entry.id))
-                                            .amgiFont(.caption)
-                                            .foregroundStyle(palette.textSecondary)
-                                    }
-                                    Text(historyDetail(entry))
-                                        .amgiFont(.caption)
-                                        .foregroundStyle(palette.textSecondary)
-                                        .monospacedDigit()
-                                }
-                                .padding(.vertical, 2)
+
+                    infoHeading("Review history", systemImage: "clock.arrow.circlepath")
+                    historyContent
+
+                    DisclosureGroup("Technical details", isExpanded: $showsTechnicalDetails) {
+                        VStack(spacing: 0) {
+                            factRow("Card ID", "\(card.id.rawValue)")
+                            Divider()
+                            factRow("Note ID", "\(card.nid.rawValue)")
+                            Divider()
+                            factRow("Deck ID", "\(card.did.rawValue)")
+                            if card.odid != DeckID(0) {
+                                Divider()
+                                factRow("Original deck", "\(card.odid.rawValue)")
+                            }
+                            if (card.flags & 0b111) != 0 {
+                                Divider()
+                                factRow("Flag", flagName(card.flags & 0b111))
                             }
                         }
+                        .padding(.top, 12)
                     }
-                } else if statsFailed {
-                    Section("Review History") {
-                        Text("Couldn't load review history.")
-                            .amgiFont(.body)
-                            .foregroundStyle(palette.textSecondary)
-                    }
-                } else {
-                    Section("Review History") {
-                        HStack {
-                            ProgressView().controlSize(.small)
-                            Text("Loading history…")
+                    .amgiFont(.bodyEmphasis)
+                    .padding(16)
+                    .background(palette.surfaceElevated)
+                    .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.inset))
+                }
+                .frame(maxWidth: 900)
+                .padding(24)
+                .frame(maxWidth: .infinity)
+            } else {
+                ContentUnavailableView(
+                    "No Card Selected",
+                    systemImage: "rectangle.stack",
+                    description: Text("Choose a card to see its study status and review history.")
+                )
+                .frame(maxWidth: .infinity, minHeight: 420)
+            }
+        }
+        .background(palette.background)
+        .task(id: card?.id) {
+            await loadStats()
+        }
+    }
+
+    private func infoHeading(_ title: String, systemImage: String) -> some View {
+        Label(title, systemImage: systemImage)
+            .amgiFont(.bodyEmphasis)
+            .foregroundStyle(palette.textPrimary)
+    }
+
+    private func metricCard(_ label: String, _ value: String, systemImage: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(label, systemImage: systemImage)
+                .amgiFont(.caption)
+                .foregroundStyle(palette.textSecondary)
+            Text(value.isEmpty ? "—" : value)
+                .amgiFont(.bodyEmphasis)
+                .foregroundStyle(palette.textPrimary)
+                .monospacedDigit()
+        }
+        .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+        .padding(16)
+        .background(palette.surfaceElevated)
+        .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.inset))
+    }
+
+    @ViewBuilder
+    private var historyContent: some View {
+        if let stats {
+            if stats.revlog.isEmpty {
+                Text("No reviews yet. This card is ready for its first study session.")
+                    .amgiFont(.body)
+                    .foregroundStyle(palette.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+                    .background(palette.surfaceElevated)
+                    .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.inset))
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(stats.revlog.prefix(50).enumerated()), id: \.element.id) { index, entry in
+                        if index > 0 { Divider() }
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(ratingName(entry.rating)).amgiFont(.bodyEmphasis)
+                                Spacer()
+                                Text(reviewDate(entry.id))
+                                    .amgiFont(.caption)
+                                    .foregroundStyle(palette.textSecondary)
+                            }
+                            Text(historyDetail(entry))
                                 .amgiFont(.caption)
                                 .foregroundStyle(palette.textSecondary)
                         }
+                        .padding(14)
                     }
                 }
-            } else {
-                Text("Scheduling info is per-card. Switch to Cards mode or pick a specific card to inspect it.")
-                    .amgiFont(.body)
-                    .foregroundStyle(palette.textSecondary)
+                .background(palette.surfaceElevated)
+                .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.inset))
             }
-        }
-        .task(id: card?.id) {
-            await loadStats()
+        } else if statsFailed {
+            Text("Review history couldn’t be loaded.")
+                .foregroundStyle(palette.textSecondary)
+        } else {
+            HStack(spacing: 10) {
+                ProgressView().controlSize(.small)
+                Text("Loading review history…").foregroundStyle(palette.textSecondary)
+            }
         }
     }
 
@@ -674,4 +750,3 @@ final class BrowsePreviewAssetScheme: NSObject, WKURLSchemeHandler {
 }
 #endif
 #endif
-

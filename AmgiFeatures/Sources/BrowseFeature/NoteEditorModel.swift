@@ -98,8 +98,8 @@ final class NoteEditorModel {
     }
 
     /// Collection-aware tag completions for the in-progress token.
-    func refreshTagCompletions() async {
-        let token = tags.split(separator: " ").last.map(String.init) ?? ""
+    func refreshTagCompletions(matching query: String? = nil) async {
+        let token = query ?? tags.split(separator: " ").last.map(String.init) ?? ""
         @Dependency(\.tagClient) var tagClient
         tagCompletions = (try? await tagClient.completeTag(token)) ?? []
     }

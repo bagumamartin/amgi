@@ -504,13 +504,23 @@ final class BrowseModel {
             }
         case .cards:
             let missing = Array(ids.prefix(windowEnd).filter { cardRecords[$0] == nil })
-            await hydrateInBatches(missing) { [cardClient] cidRaw in
+            await hydrateInBatches(missing) { [cardClient, noteClient] cidRaw in
                 let cid = CardID(cidRaw)
                 if let card = try? await cardClient.getCard(cid) {
                     await MainActor.run { self.cardRecords[cidRaw] = card }
+                    let noteID = card.nid
+                    let needsNote = await MainActor.run { self.noteRecords[noteID.rawValue] == nil }
+                    if needsNote, let note = try? await noteClient.fetch(noteID) ?? nil {
+                        await MainActor.run { self.noteRecords[noteID.rawValue] = note }
+                    }
                 }
             }
         }
+    }
+
+    func parentNoteTitle(for card: CardRecord) -> String? {
+        guard let note = noteRecords[card.nid.rawValue] else { return nil }
+        return browsePlainTextTitle(for: note, fallback: notetypeNames[note.mid])
     }
 
     /// Runs fetches through a small worker pool. Each RPC blocks an FFI
@@ -1410,4 +1420,3 @@ extension BrowseModel {
     }
 }
 #endif
-

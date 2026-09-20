@@ -256,6 +256,7 @@ enum BrowseFilterSections {
 /// single-digit milliseconds via plain dot products — no ANN needed until
 /// measured evidence says otherwise.
 @MainActor
+@Observable
 final class SemanticNoteIndex {
     static let shared = SemanticNoteIndex()
 
@@ -355,8 +356,8 @@ final class SemanticNoteIndex {
     /// Top-k note ids semantically similar to `query`. nil ⇒ engine or
     /// index unusable right now (UI hides the affordance).
     func search(_ query: String, topK: Int = 50) async -> [Int64]? {
-        guard isReady, !query.isEmpty else { return nil }
         loadIfNeeded()
+        guard isReady, !query.isEmpty else { return nil }
         guard let queryVector = await NoteEmbedderBridge.embedQuery(query) else {
             return nil
         }

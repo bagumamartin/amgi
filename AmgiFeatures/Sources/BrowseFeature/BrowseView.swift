@@ -348,6 +348,22 @@ package struct BrowseView: View {
             )
             .onSubmit(of: .search) { model.commitSearchHistory() }
             .searchSuggestions {
+                if canSuggestSemanticSearch {
+                    if SemanticNoteIndex.shared.isReady {
+                        Button {
+                            model.commitSearchHistory()
+                            Task { await model.runSemanticFallback() }
+                        } label: {
+                            Label(
+                                "Search by meaning for “\(semanticSuggestionText)”",
+                                systemImage: "sparkles"
+                            )
+                        }
+                    } else if SemanticNoteIndex.shared.progressDescription != nil {
+                        Label("Preparing meaning-based search…", systemImage: "sparkles")
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 ForEach(model.recentQueries.prefix(8), id: \.self) { query in
                     Button {
                         model.searchText = query
@@ -358,6 +374,17 @@ package struct BrowseView: View {
                     .searchCompletion(query)
                 }
             }
+    }
+
+    private var semanticSuggestionText: String {
+        model.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var canSuggestSemanticSearch: Bool {
+        model.rootDeck == nil
+            && model.mode == .notes
+            && !semanticSuggestionText.isEmpty
+            && model.searchTextIsPlainFreeText
     }
 
     // MARK: - Loading

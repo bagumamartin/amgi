@@ -133,6 +133,7 @@ struct NoteEditorContent: View {
     /// Manual overrides; otherwise the notetype's `collapsed` flag rules.
     @State private var manuallyExpanded: Set<Int> = []
     @State private var manuallyCollapsed: Set<Int> = []
+    @State private var tagEntry = ""
 
     var body: some View {
         Form {
@@ -168,21 +169,34 @@ struct NoteEditorContent: View {
                     }
                     .padding(.bottom, 2)
                 }
-                TextField("Tags", text: $model.tags, prompt: Text("space-separated"))
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-                    .onChange(of: model.tags) { _, _ in
-                        Task { await model.refreshTagCompletions() }
-                    }
-                if !model.tagCompletions.isEmpty {
+                HStack(spacing: 10) {
+                    TextField("Add a tag", text: $tagEntry)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .submitLabel(.done)
+                        .onSubmit { addTag(tagEntry) }
+                        .onChange(of: tagEntry) { _, value in
+                            Task { await model.refreshTagCompletions(matching: value) }
+                        }
+                    Button("Add") { addTag(tagEntry) }
+                        .buttonStyle(.bordered)
+                        .disabled(tagEntry.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                if parsed.isEmpty {
+                    Text("Tags help group related notes and make them easier to find.")
+                        .amgiFont(.caption)
+                        .foregroundStyle(palette.textSecondary)
+                }
+                if !model.tagCompletions.isEmpty, !tagEntry.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
                             ForEach(model.tagCompletions.prefix(10), id: \.self) { completion in
-                                Button(completion) {
-                                    applyCompletion(completion)
+                                Button(displayTagName(completion)) {
+                                    addTag(completion)
                                 }
                                 .buttonStyle(.bordered)
                                 .controlSize(.small)
+                                .help(completion)
                             }
                         }
                     }
@@ -243,14 +257,17 @@ struct NoteEditorContent: View {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func applyCompletion(_ completion: String) {
-        var parts = model.tags.split(separator: " ").map(String.init)
-        if parts.isEmpty {
-            model.tags = completion
-        } else {
-            parts[parts.count - 1] = completion
-            model.tags = parts.joined(separator: " ")
+    private func addTag(_ value: String) {
+        let tag = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !tag.isEmpty, !tag.contains(where: { $0.isWhitespace }) else { return }
+        var tags = model.tags.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        guard !tags.contains(tag) else {
+            tagEntry = ""
+            return
         }
+        tags.append(tag)
+        model.tags = tags.joined(separator: " ")
+        tagEntry = ""
     }
 }
 

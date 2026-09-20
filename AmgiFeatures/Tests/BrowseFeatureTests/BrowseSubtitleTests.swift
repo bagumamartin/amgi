@@ -8,6 +8,15 @@ struct BrowseSubtitleTests {
         #expect(composeNoteSubtitle(notetypeName: "Basic", tags: "math") == "Basic · math")
     }
 
+    @Test func hierarchicalTagsUseHumanReadableLeafNames() {
+        #expect(
+            composeNoteSubtitle(
+                notetypeName: "Basic",
+                tags: "pharmchem::final pharmchem::second-topic marked"
+            ) == "Basic · final · second topic"
+        )
+    }
+
     @Test func notetypeOnlyWhenTagsBlank() {
         #expect(composeNoteSubtitle(notetypeName: "Basic", tags: "  ") == "Basic")
     }
