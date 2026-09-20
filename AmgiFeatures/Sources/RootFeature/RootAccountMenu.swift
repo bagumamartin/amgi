@@ -17,6 +17,10 @@ struct RootAccountMenu: AccountMenuProviding {
         )
     }
 
+    func sidebarFooter(open: Binding<AccountMenuDestination?>) -> AnyView {
+        AnyView(AccountSidebarFooterHost(open: open))
+    }
+
     func destination(for dest: AccountMenuDestination) -> AnyView {
         switch dest {
         case .settings:
@@ -24,5 +28,18 @@ struct RootAccountMenu: AccountMenuProviding {
         case .manageProfiles:
             AnyView(AccountsSettingsView(onSwitchProfile: { await switchProfile(to: $0) }))
         }
+    }
+}
+
+/// Hosts the sidebar footer. iOS writes `.settings` into `open`; macOS
+/// ignores that path — Settings is a menu-bar window, not a sidebar gear.
+struct AccountSidebarFooterHost: View {
+    @Binding var open: AccountMenuDestination?
+
+    var body: some View {
+        AccountSidebarFooter(
+            onSwitch: { await switchProfile(to: $0) },
+            onOpenSettings: { open = .settings }
+        )
     }
 }

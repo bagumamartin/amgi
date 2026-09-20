@@ -23,8 +23,9 @@ package struct DeckListView: View {
 
     private let onStartReview: () -> Void
 
-    /// Profile switching lives on the root stack (MainTabView `.accountMenu()`),
-    /// not here — applying it twice doubled the leading profile pill.
+    /// Profile switching lives on the root sidebar footer (iPad / Mac) or the
+    /// toolbar account menu (iPhone), not here — applying it twice doubled
+    /// the leading profile pill.
     package init(onStartReview: @escaping () -> Void = {}) {
         self.onStartReview = onStartReview
         _model = State(initialValue: DeckListModel())

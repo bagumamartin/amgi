@@ -7,19 +7,20 @@ import AnkiServices
 import Dependencies
 import AmgiTheme
 
-/// Browse container. Regular width (Mac / iPad) is ONE three-column
-/// `NavigationSplitView` — sources, list, detail. Compact width (iPhone)
-/// is a `NavigationStack` rooted on `BrowseLandingView`, which swaps the
-/// landing and scoped results in place so the search pill remains contextual.
+/// Browse container. One three-column `NavigationSplitView` on every
+/// idiom — sources, list, detail. Compact width collapses that split into
+/// a stack (Mail); regular width shows the columns side by side.
 ///
 /// It used to be mounted inside another `NavigationSplitView` (the root
 /// sidebar) with a `NavigationStack` around each of its own columns. Four
 /// nested columns in one window collapsed the list to a sliver and scattered
-/// toolbar items above the wrong panes, so on macOS Browse now takes the
-/// window over and `exit` is the way back.
+/// toolbar items above the wrong panes, so on macOS / iPad Browse now takes
+/// the window over and `exit` is the way back. Settings pushes on the
+/// list column so the source sidebar stays; wrapping this split in a
+/// `NavigationStack` is what took the sidebar away.
 ///
-/// Rendering is delegated to `BrowseSourceColumn` / `BrowseLandingView` /
-/// `BrowseListColumn` / `BrowseDetailTabs`; the model owns all I/O.
+/// Rendering is delegated to `BrowseSourceColumn` / `BrowseListColumn` /
+/// `BrowseDetailTabs`; the model owns all I/O.
 package struct BrowseView: View {
     @State private var model: BrowseModel
     @State private var selectionState = BrowseSelectionState()
@@ -46,14 +47,12 @@ package struct BrowseView: View {
     @State private var renameSearchFrom: String?
     @State private var renameSearchTo = ""
     #if os(iOS)
-    /// Compact pushes only the note detail. A selected source replaces the
-    /// landing in place so the search-tab field stays mounted and scoped.
-    @State private var path: [BrowseRoute] = []
-    @State private var isShowingCompactSource = false
-    /// Settings push from the split layout's profile control; registered on
-    /// the stack wrapping the whole split view so it covers all columns.
-    @State private var accountDestination: AccountMenuDestination?
+    @State private var preferredColumn: NavigationSplitViewColumn = .sidebar
     #endif
+    /// Settings push from the sidebar footer. Regular width swaps the list
+    /// and inspector for a two-column split (sidebar | Settings), like
+    /// Library. Compact uses the toolbar `accountMenu()` instead.
+    @State private var accountDestination: AccountMenuDestination?
 
     @Dependency(\.notetypesService) private var notetypesService
     @Dependency(\.collectionStore) private var store
@@ -80,7 +79,7 @@ package struct BrowseView: View {
         _model = State(initialValue: model)
         self.exit = exit
         #if os(iOS)
-        _isShowingCompactSource = State(initialValue: model.rootDeck != nil)
+        _preferredColumn = State(initialValue: model.rootDeck != nil ? .content : .sidebar)
         #endif
     }
 
@@ -101,196 +100,118 @@ package struct BrowseView: View {
 
     @ViewBuilder
     private var layout: some View {
-        #if os(macOS)
-        splitLayout
-        #else
-        if horizontalSizeClass == .compact {
-            compactLayout
-        } else {
-            splitLayout
-        }
-        #endif
-    }
-
-    // MARK: - Split (Mac / iPad)
-
-    private var splitLayout: some View {
-        #if os(iOS)
-        // The stack wrapping the split view owns the Settings push so it
-        // covers all three columns (standard page behavior), not just the
-        // middle one.
-        NavigationStack {
-            splitColumns
-                .accountMenuDestinations($accountDestination)
-        }
-        #else
         splitColumns
+    }
+
+    // MARK: - Split
+
+    /// Compact iPhone shows one column at a time. Search attached to the
+    /// split lands on the list/detail column, so the source tree has no
+    /// field. Put it on the sidebar and list columns instead. Regular
+    /// width keeps one field on the split (Mail).
+    private var usesColumnSearch: Bool {
+        #if os(iOS)
+        horizontalSizeClass != .regular
+        #else
+        false
         #endif
     }
 
+    @ViewBuilder
     private var splitColumns: some View {
-        NavigationSplitView {
-            BrowseSourceColumn(model: model, exit: exit, selection: selectionState)
-                .appSidebarWidth()
-                .toolbar {
-                    if model.rootDeck != nil {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Close") { dismiss() }
-                        }
-                    }
-                }
-        } content: {
-            listPane
-                .navigationSplitViewColumnWidth(min: 300, ideal: 400)
-        } detail: {
-            detailPane
+        if usesColumnSearch {
+            splitView.navigationSplitViewStyle(.balanced)
+        } else {
+            #if os(iOS)
+            if accountDestination != nil {
+                // Two-column: source sidebar + Settings filling the rest.
+                // A three-column destination lands Settings in the inspector.
+                settingsSplit.navigationSplitViewStyle(.balanced)
+            } else {
+                withBrowseSearch(splitView.navigationSplitViewStyle(.balanced))
+            }
+            #else
+            withBrowseSearch(splitView.navigationSplitViewStyle(.balanced))
+            #endif
         }
-        .navigationSplitViewStyle(.balanced)
     }
 
-    // MARK: - Compact (iPhone)
-
-    /// Search-tab morph requires this stack to be the tab's root, with
-    /// `.searchable` and no `placement:` — iOS 26 then hoists the field into
-    /// the tab bar. `searchToolbarBehavior(.minimize)` is a no-op here.
     #if os(iOS)
-    private var compactLayout: some View {
-        NavigationStack(path: $path) {
-            compactRoot
-            .toolbar {
-                if model.rootDeck != nil {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Close") { dismiss() }
-                    }
-                } else if isShowingCompactSource {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button {
-                            isShowingCompactSource = false
-                            model.source = .allDecks
-                        } label: {
-                            Label("All decks", systemImage: "chevron.left")
-                        }
-                    }
-                }
-                toolbarContent
+    private var settingsSplit: some View {
+        NavigationSplitView {
+            sidebarPane
+        } detail: {
+            NavigationStack {
+                BrowseAccountDestination(destination: $accountDestination)
             }
-            .navigationDestination(for: BrowseRoute.self) { route in
-                compactDestination(route)
-            }
-        }
-        .searchable(text: $model.searchText, prompt: searchPrompt)
-        .onSubmit(of: .search) { model.commitSearchHistory() }
-        .toolbarBackground(.visible, for: .bottomBar)
-        .toolbarBackground(.ultraThinMaterial, for: .bottomBar)
-    }
-
-    /// Profile switching belongs to the Browse landing, like every other root
-    /// tab. A scoped deck/tag/search uses the leading Back control instead.
-    @ViewBuilder
-    private var compactRoot: some View {
-        if isShowingCompactSource {
-            compactRootContent
-        } else {
-            compactRootContent.accountMenu()
-        }
-    }
-
-    private var compactRootContent: some View {
-        BrowseLandingView(
-            model: model,
-            selectionState: $selectionState,
-            onSwipeDelete: { pendingSwipeDelete = $0 },
-            onSelect: { source in
-                model.source = source
-                isShowingCompactSource = true
-            },
-            onOpenDetail: openDetail,
-            isShowingSource: isShowingCompactSource
-        )
-        .navigationTitle(isShowingCompactSource ? sourceTitle : "Search")
-        .navigationBarTitleDisplayMode(isShowingCompactSource ? .inline : .large)
-    }
-
-    @ViewBuilder
-    private func compactDestination(_ route: BrowseRoute) -> some View {
-        switch route {
-        case .detail:
-            compactDetail
-        }
-    }
-
-    @ViewBuilder
-    private var compactDetail: some View {
-        if model.focusedNote != nil || model.focusedCard != nil {
-            BrowseDetailTabs(
-                note: model.focusedNote,
-                notetypeName: model.focusedNote.flatMap { model.notetypeNames[$0.mid] },
-                infoCard: model.focusedCard,
-                firstCardID: model.focusedCardID,
-                deckID: model.activeDeck?.id,
-                onSaved: { Task { await model.performSearch() } }
-            )
-            .id(model.focusedNote?.id ?? NoteID(0))
-            .navigationTitle("Details")
-            .navigationBarTitleDisplayMode(.inline)
-        } else {
-            ContentUnavailableView(
-                "No Selection",
-                systemImage: "doc.text.magnifyingglass",
-                description: Text("Select a \(rowNoun) to view its details.")
-            )
-        }
-    }
-
-    private func openDetail() {
-        if path.last != .detail {
-            path.append(.detail)
         }
     }
     #endif
 
-    // MARK: - Columns
+    @ViewBuilder
+    private var splitView: some View {
+        #if os(iOS)
+        NavigationSplitView(preferredCompactColumn: $preferredColumn) {
+            sidebarPane
+        } content: {
+            listPane
+        } detail: {
+            detailPane
+        }
+        #else
+        NavigationSplitView {
+            sidebarPane
+        } content: {
+            listPane
+        } detail: {
+            detailPane
+        }
+        #endif
+    }
 
-    /// The list column owns the search field and the toolbar, so both sit
-    /// above the list they act on (Mail's arrangement). Split-view only —
-    /// compact attaches `.searchable` to its own stack.
+    @ViewBuilder
+    private var sidebarPane: some View {
+        let pane = BrowseSourceColumn(
+            model: model,
+            exit: exit,
+            selection: selectionState,
+            onSelectSource: {
+                #if os(iOS)
+                preferredColumn = .content
+                #endif
+            }
+        )
+        .appSidebarWidth()
+        .navigationTitle("Browse")
+        .toolbar { sidebarToolbar }
+        .browseAccountChrome(open: $accountDestination, usesFooter: !usesColumnSearch)
+        if usesColumnSearch {
+            withBrowseSearch(pane)
+        } else {
+            pane
+        }
+    }
+
+    @ViewBuilder
     private var listPane: some View {
-        NavigationStack {
-            BrowseListColumn(
-                model: model,
-                selectionState: $selectionState,
-                onSwipeDelete: { pendingSwipeDelete = $0 }
-            )
-                .navigationTitle(sourceTitle)
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar { toolbarContent }
+        let pane = BrowseListColumn(
+            model: model,
+            selectionState: $selectionState,
+            onSwipeDelete: { pendingSwipeDelete = $0 },
+            onOpenDetail: {
                 #if os(iOS)
-                .accountMenuControl(open: $accountDestination)
-                #else
-                .accountMenu()
+                preferredColumn = .detail
                 #endif
-                .searchable(
-                    text: $model.searchText,
-                    placement: searchPlacement,
-                    prompt: searchPrompt
-                )
-                .searchMinimizedIfAvailable()
-                .onSubmit(of: .search) { model.commitSearchHistory() }
-                .searchSuggestions {
-                    ForEach(model.recentQueries.prefix(8), id: \.self) { query in
-                        Button {
-                            model.searchText = query
-                            model.commitSearchHistory()
-                        } label: {
-                            Label(query, systemImage: "clock.arrow.circlepath")
-                        }
-                        .searchCompletion(query)
-                    }
-                }
-                #if os(iOS)
-                .toolbarBackground(.visible, for: .bottomBar)
-                .toolbarBackground(.ultraThinMaterial, for: .bottomBar)
-                #endif
+            }
+        )
+        .navigationSplitViewColumnWidth(min: 300, ideal: 400)
+        .navigationTitle(sourceTitle)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar { listToolbarContent }
+        if usesColumnSearch {
+            withBrowseSearch(pane)
+        } else {
+            pane
         }
     }
 
@@ -310,7 +231,7 @@ package struct BrowseView: View {
     }
 
     private var detailPane: some View {
-        NavigationStack {
+        Group {
             if model.focusedNote != nil || model.focusedCard != nil {
                 BrowseDetailTabs(
                     note: model.focusedNote,
@@ -322,21 +243,6 @@ package struct BrowseView: View {
                     previewNav: previewNav
                 )
                 .id(model.focusedNote?.id ?? NoteID(0))
-                .navigationTitle("Details")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            model.clearFocus()
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundStyle(palette.textSecondary)
-                        }
-                        .buttonStyle(.plain)
-                        .help("Close")
-                        .accessibilityLabel("Close details")
-                    }
-                }
             } else {
                 ContentUnavailableView(
                     "No Selection",
@@ -345,6 +251,9 @@ package struct BrowseView: View {
                 )
             }
         }
+        .navigationTitle("Details")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar { detailToolbarContent }
     }
 
     // MARK: - Titles & search chrome
@@ -373,16 +282,38 @@ package struct BrowseView: View {
         return .toolbar
         #else
         return horizontalSizeClass == .compact
-            ? .toolbar
-            : .navigationBarDrawer(displayMode: .always)
+            ? .navigationBarDrawer(displayMode: .always)
+            : .toolbar
         #endif
     }
 
     private var searchPrompt: String {
         switch model.source {
-        case .allDecks: "Search all \(rowNoun)s…"
+        case .allDecks:
+            usesColumnSearch ? "Search decks and notes…" : "Search all \(rowNoun)s…"
         case .deck, .tag, .saved: "Search in \(sourceTitle)…"
         }
+    }
+
+    private func withBrowseSearch<V: View>(_ view: V) -> some View {
+        view
+            .searchable(
+                text: $model.searchText,
+                placement: searchPlacement,
+                prompt: searchPrompt
+            )
+            .onSubmit(of: .search) { model.commitSearchHistory() }
+            .searchSuggestions {
+                ForEach(model.recentQueries.prefix(8), id: \.self) { query in
+                    Button {
+                        model.searchText = query
+                        model.commitSearchHistory()
+                    } label: {
+                        Label(query, systemImage: "clock.arrow.circlepath")
+                    }
+                    .searchCompletion(query)
+                }
+            }
     }
 
     // MARK: - Loading
@@ -402,10 +333,10 @@ package struct BrowseView: View {
         await model.refreshUndoStatus()
         await refreshNotetypeFields()
         #if os(iOS)
-        // A scoped seed must show the in-place result list; otherwise the
-        // user lands on the idle tree with the query silently scoped beneath it.
-        if horizontalSizeClass == .compact, model.source != .allDecks {
-            isShowingCompactSource = true
+        // A scoped seed (deck detail / deep link) should open on the list,
+        // not the source tree with the query sitting on the hidden column.
+        if model.source != .allDecks {
+            preferredColumn = .content
         }
         #endif
     }
@@ -425,8 +356,8 @@ package struct BrowseView: View {
     //
     // Layered into small computed views on purpose: one chained expression
     // blows past the Swift type-checker's time budget. These wrap `layout`
-    // so both the compact stack and the split view share one presentation
-    // host — landing, pushed list, and iPad list all raise the same sheets.
+    // so both compact (collapsed split) and regular (side-by-side) raise
+    // the same sheets.
 
     private var dialogChrome: some View {
         sheetChrome
@@ -664,29 +595,36 @@ package struct BrowseView: View {
         activeSheet = nil
     }
 
-    // MARK: - Toolbar
-    //
-    // Mode and sort live in the list column's own header bar, not here.
-    // Trailing cluster is Sync · ＋/Done · ⋯. Collection undo (engine
-    // stack: delete notes, etc.) lives in the overflow, Desktop-style.
+    // MARK: - Toolbars (Apple Mail Parity)
 
     @ToolbarContentBuilder
-    private var toolbarContent: some ToolbarContent {
-        ToolbarItemGroup(placement: .topBarTrailing) {
-            SyncToolbarButton()
-            if selectionState.isSelectMode {
+    private var sidebarToolbar: some ToolbarContent {
+        if model.rootDeck != nil {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Close") { dismiss() }
+            }
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var listToolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
+                activeSheet = .filterRail
+            } label: {
+                Image(systemName: "line.3.horizontal.decrease.circle")
+            }
+            .help("Filter Rail")
+            .accessibilityLabel("Filter Rail")
+        }
+        if selectionState.isSelectMode {
+            ToolbarItem(placement: .topBarTrailing) {
                 Button("Done") {
                     selectionState.exitSelectMode()
                 }
-            } else {
-                Menu {
-                    Button("Add Note") { showAddNote = true }
-                    Button("Add Image Occlusion") { showAddImageOcclusion = true }
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .accessibilityLabel("Add")
             }
+        }
+        ToolbarItem(placement: .topBarTrailing) {
             Menu {
                 Section {
                     Button {
@@ -714,6 +652,34 @@ package struct BrowseView: View {
         }
         if selectionState.showsBatchActions {
             selectionToolbar
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var detailToolbarContent: some ToolbarContent {
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            SyncToolbarButton()
+            Menu {
+                Button("Add Note") { showAddNote = true }
+                Button("Add Image Occlusion") { showAddImageOcclusion = true }
+            } label: {
+                Image(systemName: "plus")
+            }
+            .accessibilityLabel("Add")
+            if model.focusedNote != nil || model.focusedCard != nil {
+                Button {
+                    model.clearFocus()
+                    #if os(iOS)
+                    preferredColumn = .content
+                    #endif
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(palette.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .help("Close")
+                .accessibilityLabel("Close details")
+            }
         }
     }
 
@@ -1063,6 +1029,47 @@ private extension Substring {
     }
 }
 
+#if os(iOS)
+/// Settings (or Profiles) as the trailing column of a two-column Browse
+/// split. Back clears the destination so the three-column browse returns.
+private struct BrowseAccountDestination: View {
+    @Binding var destination: AccountMenuDestination?
+    @Environment(\.accountMenuProvider) private var provider
+
+    var body: some View {
+        if let destination, let provider {
+            provider.destination(for: destination)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button {
+                            self.destination = nil
+                        } label: {
+                            Label("Browse", systemImage: "chevron.backward")
+                        }
+                    }
+                }
+        }
+    }
+}
+#endif
+
+private extension View {
+    /// iPhone: toolbar profile menu, like Library. iPad/Mac: sidebar footer.
+    /// `usesFooter` is the *window* size class, not the column's — a split
+    /// sidebar on iPad reports compact even when the window is regular.
+    @ViewBuilder
+    func browseAccountChrome(
+        open: Binding<AccountMenuDestination?>,
+        usesFooter: Bool
+    ) -> some View {
+        if usesFooter {
+            accountSidebarFooter(open: open)
+        } else {
+            accountMenu()
+        }
+    }
+}
+
 // MARK: - Hex helper
 
 private extension Color {
@@ -1116,9 +1123,3 @@ private func previewBrowseModel() -> BrowseModel {
 #endif
 
 extension BrowseView.Sheet: Identifiable {}
-
-/// Compact pushes only details. Source selection stays at the stack root so
-/// iOS keeps the bottom search field alive and scoped while browsing a deck.
-enum BrowseRoute: Hashable {
-    case detail
-}

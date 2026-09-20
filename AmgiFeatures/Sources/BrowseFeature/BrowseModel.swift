@@ -321,7 +321,7 @@ final class BrowseModel {
     }
 
     /// Empties in-memory history and the persisted `"browse.searchHistory"`
-    /// key. The compact Search landing's Clear button is the only caller.
+    /// key.
     func clearSearchHistory() {
         UserDefaults.standard.removeObject(forKey: Self.historyKey)
         recentQueries = []
@@ -495,8 +495,7 @@ final class BrowseModel {
     func hydrateWindow() async {
         switch mode {
         case .notes:
-            let missing = Array(ids.prefix(windowEnd).filter { noteRecords[$0] == nil }
-                .prefix(hydrateChunkSize))
+            let missing = Array(ids.prefix(windowEnd).filter { noteRecords[$0] == nil })
             await hydrateInBatches(missing) { [noteClient] nidRaw in
                 let nid = NoteID(nidRaw)
                 if let note = try? await noteClient.fetch(nid) ?? nil {
@@ -504,8 +503,7 @@ final class BrowseModel {
                 }
             }
         case .cards:
-            let missing = Array(ids.prefix(windowEnd).filter { cardRecords[$0] == nil }
-                .prefix(hydrateChunkSize))
+            let missing = Array(ids.prefix(windowEnd).filter { cardRecords[$0] == nil })
             await hydrateInBatches(missing) { [cardClient] cidRaw in
                 let cid = CardID(cidRaw)
                 if let card = try? await cardClient.getCard(cid) {

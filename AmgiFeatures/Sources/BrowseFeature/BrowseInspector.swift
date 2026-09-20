@@ -97,18 +97,11 @@ struct BrowseDetailTabs: View {
             if let firstCardID {
                 CardPreviewPane(
                     cardId: firstCardID,
-                    backSideOnly: backSideOnly,
+                    backSideOnly: $backSideOnly,
                     nav: previewNav,
                     markIndicator: markState,
                     flagValue: infoCard.map { $0.flags & 0b111 }
                 )
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Toggle("Back", isOn: $backSideOnly)
-                            .toggleStyle(.button)
-                            .help("Back Side Only")
-                    }
-                }
             } else {
                 Text("Preview needs a card; switch to Cards mode or resolve the note's cards.")
                     .amgiFont(.body).foregroundStyle(palette.textSecondary)
@@ -126,7 +119,7 @@ struct CardPreviewPane: View {
     @Environment(\.palette) private var palette
     let cardId: CardID?
     /// Desktop Back Side Only: show the answer side without the question step.
-    var backSideOnly = false
+    @Binding var backSideOnly: Bool
     var nav: BrowsePreviewNav?
     var markIndicator = false
     var flagValue: Int32?
@@ -162,6 +155,8 @@ struct CardPreviewPane: View {
                                 }
                                 .buttonStyle(.bordered)
                             }
+                            Toggle("Answer only", isOn: $backSideOnly)
+                                .toggleStyle(.button)
                             Button {
                                 replayToken += 1
                             } label: {
@@ -547,8 +542,21 @@ private struct BrowseCardPreview: UIViewRepresentable {
         return """
         <html><head>\(CardAssetPath.mediaBaseTag())\
         <meta name="viewport" content="width=device-width,initial-scale=1">\
-        <style>img{max-width:100%;height:auto;border-radius:12px;} \(css)</style>\
-        </head><body>\(body)</body></html>
+        <style>
+        :root { color-scheme: light dark; }
+        body {
+            color: #e5e5e7;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 12px;
+            background-color: transparent;
+        }
+        @media (prefers-color-scheme: light) {
+            body { color: #1c1c1e; }
+        }
+        img { max-width: 100%; height: auto; border-radius: 12px; }
+        \(css)
+        </style>\
+        </head><body class="nightMode">\(body)</body></html>
         """
     }
 }
@@ -580,8 +588,21 @@ private struct BrowseCardPreview: NSViewRepresentable {
         return """
         <html><head>\(CardAssetPath.mediaBaseTag())\
         <meta name="viewport" content="width=device-width,initial-scale=1">\
-        <style>img{max-width:100%;height:auto;border-radius:12px;} \(css)</style>\
-        </head><body>\(body)</body></html>
+        <style>
+        :root { color-scheme: light dark; }
+        body {
+            color: #e5e5e7;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 12px;
+            background-color: transparent;
+        }
+        @media (prefers-color-scheme: light) {
+            body { color: #1c1c1e; }
+        }
+        img { max-width: 100%; height: auto; border-radius: 12px; }
+        \(css)
+        </style>\
+        </head><body class="nightMode">\(body)</body></html>
         """
     }
 }

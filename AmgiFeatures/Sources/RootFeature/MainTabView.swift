@@ -10,11 +10,12 @@ import StatsFeature
 import SwiftUI
 import AmgiUI
 
-/// The app's top-level sections. Shared by the iOS tab bar and the macOS
-/// sidebar so menu commands (⌘1–5) and the root switcher stay in sync.
+/// The app's top-level sections. Shared by the iOS tab bar / iPad adaptable
+/// sidebar and the macOS sidebar so menu commands (⌘1–5) stay in sync.
 ///
-/// Browse fills the fifth slot; Settings lives in every root's account
-/// menu (`ProfilePickerMenu`) plus the menu bar on macOS / iPadOS 26+.
+/// Browse fills the fifth slot. Settings lives in the sidebar footer
+/// (profile capsule + gear) on Mac, iPad, and Browse; iPhone keeps the
+/// toolbar account menu. macOS also exposes Settings from the menu bar.
 enum MainSection: String, CaseIterable, Identifiable {
     case library, read, study, stats, browse
 
@@ -47,8 +48,10 @@ enum MainSection: String, CaseIterable, Identifiable {
 /// each tab's whole subtree — scroll position, search text, selected deck,
 /// pushed navigation. Library and Study reload via `CollectionStore`.
 ///
-/// Platform idiom: iPhone keeps the bottom tab bar, iPad gets
-/// `.sidebarAdaptable`, and macOS uses a `NavigationSplitView` sidebar.
+/// Platform idiom: iPhone keeps the bottom tab bar; iPad uses
+/// `.sidebarAdaptable` (Browse takes the window over at regular width so
+/// its three columns aren't nested in that sidebar); macOS uses a
+/// `NavigationSplitView` with the profile row at the bottom.
 struct MainTabView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let refreshID: UUID
@@ -64,6 +67,10 @@ struct MainTabView: View {
 
     /// Section to return to when Browse hands a regular-width window back.
     @State private var previousSection: MainSection = .library
+
+    /// Settings push from the sidebar footer. On macOS the footer opens the
+    /// Settings window instead of writing this.
+    @State private var accountDestination: AccountMenuDestination?
 
     private var sections: [MainSection] {
         MainSection.allCases.filter { section in
@@ -87,69 +94,39 @@ struct MainTabView: View {
         )
     }
 
+    /// iOS `List(selection:)` only accepts an Optional. Clearing the
+    /// selection is ignored so a section is always active.
+    private var sidebarSelection: Binding<MainSection?> {
+        Binding(
+            get: { selection },
+            set: { newSection in
+                if let newSection {
+                    selectionBinding.wrappedValue = newSection
+                }
+            }
+        )
+    }
+
+    /// Mac always; iPad Browse at regular width takes the window over.
+    private var usesBrowseTakeover: Bool {
+        #if os(macOS)
+        selection == .browse
+        #else
+        horizontalSizeClass == .regular && selection == .browse
+        #endif
+    }
+
     var body: some View {
         Group {
-            #if os(macOS)
-            // Browse TAKES OVER the window: it is itself a three-column
-            // NavigationSplitView. Nesting that inside this one produced four
-            // competing columns.
-            if selection == .browse {
-                BrowseView(exit: BrowseExit(
-                    title: previousSection.title,
-                    systemImage: previousSection.systemImage,
-                    action: { selectionBinding.wrappedValue = previousSection }
-                ))
+            if usesBrowseTakeover {
+                browseTakeover
             } else {
-                NavigationSplitView {
-                    List(selection: selectionBinding) {
-                        ForEach(sections) { section in
-                            Label(section.title, systemImage: section.systemImage)
-                                .tag(section)
-                        }
-                    }
-                    .appSidebarWidth()
-                } detail: {
-                    sectionContent(selection)
-                }
+                #if os(macOS)
+                splitRoot
+                #else
+                iosTabView
+                #endif
             }
-            #else
-            // Like macOS, regular-width iPad lets Browse replace the root
-            // sidebar. Nesting its own three columns inside sidebarAdaptable
-            // leaves two unrelated sidebars competing for the window.
-            if horizontalSizeClass == .regular, selection == .browse {
-                BrowseView(exit: BrowseExit(
-                    title: previousSection.title,
-                    systemImage: previousSection.systemImage,
-                    action: { selectionBinding.wrappedValue = previousSection }
-                ))
-            } else {
-                TabView(selection: selectionBinding) {
-                    Tab(MainSection.library.title, systemImage: MainSection.library.systemImage, value: MainSection.library) {
-                        tabContent(for: .library)
-                    }
-                    if showReaderTab {
-                        Tab(MainSection.read.title, systemImage: MainSection.read.systemImage, value: MainSection.read) {
-                            tabContent(for: .read)
-                        }
-                    }
-                    Tab(MainSection.study.title, systemImage: MainSection.study.systemImage, value: MainSection.study) {
-                        tabContent(for: .study)
-                    }
-                    Tab(MainSection.stats.title, systemImage: MainSection.stats.systemImage, value: MainSection.stats) {
-                        tabContent(for: .stats)
-                    }
-                    Tab(value: MainSection.browse, role: .search) {
-                        tabContent(for: .browse)
-                    } label: {
-                        Label(MainSection.browse.title, systemImage: MainSection.browse.systemImage)
-                            .fontWeight(.heavy)
-                            .symbolVariant(.fill)
-                    }
-                }
-                .tabViewStyle(.sidebarAdaptable)
-                .tabBarMinimizedOnScrollIfAvailable()
-            }
-            #endif
         }
         .onChange(of: selection) { oldValue, newValue in
             if newValue == .browse, oldValue != .browse {
@@ -161,38 +138,122 @@ struct MainTabView: View {
         }
     }
 
+    private var browseTakeover: some View {
+        BrowseView(exit: BrowseExit(
+            title: previousSection.title,
+            systemImage: previousSection.systemImage,
+            action: { selectionBinding.wrappedValue = previousSection }
+        ))
+    }
+
+    /// Section list + profile/Settings chips. Settings pushes on the
+    /// detail stack (same as iPhone), not a stack wrapping the split —
+    /// wrapping `NavigationSplitView` in `NavigationStack` ate Library's
+    /// deck-detail `navigationDestination`.
+    private var splitRoot: some View {
+        NavigationSplitView {
+            rootSidebar
+        } detail: {
+            sectionContent(selection, showsAccountMenu: false)
+        }
+    }
+
+    private var rootSidebar: some View {
+        List(selection: sidebarSelection) {
+            ForEach(sections) { section in
+                Label(section.title, systemImage: section.systemImage)
+                    .tag(section)
+            }
+        }
+        .listStyle(.sidebar)
+        .appSidebarWidth()
+        .accountSidebarFooter(open: $accountDestination)
+    }
+
+    #if os(iOS)
+    private var iosTabView: some View {
+        TabView(selection: selectionBinding) {
+            Tab(MainSection.library.title, systemImage: MainSection.library.systemImage, value: MainSection.library) {
+                tabContent(for: .library)
+            }
+            if showReaderTab {
+                Tab(MainSection.read.title, systemImage: MainSection.read.systemImage, value: MainSection.read) {
+                    tabContent(for: .read)
+                }
+            }
+            Tab(MainSection.study.title, systemImage: MainSection.study.systemImage, value: MainSection.study) {
+                tabContent(for: .study)
+            }
+            Tab(MainSection.stats.title, systemImage: MainSection.stats.systemImage, value: MainSection.stats) {
+                tabContent(for: .stats)
+            }
+            Tab(MainSection.browse.title, systemImage: MainSection.browse.systemImage, value: MainSection.browse) {
+                tabContent(for: .browse)
+            }
+        }
+        .tabViewStyle(.sidebarAdaptable)
+        .defaultAdaptableTabBarPlacement(.sidebar)
+        .tabBarAlwaysVisibleIfAvailable()
+        .tabViewSidebarBottomBar {
+            AccountSidebarFooterHost(open: $accountDestination)
+        }
+    }
+    #endif
+
     @ViewBuilder
-    private func sectionContent(_ section: MainSection) -> some View {
+    private func sectionContent(_ section: MainSection, showsAccountMenu: Bool) -> some View {
         switch section {
         case .library:
             NavigationStack {
                 DeckListView(onStartReview: { onSelectStudyDeck(DeckID(0)) })
-                    .accountMenu()
+                    .accountChrome(showsMenu: showsAccountMenu, destination: $accountDestination)
             }
         case .read:
             NavigationStack {
                 ReaderLibraryView(refreshID: refreshID)
-                    .accountMenu()
+                    .accountChrome(showsMenu: showsAccountMenu, destination: $accountDestination)
             }
         case .study:
             NavigationStack {
                 StudyLandingView(onSelectDeck: onSelectStudyDeck)
-                    .accountMenu()
+                    .accountChrome(showsMenu: showsAccountMenu, destination: $accountDestination)
             }
         case .stats:
             NavigationStack {
                 StatsDashboardView(refreshID: refreshID)
-                    .accountMenu()
+                    .accountChrome(showsMenu: showsAccountMenu, destination: $accountDestination)
             }
         case .browse:
-            // No NavigationStack wrapper: compact BrowseView roots its own
-            // stack (required for the iOS 26 search-tab morph).
+            // BrowseView is itself a NavigationSplitView. Wrapping it in
+            // another stack blanks compact and steals column destinations.
             BrowseView()
         }
     }
 
     @ViewBuilder
     private func tabContent(for section: MainSection) -> some View {
-        sectionContent(section)
+        #if os(iOS)
+        sectionContent(section, showsAccountMenu: horizontalSizeClass != .regular)
+        #else
+        sectionContent(section, showsAccountMenu: false)
+        #endif
+    }
+}
+
+private extension View {
+    /// iPhone: toolbar account menu (includes its own Settings push).
+    /// iPad/Mac split: Settings destinations only — the sidebar footer
+    /// writes the binding; wrapping the split in another stack is what
+    /// broke Library's deck push.
+    @ViewBuilder
+    func accountChrome(
+        showsMenu: Bool,
+        destination: Binding<AccountMenuDestination?>
+    ) -> some View {
+        if showsMenu {
+            accountMenu()
+        } else {
+            accountMenuDestinations(destination)
+        }
     }
 }

@@ -36,7 +36,7 @@ package struct BrowseExit {
 ///
 /// The deck tree is collapsible and defaults to collapsed (desktop Anki
 /// parity). Flattening, parent resolution and search filtering live in
-/// `BrowseDeckTree` so the compact Search landing can reuse them.
+/// `BrowseDeckTree` so compact and regular share expansion and filtering.
 struct BrowseSourceColumn: View {
     @Environment(\.palette) private var palette
     @Bindable var model: BrowseModel
@@ -44,6 +44,7 @@ struct BrowseSourceColumn: View {
     /// Batch selection for sidebar tag apply/remove. Nil on hosts without
     /// selection (compact landing); those rows hide the selection actions.
     var selection: BrowseSelectionState?
+    var onSelectSource: (() -> Void)? = nil
 
     /// Resolved deck-icon names (same synced overrides Library/Study use).
     @State private var iconNames: [Int64: String] = [:]
@@ -52,8 +53,6 @@ struct BrowseSourceColumn: View {
     /// Set, and the joined form keeps the preference readable. Shared with
     /// the compact landing via `BrowseDeckTree.expandedStorageKey`.
     @AppStorage(BrowseDeckTree.expandedStorageKey) private var expandedRaw = ""
-    /// Sidebar-only filter with highlighted matches (desktop parity).
-    @State private var sidebarFilter = ""
     @State private var tagRenameFrom: String?
     @State private var tagRenameTo = ""
     @State private var tagReparent: String?
@@ -71,12 +70,6 @@ struct BrowseSourceColumn: View {
                 }
                 .selectionDisabled()
             }
-
-            Section {
-                TextField("Filter sidebar", text: $sidebarFilter)
-                    .textFieldStyle(.roundedBorder)
-            }
-            .selectionDisabled()
 
             Section("Decks") {
                 if model.rootDeck == nil {
@@ -259,7 +252,12 @@ struct BrowseSourceColumn: View {
     private var sourceSelection: Binding<BrowseSource?> {
         Binding(
             get: { model.source },
-            set: { if let new = $0 { model.source = new } }
+            set: {
+                if let new = $0 {
+                    model.source = new
+                    onSelectSource?()
+                }
+            }
         )
     }
 
@@ -308,11 +306,8 @@ struct BrowseSourceColumn: View {
         )
     }
 
-    /// Sidebar-only filter tokens (highlighted matches) fall back to the
-    /// main search field when empty, so typing in Browse still narrows.
     private var sidebarTokens: [String] {
-        let text = sidebarFilter.isEmpty ? model.searchText : sidebarFilter
-        return BrowseDeckTree.filterTokens(from: text)
+        BrowseDeckTree.filterTokens(from: model.searchText)
     }
 
     private struct TagRow {

@@ -455,8 +455,22 @@ struct NoteRowView: View {
     }
 
     private var strippedTitle: String {
-        note.sfld.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+        let clean = note.sfld.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !clean.isEmpty { return clean }
+        let fields = note.flds.components(separatedBy: "\u{1f}")
+        for fld in fields {
+            let fldClean = fld.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !fldClean.isEmpty { return fldClean }
+        }
+        if note.flds.contains("<img") {
+            return "(Image note)"
+        }
+        if note.flds.contains("[sound:") {
+            return "(Audio note)"
+        }
+        return notetypeName ?? "(Untitled note)"
     }
 
     @ViewBuilder

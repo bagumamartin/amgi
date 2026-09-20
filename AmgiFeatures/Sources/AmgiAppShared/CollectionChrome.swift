@@ -46,8 +46,8 @@ package struct SyncToolbarButton: View {
 extension View {
     /// iOS 26 collapses an inactive toolbar search field into the floating
     /// bottom-right button. Attach AFTER `.searchable`. Split-view Browse
-    /// (iPad) uses this; the compact search tab does not — tab-bar search
-    /// is a different morph, and `searchToolbarBehavior` is a no-op there.
+    /// does not use this (Mail-style persistent field); Read's book filter
+    /// does.
     ///
     /// Deliberately iOS-only (`#if os(iOS)`): Mac keeps its persistent
     /// toolbar field (Mail / Anki Desktop parity). `searchToolbarBehavior`
@@ -84,13 +84,13 @@ extension View {
         }
     }
 
-    /// iOS 26 shrinks the tab bar on scroll, matching Music. No-op on
-    /// earlier iOS and on macOS (which does not use this `TabView`).
+    /// Keep the full tab bar. iOS 26 can shrink it on scroll to a side
+    /// button plus search; we opt out so Library…Browse stay equally visible.
     @ViewBuilder
-    package func tabBarMinimizedOnScrollIfAvailable() -> some View {
+    package func tabBarAlwaysVisibleIfAvailable() -> some View {
         #if os(iOS)
         if #available(iOS 26.0, *) {
-            self.tabBarMinimizeBehavior(.onScrollDown)
+            self.tabBarMinimizeBehavior(.never)
         } else {
             self
         }

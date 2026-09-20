@@ -5,9 +5,8 @@ import AmgiUI
 import AnkiKit
 import AmgiTheme
 
-/// Flattened, filterable deck tree shared by the Browse sidebar and the
-/// compact Search landing. One expansion set (`expandedStorageKey`) so a
-/// deck opened on iPhone stays open on iPad.
+/// Flattened, filterable deck tree for the Browse sidebar. One expansion
+/// set (`expandedStorageKey`) so a deck opened on iPhone stays open on iPad.
 enum BrowseDeckTree {
     static let expandedStorageKey = "browse.sidebar.expandedDecks"
 

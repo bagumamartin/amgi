@@ -1,14 +1,20 @@
 public import SwiftUI
 import AmgiUI
+#if os(macOS)
+import AppKit
+#endif
 
-/// Destinations the account menu can push onto a root stack.
-public enum AccountMenuDestination: Hashable, Sendable {
+/// Destinations the account menu can present.
+public enum AccountMenuDestination: Hashable, Sendable, Identifiable {
     case settings
     case manageProfiles
+
+    public var id: Self { self }
 }
 
-/// Supplies the account/profile toolbar control and its push destinations
-/// to features that must not import `SettingsFeature` or `DecksFeature`.
+/// Supplies the account/profile toolbar control, sidebar footer, and
+/// destinations to features that must not import `SettingsFeature` or
+/// `DecksFeature`.
 ///
 /// Same inversion as `LookupPopupProviding`: zero stored properties on the
 /// conformer so SwiftUI does not invalidate every reader on each root body
@@ -16,6 +22,7 @@ public enum AccountMenuDestination: Hashable, Sendable {
 @MainActor
 public protocol AccountMenuProviding {
     func menu(open: Binding<AccountMenuDestination?>) -> AnyView
+    func sidebarFooter(open: Binding<AccountMenuDestination?>) -> AnyView
     func destination(for: AccountMenuDestination) -> AnyView
 }
 
@@ -40,21 +47,17 @@ struct AccountMenuModifier: ViewModifier {
                     }
                 }
             }
-            .navigationDestination(isPresented: Binding(
-                get: { destination != nil },
-                set: { if !$0 { destination = nil } }
-            )) {
+            .navigationDestination(item: $destination) { dest in
                 if let provider {
-                    provider.destination(for: destination ?? .settings)
+                    provider.destination(for: dest)
                 }
             }
     }
 }
 
-/// Toolbar control only, for callers that register the push destinations on
-/// a different stack — Browse's split layout wraps its whole
-/// `NavigationSplitView` in one stack so Settings covers all three columns
-/// instead of pushing inside the middle one.
+/// Toolbar control only; pair with `accountMenuDestinations(_:)` on an
+/// enclosing stack. Browse wraps its split view in a NavigationStack so
+/// Settings covers all three columns as a normal page.
 private struct AccountMenuControlModifier: ViewModifier {
     let placement: ToolbarItemPlacement
     @Binding var open: AccountMenuDestination?
@@ -71,6 +74,38 @@ private struct AccountMenuControlModifier: ViewModifier {
     }
 }
 
+private struct AccountSidebarFooterModifier: ViewModifier {
+    @Binding var open: AccountMenuDestination?
+    @Environment(\.accountMenuProvider) private var provider
+
+    func body(content: Content) -> some View {
+        if let provider {
+            #if os(macOS)
+            // safeAreaInset overlays the last sidebar rows on macOS. Pin the
+            // account strip as a sibling under the list instead. Column width
+            // has to live on this VStack — it is now the split-view sidebar
+            // root, so a width modifier on the inner List is ignored.
+            //
+            // One sidebar material behind list + footer. The list's own fill
+            // is cleared so the column is a single continuous surface.
+            VStack(spacing: 0) {
+                content
+                    .scrollContentBackground(.hidden)
+                provider.sidebarFooter(open: $open)
+            }
+            .background { MacSidebarMaterial() }
+            .appSidebarWidth()
+            #else
+            content.safeAreaInset(edge: .bottom, spacing: 0) {
+                provider.sidebarFooter(open: $open)
+            }
+            #endif
+        } else {
+            content
+        }
+    }
+}
+
 package extension View {
     /// Installs the profile/account toolbar control plus its push
     /// destinations. Use once per root view, inside its NavigationStack.
@@ -79,12 +114,18 @@ package extension View {
     }
 
     /// Toolbar control only; pair with `accountMenuDestinations(_:)` on an
-    /// enclosing stack.
+    /// enclosing stack so Settings pushes as a normal page.
     func accountMenuControl(
         placement: ToolbarItemPlacement = .topBarLeading,
         open: Binding<AccountMenuDestination?>
     ) -> some View {
         modifier(AccountMenuControlModifier(placement: placement, open: open))
+    }
+
+    /// Pins profile + Settings to the bottom of a sidebar as floating chips,
+    /// like ChatGPT's Chat capsule and trailing gear.
+    func accountSidebarFooter(open: Binding<AccountMenuDestination?>) -> some View {
+        modifier(AccountSidebarFooterModifier(open: open))
     }
 
     func accountMenuDestinations(_ destination: Binding<AccountMenuDestination?>) -> some View {
@@ -98,13 +139,25 @@ private struct AccountMenuDestinationModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .navigationDestination(isPresented: Binding(
-                get: { destination != nil },
-                set: { if !$0 { destination = nil } }
-            )) {
+            .navigationDestination(item: $destination) { dest in
                 if let provider {
-                    provider.destination(for: destination ?? .settings)
+                    provider.destination(for: dest)
                 }
             }
     }
 }
+
+#if os(macOS)
+/// Matches `List` `.sidebar` fill so list + footer share one vibrancy layer.
+private struct MacSidebarMaterial: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .sidebar
+        view.blendingMode = .behindWindow
+        view.state = .followsWindowActiveState
+        return view
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
+}
+#endif
