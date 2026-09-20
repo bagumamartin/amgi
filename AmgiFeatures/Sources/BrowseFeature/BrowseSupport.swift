@@ -131,9 +131,9 @@ final class FlagLabelStore {
     }
 }
 
-// MARK: - Filter rail sections (spec §5.5)
+// MARK: - Sidebar filter sections
 
-/// One tappable sidebar/filter entry.
+/// One tappable sidebar filter entry.
 struct FilterNode: Identifiable, Equatable {
     enum Composition: Equatable {
         /// Tapping replaces the whole query (plain click semantics).
@@ -162,11 +162,31 @@ struct FilterNode: Identifiable, Equatable {
     }
 }
 
-enum BrowseModelStateColor {
+enum BrowseModelStateColor: Hashable {
     case newState, learning, review, suspended, buried
+
+    var searchFragment: String {
+        switch self {
+        case .newState: "is:new"
+        case .learning: "is:learn"
+        case .review: "is:review"
+        case .suspended: "is:suspended"
+        case .buried: "is:buried"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .newState: "New"
+        case .learning: "Learning"
+        case .review: "Review"
+        case .suspended: "Suspended"
+        case .buried: "Buried"
+        }
+    }
 }
 
-/// Static sections of the filter rail mirroring desktop stages.
+/// Static sidebar sections mirroring desktop Anki's sidebar stages.
 ///
 /// Fragments are canonical engine grammar (rslib parser.rs / writer.rs):
 /// `prop:due=0` for due-today, numeric `flag:0…7`, `tag:none` for untagged.
@@ -247,7 +267,7 @@ enum BrowseFilterSections {
     }
 }
 
-/// Anki's seven brand flag hues (same values as desktop / the filter rail).
+/// Anki's seven brand flag hues (same values as desktop / the sidebar).
 enum BrowseFlagSwatch {
     static func color(for value: UInt32) -> Color? {
         switch value & 0b111 {

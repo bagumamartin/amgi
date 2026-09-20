@@ -34,7 +34,7 @@ package struct BrowseView: View {
 
     // Power tools + batch destinations
     enum Sheet: Int, Hashable {
-        case filterRail, findDuplicates, findReplace, changeDeck, setDueDate, reposition
+        case findDuplicates, findReplace, changeDeck, setDueDate, reposition
         case removeTags, forget, copyNote, export, changeNotetype, filteredDeck
         case columns, savedSearchManage, previewNav
 
@@ -54,6 +54,12 @@ package struct BrowseView: View {
     /// Settings from the sidebar footer when the source list is showing,
     /// or the combined list-column profile menu when that sidebar is hidden.
     @State private var accountDestination: AccountMenuDestination?
+    @State private var batchScopeOverride: BatchScope?
+
+    private struct BatchScope {
+        var notes: Set<NoteID>
+        var cards: Set<CardID>
+    }
 
     @Dependency(\.notetypesService) private var notetypesService
     @Dependency(\.collectionStore) private var store
@@ -63,8 +69,6 @@ package struct BrowseView: View {
 
     /// Present only on macOS, where Browse replaces the root sidebar.
     private let exit: BrowseExit?
-
-    private var savedSearchStore: SavedSearchStore { model.savedSearches }
 
     package init(exit: BrowseExit? = nil) {
         self.init(model: BrowseModel(), exit: exit)
@@ -207,6 +211,14 @@ package struct BrowseView: View {
                 #if os(iOS)
                 preferredColumn = .content
                 #endif
+            },
+            onPresentSheet: { sheet, notes, cards in
+                batchScopeOverride = BatchScope(notes: notes, cards: cards)
+                activeSheet = sheet
+            },
+            onPresentTagSheet: { notes, cards in
+                batchScopeOverride = BatchScope(notes: notes, cards: cards)
+                showTagSheet = true
             }
         )
         .appSidebarWidth()
@@ -256,6 +268,9 @@ package struct BrowseView: View {
         )
         #endif
         .toolbar { listToolbarContent }
+        .dropDestination(for: String.self) { items, _ in
+            dropTags(items)
+        }
         if usesColumnSearch {
             withBrowseSearch(pane)
         } else {
@@ -331,17 +346,45 @@ package struct BrowseView: View {
 
     /// Names what the list is scoped to, mirroring the sidebar selection.
     private var sourceTitle: String {
-        switch model.source {
-        case .allDecks:
-            return "All Decks"
-        case .deck(let id):
-            guard let deck = model.availableDecks.first(where: { $0.id == id }) else { return "Browse" }
-            return deck.name.split(separator: "::").last.map(String.init) ?? deck.name
-        case .tag(let tag):
-            return tag
-        case .saved(let name):
-            return name
+        model.title(for: model.source)
+    }
+
+    private var batchNotes: Set<NoteID> {
+        batchScopeOverride?.notes ?? selectionState.selectedNoteIDs
+    }
+
+    private var batchCards: Set<CardID> {
+        batchScopeOverride?.cards ?? selectionState.selectedCardIDs
+    }
+
+    private func dropTags(_ items: [String]) -> Bool {
+        let tags = items.compactMap { item -> String? in
+            guard item.hasPrefix(BrowseSource.tagDragPrefix) else { return nil }
+            return String(item.dropFirst(BrowseSource.tagDragPrefix.count))
         }
+        guard !tags.isEmpty else { return false }
+
+        var notes = selectionState.selectedNoteIDs
+        var cards = selectionState.selectedCardIDs
+        if notes.isEmpty && cards.isEmpty {
+            // Empty Select-mode is a no-op. A macOS peek (single click)
+            // does not populate the batch sets, so fall back to the focused
+            // row — that's the note the inspector is showing.
+            if selectionState.isSelectMode { return false }
+            if let nid = model.focusedNote?.id {
+                notes = [nid]
+            } else if let cid = model.focusedCardID {
+                cards = [cid]
+            } else {
+                return false
+            }
+        }
+        Task {
+            for tag in tags {
+                await model.addSidebarTagToSelection(tag, noteIDs: notes, cardIDs: cards)
+            }
+        }
+        return true
     }
 
     private var searchPlacement: SearchFieldPlacement {
@@ -358,7 +401,8 @@ package struct BrowseView: View {
         switch model.source {
         case .allDecks:
             usesColumnSearch ? "Search decks and notes…" : "Search all \(rowNoun)s…"
-        case .deck, .tag, .saved: "Search in \(sourceTitle)…"
+        default:
+            "Search in \(sourceTitle)…"
         }
     }
 
@@ -544,14 +588,17 @@ package struct BrowseView: View {
         .sheet(isPresented: $showTagSheet) {
             BatchTagSheet(
                 noteIDs: model.cachedNotesForSelection(
-                    noteIDs: selectionState.selectedNoteIDs,
-                    cardIDs: selectionState.selectedCardIDs
+                    noteIDs: batchNotes,
+                    cardIDs: batchCards
                 ),
-                cardIDs: selectionState.selectedCardIDs,
+                cardIDs: batchCards,
                 browseModel: model
             ) {
                 Task {
-                    selectionState.exitSelectMode()
+                    if batchScopeOverride == nil {
+                        selectionState.exitSelectMode()
+                    }
+                    batchScopeOverride = nil
                     await model.performSearch()
                 }
             }
@@ -577,14 +624,6 @@ package struct BrowseView: View {
     @ViewBuilder
     private func sheetBody(_ sheet: Sheet) -> some View {
         switch sheet {
-        case .filterRail:
-            BrowseFilterRailView(
-                model: model,
-                savedSearches: savedSearchStore.searches,
-                onDeleteSaved: { savedSearchStore.delete(name: $0); savedSearchStore.refresh() },
-                onSaveCurrent: { name in model.saveCurrentQuery(as: name) }
-            )
-            .presentationDetents([.medium, .large])
         case .findDuplicates:
             FindDuplicatesView(
                 notetypeFields: notetypeFieldNames,
@@ -603,37 +642,31 @@ package struct BrowseView: View {
         case .findReplace:
             FindReplaceSheet(
                 fieldNames: notetypeFieldNames,
-                selectionCount: selectionState.count,
+                selectionCount: batchNotes.count + (batchNotes.isEmpty ? batchCards.count : 0),
                 resultCount: model.ids.count,
                 onApply: { search, replacement, regex, matchCase, fieldName, tagsTarget, selectedOnly in
                     await model.findAndReplace(
                         search: search, replacement: replacement, regex: regex,
                         matchCase: matchCase, fieldName: fieldName, tagsTarget: tagsTarget,
-                        scopeNoteIds: Array(selectionState.selectedNoteIDs),
-                        scopeCardIds: Array(selectionState.selectedCardIDs),
+                        scopeNoteIds: Array(batchNotes),
+                        scopeCardIds: Array(batchCards),
                         selectedScopeOnly: selectedOnly
                     )
                 }
             )
         case .changeDeck:
             ChangeDeckSheet(decks: model.allDecks) { deckId in
-                let notes = selectionState.selectedNoteIDs
-                let cards = selectionState.selectedCardIDs
-                selectionState.exitSelectMode()
+                let (notes, cards) = consumeBatchScope()
                 Task { await model.changeDeckSelected(notes, cardIDs: Array(cards), deckId: deckId) }
             }
         case .setDueDate:
             SetDueDateSheet(initialExpression: model.lastSetDueExpression) { expression in
-                let notes = selectionState.selectedNoteIDs
-                let cards = selectionState.selectedCardIDs
-                selectionState.exitSelectMode()
+                let (notes, cards) = consumeBatchScope()
                 Task { await model.setDueDateSelected(notes, cardIDs: Array(cards), expression: expression) }
             }
         case .reposition:
             RepositionSheet { start, step, randomize, shift in
-                let notes = selectionState.selectedNoteIDs
-                let cards = selectionState.selectedCardIDs
-                selectionState.exitSelectMode()
+                let (notes, cards) = consumeBatchScope()
                 Task {
                     await model.repositionSelectedNotes(
                         notes, cardIDs: Array(cards),
@@ -643,18 +676,16 @@ package struct BrowseView: View {
             }
         case .removeTags:
             RemoveTagsSheet(allTags: model.allTags) { tag in
-                let notes = await model.resolveTargetNotes(
-                    cardIDs: Array(selectionState.selectedCardIDs),
-                    noteIDs: Array(selectionState.selectedNoteIDs)
+                let (notes, cards) = consumeBatchScope()
+                let resolved = await model.resolveTargetNotes(
+                    cardIDs: Array(cards),
+                    noteIDs: Array(notes)
                 )
-                selectionState.exitSelectMode()
-                Task { await model.removeTag(tag, from: Set(notes)) }
+                Task { await model.removeTag(tag, from: Set(resolved)) }
             }
         case .forget:
             ForgetSheet { restorePosition, resetCounts in
-                let notes = selectionState.selectedNoteIDs
-                let cards = selectionState.selectedCardIDs
-                selectionState.exitSelectMode()
+                let (notes, cards) = consumeBatchScope()
                 Task {
                     await model.forgetSelected(
                         notes, cardIDs: Array(cards),
@@ -664,20 +695,20 @@ package struct BrowseView: View {
             }
         case .copyNote:
             CopyNoteSheet(
-                noteIDs: Array(selectionState.selectedNoteIDs),
-                cardIDs: Array(selectionState.selectedCardIDs),
+                noteIDs: Array(batchNotes),
+                cardIDs: Array(batchCards),
                 model: model
             )
         case .export:
             BrowseExportSheet(
-                noteIDs: Array(selectionState.selectedNoteIDs),
-                cardIDs: Array(selectionState.selectedCardIDs),
+                noteIDs: Array(batchNotes),
+                cardIDs: Array(batchCards),
                 model: model
             )
         case .changeNotetype:
             ChangeNotetypeSheet(
-                noteIDs: Array(selectionState.selectedNoteIDs),
-                cardIDs: Array(selectionState.selectedCardIDs),
+                noteIDs: Array(batchNotes),
+                cardIDs: Array(batchCards),
                 model: model
             )
         case .filteredDeck:
@@ -780,15 +811,6 @@ package struct BrowseView: View {
             .accessibilityLabel("Add")
         }
         ToolbarItem(placement: .topBarTrailing) {
-            Button {
-                activeSheet = .filterRail
-            } label: {
-                Image(systemName: "line.3.horizontal.decrease.circle")
-            }
-            .help("Filter Rail")
-            .accessibilityLabel("Filter Rail")
-        }
-        ToolbarItem(placement: .topBarTrailing) {
             Menu {
                 Section {
                     Button {
@@ -818,11 +840,6 @@ package struct BrowseView: View {
 
     @ViewBuilder
     private var toolsSection: some View {
-        Button {
-            activeSheet = .filterRail
-        } label: {
-            Label("Filter Rail…", systemImage: "line.3.horizontal.decrease.circle")
-        }
         Button {
             activeSheet = .columns
         } label: {
@@ -1068,6 +1085,16 @@ package struct BrowseView: View {
         .menuIndicator(.hidden)
         .disabled(selectionState.isEmpty)
         .accessibilityLabel("More actions")
+    }
+
+    private func consumeBatchScope() -> (Set<NoteID>, Set<CardID>) {
+        let notes = batchNotes
+        let cards = batchCards
+        if batchScopeOverride == nil {
+            selectionState.exitSelectMode()
+        }
+        batchScopeOverride = nil
+        return (notes, cards)
     }
 
     private func applyGradeNow(_ rating: Rating) {

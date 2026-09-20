@@ -178,6 +178,7 @@ let package = Package(
             name: "BrowseFeatureTests",
             dependencies: [
                 "BrowseFeature",
+                .product(name: "AnkiKit", package: "amgi"),
                 .product(name: "AnkiClients", package: "amgi"),
                 .product(name: "AnkiServices", package: "amgi"),
             ],

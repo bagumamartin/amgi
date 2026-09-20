@@ -119,8 +119,8 @@ final class BrowseModel {
     private(set) var windowEnd = 0
     var allDecks: [DeckInfo] = []
     var allTags: [String] = []
-    /// The single sidebar selection — deck, tag, or saved search. Replaces the
-    /// old `parentDeck`/`activeDeck`/`activeTag` triple, which let the deck
+    /// The single sidebar selection. Replaces the old
+    /// `parentDeck`/`activeDeck`/`activeTag` triple, which let the deck
     /// list and the tag list disagree about what was active (tags never even
     /// highlighted, because they bypassed the List selection binding).
     var source: BrowseSource = .allDecks
@@ -748,7 +748,7 @@ final class BrowseModel {
     }
 
 
-    // MARK: - Filter rail application (spec §5.5)
+    // MARK: - Sidebar search composition (desktop modifier-click)
 
     enum RailComposition {
         case replace            // plain tap
@@ -757,7 +757,31 @@ final class BrowseModel {
         case negateAndAdd       // ⌥-click analog
     }
 
-    /// Applies a rail node to the query with desktop's composition
+    /// AND keeps the current sidebar source and adds the fragment to the
+    /// search field. OR flattens `buildQuery()` into the search field so the
+    /// source is not silently ANDed. Exclude is AND-not against the field.
+    func composeSidebarNode(_ node: FilterNode, composition: RailComposition) async {
+        switch composition {
+        case .replace:
+            searchText = node.fragment
+            source = .allDecks
+        case .andWithExisting:
+            await applyFilterNode(node, composition: .andWithExisting)
+        case .orWithExisting:
+            let existing = buildQuery()
+            source = .allDecks
+            if existing == "deck:*" || existing.trimmingCharacters(in: .whitespaces).isEmpty {
+                searchText = node.fragment
+            } else {
+                searchText = existing
+                await applyFilterNode(node, composition: .orWithExisting)
+            }
+        case .negateAndAdd:
+            await applyFilterNode(node, composition: .negateAndAdd)
+        }
+    }
+
+    /// Applies a node to the typed search field with desktop composition
     /// semantics, always canonicalized by the engine so the string stays
     /// valid grammar even when hand-built fragments nest oddly.
     func applyFilterNode(_ node: FilterNode, composition: RailComposition) async {
@@ -772,13 +796,13 @@ final class BrowseModel {
             if searchText.trimmingCharacters(in: .whitespaces).isEmpty {
                 searchText = node.fragment
             } else {
-                composeViaEngine(additional: node.fragment, joiner: .and)
+                await composeViaEngine(additional: node.fragment, joiner: .and)
             }
         case .orWithExisting:
             if searchText.trimmingCharacters(in: .whitespaces).isEmpty {
                 searchText = node.fragment
             } else {
-                composeViaEngine(additional: node.fragment, joiner: .or)
+                await composeViaEngine(additional: node.fragment, joiner: .or)
             }
         }
     }
@@ -812,18 +836,18 @@ final class BrowseModel {
     }
 
     /// Engine-canonical join for AND/OR (async path).
-    private func composeViaEngine(additional: String, joiner: SearchJoiner) {
+    private func composeViaEngine(additional: String, joiner: SearchJoiner) async {
         let existing = searchText
-        Task { [weak self] in
-            guard let self else { return }
-            if let composed = try? await noteClient.composeQuery(
-                existing: existing, additional: additional, joiner: joiner
-            ) {
-                self.searchText = composed
-            } else {
-                // Engine rejected the pair — fall back to textual AND which
-                // is definitionally correct.
-                self.searchText = existing + " " + additional
+        if let composed = try? await noteClient.composeQuery(
+            existing: existing, additional: additional, joiner: joiner
+        ) {
+            searchText = composed
+        } else {
+            switch joiner {
+            case .and:
+                searchText = existing + " " + additional
+            case .or:
+                searchText = "(\(existing)) OR (\(additional))"
             }
         }
     }
@@ -854,6 +878,9 @@ final class BrowseModel {
 
     func deleteSavedSearch(named name: String) {
         savedSearches.delete(name: name)
+        if case .saved(let current) = source, current == name {
+            source = .allDecks
+        }
         collectionStore.invalidateAll(origin: .localUser)
     }
 
@@ -1078,8 +1105,10 @@ final class BrowseModel {
             if let deck = availableDecks.first(where: { $0.id == id }), deck.id != rootDeck?.id {
                 parts.append(DeckSearch.term(deck.name))
             }
-        case .tag(let tag):
-            parts.append("tag:\"\(tag)\"")
+        case .tag, .untagged, .flag, .cardState, .today, .notetype:
+            if let fragment = source.queryFragment() {
+                parts.append(fragment)
+            }
         case .saved(let name):
             if let query = savedSearches.searches.first(where: { $0.name == name })?.query {
                 parts.append("( \(query) )")
@@ -1101,6 +1130,116 @@ final class BrowseModel {
         // fragment the semantic corpus build already relies on.
         guard !parts.isEmpty else { return "deck:*" }
         return parts.joined(separator: " ")
+    }
+
+    /// Standalone query for a sidebar row, independent of the typed search
+    /// field — used to resolve mass-action targets.
+    func query(
+        for source: BrowseSource,
+        includeSubdecks: Bool = true
+    ) -> String {
+        switch source {
+        case .deck(let id):
+            guard let deck = availableDecks.first(where: { $0.id == id }) else {
+                return "deck:*"
+            }
+            let term = DeckSearch.term(deck.name)
+            guard includeSubdecks else {
+                return "\(term) -\(DeckSearch.term(deck.name + "::*"))"
+            }
+            return term
+        case .saved(let name):
+            return savedSearches.searches.first(where: { $0.name == name })?.query
+                ?? "deck:*"
+        default:
+            return source.queryFragment() ?? "deck:*"
+        }
+    }
+
+    func title(for source: BrowseSource) -> String {
+        switch source {
+        case .allDecks:
+            return "All Decks"
+        case .deck(let id):
+            guard let deck = availableDecks.first(where: { $0.id == id }) else { return "Deck" }
+            return deck.name.split(separator: "::").last.map(String.init) ?? deck.name
+        case .tag(let tag):
+            return tag.split(separator: "::").last.map(String.init) ?? tag
+        case .untagged:
+            return "Untagged"
+        case .saved(let name):
+            return name
+        case .flag(let value):
+            if value == 0 { return "No flag" }
+            return FlagLabelStore.defaults[String(value)] ?? "Flag \(value)"
+        case .cardState(let state):
+            return state.title
+        case .today(let fragment):
+            return BrowseFilterSections.today().first { $0.fragment == fragment }?.title
+                ?? "Today"
+        case .notetype(let name):
+            return name
+        }
+    }
+
+    /// Search the engine for every note and card matching a sidebar scope.
+    func searchScope(
+        _ source: BrowseSource,
+        includeSubdecks: Bool = true
+    ) async -> (notes: [NoteID], cards: [CardID]) {
+        let query = query(for: source, includeSubdecks: includeSubdecks)
+        async let notes = (try? await noteClient.searchIds(query, nil)) ?? []
+        async let cards = (try? await cardClient.searchIds(query, nil)) ?? []
+        return await (notes, cards)
+    }
+
+    func filterNode(for source: BrowseSource) -> FilterNode? {
+        switch source {
+        case .allDecks:
+            return FilterNode(title: "All decks", systemImage: "square.stack.3d.up.fill",
+                              fragment: "deck:*", role: nil)
+        case .deck(let id):
+            guard let deck = availableDecks.first(where: { $0.id == id }) else { return nil }
+            return FilterNode(
+                title: title(for: source),
+                systemImage: "books.vertical",
+                fragment: DeckSearch.term(deck.name),
+                role: nil
+            )
+        case .tag(let tag):
+            return FilterNode(title: tag, systemImage: "tag",
+                              fragment: BrowseSource.tag(tag).queryFragment() ?? "", role: nil)
+        case .untagged:
+            return FilterNode(title: "Untagged", systemImage: "tag.slash",
+                              fragment: "tag:none", role: nil)
+        case .saved(let name):
+            guard let query = savedSearches.searches.first(where: { $0.name == name })?.query else {
+                return nil
+            }
+            return FilterNode(title: name, systemImage: "heart", fragment: query, role: nil)
+        case .flag(let value):
+            if value == 0 {
+                return BrowseFilterSections.flags().first { $0.fragment == "flag:0" }
+            }
+            return BrowseFilterSections.flags().first {
+                if case .flag(let n) = $0.role { return n == value }
+                return false
+            }
+        case .cardState(let state):
+            return BrowseFilterSections.cardStates().first {
+                if case .state(let s) = $0.role { return s == state }
+                return false
+            }
+        case .today(let fragment):
+            return BrowseFilterSections.today().first { $0.fragment == fragment }
+        case .notetype(let name):
+            return FilterNode(
+                title: name,
+                systemImage: "doc.text",
+                fragment: BrowseSource.notetype(name).queryFragment() ?? "",
+                role: nil
+            )
+        }
     }
 
     /// Synchronous note resolution for sheet presentation (cached records
@@ -1338,7 +1477,7 @@ final class BrowseModel {
     @ObservationIgnored @Dependency(\.decksService) private var decksService
     @ObservationIgnored @Dependency(\.notetypesClient) private var notetypesClient
 
-    /// Template/field children per notetype name for the filter rail
+    /// Template/field children per notetype name for the sidebar
     /// (desktop notetype tree parity). Loaded once per session.
     private(set) var notetypeChildren: [String: (templates: [String], fields: [String])] = [:]
 

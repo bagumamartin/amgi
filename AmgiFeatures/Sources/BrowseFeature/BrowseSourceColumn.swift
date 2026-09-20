@@ -6,7 +6,7 @@ import AmgiTheme
 
 /// What the notes/cards list is scoped to.
 ///
-/// One value covers all three sidebar sections so a single `List(selection:)`
+/// One value covers every sidebar section so a single `List(selection:)`
 /// drives them. The previous split — a `DeckID?` binding for decks, direct
 /// `model.activeTag` writes for tags, and a fire-and-forget query assignment
 /// for saved searches — meant tags and saved searches never highlighted and
@@ -15,7 +15,48 @@ enum BrowseSource: Hashable {
     case allDecks
     case deck(DeckID)
     case tag(String)
+    case untagged
     case saved(String)
+    case flag(UInt32)
+    case cardState(BrowseModelStateColor)
+    case today(String)
+    case notetype(String)
+
+    /// Prefix for sidebar tag drag payloads so the list drop target can
+    /// distinguish them from other strings.
+    static let tagDragPrefix = "amgi-tag:"
+
+    /// Grammar fragment this source contributes to `buildQuery()`, or nil
+    /// for the unscoped collection (`allDecks` → `deck:*` at assemble time).
+    func queryFragment(deckName: String? = nil, savedQuery: String? = nil) -> String? {
+        switch self {
+        case .allDecks:
+            return nil
+        case .deck:
+            return deckName.map(DeckSearch.term)
+        case .tag(let tag):
+            return Self.quoted("tag", tag)
+        case .untagged:
+            return "tag:none"
+        case .saved:
+            return savedQuery.map { "( \($0) )" }
+        case .flag(let value):
+            return "flag:\(value & 0b111)"
+        case .cardState(let state):
+            return state.searchFragment
+        case .today(let fragment):
+            return fragment
+        case .notetype(let name):
+            return Self.quoted("note", name)
+        }
+    }
+
+    private static func quoted(_ prefix: String, _ value: String) -> String {
+        let escaped = value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return "\(prefix):\"\(escaped)\""
+    }
 }
 
 /// Where Browse hands the window back on macOS. Browse replaces the root
@@ -32,7 +73,8 @@ package struct BrowseExit {
     }
 }
 
-/// Leading column: deck tree, tags, and saved searches — Mail's mailbox list.
+/// Leading column: saved searches, today, flags, card state, decks, note
+/// types, and tags — Mail's mailbox list plus Anki's sidebar scopes.
 ///
 /// The deck tree is collapsible and defaults to collapsed (desktop Anki
 /// parity). Flattening, parent resolution and search filtering live in
@@ -45,6 +87,8 @@ struct BrowseSourceColumn: View {
     /// selection (compact landing); those rows hide the selection actions.
     var selection: BrowseSelectionState?
     var onSelectSource: (() -> Void)? = nil
+    var onPresentSheet: ((BrowseView.Sheet, Set<NoteID>, Set<CardID>) -> Void)? = nil
+    var onPresentTagSheet: ((Set<NoteID>, Set<CardID>) -> Void)? = nil
 
     /// Resolved deck-icon names (same synced overrides Library/Study use).
     @State private var iconNames: [Int64: String] = [:]
@@ -61,6 +105,16 @@ struct BrowseSourceColumn: View {
     @State private var deckRenameTo = ""
     @State private var deckReparentID: DeckID?
     @State private var deckReparentParent = ""
+    @State private var flagLabels = FlagLabelStore()
+    @State private var renameFlag: UInt32?
+    @State private var renameFlagTo = ""
+    @State private var savedRenameFrom: String?
+    @State private var savedRenameTo = ""
+    @State private var confirmTitle = ""
+    @State private var confirmMessage = ""
+    @State private var confirmDestructive = false
+    @State private var pendingBatch: PendingBatchAction?
+    @State private var showBatchConfirm = false
 
     var body: some View {
         List(selection: sourceSelection) {
@@ -69,6 +123,82 @@ struct BrowseSourceColumn: View {
                     exitRow(exit)
                 }
                 .selectionDisabled()
+            }
+
+            if !model.savedSearches.searches.isEmpty {
+                Section("Saved Searches") {
+                    ForEach(model.savedSearches.searches) { saved in
+                        Label(saved.name, systemImage: "heart")
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .tag(BrowseSource.saved(saved.name))
+                            .contextMenu {
+                                Button("Rename…") {
+                                    savedRenameFrom = saved.name
+                                    savedRenameTo = saved.name
+                                }
+                                Button("Delete saved search…", role: .destructive) {
+                                    presentConfirm(
+                                        "Delete “\(saved.name)”?",
+                                        "Notes are not deleted.",
+                                        true
+                                    ) {
+                                        model.deleteSavedSearch(named: saved.name)
+                                    }
+                                }
+                                sourceActionMenus(.saved(saved.name))
+                            }
+                    }
+                }
+            }
+
+            Section("Today") {
+                ForEach(BrowseFilterSections.today()) { node in
+                    Label(node.title, systemImage: node.systemImage)
+                        .tag(BrowseSource.today(node.fragment))
+                        .contextMenu {
+                            sourceActionMenus(.today(node.fragment))
+                        }
+                }
+            }
+
+            Section("Flags") {
+                ForEach(BrowseFilterSections.flags()) { node in
+                    Label {
+                        Text(flagTitle(node))
+                            .lineLimit(1)
+                    } icon: {
+                        Image(systemName: node.systemImage)
+                            .symbolRenderingMode(.monochrome)
+                            .foregroundStyle(flagRowColor(node))
+                    }
+                    .listItemTint(.fixed(flagRowColor(node)))
+                    .tag(flagSource(node))
+                    .contextMenu {
+                        if let number = flagNumber(node), number != 0 {
+                            Button("Rename flag label…") {
+                                renameFlag = number
+                                renameFlagTo = flagLabels.label(for: number)
+                            }
+                        }
+                        sourceActionMenus(flagSource(node))
+                    }
+                }
+            }
+
+            Section("Card State") {
+                ForEach(BrowseFilterSections.cardStates()) { node in
+                    Label {
+                        Text(node.title)
+                    } icon: {
+                        Image(systemName: node.systemImage)
+                            .foregroundStyle(stateRowColor(node))
+                    }
+                    .tag(stateSource(node))
+                    .contextMenu {
+                        sourceActionMenus(stateSource(node))
+                    }
+                }
             }
 
             Section("Decks") {
@@ -82,127 +212,110 @@ struct BrowseSourceColumn: View {
                     }
                     .tag(BrowseSource.deck(row.deck.id))
                     .contextMenu {
-                        Button("Expand descendants") { setDescendants(of: row.deck.name, expanded: true) }
-                        Button("Collapse descendants") { setDescendants(of: row.deck.name, expanded: false) }
-                        Divider()
+                        deckManagement(row)
+                        sourceActionMenus(.deck(row.deck.id), includeSubdecks: true)
+                    }
+                }
+            }
+
+            if !model.notetypeNames.isEmpty {
+                Section("Note Types") {
+                    ForEach(Array(model.notetypeNames.values).sorted(), id: \.self) { name in
+                        Label(name, systemImage: "doc.text")
+                            .lineLimit(1)
+                            .tag(BrowseSource.notetype(name))
+                            .contextMenu {
+                                sourceActionMenus(.notetype(name))
+                            }
+                    }
+                }
+            }
+
+            Section("Tags") {
+                Label("Untagged", systemImage: "tag.slash")
+                    .tag(BrowseSource.untagged)
+                    .contextMenu {
+                        sourceActionMenus(.untagged)
+                    }
+                ForEach(tagRows, id: \.fullPath) { node in
+                    HStack(spacing: 6) {
+                        if node.depth > 0 {
+                            Color.clear.frame(width: CGFloat(node.depth) * 12, height: 4)
+                        }
+                        if node.hasChildren {
+                            Button {
+                                Task { await model.toggleTagCollapsed(node.fullPath) }
+                            } label: {
+                                Image(systemName: node.isCollapsed ? "chevron.right" : "chevron.down")
+                                    .amgiFont(.micro)
+                                    .foregroundStyle(palette.textSecondary)
+                                    .frame(width: 12, height: 12)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(
+                                node.isCollapsed
+                                    ? "Expand \(node.fullPath)"
+                                    : "Collapse \(node.fullPath)"
+                            )
+                        }
+                        Label {
+                            Text(node.leaf)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        } icon: {
+                            Image(systemName: "tag")
+                        }
+                        .help(node.fullPath)
+                    }
+                    .tag(BrowseSource.tag(node.fullPath))
+                    .draggable(BrowseSource.tagDragPrefix + node.fullPath)
+                    .contextMenu {
+                        if selection != nil {
+                            Button("Add to selected notes") {
+                                guard let selection else { return }
+                                Task {
+                                    await model.addSidebarTagToSelection(
+                                        node.fullPath,
+                                        noteIDs: selection.selectedNoteIDs,
+                                        cardIDs: selection.selectedCardIDs
+                                    )
+                                }
+                            }
+                            .disabled(selection?.isEmpty == true)
+                            Button("Remove from selected notes") {
+                                guard let selection else { return }
+                                Task {
+                                    await model.removeSidebarTagFromSelection(
+                                        node.fullPath,
+                                        noteIDs: selection.selectedNoteIDs,
+                                        cardIDs: selection.selectedCardIDs
+                                    )
+                                }
+                            }
+                            .disabled(selection?.isEmpty == true)
+                            Divider()
+                        }
                         Button("Rename…") {
-                            deckRenameID = row.deck.id
-                            deckRenameTo = row.deck.name
+                            tagRenameFrom = node.fullPath
+                            tagRenameTo = node.fullPath
                         }
                         Button("Move under…") {
-                            deckReparentID = row.deck.id
-                            deckReparentParent = ""
+                            tagReparent = node.fullPath
+                            tagReparentParent = ""
                         }
-                    }
-                }
-            }
-
-            if !visibleTags.isEmpty {
-                Section("Tags") {
-                    ForEach(tagRows, id: \.fullPath) { node in
-                        HStack(spacing: 6) {
-                            if node.depth > 0 {
-                                Color.clear.frame(width: CGFloat(node.depth) * 12, height: 4)
-                            }
-                            if node.hasChildren {
-                                Button {
-                                    Task { await model.toggleTagCollapsed(node.fullPath) }
-                                } label: {
-                                    Image(systemName: node.isCollapsed ? "chevron.right" : "chevron.down")
-                                        .amgiFont(.micro)
-                                        .foregroundStyle(palette.textSecondary)
-                                        .frame(width: 12, height: 12)
-                                        .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel(
-                                    node.isCollapsed
-                                        ? "Expand \(node.fullPath)"
-                                        : "Collapse \(node.fullPath)"
-                                )
-                            }
-                            Label {
-                                Text(node.leaf)
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                            } icon: {
-                                Image(systemName: "tag")
-                            }
-                            .help(node.fullPath)
+                        Button("Delete tag…", role: .destructive) {
+                            Task { await model.deleteCollectionTag(node.fullPath) }
                         }
-                        .tag(BrowseSource.tag(node.fullPath))
-                        .contextMenu {
-                            if selection != nil {
-                                Button("Add to selected notes") {
-                                    guard let selection else { return }
-                                    Task {
-                                        await model.addSidebarTagToSelection(
-                                            node.fullPath,
-                                            noteIDs: selection.selectedNoteIDs,
-                                            cardIDs: selection.selectedCardIDs
-                                        )
-                                    }
-                                }
-                                Button("Remove from selected notes") {
-                                    guard let selection else { return }
-                                    Task {
-                                        await model.removeSidebarTagFromSelection(
-                                            node.fullPath,
-                                            noteIDs: selection.selectedNoteIDs,
-                                            cardIDs: selection.selectedCardIDs
-                                        )
-                                    }
-                                }
-                                Divider()
-                            }
-                            Button("Rename…") {
-                                tagRenameFrom = node.fullPath
-                                tagRenameTo = node.fullPath
-                            }
-                            Button("Move under…") {
-                                tagReparent = node.fullPath
-                                tagReparentParent = ""
-                            }
-                            Button("Delete tag…", role: .destructive) {
-                                Task { await model.deleteCollectionTag(node.fullPath) }
-                            }
-                        }
-                    }
-                }
-            }
-
-            Section("Flags") {
-                ForEach(BrowseFilterSections.flags()) { node in
-                    Button {
-                        model.searchText = node.fragment
-                    } label: {
-                        Label {
-                            Text(node.title)
-                                .lineLimit(1)
-                        } icon: {
-                            Image(systemName: node.systemImage)
-                                .symbolRenderingMode(.monochrome)
-                                .foregroundStyle(flagRowColor(node))
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .listItemTint(.fixed(flagRowColor(node)))
-                }
-            }
-            .selectionDisabled()
-
-            if !model.savedSearches.searches.isEmpty {
-                Section("Saved Searches") {
-                    ForEach(model.savedSearches.searches) { saved in
-                        Label(saved.name, systemImage: "heart")
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .tag(BrowseSource.saved(saved.name))
+                        sourceActionMenus(.tag(node.fullPath))
                     }
                 }
             }
         }
         .listStyle(.sidebar)
+        .task {
+            flagLabels.refresh()
+        }
         .task(id: model.allDecks.map(\.id)) {
             iconNames = await BrowseDeckTree.loadIconNames(for: model.allDecks)
         }
@@ -252,6 +365,44 @@ struct BrowseSourceColumn: View {
             }
             Button("Cancel", role: .cancel) { deckReparentID = nil }
         }
+        .alert("Rename flag label", isPresented: Binding(
+            get: { renameFlag != nil },
+            set: { if !$0 { renameFlag = nil } }
+        )) {
+            TextField("Name", text: $renameFlagTo)
+            Button("Save") {
+                if let flag = renameFlag { flagLabels.rename(flag: flag, to: renameFlagTo) }
+                renameFlag = nil
+            }
+            Button("Cancel", role: .cancel) { renameFlag = nil }
+        }
+        .alert("Rename saved search", isPresented: Binding(
+            get: { savedRenameFrom != nil },
+            set: { if !$0 { savedRenameFrom = nil } }
+        )) {
+            TextField("Name", text: $savedRenameTo)
+            Button("Rename") {
+                if let from = savedRenameFrom {
+                    _ = model.renameSavedSearch(from: from, to: savedRenameTo)
+                }
+                savedRenameFrom = nil
+            }
+            Button("Cancel", role: .cancel) { savedRenameFrom = nil }
+        }
+        .confirmationDialog(
+            confirmTitle,
+            isPresented: $showBatchConfirm,
+            titleVisibility: .visible
+        ) {
+            Button(confirmDestructive ? "Delete" : "Apply", role: confirmDestructive ? .destructive : nil) {
+                let work = pendingBatch
+                pendingBatch = nil
+                Task { await work?.run() }
+            }
+            Button("Cancel", role: .cancel) { pendingBatch = nil }
+        } message: {
+            Text(confirmMessage)
+        }
     }
 
     /// Selection never clears to nil: deselecting every row would leave the
@@ -291,6 +442,100 @@ struct BrowseSourceColumn: View {
             return color
         }
         return palette.textTertiary
+    }
+
+    private func flagTitle(_ node: FilterNode) -> String {
+        if let number = flagNumber(node), number != 0 {
+            return flagLabels.label(for: number)
+        }
+        return node.title
+    }
+
+    private func flagNumber(_ node: FilterNode) -> UInt32? {
+        if case .flag(let value) = node.role { return value }
+        if node.fragment == "flag:0" { return 0 }
+        return nil
+    }
+
+    private func flagSource(_ node: FilterNode) -> BrowseSource {
+        .flag(flagNumber(node) ?? 0)
+    }
+
+    private func stateSource(_ node: FilterNode) -> BrowseSource {
+        if case .state(let state) = node.role { return .cardState(state) }
+        return .cardState(.review)
+    }
+
+    private func stateRowColor(_ node: FilterNode) -> Color {
+        guard case .state(let state) = node.role else { return palette.textSecondary }
+        return switch state {
+        case .newState: palette.cardStateNew
+        case .learning: palette.cardStateLearning
+        case .review: palette.cardStateReview
+        case .suspended: palette.cardStateSuspended
+        case .buried: palette.warning
+        }
+    }
+
+    @ViewBuilder
+    private func deckManagement(_ row: BrowseDeckTree.Row) -> some View {
+        Button("Expand descendants") { setDescendants(of: row.deck.name, expanded: true) }
+        Button("Collapse descendants") { setDescendants(of: row.deck.name, expanded: false) }
+        Divider()
+        Button("Rename…") {
+            deckRenameID = row.deck.id
+            deckRenameTo = row.deck.name
+        }
+        Button("Move under…") {
+            deckReparentID = row.deck.id
+            deckReparentParent = ""
+        }
+    }
+
+    @ViewBuilder
+    private func sourceActionMenus(_ source: BrowseSource, includeSubdecks: Bool = true) -> some View {
+        BrowseSourceCompositionMenu(source: source, model: model)
+        BrowseSourceBatchMenu(
+            source: source,
+            includeSubdecks: includeSubdecks,
+            model: model,
+            onPresentSheet: presentSheet,
+            onPresentTagSheet: presentTagSheet,
+            onConfirm: presentConfirm
+        )
+        if case .deck = source, includeSubdecks {
+            Menu("This deck only") {
+                BrowseSourceBatchMenu(
+                    source: source,
+                    includeSubdecks: false,
+                    model: model,
+                    onPresentSheet: presentSheet,
+                    onPresentTagSheet: presentTagSheet,
+                    onConfirm: presentConfirm
+                )
+            }
+        }
+    }
+
+    private func presentSheet(_ sheet: BrowseView.Sheet, _ notes: Set<NoteID>, _ cards: Set<CardID>) {
+        onPresentSheet?(sheet, notes, cards)
+    }
+
+    private func presentTagSheet(_ notes: Set<NoteID>, _ cards: Set<CardID>) {
+        onPresentTagSheet?(notes, cards)
+    }
+
+    private func presentConfirm(
+        _ title: String,
+        _ message: String,
+        _ destructive: Bool,
+        _ work: @escaping () async -> Void
+    ) {
+        confirmTitle = title
+        confirmMessage = message
+        confirmDestructive = destructive
+        pendingBatch = PendingBatchAction(work)
+        showBatchConfirm = true
     }
 
     // MARK: - Expansion
@@ -391,5 +636,13 @@ struct BrowseSourceColumn: View {
         }
         if expanded { set.insert(name) } else { set.remove(name) }
         expandedRaw = BrowseDeckTree.raw(from: set)
+    }
+}
+
+@MainActor
+private final class PendingBatchAction {
+    let run: () async -> Void
+    init(_ run: @escaping () async -> Void) {
+        self.run = run
     }
 }
