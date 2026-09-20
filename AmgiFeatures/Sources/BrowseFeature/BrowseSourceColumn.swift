@@ -73,7 +73,7 @@ package struct BrowseExit {
     }
 }
 
-/// Leading column: saved searches, today, flags, card state, decks, note
+/// Leading column: saved searches, today, decks, flags, card state, note
 /// types, and tags — Mail's mailbox list plus Anki's sidebar scopes.
 ///
 /// The deck tree is collapsible and defaults to collapsed (desktop Anki
@@ -89,6 +89,9 @@ struct BrowseSourceColumn: View {
     var onSelectSource: (() -> Void)? = nil
     var onPresentSheet: ((BrowseView.Sheet, Set<NoteID>, Set<CardID>) -> Void)? = nil
     var onPresentTagSheet: ((Set<NoteID>, Set<CardID>) -> Void)? = nil
+    /// Collection mutation generation so presence glyphs refresh after
+    /// suspend/bury/flag from the sidebar or list.
+    var collectionGeneration: Int = 0
 
     /// Resolved deck-icon names (same synced overrides Library/Study use).
     @State private var iconNames: [Int64: String] = [:]
@@ -162,6 +165,27 @@ struct BrowseSourceColumn: View {
                 }
             }
 
+            Section("Decks") {
+                if model.rootDeck == nil {
+                    Label("All decks", systemImage: "square.stack.3d.up.fill")
+                        .tag(BrowseSource.allDecks)
+                }
+                ForEach(deckRows) { row in
+                    BrowseDeckRowLabel(
+                        row: row,
+                        iconName: iconNames[row.deck.id.rawValue],
+                        presence: model.deckPresence[row.deck.id] ?? .empty
+                    ) {
+                        toggleExpansion(row.deck.name)
+                    }
+                    .tag(BrowseSource.deck(row.deck.id))
+                    .contextMenu {
+                        deckManagement(row)
+                        sourceActionMenus(.deck(row.deck.id), includeSubdecks: true)
+                    }
+                }
+            }
+
             Section("Flags") {
                 ForEach(BrowseFilterSections.flags()) { node in
                     Label {
@@ -197,23 +221,6 @@ struct BrowseSourceColumn: View {
                     .tag(stateSource(node))
                     .contextMenu {
                         sourceActionMenus(stateSource(node))
-                    }
-                }
-            }
-
-            Section("Decks") {
-                if model.rootDeck == nil {
-                    Label("All decks", systemImage: "square.stack.3d.up.fill")
-                        .tag(BrowseSource.allDecks)
-                }
-                ForEach(deckRows) { row in
-                    BrowseDeckRowLabel(row: row, iconName: iconNames[row.deck.id.rawValue]) {
-                        toggleExpansion(row.deck.name)
-                    }
-                    .tag(BrowseSource.deck(row.deck.id))
-                    .contextMenu {
-                        deckManagement(row)
-                        sourceActionMenus(.deck(row.deck.id), includeSubdecks: true)
                     }
                 }
             }
@@ -267,6 +274,8 @@ struct BrowseSourceColumn: View {
                             Image(systemName: "tag")
                         }
                         .help(node.fullPath)
+                        Spacer(minLength: 4)
+                        BrowsePresenceGlyphs(presence: model.tagPresence[node.fullPath] ?? .empty)
                     }
                     .tag(BrowseSource.tag(node.fullPath))
                     .draggable(BrowseSource.tagDragPrefix + node.fullPath)
@@ -313,6 +322,12 @@ struct BrowseSourceColumn: View {
             }
         }
         .listStyle(.sidebar)
+        .task(id: presenceIdentity) {
+            await model.refreshSourcePresence(
+                decks: deckRows.map(\.deck),
+                tags: tagRows.map(\.fullPath)
+            )
+        }
         .task {
             flagLabels.refresh()
         }
@@ -626,6 +641,14 @@ struct BrowseSourceColumn: View {
             model.allTags,
             tokens: sidebarTokens
         )
+    }
+
+    /// Visible deck/tag keys plus collection generation — expanding a
+    /// parent or a mass mutation both restart the presence scan.
+    private var presenceIdentity: String {
+        let decks = deckRows.map { String($0.deck.id.rawValue) }.joined(separator: ",")
+        let tags = tagRows.map(\.fullPath).joined(separator: "\u{1e}")
+        return "\(collectionGeneration)|\(decks)|\(tags)"
     }
 
     private func setDescendants(of name: String, expanded: Bool) {

@@ -148,12 +148,14 @@ enum BrowseDeckTree {
     }
 }
 
-/// Disclosure chevron + icon tile + leaf name + optional count. Used by the
-/// sidebar (which adds a selection tag) and the landing (which adds a tap).
+/// Disclosure chevron + icon tile + leaf name + presence + optional count.
+/// Used by the sidebar (which adds a selection tag) and the landing (which
+/// adds a tap).
 struct BrowseDeckRowLabel: View {
     @Environment(\.palette) private var palette
     let row: BrowseDeckTree.Row
     let iconName: String?
+    var presence: SourcePresence = .empty
     let onToggleExpand: () -> Void
 
     var body: some View {
@@ -172,6 +174,7 @@ struct BrowseDeckRowLabel: View {
                     .amgiFont(.caption)
                     .foregroundStyle(palette.textSecondary)
             }
+            BrowsePresenceGlyphs(presence: presence)
         }
         .padding(.leading, CGFloat(row.depth) * 12)
     }

@@ -219,7 +219,8 @@ package struct BrowseView: View {
             onPresentTagSheet: { notes, cards in
                 batchScopeOverride = BatchScope(notes: notes, cards: cards)
                 showTagSheet = true
-            }
+            },
+            collectionGeneration: store.generation
         )
         .appSidebarWidth()
         .navigationTitle("Browse")

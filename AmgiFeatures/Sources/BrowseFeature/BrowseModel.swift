@@ -230,6 +230,12 @@ final class BrowseModel {
     private let windowSize = 100
     private let hydrateChunkSize = 50
     private var searchTask: Task<Void, Never>?
+    private var presenceTask: Task<Void, Never>?
+
+    /// Suspended / buried / flag presence for currently visible sidebar decks.
+    private(set) var deckPresence: [DeckID: SourcePresence] = [:]
+    /// Same, keyed by tag full path.
+    private(set) var tagPresence: [String: SourcePresence] = [:]
 
     @ObservationIgnored @Dependency(\.noteClient) private var noteClient
     @ObservationIgnored @Dependency(\.cardClient) private var cardClient
@@ -479,6 +485,113 @@ final class BrowseModel {
         // ("Levelling" vs "leveling") dead-ended at zero results.
         kickOffSemanticIndexBuild()
         // Search itself is driven by BrowseView `.task(id: searchIdentity)`.
+    }
+
+    // MARK: - Sidebar presence (decks + tags)
+
+    /// Existence-only scans for the rows currently on screen. Collapsed
+    /// children are omitted by the caller. Cancels an in-flight pass.
+    func refreshSourcePresence(decks: [DeckInfo], tags: [String]) async {
+        presenceTask?.cancel()
+        let client = cardClient
+        let task = Task {
+            let computed = await Self.computeSourcePresence(
+                decks: decks, tags: tags, client: client
+            )
+            guard !Task.isCancelled else { return }
+            deckPresence = computed.decks
+            tagPresence = computed.tags
+        }
+        presenceTask = task
+        await task.value
+    }
+
+    private struct PresenceJob: Sendable {
+        enum Target: Sendable {
+            case deck(DeckID)
+            case tag(String)
+        }
+        enum Kind: Sendable {
+            case suspended, buried, flag(UInt32)
+        }
+        let target: Target
+        let kind: Kind
+        let query: String
+    }
+
+    private nonisolated static func computeSourcePresence(
+        decks: [DeckInfo],
+        tags: [String],
+        client: CardClient
+    ) async -> (decks: [DeckID: SourcePresence], tags: [String: SourcePresence]) {
+        var jobs: [PresenceJob] = []
+        jobs.reserveCapacity((decks.count + tags.count) * 9)
+        for deck in decks {
+            jobs.append(contentsOf: presenceJobs(target: .deck(deck.id), scope: DeckSearch.term(deck.name)))
+        }
+        for tag in tags {
+            guard let scope = BrowseSource.tag(tag).queryFragment() else { continue }
+            jobs.append(contentsOf: presenceJobs(target: .tag(tag), scope: scope))
+        }
+
+        var decksOut: [DeckID: SourcePresence] = [:]
+        var tagsOut: [String: SourcePresence] = [:]
+        await withTaskGroup(of: (PresenceJob, Bool).self) { group in
+            var iterator = jobs.makeIterator()
+            func enqueue() {
+                if let job = iterator.next() {
+                    group.addTask {
+                        let ids = (try? await client.searchIds(job.query, nil)) ?? []
+                        return (job, !ids.isEmpty)
+                    }
+                }
+            }
+            for _ in 0..<min(8, jobs.count) {
+                enqueue()
+            }
+            for await (job, hit) in group {
+                if Task.isCancelled {
+                    group.cancelAll()
+                    break
+                }
+                if hit {
+                    switch job.target {
+                    case .deck(let id):
+                        var presence = decksOut[id] ?? SourcePresence()
+                        apply(job.kind, to: &presence)
+                        decksOut[id] = presence
+                    case .tag(let path):
+                        var presence = tagsOut[path] ?? SourcePresence()
+                        apply(job.kind, to: &presence)
+                        tagsOut[path] = presence
+                    }
+                }
+                enqueue()
+            }
+        }
+        return (decksOut, tagsOut)
+    }
+
+    private nonisolated static func presenceJobs(
+        target: PresenceJob.Target,
+        scope: String
+    ) -> [PresenceJob] {
+        var jobs = [
+            PresenceJob(target: target, kind: .suspended, query: "\(scope) is:suspended"),
+            PresenceJob(target: target, kind: .buried, query: "\(scope) is:buried"),
+        ]
+        for flag in UInt32(1)...7 {
+            jobs.append(PresenceJob(target: target, kind: .flag(flag), query: "\(scope) flag:\(flag)"))
+        }
+        return jobs
+    }
+
+    private nonisolated static func apply(_ kind: PresenceJob.Kind, to presence: inout SourcePresence) {
+        switch kind {
+        case .suspended: presence.apply(suspended: true)
+        case .buried: presence.apply(buried: true)
+        case .flag(let value): presence.apply(flag: value, hit: true)
+        }
     }
 
     /// Row onAppear hook: extend the visible window toward the user.

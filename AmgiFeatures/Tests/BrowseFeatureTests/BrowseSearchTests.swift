@@ -391,3 +391,68 @@ struct BrowseSearchTests {
         }
     }
 }
+
+@Suite("Browse source presence")
+@MainActor
+struct BrowsePresenceTests {
+
+    @Test("a search hit lights suspended on a deck and a tag")
+    func presenceLightsFromSearchHits() async {
+        await withDependencies {
+            $0.cardClient.searchIds = { query, _ in
+                if query.contains("is:suspended"),
+                   query.contains("French") || query.contains("verb") {
+                    return [CardID(1)]
+                }
+                return []
+            }
+        } operation: {
+            let model = BrowseModel()
+            let deck = DeckInfo(id: DeckID(1), name: "French")
+            await model.refreshSourcePresence(decks: [deck], tags: ["verb"])
+            #expect(model.deckPresence[deck.id]?.suspended == true)
+            #expect(model.deckPresence[deck.id]?.buried == false)
+            #expect(model.deckPresence[deck.id]?.presentFlags.isEmpty == true)
+            #expect(model.tagPresence["verb"]?.suspended == true)
+            #expect(model.tagPresence["verb"]?.buried == false)
+        }
+    }
+
+    @Test("empty search results leave presence empty")
+    func presenceStaysEmptyWithoutHits() async {
+        await withDependencies {
+            $0.cardClient.searchIds = { _, _ in [] }
+        } operation: {
+            let model = BrowseModel()
+            let deck = DeckInfo(id: DeckID(2), name: "Empty")
+            await model.refreshSourcePresence(decks: [deck], tags: ["unused"])
+            #expect(model.deckPresence[deck.id] == nil)
+            #expect(model.tagPresence["unused"] == nil)
+        }
+    }
+
+    @Test("a flag search hit lights that color on the deck")
+    func presenceLightsFlagColor() async {
+        await withDependencies {
+            $0.cardClient.searchIds = { query, _ in
+                query.contains("flag:3") ? [CardID(9)] : []
+            }
+        } operation: {
+            let model = BrowseModel()
+            let deck = DeckInfo(id: DeckID(3), name: "Flags")
+            await model.refreshSourcePresence(decks: [deck], tags: [])
+            #expect(model.deckPresence[deck.id]?.presentFlags == [3])
+            #expect(model.deckPresence[deck.id]?.suspended == false)
+        }
+    }
+
+    @Test("accessibility label names each present state")
+    func presenceAccessibilityLabel() {
+        var presence = SourcePresence()
+        presence.apply(suspended: true)
+        presence.apply(buried: true)
+        presence.apply(flag: 1, hit: true)
+        presence.apply(flag: 4, hit: true)
+        #expect(presence.accessibilityLabel == "Suspended, Buried, Red and Blue flags")
+    }
+}
