@@ -28,6 +28,7 @@ package struct ProfilePickerMenu: View {
     @State private var store = AccountStore.shared
     @State private var iconStore = ProfileIconStore.shared
     @Environment(\.palette) private var palette
+    @Environment(\.accountMenuShowsName) private var showsNameOverride
 
     package init(
         onSwitch: @escaping (AmgiAccount) async -> Void,
@@ -49,8 +50,10 @@ package struct ProfilePickerMenu: View {
     }
 
     /// iPhone toolbar is icon-only; iPad/Mac keep the name beside the emoji.
-    /// Sidebar chrome always shows the name.
+    /// Sidebar chrome always shows the name. Browse's collapsed iPad sidebar
+    /// forces icon-only via `accountMenuShowsName`.
     private var showsNameInLabel: Bool {
+        if let showsNameOverride { return showsNameOverride }
         if chrome == .sidebar { return true }
         #if os(iOS)
         return UIDevice.current.userInterfaceIdiom != .phone

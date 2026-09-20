@@ -29,6 +29,9 @@ public protocol AccountMenuProviding {
 public extension EnvironmentValues {
     /// `nil` means no provider (previews / tests): the modifier is a no-op.
     @Entry var accountMenuProvider: (any AccountMenuProviding)? = nil
+    /// `nil` uses the control's usual chrome (name on iPad/Mac, icon-only
+    /// on iPhone). `false` forces the iPhone-style icon-only toolbar label.
+    @Entry var accountMenuShowsName: Bool? = nil
 }
 
 /// The account/profile affordance for every ROOT screen — replaces a
@@ -61,6 +64,7 @@ struct AccountMenuModifier: ViewModifier {
 private struct AccountMenuControlModifier: ViewModifier {
     let placement: ToolbarItemPlacement
     @Binding var open: AccountMenuDestination?
+    var showsName: Bool?
     @Environment(\.accountMenuProvider) private var provider
 
     func body(content: Content) -> some View {
@@ -68,6 +72,7 @@ private struct AccountMenuControlModifier: ViewModifier {
             if let provider {
                 ToolbarItem(placement: placement) {
                     provider.menu(open: $open)
+                        .environment(\.accountMenuShowsName, showsName)
                 }
             }
         }
@@ -117,9 +122,14 @@ package extension View {
     /// enclosing stack so Settings pushes as a normal page.
     func accountMenuControl(
         placement: ToolbarItemPlacement = .topBarLeading,
-        open: Binding<AccountMenuDestination?>
+        open: Binding<AccountMenuDestination?>,
+        showsName: Bool? = nil
     ) -> some View {
-        modifier(AccountMenuControlModifier(placement: placement, open: open))
+        modifier(AccountMenuControlModifier(
+            placement: placement,
+            open: open,
+            showsName: showsName
+        ))
     }
 
     /// Pins profile + Settings to the bottom of a sidebar as floating chips,

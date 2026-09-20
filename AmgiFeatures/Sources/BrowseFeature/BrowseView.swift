@@ -48,10 +48,10 @@ package struct BrowseView: View {
     @State private var renameSearchTo = ""
     #if os(iOS)
     @State private var preferredColumn: NavigationSplitViewColumn = .sidebar
+    @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     #endif
-    /// Settings push from the sidebar footer. Regular width swaps the list
-    /// and inspector for a two-column split (sidebar | Settings), like
-    /// Library. Compact uses the toolbar `accountMenu()` instead.
+    /// Settings from the sidebar footer when the source list is showing,
+    /// or the combined list-column profile menu when that sidebar is hidden.
     @State private var accountDestination: AccountMenuDestination?
 
     @Dependency(\.notetypesService) private var notetypesService
@@ -117,18 +117,38 @@ package struct BrowseView: View {
         #endif
     }
 
+    /// iPad three-column: the source sidebar is gone, so the combined
+    /// profile + Settings control moves to the notes column — same idea as
+    /// the adaptable tab bar collapsing.
+    private var isBrowseSidebarHidden: Bool {
+        #if os(iOS)
+        columnVisibility == .doubleColumn || columnVisibility == .detailOnly
+        #else
+        false
+        #endif
+    }
+
     @ViewBuilder
     private var splitColumns: some View {
         if usesColumnSearch {
             splitView.navigationSplitViewStyle(.balanced)
         } else {
             #if os(iOS)
-            if accountDestination != nil {
-                // Two-column: source sidebar + Settings filling the rest.
-                // A three-column destination lands Settings in the inspector.
-                settingsSplit.navigationSplitViewStyle(.balanced)
-            } else {
-                withBrowseSearch(splitView.navigationSplitViewStyle(.balanced))
+            ZStack {
+                if accountDestination == nil {
+                    withBrowseSearch(splitView.navigationSplitViewStyle(.balanced))
+                } else {
+                    // Same three-column split as browse — swapping to a
+                    // two-column split treats `.doubleColumn` as "show the
+                    // sidebar" and forces it open.
+                    splitView.navigationSplitViewStyle(.balanced)
+                }
+                if accountDestination != nil, isBrowseSidebarHidden {
+                    NavigationStack {
+                        BrowseAccountDestination(destination: $accountDestination)
+                    }
+                    .background(palette.background)
+                }
             }
             #else
             withBrowseSearch(splitView.navigationSplitViewStyle(.balanced))
@@ -136,27 +156,26 @@ package struct BrowseView: View {
         }
     }
 
-    #if os(iOS)
-    private var settingsSplit: some View {
-        NavigationSplitView {
-            sidebarPane
-        } detail: {
-            NavigationStack {
-                BrowseAccountDestination(destination: $accountDestination)
-            }
-        }
-    }
-    #endif
-
     @ViewBuilder
     private var splitView: some View {
         #if os(iOS)
-        NavigationSplitView(preferredCompactColumn: $preferredColumn) {
+        NavigationSplitView(
+            columnVisibility: $columnVisibility,
+            preferredCompactColumn: $preferredColumn
+        ) {
             sidebarPane
         } content: {
-            listPane
+            if accountDestination != nil, !isBrowseSidebarHidden {
+                NavigationStack {
+                    BrowseAccountDestination(destination: $accountDestination)
+                }
+            } else {
+                listPane
+            }
         } detail: {
-            detailPane
+            if accountDestination == nil {
+                detailPane
+            }
         }
         #else
         NavigationSplitView {
@@ -171,7 +190,7 @@ package struct BrowseView: View {
 
     @ViewBuilder
     private var sidebarPane: some View {
-        let pane = BrowseSourceColumn(
+        let column = BrowseSourceColumn(
             model: model,
             exit: exit,
             selection: selectionState,
@@ -183,13 +202,21 @@ package struct BrowseView: View {
         )
         .appSidebarWidth()
         .navigationTitle("Browse")
+        #if os(iOS)
+        .toolbarRole(usesColumnSearch ? .automatic : .editor)
+        #endif
         .toolbar { sidebarToolbar }
-        .browseAccountChrome(open: $accountDestination, usesFooter: !usesColumnSearch)
+        #if os(macOS)
+        column.accountSidebarFooter(open: $accountDestination)
+        #else
         if usesColumnSearch {
-            withBrowseSearch(pane)
+            withBrowseSearch(column.accountMenu())
+        } else if isBrowseSidebarHidden {
+            column
         } else {
-            pane
+            column.accountSidebarFooter(open: $accountDestination)
         }
+        #endif
     }
 
     @ViewBuilder
@@ -207,11 +234,25 @@ package struct BrowseView: View {
         .navigationSplitViewColumnWidth(min: 300, ideal: 400)
         .navigationTitle(sourceTitle)
         .navigationBarTitleDisplayMode(.inline)
+        #if os(iOS)
+        .toolbarRole(.editor)
+        #endif
         .toolbar { listToolbarContent }
         if usesColumnSearch {
             withBrowseSearch(pane)
         } else {
+            #if os(iOS)
+            if isBrowseSidebarHidden {
+                pane.accountMenuControl(
+                    open: $accountDestination,
+                    showsName: false
+                )
+            } else {
+                pane
+            }
+            #else
             pane
+            #endif
         }
     }
 
@@ -253,6 +294,9 @@ package struct BrowseView: View {
         }
         .navigationTitle("Details")
         .navigationBarTitleDisplayMode(.inline)
+        #if os(iOS)
+        .toolbarRole(.editor)
+        #endif
         .toolbar { detailToolbarContent }
     }
 
@@ -1052,23 +1096,6 @@ private struct BrowseAccountDestination: View {
     }
 }
 #endif
-
-private extension View {
-    /// iPhone: toolbar profile menu, like Library. iPad/Mac: sidebar footer.
-    /// `usesFooter` is the *window* size class, not the column's — a split
-    /// sidebar on iPad reports compact even when the window is regular.
-    @ViewBuilder
-    func browseAccountChrome(
-        open: Binding<AccountMenuDestination?>,
-        usesFooter: Bool
-    ) -> some View {
-        if usesFooter {
-            accountSidebarFooter(open: open)
-        } else {
-            accountMenu()
-        }
-    }
-}
 
 // MARK: - Hex helper
 

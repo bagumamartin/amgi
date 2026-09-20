@@ -14,8 +14,10 @@ import AmgiUI
 /// sidebar and the macOS sidebar so menu commands (⌘1–5) stay in sync.
 ///
 /// Browse fills the fifth slot. Settings lives in the sidebar footer
-/// (profile capsule + gear) on Mac, iPad, and Browse; iPhone keeps the
-/// toolbar account menu. macOS also exposes Settings from the menu bar.
+/// (profile capsule + gear) on Mac and on iPad while the adaptable sidebar
+/// is showing. When that sidebar collapses to the top tab bar — and on
+/// iPhone — profile and Settings combine in the leading toolbar. macOS
+/// also exposes Settings from the menu bar.
 enum MainSection: String, CaseIterable, Identifiable {
     case library, read, study, stats, browse
 
@@ -233,7 +235,9 @@ struct MainTabView: View {
     @ViewBuilder
     private func tabContent(for section: MainSection) -> some View {
         #if os(iOS)
-        sectionContent(section, showsAccountMenu: horizontalSizeClass != .regular)
+        TabAccountChrome { showsMenu in
+            sectionContent(section, showsAccountMenu: showsMenu)
+        }
         #else
         sectionContent(section, showsAccountMenu: false)
         #endif
@@ -241,10 +245,8 @@ struct MainTabView: View {
 }
 
 private extension View {
-    /// iPhone: toolbar account menu (includes its own Settings push).
-    /// iPad/Mac split: Settings destinations only — the sidebar footer
-    /// writes the binding; wrapping the split in another stack is what
-    /// broke Library's deck push.
+    /// Combined profile + Settings in the leading toolbar when the adaptable
+    /// bar is a tab bar. Sidebar placement uses the bottom-bar chips instead.
     @ViewBuilder
     func accountChrome(
         showsMenu: Bool,
@@ -257,3 +259,20 @@ private extension View {
         }
     }
 }
+
+#if os(iOS)
+/// `tabBarPlacement` is only set inside TabView content. Sidebar → footer
+/// chips; top/bottom tab bar → the combined leading profile menu.
+private struct TabAccountChrome<Content: View>: View {
+    @Environment(\.tabBarPlacement) private var tabBarPlacement
+    let content: (Bool) -> Content
+
+    init(@ViewBuilder content: @escaping (Bool) -> Content) {
+        self.content = content
+    }
+
+    var body: some View {
+        content(tabBarPlacement != .sidebar)
+    }
+}
+#endif
