@@ -84,6 +84,11 @@ public struct DeckListRowView: View {
     }
 
     private var metaLine: String {
+        if data.isArchived {
+            return data.subdeckCount == 0
+                ? "Archived"
+                : "Archived · \(data.subdeckCount) subdeck\(data.subdeckCount == 1 ? "" : "s")"
+        }
         switch (data.totalCount, data.subdeckCount) {
         case (0, _):           return "Up to date"
         case (let n, 0):       return "\(n) due"
@@ -93,7 +98,10 @@ public struct DeckListRowView: View {
 
     @ViewBuilder
     private var trailingContent: some View {
-        if data.totalCount == 0 {
+        if data.isArchived {
+            Image(systemName: "pause.circle")
+                .foregroundStyle(palette.cardStateSuspended)
+        } else if data.totalCount == 0 {
             Image(systemName: "checkmark")
                 .foregroundStyle(palette.textTertiary)
         } else {

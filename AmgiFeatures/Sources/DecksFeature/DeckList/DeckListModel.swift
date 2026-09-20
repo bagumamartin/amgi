@@ -22,9 +22,13 @@ final class DeckListModel {
     private var deckRows: [DeckListRow] = []
     private var lastSortOrder: DeckSortOrder = .mostUsed
     private var usageRanks: [Int64: DeckUsageRank] = [:]
+    /// Top-level decks whose every card is suspended. Default and filtered
+    /// decks are never included, even when parked.
+    private var archivedDeckIDs: Set<DeckID> = []
 
     @ObservationIgnored @Dependency(\.deckClient) private var deckClient
     @ObservationIgnored @Dependency(\.statsClient) private var statsClient
+    @ObservationIgnored @Dependency(\.cardClient) private var cardClient
     @ObservationIgnored @Dependency(\.collectionStore) private var store
 
     /// Two phase, deliberately. The deck rows and the hero's due counts come
@@ -79,15 +83,17 @@ final class DeckListModel {
             if tree.isEmpty {
                 deckRows = []
                 usageRanks = [:]
+                archivedDeckIDs = []
                 state = .empty
                 return
             }
             deckRows = tree.map(DeckListRow.init(node:))
+            archivedDeckIDs = await fetchArchivedDeckIDs(for: deckRows)
             let totalDue = deckRows.reduce(0) { $0 + $1.counts.total }
             publishLoaded(
                 hero: HeroData(
                     totalDue: totalDue,
-                    deckCount: deckRows.count,
+                    deckCount: reviewableDeckCount,
                     streak: carried?.hero.streak ?? 0,
                     recentDayTotals: carried?.hero.recentDayTotals
                         ?? Array(repeating: 0, count: HeroData.sparklineCapacity)
@@ -154,7 +160,9 @@ final class DeckListModel {
     func firstReviewableDeck() -> DeckInfo? {
         guard !deckRows.isEmpty else { return nil }
         let sorted = DeckSorting.libraryRows(deckRows, order: lastSortOrder, ranks: usageRanks)
-        return sorted.first(where: { $0.counts.total > 0 })?.asDeckInfo
+        return sorted.first(where: {
+            $0.counts.total > 0 && !archivedDeckIDs.contains($0.id)
+        })?.asDeckInfo
     }
 
     private func publishLoaded(hero: HeroData, heatmap: HeatmapCardData?) {
@@ -165,7 +173,7 @@ final class DeckListModel {
         let sorted = DeckSorting.libraryRows(deckRows, order: lastSortOrder, ranks: usageRanks)
         state = .loaded(
             rows: sorted.map { row in
-                var viewData = row.viewData
+                var viewData = row.viewData(isArchived: archivedDeckIDs.contains(row.id))
                 if let existing = existingIcons[row.id.rawValue] {
                     viewData.iconName = existing
                 } else {
@@ -219,9 +227,47 @@ final class DeckListModel {
 }
 
 private extension DeckListModel {
+    var reviewableDeckCount: Int {
+        deckRows.reduce(0) { $0 + (archivedDeckIDs.contains($1.id) ? 0 : 1) }
+    }
+
+    func fetchArchivedDeckIDs(for rows: [DeckListRow]) async -> Set<DeckID> {
+        let candidates = rows.filter { row in
+            row.counts.total == 0 && !DeckArchiving.isExempt(id: row.id, isFiltered: row.isFiltered)
+        }
+        guard !candidates.isEmpty else { return [] }
+
+        let client = cardClient
+        return await withTaskGroup(of: DeckID?.self, returning: Set<DeckID>.self) { group in
+            var iterator = candidates.makeIterator()
+            func enqueue() {
+                guard let row = iterator.next() else { return }
+                group.addTask {
+                    let scope = DeckSearch.term(row.fullName)
+                    async let totalIDs = client.searchIds(scope, nil)
+                    async let suspendedIDs = client.searchIds("\(scope) is:suspended", nil)
+                    let total = (try? await totalIDs)?.count ?? 0
+                    let suspended = (try? await suspendedIDs)?.count ?? 0
+                    return DeckArchiving.isFullySuspended(totalCards: total, suspendedCards: suspended)
+                        ? row.id
+                        : nil
+                }
+            }
+            for _ in 0..<min(8, candidates.count) {
+                enqueue()
+            }
+            var ids: Set<DeckID> = []
+            for await id in group {
+                if let id { ids.insert(id) }
+                enqueue()
+            }
+            return ids
+        }
+    }
+
     func buildHeroAndHeatmap(rows: [DeckListRow]) async -> (HeroData, HeatmapCardData) {
         let totalDue = rows.reduce(0) { $0 + $1.counts.total }
-        let deckCount = rows.count
+        let deckCount = reviewableDeckCount
         // Window the streak over the same range we fetch, or the default
         // 28 silently caps a year's worth of data at 28 days.
         let graphDays = 365

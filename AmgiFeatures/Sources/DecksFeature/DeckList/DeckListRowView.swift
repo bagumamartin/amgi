@@ -37,6 +37,10 @@ extension DeckListRow {
     }
 
     var viewData: DeckRowViewData {
+        viewData(isArchived: false)
+    }
+
+    func viewData(isArchived: Bool) -> DeckRowViewData {
         DeckRowViewData(
             id: id.rawValue,
             name: name,
@@ -45,7 +49,8 @@ extension DeckListRow {
             learnCount: counts.learnCount,
             reviewCount: counts.reviewCount,
             isFiltered: isFiltered,
-            subdeckCount: subdeckCount
+            subdeckCount: subdeckCount,
+            isArchived: isArchived
         )
     }
 }

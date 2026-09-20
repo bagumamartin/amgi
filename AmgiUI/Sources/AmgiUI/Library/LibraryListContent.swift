@@ -37,6 +37,7 @@ public struct LibraryListContent: View {
 
     // Nested `State` enum shadows SwiftUI's `@State`; qualify the wrapper.
     @SwiftUI.State private var deleteTarget: DeckRowViewData?
+    @SwiftUI.State private var archivedExpanded = false
     @Environment(\.palette) private var palette
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
@@ -131,7 +132,9 @@ public struct LibraryListContent: View {
 
     #if os(iOS)
     private func deckList(rows: [DeckRowViewData], hero: HeroData, heatmap: HeatmapCardData?) -> some View {
-        List {
+        let active = rows.filter { !$0.isArchived }
+        let archived = rows.filter(\.isArchived)
+        return List {
             Section {
                 LibraryHeroCard(
                     data: hero,
@@ -145,29 +148,34 @@ public struct LibraryListContent: View {
                     .listRowSeparator(.hidden)
             }
 
-            Section {
-                ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                    DeckListRowView(
-                        data: row,
-                        onTap: { onTapDeck(row) },
-                        onRequestDelete: { deleteTarget = row },
-                        onRename: { onRenameDeck(row) },
-                        onChangeIcon: { onChangeIconDeck(row) }
-                    )
-                    // One modifier, not four. Chained inline, the ForEach
-                    // element type is a four-deep ModifiedContent nest, and
-                    // AttributeGraph describes that whole type per row.
-                    .modifier(DeckRowChrome(
-                        rowID: row.id,
-                        namespace: deckTransition,
-                        isFirst: index == 0,
-                        isLast: index == rows.count - 1,
-                        surface: palette.surfaceElevated,
-                        border: palette.border
-                    ))
+            if !active.isEmpty {
+                Section {
+                    ForEach(Array(active.enumerated()), id: \.element.id) { index, row in
+                        listDeckRow(
+                            row,
+                            isFirst: index == 0,
+                            isLast: index == active.count - 1
+                        )
+                    }
+                } header: {
+                    DeckSectionHeader(title: "Decks", sortOrder: $sortOrder)
                 }
-            } header: {
-                DeckSectionHeader(title: "Decks", sortOrder: $sortOrder)
+            }
+
+            if !archived.isEmpty {
+                Section {
+                    if archivedExpanded {
+                        ForEach(Array(archived.enumerated()), id: \.element.id) { index, row in
+                            listDeckRow(
+                                row,
+                                isFirst: index == 0,
+                                isLast: index == archived.count - 1
+                            )
+                        }
+                    }
+                } header: {
+                    archivedSectionHeader(count: archived.count)
+                }
             }
 
             Section {
@@ -184,10 +192,30 @@ public struct LibraryListContent: View {
         .scrollContentBackground(.hidden)
         .refreshable { await onRefresh() }
     }
+
+    private func listDeckRow(_ row: DeckRowViewData, isFirst: Bool, isLast: Bool) -> some View {
+        DeckListRowView(
+            data: row,
+            onTap: { onTapDeck(row) },
+            onRequestDelete: { deleteTarget = row },
+            onRename: { onRenameDeck(row) },
+            onChangeIcon: { onChangeIconDeck(row) }
+        )
+        .modifier(DeckRowChrome(
+            rowID: row.id,
+            namespace: deckTransition,
+            isFirst: isFirst,
+            isLast: isLast,
+            surface: palette.surfaceElevated,
+            border: palette.border
+        ))
+    }
     #endif
 
     private func scrollList(rows: [DeckRowViewData], hero: HeroData, heatmap: HeatmapCardData?) -> some View {
-        ScrollView {
+        let active = rows.filter { !$0.isArchived }
+        let archived = rows.filter(\.isArchived)
+        return ScrollView {
             LazyVStack(alignment: .leading, spacing: 18) {
                 LibraryHeroCard(
                     data: hero,
@@ -195,9 +223,20 @@ public struct LibraryListContent: View {
                     onStartReview: onStartReview
                 )
 
-                VStack(alignment: .leading, spacing: 6) {
-                    DeckSectionHeader(title: "Decks", sortOrder: $sortOrder)
-                    deckRowsCard(rows: rows)
+                if !active.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        DeckSectionHeader(title: "Decks", sortOrder: $sortOrder)
+                        deckRowsCard(rows: active)
+                    }
+                }
+
+                if !archived.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        archivedSectionHeader(count: archived.count)
+                        if archivedExpanded {
+                            deckRowsCard(rows: archived)
+                        }
+                    }
                 }
 
                 ActivityHeatmapCard(data: heatmap ?? .empty, initialDays: heatmapInitialDays)
@@ -210,6 +249,33 @@ public struct LibraryListContent: View {
             .padding(.bottom, 32)
         }
         .refreshable { await onRefresh() }
+    }
+
+    private func archivedSectionHeader(count: Int) -> some View {
+        Button {
+            withAnimation(AmgiMotion.standard) { archivedExpanded.toggle() }
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text("Archived")
+                    .amgiFont(.sectionHeading)
+                    .foregroundStyle(palette.textPrimary)
+                Text("\(count)")
+                    .amgiFont(.caption)
+                    .foregroundStyle(palette.textTertiary)
+                    .monospacedDigit()
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(palette.textTertiary)
+                    .rotationEffect(.degrees(archivedExpanded ? 180 : 0))
+            }
+            .padding(.leading, 4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Archived, \(count) decks")
+        .accessibilityHint(archivedExpanded ? "Collapse" : "Expand")
+        .accessibilityAddTraits(.isButton)
     }
 
     private func deckRowsCard(rows: [DeckRowViewData]) -> some View {
@@ -427,7 +493,8 @@ private extension DeckRowViewData {
     static let sampleEspanol = DeckRowViewData(
         id: 4, name: "Español", fullName: "Español",
         newCount: 0, learnCount: 0, reviewCount: 0,
-        isFiltered: false, subdeckCount: 0
+        isFiltered: false, subdeckCount: 0,
+        isArchived: true
     )
     static let sampleFiltered = DeckRowViewData(
         id: 5, name: "Hardest cards", fullName: "Hardest cards",

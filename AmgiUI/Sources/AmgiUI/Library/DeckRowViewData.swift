@@ -15,6 +15,8 @@ public struct DeckRowViewData: Identifiable, Equatable, Hashable, Sendable {
     /// Persisted or name-derived icon (Phosphor case name). Nil ⇒ the tile
     /// falls back to the emoji/letter/monogram glyph.
     public var iconName: String?
+    /// Fully suspended (every card parked). Library hides these in Archived.
+    public let isArchived: Bool
 
     public init(
         id: Int64,
@@ -25,7 +27,8 @@ public struct DeckRowViewData: Identifiable, Equatable, Hashable, Sendable {
         reviewCount: Int,
         isFiltered: Bool,
         subdeckCount: Int,
-        iconName: String? = nil
+        iconName: String? = nil,
+        isArchived: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -36,6 +39,7 @@ public struct DeckRowViewData: Identifiable, Equatable, Hashable, Sendable {
         self.isFiltered = isFiltered
         self.subdeckCount = subdeckCount
         self.iconName = iconName
+        self.isArchived = isArchived
     }
 
     public func updatingIconName(_ newName: String?) -> DeckRowViewData {
