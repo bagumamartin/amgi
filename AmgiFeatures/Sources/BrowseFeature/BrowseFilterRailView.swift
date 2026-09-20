@@ -217,17 +217,12 @@ struct BrowseFilterRailView: View {
     /// Fragments are canonical numeric `flag:0…7` (parser rejects names).
     @ViewBuilder
     private func flagGlyph(for node: FilterNode) -> some View {
-        let color: Color = switch node.fragment {
-        case "flag:0": palette.textTertiary
-        case "flag:1": Color(hexFlag: 0xFF3B30)
-        case "flag:2": Color(hexFlag: 0xFF9500)
-        case "flag:3": Color(hexFlag: 0x34C759)
-        case "flag:4": Color(hexFlag: 0x007AFF)
-        case "flag:5": Color(hexFlag: 0xFF2D55)
-        case "flag:6": Color(hexFlag: 0x32ADE6)
-        case "flag:7": Color(hexFlag: 0xAF52DE)
-        default: palette.accent
-        }
+        let color: Color = {
+            if case .flag(let value) = node.role, let color = BrowseFlagSwatch.color(for: value) {
+                return color
+            }
+            return palette.textTertiary
+        }()
         Image(systemName: node.systemImage)
             .foregroundStyle(color)
     }
@@ -331,14 +326,5 @@ struct BrowseFilterRailView: View {
         case .suspended: palette.cardStateSuspended
         case .buried: palette.warning
         }
-    }
-}
-
-extension Color {
-    init(hexFlag hex: UInt32) {
-        self.init(.sRGB,
-                  red: Double((hex >> 16) & 0xFF) / 255,
-                  green: Double((hex >> 8) & 0xFF) / 255,
-                  blue: Double(hex & 0xFF) / 255)
     }
 }

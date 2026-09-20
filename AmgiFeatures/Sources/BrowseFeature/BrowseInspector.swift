@@ -79,14 +79,47 @@ struct BrowseDetailTabs: View {
             content
         }
         .background(palette.background)
+        .navigationTitle(tab == .edit ? "" : "Details")
         .toolbar { detailChrome }
+        #if os(iOS)
+        .toolbarRole(tab == .edit ? .automatic : .editor)
+        #endif
     }
 
     @ToolbarContentBuilder
     private var detailChrome: some ToolbarContent {
+        if tab == .edit {
+            detailsPrincipalItem
+        }
         if tab != .edit, onClose != nil {
             closeToolbarItem
         }
+    }
+
+    @ToolbarContentBuilder
+    private var detailsPrincipalItem: some ToolbarContent {
+        #if os(iOS)
+        if #available(iOS 26.0, *) {
+            ToolbarItem(placement: .principal) {
+                Text("Details")
+                    .amgiFont(.bodyEmphasis)
+                    .foregroundStyle(palette.textPrimary)
+            }
+            .sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(placement: .principal) {
+                Text("Details")
+                    .amgiFont(.bodyEmphasis)
+                    .foregroundStyle(palette.textPrimary)
+            }
+        }
+        #else
+        ToolbarItem(placement: .principal) {
+            Text("Details")
+                .amgiFont(.bodyEmphasis)
+                .foregroundStyle(palette.textPrimary)
+        }
+        #endif
     }
 
     @ToolbarContentBuilder

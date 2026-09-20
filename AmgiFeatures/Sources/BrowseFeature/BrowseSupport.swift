@@ -13,6 +13,7 @@ import AmgiAppCore
 import AmgiAppShared
 import Dependencies
 import Foundation
+import SwiftUI
 
 /// Anki's field checksum primitive: 64-bit FNV-1a over UTF-8 bytes.
 /// Shared by the note editor (csum) and the semantic index (staleness).
@@ -243,6 +244,33 @@ enum BrowseFilterSections {
 
     private static func makeNode(title: String, image: String, fragment: String) -> FilterNode {
         FilterNode(title: title, systemImage: image, fragment: fragment, role: nil)
+    }
+}
+
+/// Anki's seven brand flag hues (same values as desktop / the filter rail).
+enum BrowseFlagSwatch {
+    static func color(for value: UInt32) -> Color? {
+        switch value & 0b111 {
+        case 1: Color(ankiFlagHex: 0xFF3B30)
+        case 2: Color(ankiFlagHex: 0xFF9500)
+        case 3: Color(ankiFlagHex: 0x34C759)
+        case 4: Color(ankiFlagHex: 0x007AFF)
+        case 5: Color(ankiFlagHex: 0xFF2D55)
+        case 6: Color(ankiFlagHex: 0x32ADE6)
+        case 7: Color(ankiFlagHex: 0xAF52DE)
+        default: nil
+        }
+    }
+}
+
+private extension Color {
+    init(ankiFlagHex hex: UInt32) {
+        self.init(
+            .sRGB,
+            red: Double((hex >> 16) & 0xFF) / 255,
+            green: Double((hex >> 8) & 0xFF) / 255,
+            blue: Double(hex & 0xFF) / 255
+        )
     }
 }
 

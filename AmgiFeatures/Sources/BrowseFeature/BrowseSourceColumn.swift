@@ -176,10 +176,17 @@ struct BrowseSourceColumn: View {
                     Button {
                         model.searchText = node.fragment
                     } label: {
-                        Label(node.title, systemImage: node.systemImage)
-                            .lineLimit(1)
+                        Label {
+                            Text(node.title)
+                                .lineLimit(1)
+                        } icon: {
+                            Image(systemName: node.systemImage)
+                                .symbolRenderingMode(.monochrome)
+                                .foregroundStyle(flagRowColor(node))
+                        }
                     }
                     .buttonStyle(.plain)
+                    .listItemTint(.fixed(flagRowColor(node)))
                 }
             }
             .selectionDisabled()
@@ -277,6 +284,13 @@ struct BrowseSourceColumn: View {
         .buttonStyle(.plain)
         .foregroundStyle(palette.textSecondary)
         .help("Back to \(exit.title)")
+    }
+
+    private func flagRowColor(_ node: FilterNode) -> Color {
+        if case .flag(let value) = node.role, let color = BrowseFlagSwatch.color(for: value) {
+            return color
+        }
+        return palette.textTertiary
     }
 
     // MARK: - Expansion

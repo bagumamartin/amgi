@@ -14,7 +14,7 @@ package struct NoteEditorView: View {
     var onCancel: (() -> Void)?
     /// Inspector Close, shown trailing-most and uncombined with Save.
     var onClose: (() -> Void)?
-    /// When set, replaces `navigationTitle` so a host title (Details) stays.
+    /// When set, uses inspector chrome (Cancel/Save/Close) instead of sheet dismiss.
     var principalTitle: String?
     private let resumeDraft: Bool
 
@@ -80,30 +80,9 @@ package struct NoteEditorView: View {
 
     @ToolbarContentBuilder
     private var editorToolbar: some ToolbarContent {
-        ToolbarItem(placement: .cancellationAction) {
+        ToolbarItem(placement: cancelPlacement) {
             Button("Cancel") { cancel() }
                 .keyboardShortcut(.cancelAction)
-        }
-        if let principalTitle {
-            #if os(iOS)
-            if #available(iOS 26.0, *) {
-                ToolbarItem(placement: .principal) {
-                    Text(principalTitle)
-                        .amgiFont(.bodyEmphasis)
-                }
-                .sharedBackgroundVisibility(.hidden)
-            } else {
-                ToolbarItem(placement: .principal) {
-                    Text(principalTitle)
-                        .amgiFont(.bodyEmphasis)
-                }
-            }
-            #else
-            ToolbarItem(placement: .principal) {
-                Text(principalTitle)
-                    .amgiFont(.bodyEmphasis)
-            }
-            #endif
         }
         ToolbarItem(placement: savePlacement) {
             Button("Save") {
@@ -118,6 +97,14 @@ package struct NoteEditorView: View {
     }
 
     private var inspectorChrome: Bool { principalTitle != nil }
+
+    private var cancelPlacement: ToolbarItemPlacement {
+        #if os(iOS)
+        inspectorChrome ? .topBarLeading : .cancellationAction
+        #else
+        .cancellationAction
+        #endif
+    }
 
     private var savePlacement: ToolbarItemPlacement {
         #if os(iOS)

@@ -297,13 +297,13 @@ package struct BrowseView: View {
                     systemImage: "doc.text.magnifyingglass",
                     description: Text("Select a \(rowNoun) to view its details.")
                 )
+                .navigationTitle("Details")
+                #if os(iOS)
+                .toolbarRole(.editor)
+                #endif
             }
         }
-        .navigationTitle("Details")
         .navigationBarTitleDisplayMode(.inline)
-        #if os(iOS)
-        .toolbarRole(.editor)
-        #endif
     }
 
     // MARK: - Titles & search chrome
@@ -930,13 +930,13 @@ package struct BrowseView: View {
     /// constants on purpose; card states stay palette-driven).
     private var flagMenu: some View {
         Menu {
-            flagButton(value: 1, label: "Red", color: Color(hexBrowseFlag: 0xFF3B30))
-            flagButton(value: 2, label: "Orange", color: Color(hexBrowseFlag: 0xFF9500))
-            flagButton(value: 3, label: "Green", color: Color(hexBrowseFlag: 0x34C759))
-            flagButton(value: 4, label: "Blue", color: Color(hexBrowseFlag: 0x007AFF))
-            flagButton(value: 5, label: "Pink", color: Color(hexBrowseFlag: 0xFF2D55))
-            flagButton(value: 6, label: "Turquoise", color: Color(hexBrowseFlag: 0x32ADE6))
-            flagButton(value: 7, label: "Purple", color: Color(hexBrowseFlag: 0xAF52DE))
+            flagButton(value: 1, label: "Red", color: BrowseFlagSwatch.color(for: 1) ?? .red)
+            flagButton(value: 2, label: "Orange", color: BrowseFlagSwatch.color(for: 2) ?? .orange)
+            flagButton(value: 3, label: "Green", color: BrowseFlagSwatch.color(for: 3) ?? .green)
+            flagButton(value: 4, label: "Blue", color: BrowseFlagSwatch.color(for: 4) ?? .blue)
+            flagButton(value: 5, label: "Pink", color: BrowseFlagSwatch.color(for: 5) ?? .pink)
+            flagButton(value: 6, label: "Turquoise", color: BrowseFlagSwatch.color(for: 6) ?? .cyan)
+            flagButton(value: 7, label: "Purple", color: BrowseFlagSwatch.color(for: 7) ?? .purple)
             Divider()
             Button {
                 applyFlag(0)
@@ -1143,18 +1143,6 @@ private struct BrowseAccountDestination: View {
     }
 }
 #endif
-
-// MARK: - Hex helper
-
-private extension Color {
-    init(hexBrowseFlag hex: UInt32) {
-        self.init(.sRGB,
-                  red: Double((hex >> 16) & 0xFF) / 255,
-                  green: Double((hex >> 8) & 0xFF) / 255,
-                  blue: Double(hex & 0xFF) / 255,
-                  opacity: 1)
-    }
-}
 
 // MARK: - Preview
 
