@@ -396,25 +396,45 @@ struct BrowseSearchTests {
 @MainActor
 struct BrowsePresenceTests {
 
-    @Test("a search hit lights suspended on a deck and a tag")
-    func presenceLightsFromSearchHits() async {
+    @Test("a mixed suspend hit is partial on a deck and a tag")
+    func presenceLightsPartialFromSearchHits() async {
         await withDependencies {
             $0.cardClient.searchIds = { query, _ in
                 if query.contains("is:suspended"),
                    query.contains("French") || query.contains("verb") {
                     return [CardID(1)]
                 }
-                return []
+                if query.contains("is:buried") || query.contains("flag:") {
+                    return []
+                }
+                return [CardID(1), CardID(2)]
             }
         } operation: {
             let model = BrowseModel()
             let deck = DeckInfo(id: DeckID(1), name: "French")
             await model.refreshSourcePresence(decks: [deck], tags: ["verb"])
-            #expect(model.deckPresence[deck.id]?.suspended == true)
-            #expect(model.deckPresence[deck.id]?.buried == false)
+            #expect(model.deckPresence[deck.id]?.suspended == .partial)
+            #expect(model.deckPresence[deck.id]?.buried == PresenceLevel.none)
             #expect(model.deckPresence[deck.id]?.presentFlags.isEmpty == true)
-            #expect(model.tagPresence["verb"]?.suspended == true)
-            #expect(model.tagPresence["verb"]?.buried == false)
+            #expect(model.tagPresence["verb"]?.suspended == .partial)
+            #expect(model.tagPresence["verb"]?.buried == PresenceLevel.none)
+        }
+    }
+
+    @Test("matching every card in the scope is full presence")
+    func presenceLightsFullWhenEveryCardMatches() async {
+        await withDependencies {
+            $0.cardClient.searchIds = { query, _ in
+                if query.contains("is:buried") || query.contains("flag:") {
+                    return []
+                }
+                return [CardID(1), CardID(2)]
+            }
+        } operation: {
+            let model = BrowseModel()
+            let deck = DeckInfo(id: DeckID(4), name: "Parked")
+            await model.refreshSourcePresence(decks: [deck], tags: [])
+            #expect(model.deckPresence[deck.id]?.suspended == .full)
         }
     }
 
@@ -435,24 +455,39 @@ struct BrowsePresenceTests {
     func presenceLightsFlagColor() async {
         await withDependencies {
             $0.cardClient.searchIds = { query, _ in
-                query.contains("flag:3") ? [CardID(9)] : []
+                if query.contains("flag:3") { return [CardID(9)] }
+                if query.contains("is:suspended") || query.contains("is:buried") || query.contains("flag:") {
+                    return []
+                }
+                return [CardID(9), CardID(10)]
             }
         } operation: {
             let model = BrowseModel()
             let deck = DeckInfo(id: DeckID(3), name: "Flags")
             await model.refreshSourcePresence(decks: [deck], tags: [])
-            #expect(model.deckPresence[deck.id]?.presentFlags == [3])
-            #expect(model.deckPresence[deck.id]?.suspended == false)
+            #expect(model.deckPresence[deck.id]?.flagLevel(3) == .partial)
+            #expect(model.deckPresence[deck.id]?.suspended == PresenceLevel.none)
         }
     }
 
-    @Test("accessibility label names each present state")
+    @Test("count comparison maps to none, partial, and full")
+    func comparingCounts() {
+        #expect(PresenceLevel.comparing(0, to: 5) == .none)
+        #expect(PresenceLevel.comparing(2, to: 5) == .partial)
+        #expect(PresenceLevel.comparing(5, to: 5) == .full)
+        #expect(PresenceLevel.comparing(1, to: 0) == .none)
+    }
+
+    @Test("accessibility label names full vs partial states")
     func presenceAccessibilityLabel() {
         var presence = SourcePresence()
-        presence.apply(suspended: true)
-        presence.apply(buried: true)
-        presence.apply(flag: 1, hit: true)
-        presence.apply(flag: 4, hit: true)
-        #expect(presence.accessibilityLabel == "Suspended, Buried, Red and Blue flags")
+        presence.suspended = .full
+        presence.buried = .partial
+        presence.flags[1] = .full
+        presence.flags[4] = .partial
+        #expect(
+            presence.accessibilityLabel
+                == "Fully suspended, Partially buried, All Red flags, Some Blue flags"
+        )
     }
 }

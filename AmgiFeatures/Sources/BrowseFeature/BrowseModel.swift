@@ -489,8 +489,10 @@ final class BrowseModel {
 
     // MARK: - Sidebar presence (decks + tags)
 
-    /// Existence-only scans for the rows currently on screen. Collapsed
-    /// children are omitted by the caller. Cancels an in-flight pass.
+    /// Count scans for the rows currently on screen. Each state's hit
+    /// count is compared to the scope's total so glyphs can show full vs
+    /// mixed. Collapsed children are omitted by the caller. Cancels an
+    /// in-flight pass.
     func refreshSourcePresence(decks: [DeckInfo], tags: [String]) async {
         presenceTask?.cancel()
         let client = cardClient
@@ -512,11 +514,18 @@ final class BrowseModel {
             case tag(String)
         }
         enum Kind: Sendable {
-            case suspended, buried, flag(UInt32)
+            case total, suspended, buried, flag(UInt32)
         }
         let target: Target
         let kind: Kind
         let query: String
+    }
+
+    private struct PresenceCounts: Sendable {
+        var total = 0
+        var suspended = 0
+        var buried = 0
+        var flags: [UInt32: Int] = [:]
     }
 
     private nonisolated static func computeSourcePresence(
@@ -525,7 +534,7 @@ final class BrowseModel {
         client: CardClient
     ) async -> (decks: [DeckID: SourcePresence], tags: [String: SourcePresence]) {
         var jobs: [PresenceJob] = []
-        jobs.reserveCapacity((decks.count + tags.count) * 9)
+        jobs.reserveCapacity((decks.count + tags.count) * 10)
         for deck in decks {
             jobs.append(contentsOf: presenceJobs(target: .deck(deck.id), scope: DeckSearch.term(deck.name)))
         }
@@ -534,42 +543,59 @@ final class BrowseModel {
             jobs.append(contentsOf: presenceJobs(target: .tag(tag), scope: scope))
         }
 
-        var decksOut: [DeckID: SourcePresence] = [:]
-        var tagsOut: [String: SourcePresence] = [:]
-        await withTaskGroup(of: (PresenceJob, Bool).self) { group in
+        var deckCounts: [DeckID: PresenceCounts] = [:]
+        var tagCounts: [String: PresenceCounts] = [:]
+        await withTaskGroup(of: (PresenceJob, Int).self) { group in
             var iterator = jobs.makeIterator()
             func enqueue() {
                 if let job = iterator.next() {
                     group.addTask {
                         let ids = (try? await client.searchIds(job.query, nil)) ?? []
-                        return (job, !ids.isEmpty)
+                        return (job, ids.count)
                     }
                 }
             }
             for _ in 0..<min(8, jobs.count) {
                 enqueue()
             }
-            for await (job, hit) in group {
+            for await (job, count) in group {
                 if Task.isCancelled {
                     group.cancelAll()
                     break
                 }
-                if hit {
-                    switch job.target {
-                    case .deck(let id):
-                        var presence = decksOut[id] ?? SourcePresence()
-                        apply(job.kind, to: &presence)
-                        decksOut[id] = presence
-                    case .tag(let path):
-                        var presence = tagsOut[path] ?? SourcePresence()
-                        apply(job.kind, to: &presence)
-                        tagsOut[path] = presence
-                    }
+                switch job.target {
+                case .deck(let id):
+                    var counts = deckCounts[id] ?? PresenceCounts()
+                    apply(job.kind, count: count, to: &counts)
+                    deckCounts[id] = counts
+                case .tag(let path):
+                    var counts = tagCounts[path] ?? PresenceCounts()
+                    apply(job.kind, count: count, to: &counts)
+                    tagCounts[path] = counts
                 }
                 enqueue()
             }
         }
+
+        var decksOut: [DeckID: SourcePresence] = [:]
+        for (id, counts) in deckCounts {
+            if let presence = Self.sourcePresence(from: counts) { decksOut[id] = presence }
+        }
+        var tagsOut: [String: SourcePresence] = [:]
+        for (path, counts) in tagCounts {
+            if let presence = Self.sourcePresence(from: counts) { tagsOut[path] = presence }
+        }
         return (decksOut, tagsOut)
+    }
+
+    private nonisolated static func sourcePresence(from counts: PresenceCounts) -> SourcePresence? {
+        var result = SourcePresence()
+        result.suspended = .comparing(counts.suspended, to: counts.total)
+        result.buried = .comparing(counts.buried, to: counts.total)
+        for flag in UInt32(1)...7 {
+            result.flags[Int(flag)] = .comparing(counts.flags[flag] ?? 0, to: counts.total)
+        }
+        return result.isEmpty ? nil : result
     }
 
     private nonisolated static func presenceJobs(
@@ -577,6 +603,7 @@ final class BrowseModel {
         scope: String
     ) -> [PresenceJob] {
         var jobs = [
+            PresenceJob(target: target, kind: .total, query: scope),
             PresenceJob(target: target, kind: .suspended, query: "\(scope) is:suspended"),
             PresenceJob(target: target, kind: .buried, query: "\(scope) is:buried"),
         ]
@@ -586,11 +613,16 @@ final class BrowseModel {
         return jobs
     }
 
-    private nonisolated static func apply(_ kind: PresenceJob.Kind, to presence: inout SourcePresence) {
+    private nonisolated static func apply(
+        _ kind: PresenceJob.Kind,
+        count: Int,
+        to counts: inout PresenceCounts
+    ) {
         switch kind {
-        case .suspended: presence.apply(suspended: true)
-        case .buried: presence.apply(buried: true)
-        case .flag(let value): presence.apply(flag: value, hit: true)
+        case .total: counts.total = count
+        case .suspended: counts.suspended = count
+        case .buried: counts.buried = count
+        case .flag(let value): counts.flags[value] = count
         }
     }
 
