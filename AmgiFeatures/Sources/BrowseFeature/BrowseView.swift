@@ -28,6 +28,7 @@ package struct BrowseView: View {
     @State private var showDrafts = false
     @State private var showAddImageOcclusion = false
     @State private var showTagSheet = false
+    @State private var showTagsManager = false
     @State private var showDeleteConfirm = false
     @State private var pendingSwipeDelete: NoteRecord?
 
@@ -281,6 +282,12 @@ package struct BrowseView: View {
                     firstCardID: model.focusedCardID,
                     deckID: model.activeDeck?.id,
                     onSaved: { Task { await model.performSearch() } },
+                    onClose: {
+                        model.clearFocus()
+                        #if os(iOS)
+                        preferredColumn = .content
+                        #endif
+                    },
                     previewNav: previewNav
                 )
                 .id(model.focusedNote?.id ?? NoteID(0))
@@ -297,7 +304,6 @@ package struct BrowseView: View {
         #if os(iOS)
         .toolbarRole(.editor)
         #endif
-        .toolbar { detailToolbarContent }
     }
 
     // MARK: - Titles & search chrome
@@ -533,6 +539,16 @@ package struct BrowseView: View {
                 }
             }
         }
+        .sheet(isPresented: $showTagsManager) {
+            NavigationStack {
+                TagsView()
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Done") { showTagsManager = false }
+                        }
+                    }
+            }
+        }
         .sheet(item: Binding<Sheet?>(
             get: { activeSheet },
             set: { activeSheet = $0 }
@@ -675,10 +691,42 @@ package struct BrowseView: View {
                 Button("Close") { dismiss() }
             }
         }
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            SyncToolbarButton()
+            Menu {
+                Button {
+                    showTagsManager = true
+                } label: {
+                    Label("Manage Tags…", systemImage: "tag")
+                }
+                Button {
+                    activeSheet = .savedSearchManage
+                } label: {
+                    Label("Manage Saved Searches…", systemImage: "heart.text.square")
+                }
+                Button {
+                    activeSheet = .filteredDeck
+                } label: {
+                    Label("Create Filtered Deck…", systemImage: "square.stack.3d.down.right")
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+            }
+            .accessibilityLabel("Browse sources")
+        }
     }
 
     @ToolbarContentBuilder
     private var listToolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            Menu {
+                Button("Add Note") { showAddNote = true }
+                Button("Add Image Occlusion") { showAddImageOcclusion = true }
+            } label: {
+                Image(systemName: "plus")
+            }
+            .accessibilityLabel("Add")
+        }
         ToolbarItem(placement: .topBarTrailing) {
             Button {
                 activeSheet = .filterRail
@@ -723,34 +771,6 @@ package struct BrowseView: View {
         }
         if selectionState.showsBatchActions {
             selectionToolbar
-        }
-    }
-
-    @ToolbarContentBuilder
-    private var detailToolbarContent: some ToolbarContent {
-        ToolbarItemGroup(placement: .topBarTrailing) {
-            SyncToolbarButton()
-            Menu {
-                Button("Add Note") { showAddNote = true }
-                Button("Add Image Occlusion") { showAddImageOcclusion = true }
-            } label: {
-                Image(systemName: "plus")
-            }
-            .accessibilityLabel("Add")
-            if model.focusedNote != nil || model.focusedCard != nil {
-                Button {
-                    model.clearFocus()
-                    #if os(iOS)
-                    preferredColumn = .content
-                    #endif
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(palette.textSecondary)
-                }
-                .buttonStyle(.plain)
-                .help("Close")
-                .accessibilityLabel("Close details")
-            }
         }
     }
 

@@ -12,6 +12,8 @@ import WebKit
 #endif
 #if canImport(UIKit)
 import UIKit
+#elseif canImport(AppKit)
+import AppKit
 #endif
 
 /// Trailing inspector for single selection (spec §5.8): Edit uses the
@@ -44,6 +46,8 @@ struct BrowseDetailTabs: View {
     let firstCardID: CardID?
     let deckID: DeckID?
     let onSaved: () -> Void
+    /// Clears the inspector selection (split Close control).
+    var onClose: (() -> Void)?
     /// Optional result navigation (wired on split layouts; compact pushes
     /// one detail at a time and leaves this nil).
     var previewNav: BrowsePreviewNav?
@@ -59,6 +63,8 @@ struct BrowseDetailTabs: View {
     @State private var tab: Tab = .preview
     /// Persistent Back Side Only (desktop previewer option).
     @AppStorage("browse.preview.backSideOnly") private var backSideOnly = false
+    /// Bumped after a successful edit so Preview re-renders the same card.
+    @State private var previewEpoch = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -73,6 +79,46 @@ struct BrowseDetailTabs: View {
             content
         }
         .background(palette.background)
+        .toolbar { detailChrome }
+    }
+
+    @ToolbarContentBuilder
+    private var detailChrome: some ToolbarContent {
+        if tab != .edit, onClose != nil {
+            closeToolbarItem
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var closeToolbarItem: some ToolbarContent {
+        #if os(iOS)
+        if #available(iOS 26.0, *) {
+            ToolbarItem(placement: .topBarTrailing) {
+                closeButton
+            }
+            .sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(placement: .topBarTrailing) {
+                closeButton
+            }
+        }
+        #else
+        ToolbarItem(placement: .primaryAction) {
+            closeButton
+        }
+        #endif
+    }
+
+    private var closeButton: some View {
+        Button {
+            onClose?()
+        } label: {
+            Image(systemName: "xmark.circle.fill")
+                .foregroundStyle(palette.textSecondary)
+        }
+        .buttonStyle(.plain)
+        .help("Close")
+        .accessibilityLabel("Close details")
     }
 
     private var markState: Bool {
@@ -85,8 +131,19 @@ struct BrowseDetailTabs: View {
         switch tab {
         case .edit:
             if let note {
-                NoteEditorView(note: note, deckID: deckID, onSave: onSaved)
-                    .id(note.id)
+                NoteEditorView(
+                    note: note,
+                    deckID: deckID,
+                    principalTitle: "Details",
+                    onCancel: { tab = .preview },
+                    onClose: onClose,
+                    onSave: {
+                        onSaved()
+                        previewEpoch += 1
+                        tab = .preview
+                    }
+                )
+                .id(note.id)
             } else {
                 Text("Select one row to edit its fields and tags.")
                     .amgiFont(.body)
@@ -97,6 +154,8 @@ struct BrowseDetailTabs: View {
             if let firstCardID {
                 CardPreviewPane(
                     cardId: firstCardID,
+                    cardOrdinal: infoCard?.ord ?? 0,
+                    reloadToken: previewEpoch,
                     backSideOnly: $backSideOnly,
                     nav: previewNav,
                     markIndicator: markState,
@@ -117,8 +176,11 @@ struct BrowseDetailTabs: View {
 
 struct CardPreviewPane: View {
     @Environment(\.palette) private var palette
+    @Environment(\.colorScheme) private var colorScheme
     let cardId: CardID?
-    /// Desktop Back Side Only: show the answer side without the question step.
+    var cardOrdinal: Int32 = 0
+    var reloadToken = 0
+    /// Always show the answer field, skipping the question side.
     @Binding var backSideOnly: Bool
     var nav: BrowsePreviewNav?
     var markIndicator = false
@@ -143,99 +205,147 @@ struct CardPreviewPane: View {
     var body: some View {
         Group {
             if let rendered {
-                VStack(spacing: 0) {
-                    previewHeader
-                    flipCard(rendered)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                ZStack(alignment: .bottom) {
+                    VStack(spacing: 0) {
+                        previewHeader
+                        flipCard(rendered)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
                     previewControls
                 }
+                .background(palette.background)
             } else if failed {
                 emptyState("Preview unavailable for this row.")
             } else {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .task(id: cardId) {
+        .task(id: "\(cardId?.rawValue ?? 0)-\(reloadToken)") {
             showAnswer = backSideOnly
             await load()
         }
         .onChange(of: backSideOnly) { _, new in
-            if new { showAnswer = true }
+            showAnswer = new
         }
     }
 
     private var previewHeader: some View {
         HStack(spacing: 12) {
             if let nav {
-                Button {
+                previewNavButton(
+                    title: "Previous",
+                    systemImage: "chevron.left",
+                    enabled: nav.canPrev
+                ) {
                     Task { await step(nav, by: -1) }
-                } label: {
-                    Label("Previous", systemImage: "chevron.left")
                 }
-                .disabled(!nav.canPrev)
 
-                Spacer()
-                if let idx = nav.currentIndex {
-                    Text("Card \(idx + 1) of \(nav.ids.count)")
-                        .amgiFont(.caption)
-                        .foregroundStyle(palette.textSecondary)
-                        .monospacedDigit()
+                Spacer(minLength: 8)
+                VStack(spacing: 4) {
+                    if let idx = nav.currentIndex {
+                        Text("Card \(idx + 1) of \(nav.ids.count)")
+                            .amgiFont(.caption)
+                            .foregroundStyle(palette.textSecondary)
+                            .monospacedDigit()
+                    }
+                    indicatorRow
                 }
-                Spacer()
+                Spacer(minLength: 8)
 
-                Button {
+                previewNavButton(
+                    title: "Next",
+                    systemImage: "chevron.right",
+                    iconTrailing: true,
+                    enabled: nav.canNext
+                ) {
                     Task { await step(nav, by: 1) }
-                } label: {
-                    Label("Next", systemImage: "chevron.right")
-                        .labelStyle(.titleAndIcon)
                 }
-                .disabled(!nav.canNext)
             } else {
                 Spacer()
+                indicatorRow
+                Spacer()
             }
-            indicatorRow
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(palette.accent)
-        .padding(.horizontal, 18)
-        .frame(minHeight: 52)
-        .background(palette.surface)
-        .overlay(alignment: .bottom) { Divider() }
+        .padding(.horizontal, AmgiSpacing.lg)
+        .padding(.top, AmgiSpacing.md)
+        .padding(.bottom, AmgiSpacing.sm)
+    }
+
+    private func previewNavButton(
+        title: String,
+        systemImage: String,
+        iconTrailing: Bool = false,
+        enabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                if !iconTrailing {
+                    Image(systemName: systemImage)
+                }
+                Text(title)
+                if iconTrailing {
+                    Image(systemName: systemImage)
+                }
+            }
+            .amgiFont(.bodyEmphasis)
+            .foregroundStyle(palette.textPrimary)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.pressScale)
+        .amgiMaterial(.regular, in: Capsule(), interactive: true)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.4)
+        .accessibilityLabel(title)
     }
 
     private var previewControls: some View {
-        HStack(spacing: 8) {
-            Button {
-                withAnimation(AmgiMotion.quick) { showAnswer.toggle() }
-            } label: {
-                Label(
+        HStack(spacing: 10) {
+            if !backSideOnly {
+                previewButton(
                     showAnswer ? "Show Question" : "Show Answer",
-                    systemImage: showAnswer ? "arrow.uturn.backward" : "eye"
-                )
+                    prominent: true
+                ) {
+                    withAnimation(AmgiMotion.quick) { showAnswer.toggle() }
+                }
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(backSideOnly)
-
-            Button {
-                backSideOnly.toggle()
-            } label: {
-                Label("Answer Only", systemImage: backSideOnly ? "checkmark.circle.fill" : "circle")
+            previewButton(backSideOnly ? "Question Only" : "Answer Only", prominent: backSideOnly) {
+                withAnimation(AmgiMotion.quick) {
+                    backSideOnly.toggle()
+                    showAnswer = backSideOnly
+                }
             }
-            .buttonStyle(.bordered)
-
-            Button {
+            previewButton("Play Audio", prominent: false) {
                 replayToken += 1
-            } label: {
-                Label("Replay Audio", systemImage: "speaker.wave.2")
             }
-            .buttonStyle(.bordered)
         }
-        .controlSize(.large)
-        .padding(.horizontal, 18)
-        .frame(minHeight: 72)
-        .frame(maxWidth: .infinity)
-        .background(.bar)
-        .overlay(alignment: .top) { Divider() }
+        .padding(.horizontal, AmgiSpacing.lg)
+        .padding(.bottom, AmgiSpacing.lg)
+    }
+
+    @ViewBuilder
+    private func previewButton(
+        _ title: String,
+        prominent: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        let label = Text(title)
+            .amgiFont(.bodyEmphasis)
+            .foregroundStyle(prominent ? Color.white : palette.textPrimary)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .contentShape(Capsule())
+        if prominent {
+            Button(action: action) { label }
+                .buttonStyle(.pressScale)
+                .background(palette.accent, in: Capsule())
+        } else {
+            Button(action: action) { label }
+                .buttonStyle(.pressScale)
+                .amgiMaterial(.regular, in: Capsule(), interactive: true)
+        }
     }
 
     @ViewBuilder
@@ -270,8 +380,15 @@ struct CardPreviewPane: View {
     @ViewBuilder
     private func flipCard(_ rendered: Rendered) -> some View {
         BrowseCardPreview(
-            html: showAnswer ? rendered.backHTML : rendered.frontHTML,
+            html: BrowsePreviewHTML.displayHTML(
+                front: rendered.frontHTML,
+                back: rendered.backHTML,
+                showAnswer: showAnswer,
+                answerOnly: backSideOnly
+            ),
             css: rendered.css,
+            isDarkMode: colorScheme == .dark,
+            cardOrdinal: cardOrdinal,
             replayToken: replayToken
         )
         .background(palette.background)
@@ -306,10 +423,6 @@ struct CardPreviewPane: View {
     }
 }
 
-private extension CardPreviewPane {
-    // `firstCardID` is passed in directly; placeholder kept for symmetry.
-}
-
 // MARK: - Info pane (native facts + review history + FSRS)
 
 struct CardInfoPane: View {
@@ -320,73 +433,92 @@ struct CardInfoPane: View {
 
     @State private var stats: CardStatsInfo?
     @State private var statsFailed = false
-    @State private var showsTechnicalDetails = false
+    @State private var showsTechnicalDetails = true
     @Dependency(\.cardClient) private var cards
 
     var body: some View {
         ScrollView {
             if let card {
                 VStack(alignment: .leading, spacing: 24) {
-                    infoHeading("Study status", systemImage: "calendar.badge.clock")
+                    infoHeading("Study status", systemImage: "calendar.badge.clock", tint: palette.accent)
                     LazyVGrid(
                         columns: [GridItem(.adaptive(minimum: 150), spacing: 12)],
                         spacing: 12
                     ) {
-                        metricCard("State", typeName(card.type), systemImage: "circle.fill")
-                        metricCard("Due", dueDescription(card), systemImage: "calendar")
-                        metricCard("Reviews", "\(card.reps)", systemImage: "checkmark.circle")
-                        metricCard("Lapses", "\(card.lapses)", systemImage: "arrow.counterclockwise")
+                        metricCard(
+                            "State",
+                            queueStateName(card),
+                            systemImage: "circle.fill",
+                            tint: typeColor(card)
+                        )
+                        metricCard("Due", dueDescription(card), systemImage: "calendar", tint: dueColor(card))
+                        metricCard(
+                            "Reviews",
+                            "\(card.reps)",
+                            systemImage: "checkmark.circle.fill",
+                            tint: palette.cardStateReview
+                        )
+                        metricCard(
+                            "Lapses",
+                            "\(card.lapses)",
+                            systemImage: "arrow.counterclockwise",
+                            tint: card.lapses > 0 ? palette.cardStateRelearn : palette.textTertiary
+                        )
                         if card.ivl > 0 {
-                            metricCard("Interval", "\(card.ivl) days", systemImage: "clock")
+                            metricCard(
+                                "Interval",
+                                "\(card.ivl) days",
+                                systemImage: "clock.fill",
+                                tint: palette.info
+                            )
                         }
                         if card.factor > 0 {
-                            metricCard("Ease", "\(card.factor / 10)%", systemImage: "gauge.with.dots.needle.50percent")
+                            metricCard(
+                                "Ease",
+                                "\(card.factor / 10)%",
+                                systemImage: "gauge.with.dots.needle.50percent",
+                                tint: easeColor(card.factor)
+                            )
                         }
                     }
 
                     if let stats, stats.stability != nil || stats.difficulty != nil || stats.retrievabilityPct != nil {
-                        infoHeading("Memory", systemImage: "brain.head.profile")
+                        infoHeading("Memory", systemImage: "brain.head.profile", tint: palette.cardStateMature)
                         LazyVGrid(
                             columns: [GridItem(.adaptive(minimum: 170), spacing: 12)],
                             spacing: 12
                         ) {
                             if let value = stats.retrievabilityPct {
-                                metricCard("Recall chance", String(format: "%.0f%%", value), systemImage: "chart.line.uptrend.xyaxis")
+                                metricCard(
+                                    "Recall chance",
+                                    String(format: "%.0f%%", value),
+                                    systemImage: "chart.line.uptrend.xyaxis",
+                                    tint: recallColor(value)
+                                )
                             }
                             if let value = stats.stability {
-                                metricCard("Stability", String(format: "%.1f days", value), systemImage: "waveform.path.ecg")
+                                metricCard(
+                                    "Stability",
+                                    String(format: "%.1f days", value),
+                                    systemImage: "waveform.path.ecg",
+                                    tint: palette.info
+                                )
                             }
                             if let value = stats.difficulty {
-                                metricCard("Difficulty", String(format: "%.0f%%", value * 100), systemImage: "speedometer")
+                                metricCard(
+                                    "Difficulty",
+                                    String(format: "%.0f%%", value * 100),
+                                    systemImage: "speedometer",
+                                    tint: difficultyColor(value)
+                                )
                             }
                         }
                     }
 
-                    infoHeading("Review history", systemImage: "clock.arrow.circlepath")
+                    infoHeading("Review history", systemImage: "clock.arrow.circlepath", tint: palette.cardStateLearning)
                     historyContent
 
-                    DisclosureGroup("Technical details", isExpanded: $showsTechnicalDetails) {
-                        VStack(spacing: 0) {
-                            factRow("Card ID", "\(card.id.rawValue)")
-                            Divider()
-                            factRow("Note ID", "\(card.nid.rawValue)")
-                            Divider()
-                            factRow("Deck ID", "\(card.did.rawValue)")
-                            if card.odid != DeckID(0) {
-                                Divider()
-                                factRow("Original deck", "\(card.odid.rawValue)")
-                            }
-                            if (card.flags & 0b111) != 0 {
-                                Divider()
-                                factRow("Flag", flagName(card.flags & 0b111))
-                            }
-                        }
-                        .padding(.top, 12)
-                    }
-                    .amgiFont(.bodyEmphasis)
-                    .padding(16)
-                    .background(palette.surfaceElevated)
-                    .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.inset))
+                    technicalDetails(card)
                 }
                 .frame(maxWidth: 900)
                 .padding(24)
@@ -406,26 +538,40 @@ struct CardInfoPane: View {
         }
     }
 
-    private func infoHeading(_ title: String, systemImage: String) -> some View {
-        Label(title, systemImage: systemImage)
-            .amgiFont(.bodyEmphasis)
-            .foregroundStyle(palette.textPrimary)
+    private func infoHeading(_ title: String, systemImage: String, tint: Color) -> some View {
+        Label {
+            Text(title).amgiFont(.bodyEmphasis).foregroundStyle(palette.textPrimary)
+        } icon: {
+            Image(systemName: systemImage).foregroundStyle(tint)
+        }
     }
 
-    private func metricCard(_ label: String, _ value: String, systemImage: String) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label(label, systemImage: systemImage)
-                .amgiFont(.caption)
-                .foregroundStyle(palette.textSecondary)
-            Text(value.isEmpty ? "—" : value)
-                .amgiFont(.bodyEmphasis)
-                .foregroundStyle(palette.textPrimary)
-                .monospacedDigit()
+    private func metricCard(
+        _ label: String,
+        _ value: String,
+        systemImage: String,
+        tint: Color
+    ) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: systemImage)
+                .amgiFont(.captionBold)
+                .foregroundStyle(.white)
+                .frame(width: 28, height: 28)
+                .background(tint, in: RoundedRectangle(cornerRadius: AmgiRadius.small, style: .continuous))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(label)
+                    .amgiFont(.caption)
+                    .foregroundStyle(palette.textSecondary)
+                Text(value.isEmpty ? "—" : value)
+                    .amgiFont(.bodyEmphasis)
+                    .foregroundStyle(palette.textPrimary)
+                    .monospacedDigit()
+            }
+            Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
-        .padding(16)
-        .background(palette.surfaceElevated)
-        .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.inset))
+        .padding(14)
+        .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous))
     }
 
     @ViewBuilder
@@ -437,29 +583,32 @@ struct CardInfoPane: View {
                     .foregroundStyle(palette.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(16)
-                    .background(palette.surfaceElevated)
-                    .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.inset))
+                    .background(palette.surfaceElevated, in: RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous))
             } else {
-                VStack(spacing: 0) {
-                    ForEach(Array(stats.revlog.prefix(50).enumerated()), id: \.element.id) { index, entry in
-                        if index > 0 { Divider() }
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Text(ratingName(entry.rating)).amgiFont(.bodyEmphasis)
-                                Spacer()
-                                Text(reviewDate(entry.id))
+                VStack(spacing: 8) {
+                    ForEach(Array(stats.revlog.prefix(50).enumerated()), id: \.element.id) { _, entry in
+                        let tint = ratingColor(entry.rating)
+                        HStack(alignment: .top, spacing: 12) {
+                            Text(ratingName(entry.rating))
+                                .amgiFont(.captionBold)
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 4)
+                                .background(tint, in: Capsule())
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(historyDetail(entry))
                                     .amgiFont(.caption)
+                                    .foregroundStyle(palette.textPrimary)
+                                Text(reviewDate(entry.id))
+                                    .amgiFont(.micro)
                                     .foregroundStyle(palette.textSecondary)
                             }
-                            Text(historyDetail(entry))
-                                .amgiFont(.caption)
-                                .foregroundStyle(palette.textSecondary)
+                            Spacer(minLength: 0)
                         }
-                        .padding(14)
+                        .padding(12)
+                        .background(tint.opacity(0.10), in: RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous))
                     }
                 }
-                .background(palette.surfaceElevated)
-                .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.inset))
             }
         } else if statsFailed {
             Text("Review history couldn’t be loaded.")
@@ -470,6 +619,84 @@ struct CardInfoPane: View {
                 Text("Loading review history…").foregroundStyle(palette.textSecondary)
             }
         }
+    }
+
+    private func technicalDetails(_ card: CardRecord) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Button {
+                withAnimation(AmgiMotion.quick) { showsTechnicalDetails.toggle() }
+            } label: {
+                HStack {
+                    Label {
+                        Text("Technical details")
+                            .amgiFont(.bodyEmphasis)
+                            .foregroundStyle(palette.textPrimary)
+                    } icon: {
+                        Image(systemName: "number")
+                            .foregroundStyle(palette.info)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.down")
+                        .amgiFont(.caption)
+                        .foregroundStyle(palette.textTertiary)
+                        .rotationEffect(.degrees(showsTechnicalDetails ? 180 : 0))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if showsTechnicalDetails {
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 160), spacing: 10)],
+                    spacing: 10
+                ) {
+                    idTile("Card", "\(card.id.rawValue)", tint: palette.accent)
+                    idTile("Note", "\(card.nid.rawValue)", tint: palette.cardStateMature)
+                    idTile("Deck", "\(card.did.rawValue)", tint: palette.info)
+                    if card.odid != DeckID(0) {
+                        idTile("Original deck", "\(card.odid.rawValue)", tint: palette.warning)
+                    }
+                    if (card.flags & 0b111) != 0 {
+                        idTile("Flag", flagName(card.flags & 0b111), tint: flagColor(card.flags & 0b111))
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .background(palette.surfaceElevated, in: RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous))
+    }
+
+    private func idTile(_ label: String, _ value: String, tint: Color) -> some View {
+        Button {
+            copyToPasteboard(value)
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(label.uppercased())
+                    .amgiFont(.micro)
+                    .foregroundStyle(tint)
+                Text(value)
+                    .amgiFont(.captionBold)
+                    .foregroundStyle(palette.textPrimary)
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: AmgiRadius.small, style: .continuous))
+        }
+        .buttonStyle(.pressScale)
+        .help("Copy \(label) ID")
+        .accessibilityLabel("\(label) \(value), copy")
+    }
+
+    private func copyToPasteboard(_ value: String) {
+        #if canImport(UIKit)
+        UIPasteboard.general.string = value
+        #elseif canImport(AppKit)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
+        #endif
     }
 
     private func loadStats() async {
@@ -527,16 +754,6 @@ struct CardInfoPane: View {
         return "\(secs / 86400)d"
     }
 
-    private func factRow(_ label: String, _ value: String) -> some View {
-        HStack {
-            Text(label).foregroundStyle(palette.textSecondary)
-            Spacer()
-            Text(value.isEmpty ? "—" : value)
-                .monospacedDigit()
-        }
-        .amgiFont(.body)
-    }
-
     private func typeName(_ type: Int16) -> String {
         switch type {
         case 0: "New"
@@ -547,13 +764,74 @@ struct CardInfoPane: View {
         }
     }
 
-    private func queueName(_ queue: Int16) -> String {
-        switch queue {
-        case ..<(-1): "Buried"
-        case -1: "Suspended"
-        case 0: "New"
-        case 1...: "In learning/review"
-        default: "queue \(queue)"
+    private func queueStateName(_ card: CardRecord) -> String {
+        if card.queue < -1 { return "Buried" }
+        if card.queue == -1 { return "Suspended" }
+        return typeName(card.type)
+    }
+
+    private func typeColor(_ card: CardRecord) -> Color {
+        if card.queue < -1 { return palette.warning }
+        if card.queue == -1 { return palette.cardStateSuspended }
+        switch card.type {
+        case 0: return palette.cardStateNew
+        case 1: return palette.cardStateLearning
+        case 3: return palette.cardStateRelearn
+        default: return palette.cardStateReview
+        }
+    }
+
+    private func dueColor(_ card: CardRecord) -> Color {
+        if card.queue == -1 || card.queue < -1 { return palette.cardStateSuspended }
+        switch card.type {
+        case 0: return palette.cardStateNew
+        case 1, 3:
+            let date = Date(timeIntervalSince1970: TimeInterval(card.due))
+            return date <= Date() ? palette.warning : palette.info
+        default:
+            return card.due <= 0 ? palette.warning : palette.info
+        }
+    }
+
+    private func easeColor(_ factor: Int32) -> Color {
+        let percent = factor / 10
+        if percent >= 250 { return palette.cardStateReview }
+        if percent >= 200 { return palette.cardStateLearning }
+        return palette.cardStateRelearn
+    }
+
+    private func recallColor(_ percent: Float) -> Color {
+        if percent >= 80 { return palette.cardStateReview }
+        if percent >= 50 { return palette.cardStateLearning }
+        return palette.cardStateRelearn
+    }
+
+    private func difficultyColor(_ value: Float) -> Color {
+        if value < 0.4 { return palette.cardStateReview }
+        if value < 0.7 { return palette.cardStateLearning }
+        return palette.cardStateRelearn
+    }
+
+    private func ratingColor(_ rating: Int32) -> Color {
+        switch rating {
+        case 1: return palette.cardStateRelearn
+        case 2: return palette.cardStateLearning
+        case 3: return palette.cardStateReview
+        case 4: return palette.cardStateNew
+        default: return palette.textTertiary
+        }
+    }
+
+    private func flagColor(_ flag: Int32) -> Color {
+        switch flag {
+        case 1: return palette.danger
+        case 2: return palette.warning
+        case 3: return palette.positive
+        case 4: return palette.accent
+        case 5: return palette.cardStateRelearn
+        case 6: return palette.info
+        case 7: return palette.cardStateMature
+        default: return palette.textTertiary
         }
     }
 
@@ -591,6 +869,8 @@ import WebKit
 private struct BrowseCardPreview: UIViewRepresentable {
     let html: String
     let css: String
+    var isDarkMode = false
+    var cardOrdinal: Int32 = 0
     /// Increment to force a reload (audio replay). Read in `updateUIView`
     /// via the struct's identity so SwiftUI re-issues the load.
     var replayToken = 0
@@ -614,32 +894,20 @@ private struct BrowseCardPreview: UIViewRepresentable {
     }
 
     private var wrapped: String {
-        let body = CardHTMLRewriter.rewrite(html)
-        return """
-        <html><head>\(CardAssetPath.mediaBaseTag())\
-        <meta name="viewport" content="width=device-width,initial-scale=1">\
-        <style>
-        :root { color-scheme: light dark; }
-        body {
-            color: #e5e5e7;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            margin: 12px;
-            background-color: transparent;
-        }
-        @media (prefers-color-scheme: light) {
-            body { color: #1c1c1e; }
-        }
-        img { max-width: 100%; height: auto; border-radius: 12px; }
-        \(css)
-        </style>\
-        </head><body class="nightMode">\(body)</body></html>
-        """
+        BrowsePreviewHTML.wrappedDocument(
+            html: html,
+            css: css,
+            isDarkMode: isDarkMode,
+            cardOrdinal: cardOrdinal
+        )
     }
 }
 #elseif os(macOS)
 private struct BrowseCardPreview: NSViewRepresentable {
     let html: String
     let css: String
+    var isDarkMode = false
+    var cardOrdinal: Int32 = 0
     /// Increment to force a reload (audio replay).
     var replayToken = 0
 
@@ -660,26 +928,12 @@ private struct BrowseCardPreview: NSViewRepresentable {
     }
 
     private var wrapped: String {
-        let body = CardHTMLRewriter.rewrite(html)
-        return """
-        <html><head>\(CardAssetPath.mediaBaseTag())\
-        <meta name="viewport" content="width=device-width,initial-scale=1">\
-        <style>
-        :root { color-scheme: light dark; }
-        body {
-            color: #e5e5e7;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            margin: 12px;
-            background-color: transparent;
-        }
-        @media (prefers-color-scheme: light) {
-            body { color: #1c1c1e; }
-        }
-        img { max-width: 100%; height: auto; border-radius: 12px; }
-        \(css)
-        </style>\
-        </head><body class="nightMode">\(body)</body></html>
-        """
+        BrowsePreviewHTML.wrappedDocument(
+            html: html,
+            css: css,
+            isDarkMode: isDarkMode,
+            cardOrdinal: cardOrdinal
+        )
     }
 }
 #endif

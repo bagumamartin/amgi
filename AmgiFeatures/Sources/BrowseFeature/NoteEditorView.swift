@@ -10,43 +10,41 @@ package struct NoteEditorView: View {
     @State private var model: NoteEditorModel
     @State private var editingSession = NoteFieldEditingSession()
     let onSave: () -> Void
+    /// When set, Cancel reverts in-place instead of dismissing a sheet.
+    var onCancel: (() -> Void)?
+    /// Inspector Close, shown trailing-most and uncombined with Save.
+    var onClose: (() -> Void)?
+    /// When set, replaces `navigationTitle` so a host title (Details) stays.
+    var principalTitle: String?
     private let resumeDraft: Bool
 
     @State private var showSavedConfirmation = false
     @State private var showParkedDraftPrompt = false
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.palette) private var palette
 
-    package init(note: NoteRecord, deckID: DeckID? = nil, resumeDraft: Bool = false, onSave: @escaping () -> Void) {
+    package init(
+        note: NoteRecord,
+        deckID: DeckID? = nil,
+        resumeDraft: Bool = false,
+        principalTitle: String? = nil,
+        onCancel: (() -> Void)? = nil,
+        onClose: (() -> Void)? = nil,
+        onSave: @escaping () -> Void
+    ) {
         _model = State(initialValue: NoteEditorModel(note: note, deckID: deckID))
         self.resumeDraft = resumeDraft
+        self.principalTitle = principalTitle
+        self.onCancel = onCancel
+        self.onClose = onClose
         self.onSave = onSave
     }
 
     package var body: some View {
         NoteEditorContent(model: model)
-            .navigationTitle("Edit Note")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { requestDismiss() }
-                        .keyboardShortcut(.cancelAction)
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        Task {
-                            if await model.save() {
-                                NoteComposerDraftStore.clearEdit(noteID: model.noteID.rawValue)
-                                withAnimation(AmgiMotion.momentum) { showSavedConfirmation = true }
-                                try? await Task.sleep(for: .seconds(1.5))
-                                withAnimation(AmgiMotion.standard) { showSavedConfirmation = false }
-                                onSave()
-                            }
-                        }
-                    }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(model.isSaving || showSavedConfirmation || !model.hasUnsavedChanges)
-                }
-            }
+            .modifier(NoteEditorTitle(title: principalTitle == nil ? "Edit Note" : nil))
+            .toolbar { editorToolbar }
             .modifier(NoteFieldFormatChrome(session: editingSession))
             .modifier(NoteFieldMediaBridge(session: editingSession))
             .overlay { savedToast }
@@ -62,7 +60,7 @@ package struct NoteEditorView: View {
                 editingSession.showsClozeTools = isCloze
             }
             #if os(macOS)
-            .onExitCommand { requestDismiss() }
+            .onExitCommand { cancel() }
             #endif
             .confirmationDialog(
                 "Unfinished edit",
@@ -78,6 +76,110 @@ package struct NoteEditorView: View {
             } message: {
                 Text("You have a draft for this card. Resume it, or start from the saved card — the draft stays in Drafts until you save or delete it.")
             }
+    }
+
+    @ToolbarContentBuilder
+    private var editorToolbar: some ToolbarContent {
+        ToolbarItem(placement: .cancellationAction) {
+            Button("Cancel") { cancel() }
+                .keyboardShortcut(.cancelAction)
+        }
+        if let principalTitle {
+            #if os(iOS)
+            if #available(iOS 26.0, *) {
+                ToolbarItem(placement: .principal) {
+                    Text(principalTitle)
+                        .amgiFont(.bodyEmphasis)
+                }
+                .sharedBackgroundVisibility(.hidden)
+            } else {
+                ToolbarItem(placement: .principal) {
+                    Text(principalTitle)
+                        .amgiFont(.bodyEmphasis)
+                }
+            }
+            #else
+            ToolbarItem(placement: .principal) {
+                Text(principalTitle)
+                    .amgiFont(.bodyEmphasis)
+            }
+            #endif
+        }
+        ToolbarItem(placement: savePlacement) {
+            Button("Save") {
+                Task { await saveEdits() }
+            }
+            .keyboardShortcut(.defaultAction)
+            .disabled(model.isSaving || showSavedConfirmation || !model.hasUnsavedChanges)
+        }
+        if inspectorChrome, onClose != nil {
+            closeToolbarItem
+        }
+    }
+
+    private var inspectorChrome: Bool { principalTitle != nil }
+
+    private var savePlacement: ToolbarItemPlacement {
+        #if os(iOS)
+        inspectorChrome ? .topBarTrailing : .confirmationAction
+        #else
+        .confirmationAction
+        #endif
+    }
+
+    @ToolbarContentBuilder
+    private var closeToolbarItem: some ToolbarContent {
+        #if os(iOS)
+        if #available(iOS 26.0, *) {
+            ToolbarItem(placement: .topBarTrailing) {
+                closeButton
+            }
+            .sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(placement: .topBarTrailing) {
+                closeButton
+            }
+        }
+        #else
+        ToolbarItem(placement: .automatic) {
+            closeButton
+        }
+        #endif
+    }
+
+    private var closeButton: some View {
+        Button {
+            onClose?()
+        } label: {
+            Image(systemName: "xmark.circle.fill")
+                .foregroundStyle(palette.textSecondary)
+        }
+        .buttonStyle(.plain)
+        .help("Close")
+        .accessibilityLabel("Close details")
+    }
+
+    private func cancel() {
+        model.revertToCommitted()
+        NoteComposerDraftStore.clearEdit(noteID: model.noteID.rawValue)
+        if let onCancel {
+            onCancel()
+        } else {
+            dismiss()
+        }
+    }
+
+    private func saveEdits() async {
+        guard await model.save() else { return }
+        NoteComposerDraftStore.clearEdit(noteID: model.noteID.rawValue)
+        if inspectorChrome {
+            onSave()
+            return
+        }
+        withAnimation(AmgiMotion.momentum) { showSavedConfirmation = true }
+        try? await Task.sleep(for: .seconds(1.5))
+        withAnimation(AmgiMotion.standard) { showSavedConfirmation = false }
+        onSave()
     }
 
     private func bootstrap() async {
@@ -106,10 +208,6 @@ package struct NoteEditorView: View {
         editingSession.clozeFields = model.fieldValues
     }
 
-    private func requestDismiss() {
-        dismiss()
-    }
-
     @ViewBuilder
     private var savedToast: some View {
         if showSavedConfirmation {
@@ -123,6 +221,18 @@ package struct NoteEditorView: View {
                     .padding(.bottom, 32)
             }
             .transition(AmgiMotion.slide(from: .bottom))
+        }
+    }
+}
+
+private struct NoteEditorTitle: ViewModifier {
+    let title: String?
+
+    func body(content: Content) -> some View {
+        if let title {
+            content.navigationTitle(title)
+        } else {
+            content
         }
     }
 }
