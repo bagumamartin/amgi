@@ -15,8 +15,9 @@ import AmgiTheme
 ///
 /// Selection is platform-shaped: macOS uses a multi-select `List(selection:)`
 /// (⌘-click / ⇧-click, like Mail and desktop Anki), while iOS uses
-/// single-selection to drive the collapsed split view's push, with long-press
-/// entering the explicit batch-select mode.
+/// single-selection to drive the collapsed split view's push. Long-press
+/// applies a per-row context menu (same as the source column). Batch select
+/// is an explicit mode from the overflow Select item.
 struct BrowseListColumn: View {
     @Environment(\.palette) private var palette
     @Bindable var model: BrowseModel
@@ -313,20 +314,27 @@ struct BrowseListColumn: View {
             .onAppear { loadMore(index) }
         } else {
             let card = model.card(at: idRaw)
-            CardRowView(
-                card: card,
-                dueText: card.flatMap { model.dueLabel(for: $0) },
-                noteTitle: card.flatMap { model.parentNoteTitle(for: $0) }
-            )
-                .frame(maxWidth: .infinity, alignment: .leading)
-                #if os(iOS)
-                .contentShape(Rectangle())
-                .onTapGesture { activateRow(idRaw) }
-                .onLongPressGesture(minimumDuration: 0.5) {
-                    selectionState.enterSelectMode(preselectCard: CardID(idRaw))
+            BrowseActionRow(
+                browseModel: model,
+                cardId: card?.id ?? CardID(idRaw),
+                noteId: card?.nid,
+                showsOverflowButton: false,
+                onActivate: {
+                    #if os(iOS)
+                    activateRow(idRaw)
+                    #endif
+                },
+                onSuccess: {
+                    Task { await model.performSearch() }
                 }
-                #endif
-                .onAppear { loadMore(index) }
+            ) {
+                CardRowView(
+                    card: card,
+                    dueText: card.flatMap { model.dueLabel(for: $0) },
+                    noteTitle: card.flatMap { model.parentNoteTitle(for: $0) }
+                )
+            }
+            .onAppear { loadMore(index) }
         }
     }
 
@@ -345,21 +353,22 @@ struct BrowseListColumn: View {
             .onTapGesture { selectionState.toggle(note.id) }
             .onAppear { loadMore(index) }
         } else {
-            HStack {
-                NoteRowView(note: note, notetypeName: model.notetypeNames[note.mid])
-                NoteContextMenuButton(noteId: note.id, model: model) {
+            BrowseActionRow(
+                browseModel: model,
+                noteId: note.id,
+                showsOverflowButton: true,
+                onActivate: {
+                    #if os(iOS)
+                    activateRow(note.id.rawValue)
+                    #endif
+                },
+                onSuccess: {
                     Task { await model.performSearch() }
                 }
+            ) {
+                NoteRowView(note: note, notetypeName: model.notetypeNames[note.mid])
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
             .onAppear { loadMore(index) }
-            #if os(iOS)
-            .contentShape(Rectangle())
-            .onTapGesture { activateRow(note.id.rawValue) }
-            .onLongPressGesture(minimumDuration: 0.5) {
-                selectionState.enterSelectMode(preselect: note.id)
-            }
-            #endif
             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                 Button(role: .destructive) {
                     onSwipeDelete(note)
@@ -401,34 +410,89 @@ struct BrowseListColumn: View {
     #endif
 }
 
-// MARK: - NoteContextMenuButton
+// MARK: - Row actions (ellipsis + long-press)
 
-/// Resolves the first cardId for a note lazily on first appear, then shows CardContextMenu.
+/// Shared chrome for a browse row: optional trailing `…` menu, and a
+/// long-press / right-click context menu with the same card actions. Resolves
+/// a note's first card lazily so notes-mode rows can host card-scoped ops.
 @MainActor
-struct NoteContextMenuButton: View {
-    let noteId: NoteID
-    var model: BrowseModel
-    var onSuccess: (() -> Void)?
+private struct BrowseActionRow<Content: View>: View {
+    var browseModel: BrowseModel
+    var cardId: CardID? = nil
+    var noteId: NoteID? = nil
+    var showsOverflowButton: Bool
+    var onActivate: (() -> Void)? = nil
+    var onSuccess: (() -> Void)? = nil
+    @ViewBuilder var content: Content
 
-    @State private var firstCardId: CardID?
+    @State private var resolvedCardId: CardID?
+    @State private var menuModel = CardContextMenuModel()
+    @State private var confirmDeleteNote = false
 
     var body: some View {
-        Group {
-            if let cardId = firstCardId {
-                CardContextMenu(
-                    cardId: cardId,
-                    noteId: noteId,
-                    onSuccess: onSuccess
-                )
-            } else {
-                Image(systemName: "ellipsis.circle")
-                    .amgiFont(.bodyEmphasis)
-                    .foregroundStyle(.tertiary)
+        HStack {
+            content
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                #if os(iOS)
+                .onTapGesture { onActivate?() }
+                #endif
+                .contextMenu {
+                    if let id = effectiveCardId {
+                        actionMenu(cardId: id)
+                    }
+                }
+            if showsOverflowButton {
+                overflowButton
             }
         }
-        .task(id: noteId) {
-            guard firstCardId == nil else { return }
-            firstCardId = await model.firstCardID(for: noteId)
+        .cardActionPresentations(
+            model: menuModel,
+            cardId: effectiveCardId,
+            noteId: noteId,
+            confirmDeleteNote: $confirmDeleteNote,
+            onAction: { _ in onSuccess?() }
+        )
+        .task(id: taskIdentity) {
+            if let cardId {
+                resolvedCardId = cardId
+            } else if let noteId {
+                resolvedCardId = await browseModel.firstCardID(for: noteId)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func actionMenu(cardId: CardID) -> some View {
+        CardActionMenuSections(
+            model: menuModel,
+            cardId: cardId,
+            noteId: noteId,
+            confirmDeleteNote: $confirmDeleteNote,
+            onAction: { _ in onSuccess?() }
+        )
+    }
+
+    private var effectiveCardId: CardID? { resolvedCardId ?? cardId }
+
+    private var taskIdentity: Int64 {
+        cardId?.rawValue ?? noteId?.rawValue ?? 0
+    }
+
+    @ViewBuilder
+    private var overflowButton: some View {
+        if let id = effectiveCardId {
+            Menu {
+                actionMenu(cardId: id)
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .amgiFont(.bodyEmphasis)
+            }
+            .accessibilityLabel("Card actions")
+        } else {
+            Image(systemName: "ellipsis.circle")
+                .amgiFont(.bodyEmphasis)
+                .foregroundStyle(.tertiary)
         }
     }
 }

@@ -188,6 +188,57 @@ private struct CardActionPresentations: ViewModifier {
     }
 }
 
+// MARK: - Shared menu sections
+
+/// Flag picker, card/note actions, and undo — the same stack `CardContextMenu`
+/// and Browse row long-press both present, so a host can drop it into a
+/// `Menu` or `.contextMenu` without the two drifting.
+@MainActor
+public struct CardActionMenuSections: View {
+    let model: CardContextMenuModel
+    let cardId: CardID
+    var noteId: NoteID?
+    @Binding var confirmDeleteNote: Bool
+    var onRequestSetDueDate: ((_ cardId: CardID) -> Void)?
+    var onAction: (_ shouldAdvance: Bool) -> Void
+
+    public init(
+        model: CardContextMenuModel,
+        cardId: CardID,
+        noteId: NoteID? = nil,
+        confirmDeleteNote: Binding<Bool>,
+        onRequestSetDueDate: ((_ cardId: CardID) -> Void)? = nil,
+        onAction: @escaping (_ shouldAdvance: Bool) -> Void = { _ in }
+    ) {
+        self.model = model
+        self.cardId = cardId
+        self.noteId = noteId
+        self._confirmDeleteNote = confirmDeleteNote
+        self.onRequestSetDueDate = onRequestSetDueDate
+        self.onAction = onAction
+    }
+
+    public var body: some View {
+        CardFlagPicker(model: model, cardId: cardId, onAction: onAction)
+        CardActionSections(
+            model: model,
+            cardId: cardId,
+            noteId: noteId,
+            confirmDeleteNote: $confirmDeleteNote,
+            onRequestSetDueDate: onRequestSetDueDate,
+            onAction: onAction
+        )
+        Section {
+            Button {
+                Task { if let advance = await model.undo(cardId) { onAction(advance) } }
+            } label: {
+                Label("Undo", systemImage: "arrow.uturn.backward")
+            }
+            .disabled(!model.canUndo || model.isUndoing)
+        }
+    }
+}
+
 // MARK: - Standalone button
 
 /// Self-contained `…` button wrapping the card actions — used by Browse,
@@ -222,8 +273,7 @@ public struct CardContextMenu: View {
 
     public var body: some View {
         Menu {
-            CardFlagPicker(model: model, cardId: cardId, onAction: forward)
-            CardActionSections(
+            CardActionMenuSections(
                 model: model,
                 cardId: cardId,
                 noteId: noteId,
@@ -231,14 +281,6 @@ public struct CardContextMenu: View {
                 onRequestSetDueDate: onRequestSetDueDate,
                 onAction: forward
             )
-            Section {
-                Button {
-                    Task { if let advance = await model.undo(cardId) { forward(advance) } }
-                } label: {
-                    Label("Undo", systemImage: "arrow.uturn.backward")
-                }
-                .disabled(!model.canUndo || model.isUndoing)
-            }
         } label: {
             Image(systemName: "ellipsis.circle")
                 .amgiFont(.bodyEmphasis)

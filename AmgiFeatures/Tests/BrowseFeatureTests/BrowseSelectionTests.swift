@@ -10,6 +10,7 @@ struct BrowseSelectionTests {
         #expect(s.isSelectMode == false)
         #expect(s.isEmpty)
         #expect(s.count == 0)
+        #expect(!s.showsBatchActions)
     }
 
     @Test func enterSelectModePreselectsRow() {
@@ -18,6 +19,7 @@ struct BrowseSelectionTests {
         #expect(s.isSelectMode)
         #expect(s.contains(NoteID(42)))
         #expect(s.count == 1)
+        #expect(s.showsBatchActions)
     }
 
     @Test func enterSelectModeWithoutPreselectIsEmpty() {
@@ -25,6 +27,16 @@ struct BrowseSelectionTests {
         s.enterSelectMode()
         #expect(s.isSelectMode)
         #expect(s.isEmpty)
+        #expect(s.showsBatchActions)
+    }
+
+    @Test func clearSelectionKeepsMode() {
+        var s = BrowseSelectionState()
+        s.enterSelectMode(preselect: NoteID(1))
+        s.clearSelectionKeepingMode()
+        #expect(s.isSelectMode)
+        #expect(s.isEmpty)
+        #expect(s.showsBatchActions)
     }
 
     @Test func toggleAddsThenRemoves() {

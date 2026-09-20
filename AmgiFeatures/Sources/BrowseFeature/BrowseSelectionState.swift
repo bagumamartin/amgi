@@ -16,26 +16,35 @@ struct BrowseSelectionState: Equatable, Sendable {
 
     /// Whether the batch action bar should be showing. macOS arms it purely
     /// from a multi-row `List` selection — there is no explicit mode to enter,
-    /// so there is no Done button either. iOS long-presses into `isSelectMode`.
-    /// A single selected row still counts once select mode is on; on macOS
-    /// any non-empty native selection arms the bar so sibling-card
-    /// multi-selects are never hidden.
+    /// so there is no Done button either. iOS enters `isSelectMode` from the
+    /// overflow Select item (Mail), and the bar stays up even with an empty
+    /// selection so the actions can enable as rows are ticked. On macOS any
+    /// non-empty native selection arms the bar so sibling-card multi-selects
+    /// are never hidden.
     var showsBatchActions: Bool {
-        isSelectMode ? !isEmpty : (selectedNoteIDs.count > 1 || !selectedCardIDs.isEmpty)
+        isSelectMode || selectedNoteIDs.count > 1 || !selectedCardIDs.isEmpty
     }
 
     mutating func enterSelectMode(preselect: NoteID? = nil) {
         isSelectMode = true
         selectedNoteIDs = preselect.map { [$0] } ?? []
+        selectedCardIDs = []
     }
 
     mutating func enterSelectMode(preselectCard: CardID) {
         isSelectMode = true
         selectedCardIDs = [preselectCard]
+        selectedNoteIDs = []
     }
 
     mutating func exitSelectMode() {
         isSelectMode = false
+        selectedNoteIDs = []
+        selectedCardIDs = []
+    }
+
+    /// Mail's Deselect All: drop the ticks but stay in select mode.
+    mutating func clearSelectionKeepingMode() {
         selectedNoteIDs = []
         selectedCardIDs = []
     }

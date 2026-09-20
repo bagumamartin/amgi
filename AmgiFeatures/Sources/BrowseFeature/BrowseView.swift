@@ -97,6 +97,14 @@ package struct BrowseView: View {
             .task(id: store.generation) {
                 await model.refreshUndoStatus()
             }
+            #if os(iOS)
+            // Select-mode batch actions live on the bottom bar. Hide the tab
+            // bar so it cannot cover them (Mail hides its tab bar in Edit).
+            .toolbarVisibility(
+                selectionState.isSelectMode ? .hidden : .automatic,
+                for: .tabBar
+            )
+            #endif
     }
 
     @ViewBuilder
@@ -237,13 +245,22 @@ package struct BrowseView: View {
         .navigationBarTitleDisplayMode(.inline)
         #if os(iOS)
         .toolbarRole(.editor)
+        .navigationBarBackButtonHidden(selectionState.isSelectMode)
+        .toolbarVisibility(
+            selectionState.isSelectMode ? .hidden : .automatic,
+            for: .tabBar
+        )
+        .toolbarVisibility(
+            selectionState.isSelectMode ? .visible : .automatic,
+            for: .bottomBar
+        )
         #endif
         .toolbar { listToolbarContent }
         if usesColumnSearch {
             withBrowseSearch(pane)
         } else {
             #if os(iOS)
-            if isBrowseSidebarHidden {
+            if isBrowseSidebarHidden, !selectionState.isSelectMode {
                 pane.accountMenuControl(
                     open: $accountDestination,
                     showsName: false
@@ -718,6 +735,41 @@ package struct BrowseView: View {
 
     @ToolbarContentBuilder
     private var listToolbarContent: some ToolbarContent {
+        #if os(iOS)
+        if selectionState.isSelectMode {
+            selectModeNavigationItems
+        } else {
+            listDefaultTrailingItems
+        }
+        #else
+        listDefaultTrailingItems
+        #endif
+        if selectionState.showsBatchActions {
+            selectionToolbar
+        }
+    }
+
+    #if os(iOS)
+    @ToolbarContentBuilder
+    private var selectModeNavigationItems: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            Button(allResultsSelected ? "Deselect All" : "Select All") {
+                toggleSelectAllResults()
+            }
+            .disabled(model.ids.isEmpty)
+        }
+        ToolbarItem(placement: .confirmationAction) {
+            Button("Done") {
+                selectionState.exitSelectMode()
+            }
+            .fontWeight(.semibold)
+            .tint(palette.accent)
+        }
+    }
+    #endif
+
+    @ToolbarContentBuilder
+    private var listDefaultTrailingItems: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
                 Button("Add Note") { showAddNote = true }
@@ -735,13 +787,6 @@ package struct BrowseView: View {
             }
             .help("Filter Rail")
             .accessibilityLabel("Filter Rail")
-        }
-        if selectionState.isSelectMode {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("Done") {
-                    selectionState.exitSelectMode()
-                }
-            }
         }
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
@@ -768,9 +813,6 @@ package struct BrowseView: View {
                 Image(systemName: "ellipsis")
             }
             .accessibilityLabel("Browse tools")
-        }
-        if selectionState.showsBatchActions {
-            selectionToolbar
         }
     }
 
@@ -818,6 +860,14 @@ package struct BrowseView: View {
     @ViewBuilder
     private var selectionSection: some View {
         Section("Selection") {
+            #if os(iOS)
+            Button {
+                selectionState.enterSelectMode()
+            } label: {
+                Label("Select", systemImage: "checkmark.circle")
+            }
+            .disabled(model.ids.isEmpty)
+            #endif
             Button {
                 selectAllResults()
             } label: {
@@ -865,6 +915,12 @@ package struct BrowseView: View {
         }
     }
 
+    /// Three primary batch actions, then a single overflow for the rest.
+    /// The overflow is a *separate* toolbar item so iOS 26 cannot fold it
+    /// into the system chevron (that nested-ellipsis is what made Restore
+    /// and Tags reappear inside More). A flexible spacer pins the cluster
+    /// to the leading edge and More to the trailing edge.
+    @ToolbarContentBuilder
     private var selectionToolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .bottomBar) {
             Button {
@@ -874,17 +930,7 @@ package struct BrowseView: View {
             }
             .disabled(selectionState.isEmpty)
 
-            Button {
-                unsuspendSelected()
-            } label: {
-                Label("Restore", systemImage: "play.circle")
-            }
-            .disabled(selectionState.isEmpty)
-            .help("Unsuspend / unbury selection")
-
             flagMenu
-
-            markButton
 
             Button {
                 showTagSheet = true
@@ -892,37 +938,12 @@ package struct BrowseView: View {
                 Label("Tags", systemImage: "tag")
             }
             .disabled(selectionState.isEmpty)
-
-            Button {
-                activeSheet = .removeTags
-            } label: {
-                Label("Remove Tags", systemImage: "tag.slash")
-            }
-            .disabled(selectionState.isEmpty)
-
-            schedulingMenu
-
-            Menu {
-                Button {
-                    activeSheet = .copyNote
-                } label: { Label("Create Copy…", systemImage: "doc.on.doc") }
-                Button {
-                    activeSheet = .export
-                } label: { Label("Export Selected…", systemImage: "square.and.arrow.up") }
-                Button {
-                    activeSheet = .changeNotetype
-                } label: { Label("Change Note Type…", systemImage: "arrow.triangle.2.circlepath.doc") }
-                Divider()
-                Button(role: .destructive) {
-                    showDeleteConfirm = true
-                } label: {
-                    Label("Delete", systemImage: "trash")
-                }
-            } label: {
-                Image(systemName: "square.and.pencil")
-            }
-            .disabled(selectionState.isEmpty)
-            .accessibilityLabel("Note actions")
+        }
+        if #available(iOS 26.0, macOS 26.0, *) {
+            ToolbarSpacer(.flexible, placement: .bottomBar)
+        }
+        ToolbarItem(placement: .bottomBar) {
+            batchOverflowMenu
         }
     }
 
@@ -960,57 +981,93 @@ package struct BrowseView: View {
         }
     }
 
-    private var markButton: some View {
-        Button {
-            let notes = selectionState.selectedNoteIDs
-            let cards = selectionState.selectedCardIDs
-            Task { await model.toggleMarkSelected(notes, cardIDs: Array(cards)) }
-        } label: {
-            Label("Mark", systemImage: "star")
-        }
-        .disabled(selectionState.isEmpty)
-    }
-
-    /// Change deck / due date / grade-now / reposition / bury / forget —
-    /// desktop's Cards menu, consolidated for touch. All card-scope aware:
-    /// cards mode passes card IDs so siblings are untouched.
-    private var schedulingMenu: some View {
+    /// Remaining batch actions in one scrollable menu — no nested `Menu`s,
+    /// and nothing that's already on the bar (Suspend / Flag / Tags).
+    private var batchOverflowMenu: some View {
         Menu {
-            Button {
-                activeSheet = .changeDeck
-            } label: { Label("Change Deck…", systemImage: "rectangle.stack") }
+            Section {
+                Button {
+                    unsuspendSelected()
+                } label: {
+                    Label("Unsuspend / Unbury", systemImage: "play.circle")
+                }
+                Button {
+                    burySelected()
+                } label: {
+                    Label("Bury Until Tomorrow", systemImage: "archivebox")
+                }
+                Button {
+                    activeSheet = .forget
+                } label: {
+                    Label("Forget…", systemImage: "arrow.counterclockwise")
+                }
+                Button {
+                    activeSheet = .reposition
+                } label: {
+                    Label("Reposition New Cards…", systemImage: "list.number")
+                }
+                Button {
+                    activeSheet = .setDueDate
+                } label: {
+                    Label("Set Due Date…", systemImage: "calendar")
+                }
+                Button {
+                    activeSheet = .changeDeck
+                } label: {
+                    Label("Change Deck…", systemImage: "rectangle.stack")
+                }
+            }
 
-            Menu("Grade Now…") {
+            Section("Grade Now") {
                 ForEach([(Rating.again, "Again"), (.hard, "Hard"), (.good, "Good"), (.easy, "Easy")],
                         id: \.1) { rating, label in
                     Button(label) { applyGradeNow(rating) }
                 }
             }
 
-            Button {
-                activeSheet = .setDueDate
-            } label: { Label("Set Due Date…", systemImage: "calendar") }
+            Section {
+                Button {
+                    let notes = selectionState.selectedNoteIDs
+                    let cards = selectionState.selectedCardIDs
+                    Task { await model.toggleMarkSelected(notes, cardIDs: Array(cards)) }
+                } label: {
+                    Label("Mark", systemImage: "star")
+                }
+                Button {
+                    activeSheet = .removeTags
+                } label: {
+                    Label("Remove Tags", systemImage: "tag.slash")
+                }
+                Button {
+                    activeSheet = .copyNote
+                } label: {
+                    Label("Create Copy…", systemImage: "doc.on.doc")
+                }
+                Button {
+                    activeSheet = .export
+                } label: {
+                    Label("Export Selected…", systemImage: "square.and.arrow.up")
+                }
+                Button {
+                    activeSheet = .changeNotetype
+                } label: {
+                    Label("Change Note Type…", systemImage: "arrow.triangle.2.circlepath.doc")
+                }
+            }
 
-            Button {
-                activeSheet = .reposition
-            } label: { Label("Reposition New Cards…", systemImage: "list.number") }
-
-            Button {
-                activeSheet = .forget
-            } label: { Label("Forget…", systemImage: "arrow.counterclockwise") }
-
-            Divider()
-            Button {
-                burySelected()
-            } label: { Label("Bury Until Tomorrow", systemImage: "archivebox") }
-            Button {
-                unsuspendSelected()
-            } label: { Label("Unsuspend / Unbury", systemImage: "play.circle") }
+            Section {
+                Button(role: .destructive) {
+                    showDeleteConfirm = true
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+            }
         } label: {
-            Image(systemName: "ellipsis.circle")
+            Image(systemName: "ellipsis")
         }
+        .menuIndicator(.hidden)
         .disabled(selectionState.isEmpty)
-        .accessibilityLabel("Scheduling actions")
+        .accessibilityLabel("More actions")
     }
 
     private func applyGradeNow(_ rating: Rating) {
@@ -1070,6 +1127,25 @@ package struct BrowseView: View {
             selectionState.selectedNoteIDs = []
         }
         selectionState.isSelectMode = true
+    }
+
+    private var allResultsSelected: Bool {
+        switch model.mode {
+        case .notes:
+            let all = model.allResultNoteIDs
+            return !all.isEmpty && selectionState.selectedNoteIDs.count == all.count
+        case .cards:
+            let all = model.allResultCardIDs
+            return !all.isEmpty && selectionState.selectedCardIDs.count == all.count
+        }
+    }
+
+    private func toggleSelectAllResults() {
+        if allResultsSelected {
+            selectionState.clearSelectionKeepingMode()
+        } else {
+            selectAllResults()
+        }
     }
 
     private func invertSelection() {
