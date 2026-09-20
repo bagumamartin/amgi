@@ -67,7 +67,7 @@ private struct NoteFieldUIKitHost: UIViewRepresentable {
         return coordinator
     }
 
-    func makeUIView(context: Context) -> NoteFieldEditorContainer {
+    func makeUIView(context: Context) -> NoteFieldTextView {
         let editor = NoteFieldTextView()
         editor.delegate = context.coordinator
         editor.isEditable = true
@@ -80,9 +80,8 @@ private struct NoteFieldUIKitHost: UIViewRepresentable {
         editor.textColor = .label
         editor.adjustsFontForContentSizeCategory = true
         editor.allowsEditingTextAttributes = true
-        let container = NoteFieldEditorContainer(editor: editor)
         context.coordinator.attach(textView: editor)
-        context.coordinator.gutter = container.gutter
+        context.coordinator.gutter = editor.gutter
         context.coordinator.load(htmlText, preservesSourceHTML: preservesSourceHTML)
 
         let accessory = NoteFieldFormatAccessory { [weak coordinator = context.coordinator] action in
@@ -92,26 +91,24 @@ private struct NoteFieldUIKitHost: UIViewRepresentable {
         context.coordinator.accessory = accessory
         editor.accessoryEnabled = !session.hasHardwareKeyboard
         context.coordinator.installAssistantItems()
-        return container
+        return editor
     }
 
-    func sizeThatFits(_ proposal: ProposedViewSize, uiView: NoteFieldEditorContainer, context: Context) -> CGSize? {
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: NoteFieldTextView, context: Context) -> CGSize? {
         guard let width = proposal.width, width > 0 else { return nil }
-        let editor = uiView.editor
-        let gutterWidth = context.coordinator.isShowingHTMLSource ? NoteFieldEditorContainer.gutterWidth : 0
-        let fitting = editor.sizeThatFits(CGSize(width: max(1, width - gutterWidth), height: .greatestFiniteMagnitude))
+        let gutterWidth = context.coordinator.isShowingHTMLSource ? NoteFieldTextView.gutterWidth : 0
+        let fitting = uiView.sizeThatFits(CGSize(width: max(1, width - gutterWidth), height: .greatestFiniteMagnitude))
         let height = min(max(NoteFieldLayout.minHeight, fitting.height), NoteFieldLayout.maxHeight)
-        editor.isScrollEnabled = fitting.height > NoteFieldLayout.maxHeight
+        uiView.isScrollEnabled = fitting.height > NoteFieldLayout.maxHeight
         return CGSize(width: width, height: height)
     }
 
-    func updateUIView(_ uiView: NoteFieldEditorContainer, context: Context) {
-        let editor = uiView.editor
+    func updateUIView(_ uiView: NoteFieldTextView, context: Context) {
         context.coordinator.fieldIndex = fieldIndex
         context.coordinator.session = session
         context.coordinator.palette = palette
         context.coordinator.resolveImageURL = { mediaClient.localURL($0) }
-        editor.accessoryEnabled = !session.hasHardwareKeyboard
+        uiView.accessoryEnabled = !session.hasHardwareKeyboard
         context.coordinator.refreshAccessory()
         uiView.setGutterVisible(context.coordinator.isShowingHTMLSource)
 
@@ -127,7 +124,7 @@ private struct NoteFieldUIKitHost: UIViewRepresentable {
         if context.coordinator.lastAppliedFocusGeneration != focusGeneration {
             context.coordinator.lastAppliedFocusGeneration = focusGeneration
             if fieldIndex == 0, focusGeneration > 0 {
-                DispatchQueue.main.async { editor.becomeFirstResponder() }
+                DispatchQueue.main.async { uiView.becomeFirstResponder() }
             }
         }
 
@@ -135,7 +132,7 @@ private struct NoteFieldUIKitHost: UIViewRepresentable {
         context.coordinator.load(htmlText, preservesSourceHTML: context.coordinator.isShowingHTMLSource)
     }
 
-    final class Coordinator: NSObject, UITextViewDelegate, NoteFieldFormatResponder {
+    final class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate, NoteFieldFormatResponder {
         @Binding var htmlText: String
         var session: NoteFieldEditingSession
         var fieldIndex: Int
@@ -175,7 +172,18 @@ private struct NoteFieldUIKitHost: UIViewRepresentable {
             guard !didInstallTap else { return }
             didInstallTap = true
             let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
+            // Must not steal the text view's own tap: that recognizer is
+            // what becomes first responder and shows the caret/keyboard.
+            tap.cancelsTouchesInView = false
+            tap.delegate = self
             textView.addGestureRecognizer(tap)
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            true
         }
 
         @objc private func handleTap(_ recognizer: UITapGestureRecognizer) {
@@ -817,7 +825,14 @@ private struct NoteFieldUIKitHost: UIViewRepresentable {
 
 /// `inputAccessoryView` is overridable so a hardware keyboard can hide the
 /// stranded bottom bar without tearing down the hosted SwiftUI accessory.
+///
+/// The HTML-source gutter is pinned to `frameLayoutGuide` so this view —
+/// not a wrapper `UIView` — remains the `UIViewRepresentable` root.
+/// SwiftUI Form/List only promotes `UITextView`/`UITextField` roots to
+/// text inputs; a plain container swallows taps and never shows a keyboard.
 final class NoteFieldTextView: UITextView {
+    static let gutterWidth: CGFloat = 44
+
     var formatAccessory: UIView?
     var accessoryEnabled = true {
         didSet {
@@ -827,34 +842,35 @@ final class NoteFieldTextView: UITextView {
         }
     }
 
+    let gutter = UITextView()
+    private var gutterWidthConstraint: NSLayoutConstraint!
+
+    override init(frame: CGRect, textContainer: NSTextContainer?) {
+        super.init(frame: frame, textContainer: textContainer)
+        configureGutter()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+
     override var inputAccessoryView: UIView? {
         get { accessoryEnabled ? formatAccessory : nil }
         set { formatAccessory = newValue }
     }
-}
 
-private extension UIBarButtonItem {
-    func applying(_ body: (UIBarButtonItem) -> Void) -> UIBarButtonItem {
-        body(self)
-        return self
+    func setGutterVisible(_ visible: Bool) {
+        gutter.isHidden = !visible
+        gutterWidthConstraint.constant = visible ? Self.gutterWidth : 0
+        textContainerInset = UIEdgeInsets(
+            top: 4,
+            left: visible ? Self.gutterWidth : 0,
+            bottom: 4,
+            right: 0
+        )
+        bringSubviewToFront(gutter)
     }
-}
 
-/// Container for the rich editor plus its HTML-source line-number gutter.
-/// The gutter is a non-interactive, non-scrolling text view kept at the full
-/// content height inside a clipped strip; the coordinator drives its text
-/// and vertical offset. Source mode also disables line wrapping so one
-/// paragraph is always exactly one gutter row.
-final class NoteFieldEditorContainer: UIView {
-    static let gutterWidth: CGFloat = 44
-
-    let editor: NoteFieldTextView
-    let gutter = UITextView()
-    private var gutterWidthConstraint: NSLayoutConstraint!
-
-    init(editor: NoteFieldTextView) {
-        self.editor = editor
-        super.init(frame: .zero)
+    private func configureGutter() {
         gutter.isEditable = false
         gutter.isSelectable = false
         // Scrolling stays enabled internally (user interaction off) so the
@@ -868,30 +884,22 @@ final class NoteFieldEditorContainer: UIView {
         gutter.textContainerInset = UIEdgeInsets(top: 4, left: 0, bottom: 4, right: 6)
         gutter.textAlignment = .right
         gutter.translatesAutoresizingMaskIntoConstraints = false
-        editor.translatesAutoresizingMaskIntoConstraints = false
+        gutter.isHidden = true
         addSubview(gutter)
-        addSubview(editor)
-        clipsToBounds = true
         gutterWidthConstraint = gutter.widthAnchor.constraint(equalToConstant: 0)
         NSLayoutConstraint.activate([
-            gutter.leadingAnchor.constraint(equalTo: leadingAnchor),
-            gutter.topAnchor.constraint(equalTo: topAnchor),
-            gutter.bottomAnchor.constraint(equalTo: bottomAnchor),
+            gutter.leadingAnchor.constraint(equalTo: frameLayoutGuide.leadingAnchor),
+            gutter.topAnchor.constraint(equalTo: frameLayoutGuide.topAnchor),
+            gutter.bottomAnchor.constraint(equalTo: frameLayoutGuide.bottomAnchor),
             gutterWidthConstraint,
-            editor.leadingAnchor.constraint(equalTo: gutter.trailingAnchor),
-            editor.topAnchor.constraint(equalTo: topAnchor),
-            editor.bottomAnchor.constraint(equalTo: bottomAnchor),
-            editor.trailingAnchor.constraint(equalTo: trailingAnchor),
         ])
-        gutter.isHidden = true
     }
+}
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { nil }
-
-    func setGutterVisible(_ visible: Bool) {
-        gutter.isHidden = !visible
-        gutterWidthConstraint.constant = visible ? Self.gutterWidth : 0
+private extension UIBarButtonItem {
+    func applying(_ body: (UIBarButtonItem) -> Void) -> UIBarButtonItem {
+        body(self)
+        return self
     }
 }
 
@@ -1096,6 +1104,7 @@ private struct NoteFieldAppKitHost: NSViewRepresentable {
             guard !didInstallClick else { return }
             didInstallClick = true
             let click = NSClickGestureRecognizer(target: self, action: #selector(handleClick(_:)))
+            click.delaysPrimaryMouseButtonEvents = false
             textView.addGestureRecognizer(click)
         }
 
