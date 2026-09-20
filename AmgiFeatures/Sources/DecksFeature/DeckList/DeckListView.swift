@@ -1,9 +1,11 @@
 package import SwiftUI
+import AmgiAppCore
 import AmgiAppShared
 import AmgiUI
 import AnkiKit
 import AnkiClients
 import Dependencies
+import Sharing
 
 /// Library container: owns navigation, sheets, and the toolbar, and drives
 /// a `DeckListModel` for load/refresh + deck mutations. Rendering is
@@ -11,6 +13,7 @@ import Dependencies
 /// model. The View is intentionally thin — presentation wiring only.
 package struct DeckListView: View {
     @Dependency(\.collectionStore) private var store
+    @Shared(.appStorage(NavigationPreferences.deckSortOrder)) private var sortOrderRaw: String = DeckSortOrder.mostUsed.rawValue
     @State private var model: DeckListModel
     @State private var showCreateSheet = false
     @State private var showExportSheet = false
@@ -37,10 +40,21 @@ package struct DeckListView: View {
         _model = State(initialValue: model)
     }
 
+    private var sortOrderBinding: Binding<DeckSortOrder> {
+        Binding(
+            get: { DeckSortOrder(rawValue: sortOrderRaw) ?? .mostUsed },
+            set: { newOrder in
+                $sortOrderRaw.withLock { $0 = newOrder.rawValue }
+                model.resort(sortOrder: newOrder)
+            }
+        )
+    }
+
     package var body: some View {
         LibraryListContent(
             state: model.state,
-            onRefresh: { await model.load() },
+            sortOrder: sortOrderBinding,
+            onRefresh: { await model.load(sortOrder: sortOrderBinding.wrappedValue) },
             onStartReview: onStartReview,
             onTapDeck: { row in pendingDeck = row.asDeckInfo },
             onDeleteDeck: { rawID in await model.delete(DeckID(rawID)) },
@@ -80,7 +94,7 @@ package struct DeckListView: View {
         // Keyed on the store's generation: any Invalidation (deck mutation,
         // sync, import, review-end) re-runs the load; `.task` still cancels
         // on disappear.
-        .task(id: store.generation) { await model.load() }
+        .task(id: store.generation) { await model.load(sortOrder: sortOrderBinding.wrappedValue) }
     }
 
     @ToolbarContentBuilder

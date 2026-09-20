@@ -230,6 +230,7 @@ let package = Package(
                 .product(name: "AmgiUI", package: "AmgiUI"),
                 .product(name: "AmgiIcons", package: "AmgiIcons"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
+                .product(name: "Sharing", package: "swift-sharing"),
                 .product(name: "SwiftUINavigation", package: "swift-navigation"),
                 .product(name: "CasePaths", package: "swift-case-paths"),
             ],

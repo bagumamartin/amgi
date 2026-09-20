@@ -115,10 +115,7 @@ final class DeckDetailModel {
                 }
             )
             if !childDecks.isEmpty {
-                usageRanks = await DeckUsageRanking.ranks(
-                    for: childDecks.map { (id: $0.id, fullName: $0.fullName) },
-                    statsClient: statsClient
-                )
+                usageRanks = await fetchUsageRanks()
             } else {
                 usageRanks = [:]
             }
@@ -126,6 +123,21 @@ final class DeckDetailModel {
             childDecks = []
             usageRanks = [:]
         }
+    }
+
+    /// Library and deck-detail share one persisted `DeckSortOrder`. Switching
+    /// to Most used on this screen after children loaded under another order
+    /// still needs ranks; fetch them once if `loadChildren` skipped them.
+    func ensureUsageRanks() async {
+        guard usageRanks.isEmpty, !childDecks.isEmpty else { return }
+        usageRanks = await fetchUsageRanks()
+    }
+
+    private func fetchUsageRanks() async -> [Int64: DeckUsageRank] {
+        await DeckUsageRanking.ranks(
+            for: childDecks.map { (id: $0.id, fullName: $0.fullName) },
+            statsClient: statsClient
+        )
     }
 
     /// Fires the per-deck stats fetch off the main actor, cancels any

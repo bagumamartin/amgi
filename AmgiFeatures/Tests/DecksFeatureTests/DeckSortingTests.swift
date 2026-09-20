@@ -47,6 +47,16 @@ import AnkiKit
         // B and C tie on weighted score and recency, so total volume breaks the tie.
         #expect(sorted.map(\.name) == ["B", "C", "A"])
     }
+
+    @Test func subdeckAlphabeticalMatchesLibrary() {
+        let nodes = [
+            DeckTreeNode(id: DeckID(3), name: "Zed", fullName: "Parent::Zed"),
+            DeckTreeNode(id: DeckID(1), name: "Alpha", fullName: "Parent::Alpha"),
+            DeckTreeNode(id: DeckID(2), name: "Mid", fullName: "Parent::Mid"),
+        ]
+        let sorted = DeckSorting.subdeckRows(nodes, order: .alphabetical)
+        #expect(sorted.map(\.name) == ["Alpha", "Mid", "Zed"])
+    }
 }
 
 @Suite struct DeckUsageRankingTests {

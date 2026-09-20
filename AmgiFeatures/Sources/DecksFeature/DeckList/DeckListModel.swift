@@ -17,6 +17,12 @@ import Foundation
 final class DeckListModel {
     var state: LibraryListContent.State = .loading
 
+    /// Unsorted collection-order rows. View state is a sorted projection —
+    /// keep the source so changing `DeckSortOrder` does not refetch the tree.
+    private var deckRows: [DeckListRow] = []
+    private var lastSortOrder: DeckSortOrder = .mostUsed
+    private var usageRanks: [Int64: DeckUsageRank] = [:]
+
     @ObservationIgnored @Dependency(\.deckClient) private var deckClient
     @ObservationIgnored @Dependency(\.statsClient) private var statsClient
     @ObservationIgnored @Dependency(\.collectionStore) private var store
@@ -27,7 +33,27 @@ final class DeckListModel {
     /// waited on the secondary — a blank screen at launch on a large
     /// collection. Rows go out first, activity fills in.
     func load() async {
+        await load(sortOrder: lastSortOrder)
+    }
+
+    func load(sortOrder: DeckSortOrder) async {
+        lastSortOrder = sortOrder
         await AppSignpost.measure("DeckListLoad") { await loadBody() }
+    }
+
+    /// Re-projects `deckRows` under a new order without refetching the tree.
+    /// `mostUsed` lazily pulls revlog ranks if this session has not yet.
+    func resort(sortOrder: DeckSortOrder) {
+        lastSortOrder = sortOrder
+        guard !deckRows.isEmpty, case .loaded(_, let hero, let heatmap) = state else { return }
+        if sortOrder == .mostUsed && usageRanks.isEmpty {
+            Task {
+                usageRanks = await fetchUsageRanks(for: deckRows)
+                guard lastSortOrder == .mostUsed else { return }
+                republishLoaded()
+            }
+        }
+        publishLoaded(hero: hero, heatmap: heatmap)
     }
 
     private func loadBody() async {
@@ -51,27 +77,20 @@ final class DeckListModel {
                 try await store.tree()
             }
             if tree.isEmpty {
+                deckRows = []
+                usageRanks = [:]
                 state = .empty
                 return
             }
-            let rows = tree.map(DeckListRow.init(node:))
-            var viewRows = rows.map(\.viewData)
-            for index in viewRows.indices {
-                let row = rows[index]
-                viewRows[index].iconName = DeckIconOverrides.initialIcon(
-                    deckId: row.id.rawValue,
-                    name: row.name,
-                    fullName: row.fullName
-                )
-            }
-
-            state = .loaded(
-                rows: viewRows,
+            deckRows = tree.map(DeckListRow.init(node:))
+            let totalDue = deckRows.reduce(0) { $0 + $1.counts.total }
+            publishLoaded(
                 hero: HeroData(
-                    totalDue: rows.reduce(0) { $0 + $1.counts.total },
-                    deckCount: rows.count,
+                    totalDue: totalDue,
+                    deckCount: deckRows.count,
                     streak: carried?.hero.streak ?? 0,
-                    recentDayTotals: carried?.hero.recentDayTotals ?? Array(repeating: 0, count: HeroData.sparklineCapacity)
+                    recentDayTotals: carried?.hero.recentDayTotals
+                        ?? Array(repeating: 0, count: HeroData.sparklineCapacity)
                 ),
                 heatmap: carried?.heatmap
             )
@@ -79,12 +98,17 @@ final class DeckListModel {
             // Nested inside DeckListLoad on purpose: phase one (the deck
             // tree) and phase two (a 365-day revlog scan) have very
             // different costs, and a single interval hides which one the
-            // launch path is actually waiting on.
-            let (hero, heatmap) = await AppSignpost.measure("DeckListActivity") {
-                await buildHeroAndHeatmap(rows: rows)
+            // launch path is actually waiting on. Usage ranks for Most used
+            // ride alongside so the first paint is not gated on them.
+            let rows = deckRows
+            async let activity = AppSignpost.measure("DeckListActivity") {
+                await self.buildHeroAndHeatmap(rows: rows)
             }
+            async let ranks = usageRanks(neededFor: lastSortOrder, rows: rows)
+            let (hero, heatmap) = await activity
+            usageRanks = await ranks
             guard !Task.isCancelled else { return }
-            state = .loaded(rows: viewRows, hero: hero, heatmap: heatmap)
+            publishLoaded(hero: hero, heatmap: heatmap)
             Task { await refineRowIcons() }
         } catch {
             Log.decks.error("Error loading decks: \(error)")
@@ -128,8 +152,54 @@ final class DeckListModel {
     /// First loaded deck that has cards waiting, projected to a `DeckInfo`
     /// for navigation. Nil while loading/empty or when nothing is due.
     func firstReviewableDeck() -> DeckInfo? {
-        guard case .loaded(let rows, _, _) = state else { return nil }
-        return rows.first(where: { $0.totalCount > 0 })?.asDeckInfo
+        guard !deckRows.isEmpty else { return nil }
+        let sorted = DeckSorting.libraryRows(deckRows, order: lastSortOrder, ranks: usageRanks)
+        return sorted.first(where: { $0.counts.total > 0 })?.asDeckInfo
+    }
+
+    private func publishLoaded(hero: HeroData, heatmap: HeatmapCardData?) {
+        let existingIcons: [Int64: String?] = {
+            guard case .loaded(let rows, _, _) = state else { return [:] }
+            return Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.iconName) })
+        }()
+        let sorted = DeckSorting.libraryRows(deckRows, order: lastSortOrder, ranks: usageRanks)
+        state = .loaded(
+            rows: sorted.map { row in
+                var viewData = row.viewData
+                if let existing = existingIcons[row.id.rawValue] {
+                    viewData.iconName = existing
+                } else {
+                    viewData.iconName = DeckIconOverrides.initialIcon(
+                        deckId: row.id.rawValue,
+                        name: row.name,
+                        fullName: row.fullName
+                    )
+                }
+                return viewData
+            },
+            hero: hero,
+            heatmap: heatmap
+        )
+    }
+
+    private func republishLoaded() {
+        guard case .loaded(_, let hero, let heatmap) = state else { return }
+        publishLoaded(hero: hero, heatmap: heatmap)
+    }
+
+    private func usageRanks(
+        neededFor sortOrder: DeckSortOrder,
+        rows: [DeckListRow]
+    ) async -> [Int64: DeckUsageRank] {
+        guard sortOrder == .mostUsed else { return usageRanks }
+        return await fetchUsageRanks(for: rows)
+    }
+
+    private func fetchUsageRanks(for rows: [DeckListRow]) async -> [Int64: DeckUsageRank] {
+        await DeckUsageRanking.ranks(
+            for: rows.map { (id: $0.id, fullName: $0.fullName) },
+            statsClient: statsClient
+        )
     }
 
     static func buildHeatmap(

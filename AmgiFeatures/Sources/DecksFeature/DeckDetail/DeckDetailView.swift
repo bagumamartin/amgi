@@ -40,11 +40,18 @@ struct DeckDetailView: View {
         _model = State(initialValue: DeckDetailModel(deck: deck))
     }
 
+    private var currentSortOrder: DeckSortOrder {
+        DeckSortOrder(rawValue: sortOrderRaw) ?? .mostUsed
+    }
+
     private var sortOrderBinding: Binding<DeckSortOrder> {
         Binding(
-            get: { DeckSortOrder(rawValue: sortOrderRaw) ?? .mostUsed },
+            get: { currentSortOrder },
             set: { newOrder in
                 $sortOrderRaw.withLock { $0 = newOrder.rawValue }
+                if newOrder == .mostUsed {
+                    Task { await model.ensureUsageRanks() }
+                }
             }
         )
     }
@@ -121,7 +128,7 @@ struct DeckDetailView: View {
             isEmpty: isEmpty,
             subdecks: DeckSorting.subdeckRows(
                 model.childDecks,
-                order: sortOrderBinding.wrappedValue,
+                order: currentSortOrder,
                 ranks: model.usageRanks
             ).map { node in
                 var row = Self.subdeckRow(from: node)
