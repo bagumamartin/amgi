@@ -53,7 +53,7 @@ struct BackupView: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .background(palette.background)
+        .amgiScreenCanvas()
         .navigationTitle("Backups")
         .navigationBarTitleDisplayMode(.inline)
         .modifier(BackupAlerts(destination: $destination, onDelete: deleteBackup))

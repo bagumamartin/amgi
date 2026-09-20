@@ -53,7 +53,7 @@ package struct AccountsSettingsView: View {
             addSection
         }
         .scrollContentBackground(.hidden)
-        .background(palette.background)
+        .amgiScreenCanvas()
         .navigationTitle("Profiles")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: Binding($destination.add)) {

@@ -78,7 +78,7 @@ struct BrowseDetailTabs: View {
 
             content
         }
-        .background(palette.background)
+        .amgiScreenCanvas()
         .navigationTitle(tab == .edit ? "" : "Details")
         .toolbar { detailChrome }
         #if os(iOS)
@@ -246,7 +246,6 @@ struct CardPreviewPane: View {
                     }
                     previewControls
                 }
-                .background(palette.background)
             } else if failed {
                 emptyState("Preview unavailable for this row.")
             } else {
@@ -565,7 +564,6 @@ struct CardInfoPane: View {
                 .frame(maxWidth: .infinity, minHeight: 420)
             }
         }
-        .background(palette.background)
         .task(id: card?.id) {
             await loadStats()
         }

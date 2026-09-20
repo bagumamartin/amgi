@@ -1,4 +1,5 @@
 import AmgiReader
+import AmgiUI
 import SwiftUI
 
 struct ReaderLibraryContent: View {
@@ -22,25 +23,28 @@ struct ReaderLibraryContent: View {
     let onRetry: () -> Void
 
     var body: some View {
-        switch state {
-        case .loading:
-            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+        Group {
+            switch state {
+            case .loading:
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
 
-        case .empty(let reason):
-            empty(reason)
+            case .empty(let reason):
+                empty(reason)
 
-        case .loaded(let data):
-            loaded(data)
+            case .loaded(let data):
+                loaded(data)
 
-        case .error(let message):
-            ContentUnavailableView {
-                Label("Couldn't load books", systemImage: "exclamationmark.triangle")
-            } description: {
-                Text(message)
-            } actions: {
-                Button("Retry", action: onRetry)
+            case .error(let message):
+                ContentUnavailableView {
+                    Label("Couldn't load books", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(message)
+                } actions: {
+                    Button("Retry", action: onRetry)
+                }
             }
         }
+        .amgiScreenCanvas()
     }
 
 }

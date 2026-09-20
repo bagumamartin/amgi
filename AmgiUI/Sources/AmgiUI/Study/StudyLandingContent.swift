@@ -43,6 +43,12 @@ public struct StudyLandingContent: View {
     }
 
     public var body: some View {
+        content
+            .amgiScreenCanvas()
+    }
+
+    @ViewBuilder
+    private var content: some View {
         switch state {
         case .loading:
             loadingView

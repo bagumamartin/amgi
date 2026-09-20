@@ -1,5 +1,3 @@
-public import SwiftUI
-
 // macOS shims for iOS-only SwiftUI API. Feature views were written iOS-first
 // and lean on modifiers with no macOS counterpart (nav-bar title modes,
 // keyboard traits, full-screen covers, top/bottom-bar toolbar placements).
@@ -7,6 +5,7 @@ public import SwiftUI
 // same spellings against no-op (or sheet-fallback) stand-ins declared here.
 // Scoped to #if os(macOS) so iOS keeps using the real API.
 #if os(macOS)
+public import SwiftUI
 
 public enum AmgiNavigationBarTitleDisplayMode {
     case automatic, inline, large

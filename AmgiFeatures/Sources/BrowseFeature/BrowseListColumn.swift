@@ -41,7 +41,7 @@ struct BrowseListColumn: View {
             Divider()
             statefulContent
         }
-        .background(palette.background)
+        .amgiScreenCanvas()
         #if os(macOS)
         .onChange(of: multiSelection) { _, new in applySelection(new) }
         .onChange(of: model.mode) { _, _ in
@@ -231,8 +231,10 @@ struct BrowseListColumn: View {
     private var itemList: some View {
         #if os(macOS)
         List(selection: $multiSelection) { listRows }
+            .scrollContentBackground(.hidden)
         #else
         List { listRows }
+            .scrollContentBackground(.hidden)
         #endif
     }
 

@@ -40,7 +40,7 @@ package struct SettingsView: View {
             }
             .padding(.bottom, AmgiSpacing.xl)
         }
-        .background(palette.background)
+        .amgiScreenCanvas()
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.large)
         #if os(iOS)

@@ -11,11 +11,11 @@ struct AmgiHeroSummaryTests {
             eyebrow: "Due today",
             bigNumber: "127",
             subtitle: "cards across 4 decks",
-            background: .gradient(start: .blue, end: .purple),
             decoration: { Image(systemName: "chart.line.uptrend.xyaxis") },
             footer: { Button("Start") {} },
-            sidecar: { Color.white.opacity(0.3).frame(height: 28) }
+            sidecar: { Color.clear.frame(height: 28) }
         )
+        .environment(\.palette, .vividLight)
     }
 
     @Test func buildsWithNoEyebrowOrSubtitle() {
@@ -23,9 +23,9 @@ struct AmgiHeroSummaryTests {
             eyebrow: nil,
             bigNumber: "0",
             subtitle: nil,
-            background: .solid(.blue),
             decoration: { EmptyView() },
             footer: { EmptyView() }
         )
+        .environment(\.palette, .vividDark)
     }
 }

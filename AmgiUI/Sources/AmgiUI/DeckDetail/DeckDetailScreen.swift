@@ -70,7 +70,7 @@ public struct DeckDetailScreen<HeatmapSlot: View>: View {
             .padding(.top, 6)
             .padding(.bottom, 32)
         }
-        .background(palette.background.ignoresSafeArea())
+        .amgiScreenCanvas()
     }
 
     @ViewBuilder

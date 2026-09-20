@@ -1,6 +1,5 @@
 package import SwiftUI
 import AmgiAppShared
-import AmgiTheme
 import AmgiUI
 import AmgiCharts
 package import AnkiKit
@@ -8,8 +7,6 @@ import AnkiClients
 import Dependencies
 
 package struct StatsDashboardView: View {
-    @Environment(\.palette) private var palette
-
     /// Bumped by the host after sync / import / review so the dashboard
     /// reloads. Keyed into `.task` rather than applied as an `.id` — an `.id`
     /// change discards the whole subtree's identity, throwing away the
@@ -40,7 +37,7 @@ package struct StatsDashboardView: View {
             allowsDeckSelection: !locksDeckScope
         )
         .scrollContentBackground(.hidden)
-        .background(palette.surface)
+        .amgiScreenCanvas()
         .navigationTitle("Statistics")
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {

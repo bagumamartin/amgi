@@ -1,19 +1,18 @@
 public import SwiftUI
 import AmgiTheme
 
-/// Library-hero card: gradient background, eyebrow + big numeral +
+/// Library-hero card: `surfaceElevated` fill, eyebrow + big numeral +
 /// subtitle stacked on the left, optional decoration (streak badge)
 /// trailing, optional footer (CTA), optional sidecar (sparkline).
-/// Foreground text is white — caller picks a background that has
-/// enough contrast.
+/// Type uses palette text roles; accent belongs on the CTA, not the field.
 ///
 /// Compact: header, footer, sidecar stacked (iPhone). Regular: the
 /// same header + CTA column at iPhone content width, sidecar beside
 /// it. Height is the column's ideal size so a List cannot stretch it.
 ///
-/// Built on `AmgiCard` for chrome (corner + shadow + padding). Other
-/// surfaces (Deck-detail tile, Stats streak) compose `AmgiCard` directly
-/// rather than extend this variant.
+/// Built on `AmgiCard` with the same chrome as `DeckDetailTile`
+/// (`shadows.sm`, `AmgiRadius.hero`). Other surfaces compose `AmgiCard`
+/// directly rather than extend this variant.
 public struct AmgiHeroSummary<Decoration: View, Footer: View, Sidecar: View>: View {
     public let eyebrow: String?
     public let bigNumber: String
@@ -30,7 +29,7 @@ public struct AmgiHeroSummary<Decoration: View, Footer: View, Sidecar: View>: Vi
         eyebrow: String?,
         bigNumber: String,
         subtitle: String?,
-        background: AmgiCardBackground,
+        background: AmgiCardBackground = .surfaceElevated,
         @ViewBuilder decoration: @escaping () -> Decoration,
         @ViewBuilder footer: @escaping () -> Footer,
         @ViewBuilder sidecar: @escaping () -> Sidecar
@@ -47,8 +46,8 @@ public struct AmgiHeroSummary<Decoration: View, Footer: View, Sidecar: View>: Vi
     public var body: some View {
         AmgiCard(
             background: background,
-            shadow: palette.shadows.md,
-            cornerRadius: AmgiRadius.card
+            shadow: palette.shadows.sm,
+            cornerRadius: AmgiRadius.hero
         ) {
             if horizontalSizeClass == .regular {
                 RegularHeroSplit {
@@ -83,15 +82,15 @@ public struct AmgiHeroSummary<Decoration: View, Footer: View, Sidecar: View>: Vi
             if let eyebrow {
                 Text(eyebrow.uppercased())
                     .amgiFont(size: 13, weight: .semibold, tracking: 0.4, relativeTo: .footnote)
-                    .foregroundStyle(.white.opacity(0.8))
+                    .foregroundStyle(palette.textTertiary)
             }
             Text(bigNumber)
                 .amgiFont(size: 56, weight: .bold, tracking: -1.2, relativeTo: .largeTitle)
-                .foregroundStyle(.white)
+                .foregroundStyle(palette.textPrimary)
             if let subtitle {
                 Text(subtitle)
                     .amgiFont(size: 15, weight: .regular, relativeTo: .subheadline)
-                    .foregroundStyle(.white.opacity(0.85))
+                    .foregroundStyle(palette.textSecondary)
             }
         }
         .layoutPriority(1)
@@ -149,7 +148,7 @@ public extension AmgiHeroSummary where Sidecar == EmptyView {
         eyebrow: String?,
         bigNumber: String,
         subtitle: String?,
-        background: AmgiCardBackground,
+        background: AmgiCardBackground = .surfaceElevated,
         @ViewBuilder decoration: @escaping () -> Decoration,
         @ViewBuilder footer: @escaping () -> Footer
     ) {

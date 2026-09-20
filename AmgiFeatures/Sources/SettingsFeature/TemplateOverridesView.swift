@@ -47,7 +47,7 @@ struct TemplateOverridesView: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .background(palette.background)
+        .amgiScreenCanvas()
         .navigationTitle("Template Overrides")
         .navigationBarTitleDisplayMode(.inline)
         .task(id: overridesRaw) { await resolveNames() }

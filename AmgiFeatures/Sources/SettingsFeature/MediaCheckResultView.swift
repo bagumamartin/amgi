@@ -16,7 +16,6 @@ struct MediaCheckResultView: View {
             if model.isLoading {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(palette.background)
             } else if let result = model.currentResult {
                 contentList(result: result)
             } else {
@@ -26,11 +25,10 @@ struct MediaCheckResultView: View {
                     description: Text(model.actionMessage ?? "Couldn't read the media database.")
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(palette.background)
             }
         }
         .scrollContentBackground(.hidden)
-        .background(palette.background)
+        .amgiScreenCanvas()
         .navigationTitle("Media Check")
         .navigationBarTitleDisplayMode(.inline)
         .alert("Done", isPresented: $model.showActionAlert) {
@@ -52,7 +50,6 @@ private extension MediaCheckResultView {
             if result.haveTrash || !result.unused.isEmpty { trashSection(result: result) }
         }
         .scrollContentBackground(.hidden)
-        .background(palette.background)
     }
 
     func summarySection(result: MediaCheckResult) -> some View {

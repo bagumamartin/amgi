@@ -322,6 +322,8 @@ struct BrowseSourceColumn: View {
             }
         }
         .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
+        .amgiScreenCanvas()
         .task(id: presenceIdentity) {
             await model.refreshSourcePresence(
                 decks: deckRows.map(\.deck),

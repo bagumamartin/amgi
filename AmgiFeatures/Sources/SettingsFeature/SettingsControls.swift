@@ -1,15 +1,14 @@
-import SwiftUI
+package import SwiftUI
 import AmgiTheme
+import AmgiUI
 
 // MARK: - Page scaffold
 
-/// Chrome shared by every settings sub-page: palette background, scrolling
+/// Chrome shared by every settings sub-page: page canvas, scrolling
 /// column of grouped panels. Sub-pages keep the system navigation bar (the
 /// design's back pill) so the back button and the interactive pop gesture
 /// stay free; only the content adopts the design's grouped layout.
 struct SettingsPage<Content: View>: View {
-    @Environment(\.palette) private var palette
-
     @ViewBuilder let content: () -> Content
 
     var body: some View {
@@ -19,7 +18,7 @@ struct SettingsPage<Content: View>: View {
             }
             .padding(.bottom, AmgiSpacing.xl)
         }
-        .background(palette.background)
+        .amgiScreenCanvas()
     }
 }
 

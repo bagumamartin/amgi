@@ -65,10 +65,11 @@ public struct LibraryListContent: View {
     }
 
     public var body: some View {
-        switch state {
-        case .loading:
-            ProgressView()
-        case .empty:
+        Group {
+            switch state {
+            case .loading:
+                ProgressView()
+            case .empty:
             ContentUnavailableView {
                 Label("No Decks", systemImage: "rectangle.stack")
             } description: {
@@ -104,7 +105,9 @@ public struct LibraryListContent: View {
                 } message: {
                     Text("This will permanently delete the deck and all its cards.")
                 }
+            }
         }
+        .amgiScreenCanvas()
     }
 
     @ViewBuilder
@@ -135,10 +138,9 @@ public struct LibraryListContent: View {
                     activityPending: heatmap == nil,
                     onStartReview: onStartReview
                 )
-                    // Full-bleed horizontally, like the heatmap card. Bottom
-                    // inset clears the card's shadow (radius 16–20, dy 4–6),
-                    // which the row would otherwise clip.
-                    .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 12, trailing: 0))
+                    // Full-bleed, same as the heatmap card — no extra inset
+                    // that would show the grouped-section plate behind it.
+                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
             }
@@ -207,7 +209,6 @@ public struct LibraryListContent: View {
             .padding(.top, 6)
             .padding(.bottom, 32)
         }
-        .background(palette.background.ignoresSafeArea())
         .refreshable { await onRefresh() }
     }
 

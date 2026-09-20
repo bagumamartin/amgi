@@ -121,11 +121,11 @@ struct EmptyCardsContent: View {
             if model.isLoading {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(palette.background)
             } else {
                 resultsList
             }
         }
+        .amgiScreenCanvas()
     }
 
     private var resultsList: some View {
@@ -145,7 +145,6 @@ struct EmptyCardsContent: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .background(palette.background)
     }
 
     @ViewBuilder

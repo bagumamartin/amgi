@@ -36,7 +36,6 @@ public struct LibraryHeroCard: View {
             eyebrow: "Due today",
             bigNumber: "\(data.totalDue)",
             subtitle: subtitleText,
-            background: heroGradient,
             decoration: {
                 StreakBadge(days: data.streak)
                     .redacted(reason: activityPending ? .placeholder : [])
@@ -53,17 +52,18 @@ public struct LibraryHeroCard: View {
 
     private var startReviewButton: some View {
         Button(action: onStartReview) {
-            Label(
-                data.totalDue > 0 ? "Start today's review" : "All caught up for today",
-                systemImage: data.totalDue > 0 ? "play.fill" : "checkmark"
-            )
+            HStack(spacing: 8) {
+                Image(systemName: data.totalDue > 0 ? "play.fill" : "checkmark")
+                    .amgiFont(size: 14, weight: .bold, relativeTo: .body)
+                    .symbolRenderingMode(.monochrome)
+                Text(data.totalDue > 0 ? "Start today's review" : "All caught up for today")
+                    .amgiFont(size: 16, weight: .semibold, relativeTo: .body)
+            }
             .frame(maxWidth: .infinity)
-            .amgiFont(size: 16, weight: .semibold, relativeTo: .body)
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
-        .tint(data.totalDue > 0 ? .white.opacity(0.22) : .white.opacity(0.12))
-        .foregroundStyle(.white)
+        .tint(palette.accent)
         .disabled(data.totalDue == 0)
     }
 
@@ -75,14 +75,6 @@ public struct LibraryHeroCard: View {
     private var subtitleText: String {
         "cards across \(data.deckCount) deck\(data.deckCount == 1 ? "" : "s")"
     }
-
-    private var heroGradient: AmgiCardBackground {
-        .gradient(
-            start: palette.accent,
-            end: Color(red: 0.37, green: 0.36, blue: 0.91), // #5E5CE6 Apple indigo
-            angle: .degrees(155)
-        )
-    }
 }
 
 // MARK: - Streak pill
@@ -90,19 +82,23 @@ public struct LibraryHeroCard: View {
 private struct StreakBadge: View {
     let days: Int
 
+    @Environment(\.palette) private var palette
+
     var body: some View {
         if days > 0 {
             HStack(spacing: 4) {
                 Image(systemName: "flame.fill")
                     .amgiFont(size: 12, weight: .bold, relativeTo: .footnote)
+                    .symbolRenderingMode(.monochrome)
+                    .foregroundStyle(palette.warning)
                 Text("\(days)")
                     .amgiFont(size: 14, weight: .semibold, relativeTo: .footnote)
                     .monospacedDigit()
+                    .foregroundStyle(palette.textPrimary)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .foregroundStyle(.white)
-            .background(.white.opacity(0.22), in: Capsule())
+            .background(palette.accentSoft, in: Capsule())
         }
     }
 }
@@ -112,17 +108,20 @@ private struct StreakBadge: View {
 private struct SparklineBars: View {
     let values: [Int]
 
+    @Environment(\.palette) private var palette
+
     var body: some View {
         GeometryReader { geo in
             let visible = Self.visibleSlice(values: values, width: geo.size.width)
             let maxValue = max(visible.max() ?? 0, 1)
             HStack(alignment: .bottom, spacing: 4) {
-                ForEach(Array(visible.enumerated()), id: \.offset) { _, value in
+                ForEach(Array(visible.enumerated()), id: \.offset) { offset, value in
                     // A zero day is a faint baseline tick, not a short bar —
                     // the 4pt floor otherwise renders 0 and 1 identically, and
                     // an all-zero series as 14 stubs that read as real data.
+                    let isToday = offset == visible.count - 1
                     RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                        .fill(.white.opacity(value == 0 ? 0.18 : 0.55))
+                        .fill(barFill(value: value, isToday: isToday))
                         .frame(height: value == 0
                                ? 2
                                : max(4, geo.size.height * CGFloat(value) / CGFloat(maxValue)))
@@ -130,6 +129,13 @@ private struct SparklineBars: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         }
+    }
+
+    private func barFill(value: Int, isToday: Bool) -> Color {
+        if value == 0 {
+            return isToday ? palette.accent.opacity(0.35) : palette.separator
+        }
+        return isToday ? palette.accent : palette.accent.opacity(0.55)
     }
 
     /// Keep each bar close to the iPhone pitch (14 bars in the compact
@@ -162,6 +168,22 @@ private struct SparklineBars: View {
     .padding(16)
     .background(Color.gray.opacity(0.12))
     .environment(\.palette, .vividLight)
+}
+
+#Preview("Populated — dark") {
+    LibraryHeroCard(
+        data: HeroData(
+            totalDue: 680,
+            deckCount: 7,
+            streak: 36,
+            recentDayTotals: HeroData.sampleDayTotals()
+        ),
+        onStartReview: {}
+    )
+    .padding(16)
+    .background(Color.gray.opacity(0.12))
+    .environment(\.palette, .vividDark)
+    .preferredColorScheme(.dark)
 }
 
 #Preview("Regular — split layout") {

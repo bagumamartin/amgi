@@ -160,7 +160,7 @@ package struct BrowseView: View {
                     NavigationStack {
                         BrowseAccountDestination(destination: $accountDestination)
                     }
-                    .background(palette.background)
+                    .amgiScreenCanvas()
                 }
             }
             #else
