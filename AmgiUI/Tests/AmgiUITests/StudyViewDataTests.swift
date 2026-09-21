@@ -109,18 +109,49 @@ final class StudyViewDataTests: XCTestCase {
         XCTAssertEqual(summary.sessionShape, "Reviews")
     }
 
-    func testKeepGoingSearches() {
-        XCTAssertEqual(StudyKeepGoing.forgotten.search, "rated:1:1")
-        XCTAssertEqual(StudyKeepGoing.ahead.search, "is:review prop:due<=1")
-        XCTAssertEqual(StudyKeepGoing.previewNew.search, "is:new")
-        XCTAssertFalse(StudyKeepGoing.previewNew.reschedule)
-        XCTAssertTrue(StudyKeepGoing.forgotten.reschedule)
-        XCTAssertTrue(StudyKeepGoing.ahead.reschedule)
-        XCTAssertEqual(StudyKeepGoing.actions.map(\.deckName).count, 3)
+    func testSpanSearchesASinglePastDayAndAWeek() {
+        XCTAssertEqual(StudySpan.ratedSearch(ease: 1, oldest: 1, newest: 1), "rated:2:1 -rated:1:1")
+        XCTAssertEqual(StudySpan.ratedSearch(ease: 4, oldest: 0, newest: 0), "rated:1:4")
+        XCTAssertEqual(StudySpan.ratedSearch(ease: nil, oldest: 6, newest: 0), "rated:7")
+        XCTAssertEqual(StudySpan.ratedSearch(ease: 1, oldest: 14, newest: 8), "rated:15:1 -rated:8:1")
+        XCTAssertEqual(StudySpan.dueSearch(daysAhead: 1), "is:review prop:due=1")
+    }
+
+    func testSpanTitlesAndEmptyCopy() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        calendar.locale = Locale(identifier: "en_US_POSIX")
+        let today = DateComponents(calendar: calendar, year: 2026, month: 9, day: 21).date!
+        XCTAssertEqual(StudySpan.dayTitle(offset: 0, day: today, calendar: calendar), "Today")
+        XCTAssertEqual(StudySpan.dayTitle(offset: 1, day: today, calendar: calendar), "Yesterday")
+        XCTAssertEqual(StudySpan.dayTitle(offset: -1, day: today, calendar: calendar), "Tomorrow")
+        let wednesday = calendar.date(byAdding: .day, value: -5, to: today)!
+        XCTAssertEqual(StudySpan.dayTitle(offset: 5, day: wednesday, calendar: calendar), "Wed 16 Sep")
+        XCTAssertEqual(StudySpan.monthTitle(todayStart: today, anchor: 0, calendar: calendar), "September")
         XCTAssertEqual(
-            Set(StudyKeepGoing.actions.map(\.deckName)).count,
-            3
+            StudySpan.emptyRatingMessage(title: "Again", spanName: "Yesterday"),
+            "No Again ratings yesterday"
         )
+        XCTAssertEqual(StudySpan.dueEmptyMessage(spanName: "Tomorrow"), "Nothing due tomorrow")
+        let rows = StudySpan.ratingRows(
+            again: 3, hard: 0, good: 1, easy: 2, reviewed: 6,
+            oldest: 1, newest: 1, spanName: "Yesterday"
+        )
+        XCTAssertEqual(rows.first?.count, 3)
+        XCTAssertEqual(rows.first?.search, "rated:2:1 -rated:1:1")
+        XCTAssertEqual(rows.last?.count, 6)
+    }
+
+    func testWeekContainingAKnownMonday() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        calendar.locale = Locale(identifier: "en_US_POSIX")
+        calendar.firstWeekday = 2
+        let monday = DateComponents(calendar: calendar, year: 2026, month: 9, day: 21).date!
+        let offsets = StudySpan.weekOffsets(todayStart: monday, anchor: 0, calendar: calendar)
+        XCTAssertEqual(offsets, [0, -1, -2, -3, -4, -5, -6])
+        let yesterdayWeek = StudySpan.weekOffsets(todayStart: monday, anchor: 1, calendar: calendar)
+        XCTAssertEqual(yesterdayWeek, [7, 6, 5, 4, 3, 2, 1])
     }
 
     func testBacklogNote() {

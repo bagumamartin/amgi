@@ -24,14 +24,24 @@ public struct StudyLandingContent: View {
 
     let state: State
     let showsContinueReading: Bool
-    let extraStudyError: String?
-    let extraStudyBusyID: String?
+    let grain: StudyGrain
+    let chart: StudyChartModel
+    let showsTodayDesk: Bool
+    let spanHeadline: String
+    let spanRows: [StudyTimeRow]
+    let spanRowsLoading: Bool
+    let canStepPast: Bool
+    let canStepFuture: Bool
     let onBeginSession: () -> Void
     let onSelectDeck: (Int64) -> Void
     let onSelectBook: (String) -> Void
-    let onKeepGoing: (StudyKeepGoingAction) -> Void
     let onOpenLibrary: () -> Void
     let onRefresh: () async -> Void
+    let onStepPast: () -> Void
+    let onStepFuture: () -> Void
+    let onSelectGrain: (StudyGrain) -> Void
+    let onSelectOffset: (Int) -> Void
+    let onSelectTimeRow: (StudyTimeRow) -> Void
 
     @Environment(\.palette) private var palette
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -39,25 +49,45 @@ public struct StudyLandingContent: View {
     public init(
         state: State,
         showsContinueReading: Bool = false,
-        extraStudyError: String? = nil,
-        extraStudyBusyID: String? = nil,
+        grain: StudyGrain = .day,
+        chart: StudyChartModel = .bars([]),
+        showsTodayDesk: Bool = true,
+        spanHeadline: String = "",
+        spanRows: [StudyTimeRow] = [],
+        spanRowsLoading: Bool = false,
+        canStepPast: Bool = true,
+        canStepFuture: Bool = true,
         onBeginSession: @escaping () -> Void,
         onSelectDeck: @escaping (Int64) -> Void,
         onSelectBook: @escaping (String) -> Void,
-        onKeepGoing: @escaping (StudyKeepGoingAction) -> Void = { _ in },
         onOpenLibrary: @escaping () -> Void = {},
-        onRefresh: @escaping () async -> Void
+        onRefresh: @escaping () async -> Void,
+        onStepPast: @escaping () -> Void = {},
+        onStepFuture: @escaping () -> Void = {},
+        onSelectGrain: @escaping (StudyGrain) -> Void = { _ in },
+        onSelectOffset: @escaping (Int) -> Void = { _ in },
+        onSelectTimeRow: @escaping (StudyTimeRow) -> Void = { _ in }
     ) {
         self.state = state
         self.showsContinueReading = showsContinueReading
-        self.extraStudyError = extraStudyError
-        self.extraStudyBusyID = extraStudyBusyID
+        self.grain = grain
+        self.chart = chart
+        self.showsTodayDesk = showsTodayDesk
+        self.spanHeadline = spanHeadline
+        self.spanRows = spanRows
+        self.spanRowsLoading = spanRowsLoading
+        self.canStepPast = canStepPast
+        self.canStepFuture = canStepFuture
         self.onBeginSession = onBeginSession
         self.onSelectDeck = onSelectDeck
         self.onSelectBook = onSelectBook
-        self.onKeepGoing = onKeepGoing
         self.onOpenLibrary = onOpenLibrary
         self.onRefresh = onRefresh
+        self.onStepPast = onStepPast
+        self.onStepFuture = onStepFuture
+        self.onSelectGrain = onSelectGrain
+        self.onSelectOffset = onSelectOffset
+        self.onSelectTimeRow = onSelectTimeRow
     }
 
     public var body: some View {
@@ -98,11 +128,17 @@ public struct StudyLandingContent: View {
         continueReading: StudyReadingRecData?
     ) -> some View {
         ScrollView {
-            Group {
-                if horizontalSizeClass == .regular {
-                    regularLayout(summary: summary, decks: decks, continueReading: continueReading)
+            VStack(alignment: .leading, spacing: 20) {
+                spanControls
+                StudySpanChart(model: chart, onSelectOffset: onSelectOffset)
+                if showsTodayDesk {
+                    if horizontalSizeClass == .regular {
+                        regularLayout(summary: summary, decks: decks, continueReading: continueReading)
+                    } else {
+                        compactLayout(summary: summary, decks: decks, continueReading: continueReading)
+                    }
                 } else {
-                    compactLayout(summary: summary, decks: decks, continueReading: continueReading)
+                    spanBody
                 }
             }
             .frame(maxWidth: StudyColumn.maxWidth)
@@ -111,6 +147,88 @@ public struct StudyLandingContent: View {
             .padding(.bottom, 24)
         }
         .refreshable { await onRefresh() }
+    }
+
+    private var spanControls: some View {
+        HStack(spacing: 12) {
+            stepButton(systemName: "chevron.left", enabled: canStepPast, action: onStepPast)
+            Picker("Span", selection: Binding(get: { grain }, set: onSelectGrain)) {
+                ForEach(StudyGrain.allCases) { item in
+                    Text(item.title).tag(item)
+                }
+            }
+            .pickerStyle(.segmented)
+            stepButton(systemName: "chevron.right", enabled: canStepFuture, action: onStepFuture)
+        }
+    }
+
+    private func stepButton(systemName: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(enabled ? palette.textPrimary : palette.textTertiary)
+                .frame(width: 36, height: 36)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+    }
+
+    private var spanBody: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if !spanHeadline.isEmpty {
+                Text(spanHeadline)
+                    .amgiFont(.sectionHeading)
+                    .foregroundStyle(palette.textPrimary)
+            }
+            if spanRowsLoading && spanRows.isEmpty {
+                ProgressView()
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.top, 12)
+            } else if !spanRows.isEmpty {
+                timeRowsSection
+            }
+        }
+    }
+
+    private var timeRowsSection: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(spanRows.enumerated()), id: \.element.id) { index, row in
+                Button {
+                    onSelectTimeRow(row)
+                } label: {
+                    HStack(spacing: 12) {
+                        Text(row.title)
+                            .amgiFont(.body)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(palette.textPrimary)
+                        Spacer(minLength: 12)
+                        Text("\(row.count)")
+                            .amgiFont(.body)
+                            .monospacedDigit()
+                            .foregroundStyle(palette.textSecondary)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(palette.textTertiary)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 12)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.pressScale)
+                if index < spanRows.count - 1 {
+                    Rectangle()
+                        .fill(palette.border)
+                        .frame(height: 0.5)
+                        .padding(.leading, 12)
+                }
+            }
+        }
+        .background(palette.surfaceElevated, in: RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous)
+                .strokeBorder(palette.border, lineWidth: 0.5)
+        )
     }
 
     private func compactLayout(
@@ -276,11 +394,8 @@ public struct StudyLandingContent: View {
                 if !extra.isEmpty {
                     deckSection("Extra session", decks: extra)
                 }
-            } else {
-                keepGoingSection
-                if showsContinueReading, let continueReading {
-                    continueReadingSection(continueReading)
-                }
+            } else if showsContinueReading, let continueReading {
+                continueReadingSection(continueReading)
             }
         }
     }
@@ -304,59 +419,6 @@ public struct StudyLandingContent: View {
                 RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous)
                     .strokeBorder(palette.border, lineWidth: 0.5)
             )
-        }
-    }
-
-    private var keepGoingSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            sectionHeader("Keep going")
-            VStack(spacing: 0) {
-                ForEach(Array(StudyKeepGoing.actions.enumerated()), id: \.element.id) { index, action in
-                    Button { onKeepGoing(action) } label: {
-                        HStack(spacing: 12) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(action.title)
-                                    .amgiFont(.body)
-                                    .fontWeight(.semibold)
-                                    .foregroundStyle(palette.textPrimary)
-                                Text(action.detail)
-                                    .amgiFont(.caption)
-                                    .foregroundStyle(palette.textSecondary)
-                            }
-                            Spacer(minLength: 12)
-                            if extraStudyBusyID == action.id {
-                                ProgressView()
-                            } else {
-                                Image(systemName: "play.fill")
-                                    .font(.system(size: 12, weight: .bold))
-                                    .foregroundStyle(palette.accent)
-                            }
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 12)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.pressScale)
-                    .disabled(extraStudyBusyID != nil)
-                    if index < StudyKeepGoing.actions.count - 1 {
-                        Rectangle()
-                            .fill(palette.border)
-                            .frame(height: 0.5)
-                            .padding(.leading, 12)
-                    }
-                }
-            }
-            .background(palette.surfaceElevated, in: RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous)
-                    .strokeBorder(palette.border, lineWidth: 0.5)
-            )
-            if let extraStudyError {
-                Text(extraStudyError)
-                    .amgiFont(.caption)
-                    .foregroundStyle(palette.warning)
-                    .padding(.top, 8)
-            }
         }
     }
 

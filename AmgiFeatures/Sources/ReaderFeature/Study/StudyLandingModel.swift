@@ -18,8 +18,11 @@ import Foundation
 final class StudyLandingModel {
     var contentState: StudyLandingState = .loading
     var selectedBook: ReaderBook?
-    var extraStudyError: String?
-    var extraStudyBusyID: String?
+    var grain: StudyGrain = .day
+    /// Days before the current Anki day. Positive is the past, negative the future.
+    var dayOffset: Int = 0
+    var spanRows: [StudyTimeRow] = []
+    var spanRowsLoading = false
 
     let progressCoordinator = ReaderProgressCoordinator()
 
@@ -33,8 +36,16 @@ final class StudyLandingModel {
     @ObservationIgnored @Dependency(\.collectionStore) private var store
     @ObservationIgnored @Dependency(\.statsClient) private var statsClient
     @ObservationIgnored @Dependency(\.deckClient) private var deckClient
+    @ObservationIgnored @Dependency(\.cardClient) private var cardClient
 
     private var loadToken = 0
+    private var spanToken = 0
+    private var rolloverHour = 4
+    /// Review counts keyed by days-before-today.
+    private var reviewTotals: [Int: Int] = [:]
+    private var reviewMillis: [Int: Int] = [:]
+    /// Cards due on a future Anki day, keyed by days ahead (1 = tomorrow).
+    private var futureDueCounts: [Int: Int] = [:]
 
     func load() async {
         loadToken += 1
@@ -117,6 +128,7 @@ final class StudyLandingModel {
             }
 
             await loadActivity(token: token)
+            await reloadSpanRows()
         } catch {
             Log.reader.error("Error loading: \(error)")
             guard token == loadToken, !hadContent else { return }
@@ -124,33 +136,127 @@ final class StudyLandingModel {
         }
     }
 
-    /// Builds a filtered deck for a caught-up action and returns its id
-    /// once it actually gathered cards.
-    func beginExtraStudy(_ action: StudyKeepGoingAction) async -> DeckID? {
-        extraStudyBusyID = action.id
-        extraStudyError = nil
-        defer { extraStudyBusyID = nil }
+    /// Opens a filtered deck for the row. The limit is the number on the
+    /// detail screen, which starts at the whole match. Returns a message
+    /// when the search is empty or the engine refuses; nil when review
+    /// should open on `deckID`.
+    func study(row: StudyTimeRow, limit: Int, reschedule: Bool) async -> (deckID: DeckID?, message: String?) {
         do {
             let spec = FilteredDeckSpec(
-                name: action.deckName,
-                search: action.search,
-                limit: action.limit,
+                name: "Study · Selection",
+                search: row.search,
+                limit: UInt32(max(1, limit)),
                 order: .due,
-                reschedule: action.reschedule
+                reschedule: reschedule
             )
             let created = try await deckClient.createFilteredDeck(spec)
             let gathered = try await deckClient.rebuildFilteredDeck(created.id)
             guard gathered > 0 else {
-                extraStudyError = "No cards matched."
-                return nil
+                return (nil, "No cards matched.")
             }
             store.invalidateAll(origin: .localUser)
-            return created.id
+            return (created.id, nil)
         } catch {
-            Log.reader.error("Extra study failed: \(error)")
-            extraStudyError = "Couldn't start \(action.title.lowercased())."
-            return nil
+            Log.reader.error("Span study failed: \(error)")
+            return (nil, error.localizedDescription)
         }
+    }
+
+    var showsTodayDesk: Bool { grain == .day && dayOffset == 0 }
+
+    var canStepPast: Bool { dayOffset < StudySpan.pastLimit }
+
+    var canStepFuture: Bool { dayOffset > -StudySpan.futureLimit }
+
+    var spanTitle: String {
+        StudySpan.title(grain: grain, todayStart: todayStart, anchor: dayOffset)
+    }
+
+    var spanHeadline: String {
+        guard !showsTodayDesk else { return "" }
+        if grain == .day, dayOffset < 0 {
+            let count = spanRows.first?.count ?? futureDueCounts[-dayOffset] ?? 0
+            return "\(count) due"
+        }
+        let count = spanRows.first { $0.id == "reviewed" }?.count ?? reviewedInSpan
+        let minutes = reviewedMillisInSpan / 60_000
+        if minutes > 0 {
+            return "\(count) reviewed · \(minutes) min"
+        }
+        return "\(count) reviewed"
+    }
+
+    var chart: StudyChartModel {
+        let calendar = Calendar.current
+        switch grain {
+        case .day, .week:
+            let offsets = StudySpan.weekOffsets(todayStart: todayStart, anchor: dayOffset, calendar: calendar)
+            let columns = offsets.map { offset in
+                let day = StudySpan.date(todayStart: todayStart, offset: offset, calendar: calendar)
+                let weekday = calendar.component(.weekday, from: day)
+                let symbols = calendar.veryShortWeekdaySymbols
+                let label = symbols.indices.contains(weekday - 1) ? symbols[weekday - 1] : ""
+                return StudyChartColumn(
+                    offset: offset,
+                    label: label,
+                    value: activityCount(offset),
+                    isSelected: grain == .day && offset == dayOffset,
+                    isToday: offset == 0,
+                    isFuture: offset < 0
+                )
+            }
+            return .bars(columns)
+        case .month:
+            let headers = StudySpan.weekdayHeaders(calendar: calendar)
+            let offsets = StudySpan.monthOffsets(todayStart: todayStart, anchor: dayOffset, calendar: calendar)
+            let cells = offsets.enumerated().map { index, offset in
+                let number: String
+                if let offset {
+                    let day = StudySpan.date(todayStart: todayStart, offset: offset, calendar: calendar)
+                    number = String(calendar.component(.day, from: day))
+                } else {
+                    number = ""
+                }
+                return StudyMonthCell(
+                    index: index,
+                    offset: offset,
+                    dayNumber: number,
+                    value: offset.map(activityCount) ?? 0,
+                    isSelected: false,
+                    isToday: offset == 0,
+                    isFuture: (offset ?? 0) < 0
+                )
+            }
+            return .month(headers: headers, cells: cells)
+        }
+    }
+
+    func step(towardsPast: Bool) {
+        let sign = towardsPast ? 1 : -1
+        switch grain {
+        case .day:
+            dayOffset = StudySpan.clamped(dayOffset + sign)
+        case .week:
+            dayOffset = StudySpan.clamped(dayOffset + sign * 7)
+        case .month:
+            let calendar = Calendar.current
+            let anchor = StudySpan.date(todayStart: todayStart, offset: dayOffset, calendar: calendar)
+            let moved = calendar.date(byAdding: .month, value: towardsPast ? -1 : 1, to: anchor) ?? anchor
+            dayOffset = StudySpan.clamped(StudySpan.offset(todayStart: todayStart, dayStart: moved, calendar: calendar))
+        }
+        Task { await reloadSpanRows() }
+    }
+
+    func selectGrain(_ grain: StudyGrain) {
+        self.grain = grain
+        Task { await reloadSpanRows() }
+    }
+
+    /// A bar or month cell drops the page onto that day.
+    func selectDay(_ offset: Int) {
+        grain = .day
+        dayOffset = StudySpan.clamped(offset)
+        Task { await reloadSpanRows() }
     }
 
     private var carriedSummary: StudySummaryData? {
@@ -162,8 +268,14 @@ final class StudyLandingModel {
     /// onto whatever summary is current so a live review repaint in
     /// between isn't overwritten with the pre-session counts.
     private func loadActivity(token: Int) async {
-        let graphs = try? await statsClient.fetchGraphs("", 28)
+        let graphs = try? await statsClient.fetchGraphs("", 400)
         guard token == loadToken, case .loaded(let summary, let decks, let reading) = contentState else { return }
+        if let graphs {
+            rolloverHour = graphs.rolloverHour
+            reviewTotals = Self.dayTotals(graphs.reviews.count)
+            reviewMillis = Self.dayTotals(graphs.reviews.time)
+            futureDueCounts = graphs.futureDue.futureDue
+        }
         let updated: StudySummaryData
         if let graphs {
             updated = summary.withActivity(
@@ -335,5 +447,97 @@ final class StudyLandingModel {
             coverImagePath: best.book.coverImagePath,
             authorLabel: best.book.author ?? ""
         )
+    }
+
+    private var todayStart: Date {
+        AnkiDay.start(of: Date(), rolloverHour: rolloverHour)
+    }
+
+    private var spanOffsets: [Int] {
+        let calendar = Calendar.current
+        switch grain {
+        case .day:
+            return [dayOffset]
+        case .week:
+            return StudySpan.weekOffsets(todayStart: todayStart, anchor: dayOffset, calendar: calendar)
+        case .month:
+            return StudySpan.monthOffsets(todayStart: todayStart, anchor: dayOffset, calendar: calendar).compactMap { $0 }
+        }
+    }
+
+    private var reviewedInSpan: Int {
+        spanOffsets.filter { $0 >= 0 }.reduce(0) { $0 + (reviewTotals[$1] ?? 0) }
+    }
+
+    private var reviewedMillisInSpan: Int {
+        spanOffsets.filter { $0 >= 0 }.reduce(0) { $0 + (reviewMillis[$1] ?? 0) }
+    }
+
+    private func activityCount(_ offset: Int) -> Int {
+        if offset >= 0 { return reviewTotals[offset] ?? 0 }
+        return futureDueCounts[-offset] ?? 0
+    }
+
+    private func reloadSpanRows() async {
+        spanToken += 1
+        let token = spanToken
+        guard !showsTodayDesk else {
+            spanRows = []
+            spanRowsLoading = false
+            return
+        }
+        spanRows = []
+        spanRowsLoading = true
+        defer { if token == spanToken { spanRowsLoading = false } }
+
+        let spanName = spanTitle
+        if grain == .day, dayOffset < 0 {
+            let ahead = -dayOffset
+            let search = StudySpan.dueSearch(daysAhead: ahead)
+            let count = (try? await cardClient.searchIds(search, nil).count) ?? (futureDueCounts[ahead] ?? 0)
+            guard token == spanToken else { return }
+            spanRows = [StudySpan.dueRow(count: count, daysAhead: ahead, spanName: spanName)]
+            return
+        }
+
+        guard let window = StudySpan.ratingWindow(offsets: spanOffsets) else {
+            guard token == spanToken else { return }
+            spanRows = StudySpan.ratingRows(
+                again: 0, hard: 0, good: 0, easy: 0, reviewed: 0,
+                oldest: 0, newest: 0, spanName: spanName
+            )
+            return
+        }
+
+        async let again = countRated(ease: 1, window: window)
+        async let hard = countRated(ease: 2, window: window)
+        async let good = countRated(ease: 3, window: window)
+        async let easy = countRated(ease: 4, window: window)
+        async let reviewed = countRated(ease: nil, window: window)
+        let counts = await (again, hard, good, easy, reviewed)
+        guard token == spanToken else { return }
+        spanRows = StudySpan.ratingRows(
+            again: counts.0,
+            hard: counts.1,
+            good: counts.2,
+            easy: counts.3,
+            reviewed: counts.4,
+            oldest: window.oldest,
+            newest: window.newest,
+            spanName: spanName
+        )
+    }
+
+    private func countRated(ease: Int?, window: (oldest: Int, newest: Int)) async -> Int {
+        let search = StudySpan.ratedSearch(ease: ease, oldest: window.oldest, newest: window.newest)
+        return (try? await cardClient.searchIds(search, nil).count) ?? 0
+    }
+
+    private static func dayTotals(_ reviews: [Int: ReviewCountsAndTimes.Reviews]) -> [Int: Int] {
+        reviews.reduce(into: [:]) { result, entry in
+            let total = entry.value.learn + entry.value.relearn + entry.value.young
+                + entry.value.mature + entry.value.filtered
+            result[-entry.key] = total
+        }
     }
 }

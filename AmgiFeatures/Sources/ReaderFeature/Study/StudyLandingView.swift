@@ -32,29 +32,37 @@ package struct StudyLandingView: View {
     @Dependency(\.collectionStore) private var store
     @Dependency(\.liveReviewCounts) private var liveCounts
     @State private var model = StudyLandingModel()
+    @State private var timeRow: StudyTimeRow?
 
     package var body: some View {
         StudyLandingContent(
             state: model.contentState,
             showsContinueReading: showsContinueReading,
-            extraStudyError: model.extraStudyError,
-            extraStudyBusyID: model.extraStudyBusyID,
+            grain: model.grain,
+            chart: model.chart,
+            showsTodayDesk: model.showsTodayDesk,
+            spanHeadline: model.spanHeadline,
+            spanRows: model.spanRows,
+            spanRowsLoading: model.spanRowsLoading,
+            canStepPast: model.canStepPast,
+            canStepFuture: model.canStepFuture,
             onBeginSession: beginSession,
             onSelectDeck: { id in onSelectDeck(DeckID(id)) },
             onSelectBook: { bookID in model.selectBook(bookID) },
-            onKeepGoing: { action in
-                Task {
-                    if let deckID = await model.beginExtraStudy(action) {
-                        onSelectDeck(deckID)
-                    }
-                }
-            },
             onOpenLibrary: onOpenLibrary,
-            onRefresh: { await model.load() }
+            onRefresh: { await model.load() },
+            onStepPast: { model.step(towardsPast: true) },
+            onStepFuture: { model.step(towardsPast: false) },
+            onSelectGrain: { model.selectGrain($0) },
+            onSelectOffset: { model.selectDay($0) },
+            onSelectTimeRow: { timeRow = $0 }
         )
-        .navigationTitle("Today")
+        .navigationTitle(model.spanTitle)
         .navigationBarTitleDisplayMode(.large)
-        .navigationSubtitleIfAvailable(todaySubtitle)
+        .navigationSubtitleIfAvailable(navigationSubtitle)
+        .navigationDestination(item: $timeRow) { row in
+            StudyTimeDetailScreen(row: row, model: model, onOpenDeck: onSelectDeck)
+        }
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 SyncToolbarButton()
@@ -81,15 +89,12 @@ package struct StudyLandingView: View {
         }
     }
 
-    /// Weekday / due copy that used to sit under the in-content "Today"
-    /// hero. Same string, now the navigation subtitle so the large title
-    /// matches Library.
-    private var todaySubtitle: String {
-        if case .loaded(let summary, _, _) = model.contentState {
-            summary.subtitleLabel
-        } else {
-            ""
+    private var navigationSubtitle: String {
+        guard model.showsTodayDesk,
+              case .loaded(let summary, _, _) = model.contentState else {
+            return ""
         }
+        return summary.subtitleLabel
     }
 
     private func beginSession() {
@@ -98,5 +103,51 @@ package struct StudyLandingView: View {
         guard case .loaded(let summary, _, _) = model.contentState,
               summary.totalDue > 0 else { return }
         onSelectDeck(DeckID(0))
+    }
+}
+
+/// Pushed from a rating or due row. Owns the sitting size and the
+/// reschedule switch; the model only builds the filtered deck.
+private struct StudyTimeDetailScreen: View {
+    let row: StudyTimeRow
+    let model: StudyLandingModel
+    let onOpenDeck: (DeckID) -> Void
+
+    @State private var limit: Int
+    @State private var reschedules: Bool
+    @State private var message: String?
+    @State private var busy = false
+
+    init(row: StudyTimeRow, model: StudyLandingModel, onOpenDeck: @escaping (DeckID) -> Void) {
+        self.row = row
+        self.model = model
+        self.onOpenDeck = onOpenDeck
+        _limit = State(initialValue: row.count)
+        _reschedules = State(initialValue: row.reschedulesByDefault)
+    }
+
+    var body: some View {
+        StudyTimeDetailContent(
+            row: row,
+            limit: $limit,
+            reschedules: $reschedules,
+            isBusy: busy,
+            message: message,
+            onStudy: study
+        )
+    }
+
+    private func study() {
+        guard row.count > 0, limit > 0 else { return }
+        Task {
+            busy = true
+            let result = await model.study(row: row, limit: limit, reschedule: reschedules)
+            busy = false
+            if let deckID = result.deckID {
+                onOpenDeck(deckID)
+            } else {
+                message = result.message
+            }
+        }
     }
 }

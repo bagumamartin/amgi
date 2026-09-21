@@ -301,71 +301,7 @@ public struct StudyDeckRowData: Identifiable, Equatable, Sendable {
     }
 }
 
-/// One caught-up action. Search strings are the contract the model turns
-/// into a filtered deck — stable names so a repeat tap updates one deck.
-public struct StudyKeepGoingAction: Equatable, Identifiable, Sendable {
-    public let id: String
-    public let title: String
-    public let detail: String
-    public let search: String
-    public let limit: UInt32
-    public let reschedule: Bool
-    public let deckName: String
-
-    public init(
-        id: String,
-        title: String,
-        detail: String,
-        search: String,
-        limit: UInt32,
-        reschedule: Bool,
-        deckName: String
-    ) {
-        self.id = id
-        self.title = title
-        self.detail = detail
-        self.search = search
-        self.limit = limit
-        self.reschedule = reschedule
-        self.deckName = deckName
-    }
-}
-
-public enum StudyKeepGoing {
-    public static let forgotten = StudyKeepGoingAction(
-        id: "forgotten",
-        title: "Forgotten",
-        detail: "Cards you marked Again today",
-        search: "rated:1:1",
-        limit: 50,
-        reschedule: true,
-        deckName: "Study · Again today"
-    )
-
-    public static let ahead = StudyKeepGoingAction(
-        id: "ahead",
-        title: "Review ahead",
-        detail: "Reviews due by tomorrow",
-        search: "is:review prop:due<=1",
-        limit: 50,
-        reschedule: true,
-        deckName: "Study · Ahead"
-    )
-
-    public static let previewNew = StudyKeepGoingAction(
-        id: "previewNew",
-        title: "Preview new",
-        detail: "Look at new cards without starting them",
-        search: "is:new",
-        limit: 20,
-        reschedule: false,
-        deckName: "Study · Preview"
-    )
-
-    public static let actions: [StudyKeepGoingAction] = [forgotten, ahead, previewNew]
-}
-
-/// A book recommendation card in the Study "Reading recommendations" horizontal strip.
+/// A book the caught-up day can continue.
 public struct StudyReadingRecData: Identifiable, Equatable, Sendable {
     public let id: String
     public let title: String
