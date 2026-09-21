@@ -81,6 +81,7 @@ package struct BrowseExit {
 /// `BrowseDeckTree` so compact and regular share expansion and filtering.
 struct BrowseSourceColumn: View {
     @Environment(\.palette) private var palette
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Bindable var model: BrowseModel
     let exit: BrowseExit?
     /// Batch selection for sidebar tag apply/remove. Nil on hosts without
@@ -422,11 +423,23 @@ struct BrowseSourceColumn: View {
         }
     }
 
-    /// Selection never clears to nil: deselecting every row would leave the
-    /// list column scoped to nothing.
+    /// Sidebar highlight is for a persistent column (iPad regular / Mac).
+    /// Compact stacks the columns, so a selected row both tints the source
+    /// and auto-pushes the notes list — iPhone should land on the tree.
+    private var highlightsCurrentSource: Bool {
+        #if os(iOS)
+        horizontalSizeClass == .regular
+        #else
+        true
+        #endif
+    }
+
+    /// Compact reports `nil` so the row is not highlighted; the model still
+    /// keeps a source. Set never accepts nil: deselecting every row would
+    /// leave the list column scoped to nothing.
     private var sourceSelection: Binding<BrowseSource?> {
         Binding(
-            get: { model.source },
+            get: { highlightsCurrentSource ? model.source : nil },
             set: {
                 if let new = $0 {
                     model.source = new

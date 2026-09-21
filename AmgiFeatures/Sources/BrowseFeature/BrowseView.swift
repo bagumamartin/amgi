@@ -472,10 +472,13 @@ package struct BrowseView: View {
         await model.refreshUndoStatus()
         await refreshNotetypeFields()
         #if os(iOS)
-        // A scoped seed (deck detail / deep link) should open on the list,
-        // not the source tree with the query sitting on the hidden column.
-        if model.source != .allDecks {
+        // Compact NavigationSplitView follows List selection into the notes
+        // column. Keep the source tree first unless this session is already
+        // scoped (deck-detail sheet, deep link).
+        if model.rootDeck != nil || model.source != .allDecks {
             preferredColumn = .content
+        } else {
+            preferredColumn = .sidebar
         }
         #endif
     }
