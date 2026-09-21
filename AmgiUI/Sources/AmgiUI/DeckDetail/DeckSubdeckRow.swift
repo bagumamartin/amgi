@@ -87,11 +87,16 @@ public struct DeckSubdeckRow: View {
                     .minimumScaleFactor(0.7)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                DeckCountBadges(
-                    newCount: data.newCount,
-                    learnCount: data.learnCount,
-                    reviewCount: data.reviewCount
-                )
+                if data.isArchived {
+                    Image(systemName: "pause.circle")
+                        .foregroundStyle(palette.cardStateSuspended)
+                } else {
+                    DeckCountBadges(
+                        newCount: data.newCount,
+                        learnCount: data.learnCount,
+                        reviewCount: data.reviewCount
+                    )
+                }
 
                 Image(systemName: "chevron.right")
                     .font(.system(size: 12, weight: .semibold))
@@ -188,6 +193,25 @@ public struct DeckSubdeckRow: View {
             learnCount: 4,
             reviewCount: 9,
             isFiltered: true
+        ),
+        showsDivider: false,
+        onTap: {}
+    )
+    .padding()
+    .environment(\.palette, .vividLight)
+}
+
+#Preview("Subdeck row — archived") {
+    DeckSubdeckRow(
+        data: DeckSubdeckRowData(
+            id: 3,
+            name: "Old Series",
+            fullName: "한국어::Old Series",
+            newCount: 0,
+            learnCount: 0,
+            reviewCount: 0,
+            isFiltered: false,
+            isArchived: true
         ),
         showsDivider: false,
         onTap: {}

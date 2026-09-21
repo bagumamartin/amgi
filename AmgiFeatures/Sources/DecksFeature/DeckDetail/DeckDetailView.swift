@@ -131,7 +131,10 @@ struct DeckDetailView: View {
                 order: currentSortOrder,
                 ranks: model.usageRanks
             ).map { node in
-                var row = Self.subdeckRow(from: node)
+                var row = Self.subdeckRow(
+                    from: node,
+                    isArchived: model.archivedSubdeckIDs.contains(node.id)
+                )
                 row.iconName = model.subdeckIcons[node.id.rawValue]
                 return row
             },
@@ -513,7 +516,7 @@ private extension DeckDetailView {
 
     // MARK: - Mapping
 
-    static func subdeckRow(from node: DeckTreeNode) -> DeckSubdeckRowData {
+    static func subdeckRow(from node: DeckTreeNode, isArchived: Bool = false) -> DeckSubdeckRowData {
         DeckSubdeckRowData(
             id: node.id.rawValue,
             name: node.name,
@@ -521,7 +524,8 @@ private extension DeckDetailView {
             newCount: node.counts.newCount,
             learnCount: node.counts.learnCount,
             reviewCount: node.counts.reviewCount,
-            isFiltered: node.isFiltered
+            isFiltered: node.isFiltered,
+            isArchived: isArchived
         )
     }
 }

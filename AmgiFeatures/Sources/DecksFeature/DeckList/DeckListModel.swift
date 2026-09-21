@@ -232,37 +232,17 @@ private extension DeckListModel {
     }
 
     func fetchArchivedDeckIDs(for rows: [DeckListRow]) async -> Set<DeckID> {
-        let candidates = rows.filter { row in
-            row.counts.total == 0 && !DeckArchiving.isExempt(id: row.id, isFiltered: row.isFiltered)
-        }
-        guard !candidates.isEmpty else { return [] }
-
-        let client = cardClient
-        return await withTaskGroup(of: DeckID?.self, returning: Set<DeckID>.self) { group in
-            var iterator = candidates.makeIterator()
-            func enqueue() {
-                guard let row = iterator.next() else { return }
-                group.addTask {
-                    let scope = DeckSearch.term(row.fullName)
-                    async let totalIDs = client.searchIds(scope, nil)
-                    async let suspendedIDs = client.searchIds("\(scope) is:suspended", nil)
-                    let total = (try? await totalIDs)?.count ?? 0
-                    let suspended = (try? await suspendedIDs)?.count ?? 0
-                    return DeckArchiving.isFullySuspended(totalCards: total, suspendedCards: suspended)
-                        ? row.id
-                        : nil
-                }
-            }
-            for _ in 0..<min(8, candidates.count) {
-                enqueue()
-            }
-            var ids: Set<DeckID> = []
-            for await id in group {
-                if let id { ids.insert(id) }
-                enqueue()
-            }
-            return ids
-        }
+        await DeckArchiving.archivedIDs(
+            in: rows.map {
+                DeckArchiving.Item(
+                    id: $0.id,
+                    fullName: $0.fullName,
+                    isFiltered: $0.isFiltered,
+                    dueCount: $0.counts.total
+                )
+            },
+            using: cardClient
+        )
     }
 
     func buildHeroAndHeatmap(rows: [DeckListRow]) async -> (HeroData, HeatmapCardData) {

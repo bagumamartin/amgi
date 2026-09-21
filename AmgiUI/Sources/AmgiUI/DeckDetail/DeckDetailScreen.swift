@@ -10,7 +10,8 @@ import AmgiTheme
 ///   • DeckDetailTile — NEW / LEARNING / REVIEW counts
 ///   • DeckStudyButton — full-width Study Now pill
 ///   • DeckCustomStudyCard — filtered decks only (Rebuild / Empty)
-///   • DeckSubdecksCard — if children
+///   • DeckSubdecksCard — active children; parked children live under Archived
+///     and that header is omitted entirely when none are parked
 ///   • heatmapSlot — Container-injected (R03)
 ///   • InsightsCard
 public struct DeckDetailScreen<HeatmapSlot: View>: View {
@@ -35,6 +36,7 @@ public struct DeckDetailScreen<HeatmapSlot: View>: View {
 
     @Environment(\.palette) private var palette
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @State private var archivedExpanded = false
 
     public init(
         state: DeckDetailViewState,
@@ -171,19 +173,43 @@ public struct DeckDetailScreen<HeatmapSlot: View>: View {
 
     @ViewBuilder
     private var subdecksSection: some View {
-        if case .loaded(let data) = state, !data.subdecks.isEmpty {
-            VStack(alignment: .leading, spacing: 6) {
-                DeckSectionHeader(title: "Subdecks", sortOrder: $sortOrder)
-                DeckSubdecksCard(rows: data.subdecks) { row in
-                    onAction(.subdeckSelected(row))
-                } onRename: { row in
-                    onAction(.renameSubdeck(row))
-                } onChangeIcon: { row in
-                    onAction(.changeSubdeckIcon(row))
-                } onDelete: { row in
-                    onAction(.deleteSubdeck(row))
+        if case .loaded(let data) = state {
+            let active = data.subdecks.filter { !$0.isArchived }
+            let archived = data.subdecks.filter(\.isArchived)
+            if !active.isEmpty || !archived.isEmpty {
+                VStack(alignment: .leading, spacing: 18) {
+                    if !active.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            DeckSectionHeader(title: "Subdecks", sortOrder: $sortOrder)
+                            subdecksCard(rows: active)
+                        }
+                    }
+                    if !archived.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ArchivedSectionHeader(
+                                count: archived.count,
+                                itemNoun: "subdecks",
+                                isExpanded: $archivedExpanded
+                            )
+                            if archivedExpanded {
+                                subdecksCard(rows: archived)
+                            }
+                        }
+                    }
                 }
             }
+        }
+    }
+
+    private func subdecksCard(rows: [DeckSubdeckRowData]) -> some View {
+        DeckSubdecksCard(rows: rows) { row in
+            onAction(.subdeckSelected(row))
+        } onRename: { row in
+            onAction(.renameSubdeck(row))
+        } onChangeIcon: { row in
+            onAction(.changeSubdeckIcon(row))
+        } onDelete: { row in
+            onAction(.deleteSubdeck(row))
         }
     }
 
@@ -231,6 +257,7 @@ private let _krChildren: [DeckSubdeckRowData] = [
     DeckSubdeckRowData(id: 2, name: "Cloze Grammar", fullName: "한국어::Cloze Grammar", newCount: 0, learnCount: 4, reviewCount: 9, isFiltered: false),
     DeckSubdeckRowData(id: 3, name: "Collocations", fullName: "한국어::Collocations", newCount: 0, learnCount: 14, reviewCount: 0, isFiltered: false),
     DeckSubdeckRowData(id: 4, name: "Manual Tags", fullName: "한국어::Manual Tags", newCount: 20, learnCount: 3, reviewCount: 3, isFiltered: false),
+    DeckSubdeckRowData(id: 5, name: "Old Series", fullName: "한국어::Old Series", newCount: 0, learnCount: 0, reviewCount: 0, isFiltered: false, isArchived: true),
 ]
 
 private let _krDefault = DeckDetailViewData(

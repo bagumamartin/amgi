@@ -60,8 +60,11 @@ import Testing
     ) -> DeckListModel {
         var deckClient = DeckClient()
         deckClient.fetchTree = { tree }
+        var cardClient = CardClient()
+        cardClient.searchIds = { _, _ in [] }
         return withDependencies {
             $0.deckClient = deckClient
+            $0.cardClient = cardClient
             $0.statsClient = StatsClient(
                 fetchGraphs: { search, _ in
                     if search.isEmpty { return GraphsSnapshot() }

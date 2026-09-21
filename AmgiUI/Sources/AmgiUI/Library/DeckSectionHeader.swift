@@ -45,6 +45,49 @@ public struct DeckSectionHeader: View {
     }
 }
 
+/// Collapsed "Archived" header. Only mount this when `count > 0` — the
+/// Library and deck-detail screens both hide the section when nothing is parked.
+public struct ArchivedSectionHeader: View {
+    public let count: Int
+    public let itemNoun: String
+    @Binding public var isExpanded: Bool
+
+    @Environment(\.palette) private var palette
+
+    public init(count: Int, itemNoun: String, isExpanded: Binding<Bool>) {
+        self.count = count
+        self.itemNoun = itemNoun
+        self._isExpanded = isExpanded
+    }
+
+    public var body: some View {
+        Button {
+            withAnimation(AmgiMotion.standard) { isExpanded.toggle() }
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text("Archived")
+                    .amgiFont(.sectionHeading)
+                    .foregroundStyle(palette.textPrimary)
+                Text("\(count)")
+                    .amgiFont(.caption)
+                    .foregroundStyle(palette.textTertiary)
+                    .monospacedDigit()
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(palette.textTertiary)
+                    .rotationEffect(.degrees(isExpanded ? 180 : 0))
+            }
+            .padding(.leading, 4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Archived, \(count) \(itemNoun)")
+        .accessibilityHint(isExpanded ? "Collapse" : "Expand")
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
 #if DEBUG
 #Preview("Library decks header") {
     @Previewable @State var sortOrder: DeckSortOrder = .mostUsed
@@ -56,6 +99,13 @@ public struct DeckSectionHeader: View {
 #Preview("Subdecks header") {
     @Previewable @State var sortOrder: DeckSortOrder = .alphabetical
     DeckSectionHeader(title: "SUBDECKS", sortOrder: $sortOrder)
+        .padding()
+        .environment(\.palette, .vividLight)
+}
+
+#Preview("Archived header") {
+    @Previewable @State var expanded = false
+    ArchivedSectionHeader(count: 2, itemNoun: "subdecks", isExpanded: $expanded)
         .padding()
         .environment(\.palette, .vividLight)
 }
@@ -79,6 +129,26 @@ public struct DeckSectionHeader: View {
 
     public var body: some View {
         Text(title)
+            .amgiFont(.sectionHeading)
+            .textCase(nil)
+    }
+}
+
+/// Title-only stand-in: the watch never presents Archived. Kept so sibling
+/// AmgiUI files still type-check.
+public struct ArchivedSectionHeader: View {
+    public let count: Int
+    public let itemNoun: String
+    @Binding public var isExpanded: Bool
+
+    public init(count: Int, itemNoun: String, isExpanded: Binding<Bool>) {
+        self.count = count
+        self.itemNoun = itemNoun
+        self._isExpanded = isExpanded
+    }
+
+    public var body: some View {
+        Text("Archived")
             .amgiFont(.sectionHeading)
             .textCase(nil)
     }

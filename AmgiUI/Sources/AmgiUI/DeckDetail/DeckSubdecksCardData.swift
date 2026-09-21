@@ -13,6 +13,8 @@ public struct DeckSubdeckRowData: Equatable, Hashable, Identifiable, Sendable {
     /// Persisted or name-derived icon (Phosphor case name). Nil ⇒ the row
     /// keeps the generic stack-glyph placeholder.
     public var iconName: String?
+    /// Fully parked: hidden from the active Subdecks card until Archived expands.
+    public var isArchived: Bool
 
     public init(
         id: Int64,
@@ -22,7 +24,8 @@ public struct DeckSubdeckRowData: Equatable, Hashable, Identifiable, Sendable {
         learnCount: Int,
         reviewCount: Int,
         isFiltered: Bool,
-        iconName: String? = nil
+        iconName: String? = nil,
+        isArchived: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -32,5 +35,6 @@ public struct DeckSubdeckRowData: Equatable, Hashable, Identifiable, Sendable {
         self.reviewCount = reviewCount
         self.isFiltered = isFiltered
         self.iconName = iconName
+        self.isArchived = isArchived
     }
 }

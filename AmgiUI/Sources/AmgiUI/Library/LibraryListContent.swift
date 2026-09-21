@@ -174,7 +174,11 @@ public struct LibraryListContent: View {
                         }
                     }
                 } header: {
-                    archivedSectionHeader(count: archived.count)
+                    ArchivedSectionHeader(
+                        count: archived.count,
+                        itemNoun: "decks",
+                        isExpanded: $archivedExpanded
+                    )
                 }
             }
 
@@ -232,7 +236,11 @@ public struct LibraryListContent: View {
 
                 if !archived.isEmpty {
                     VStack(alignment: .leading, spacing: 6) {
-                        archivedSectionHeader(count: archived.count)
+                        ArchivedSectionHeader(
+                            count: archived.count,
+                            itemNoun: "decks",
+                            isExpanded: $archivedExpanded
+                        )
                         if archivedExpanded {
                             deckRowsCard(rows: archived)
                         }
@@ -249,33 +257,6 @@ public struct LibraryListContent: View {
             .padding(.bottom, 32)
         }
         .refreshable { await onRefresh() }
-    }
-
-    private func archivedSectionHeader(count: Int) -> some View {
-        Button {
-            withAnimation(AmgiMotion.standard) { archivedExpanded.toggle() }
-        } label: {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text("Archived")
-                    .amgiFont(.sectionHeading)
-                    .foregroundStyle(palette.textPrimary)
-                Text("\(count)")
-                    .amgiFont(.caption)
-                    .foregroundStyle(palette.textTertiary)
-                    .monospacedDigit()
-                Spacer(minLength: 8)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(palette.textTertiary)
-                    .rotationEffect(.degrees(archivedExpanded ? 180 : 0))
-            }
-            .padding(.leading, 4)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Archived, \(count) decks")
-        .accessibilityHint(archivedExpanded ? "Collapse" : "Expand")
-        .accessibilityAddTraits(.isButton)
     }
 
     private func deckRowsCard(rows: [DeckRowViewData]) -> some View {

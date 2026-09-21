@@ -23,6 +23,9 @@ final class DeckDetailModel {
 
     var counts: DeckCounts = .zero
     var childDecks: [DeckTreeNode] = []
+    /// Direct children whose every card is suspended. Default and filtered
+    /// subdecks are never included, even when parked.
+    private(set) var archivedSubdeckIDs: Set<DeckID> = []
     var usageRanks: [Int64: DeckUsageRank] = [:]
     var statsSnapshot: DeckDetailStats.Snapshot?
     /// Manual override, else semantic suggestion — feeds the hero tile.
@@ -37,6 +40,7 @@ final class DeckDetailModel {
 
     @ObservationIgnored @Dependency(\.deckClient) private var deckClient
     @ObservationIgnored @Dependency(\.statsClient) private var statsClient
+    @ObservationIgnored @Dependency(\.cardClient) private var cardClient
     @ObservationIgnored @Dependency(\.collectionStore) private var store
     @ObservationIgnored private var statsTask: Task<Void, Never>?
 
@@ -103,7 +107,8 @@ final class DeckDetailModel {
         }
     }
 
-    func loadChildren() async {        do {
+    func loadChildren() async {
+        do {
             let tree = try await store.tree()
             childDecks = Self.findChildren(in: tree, parentId: deck.id)
             // First paint: overrides + cached suggestions; refineSubdeckIcons
@@ -114,13 +119,26 @@ final class DeckDetailModel {
                         .map { (node.id.rawValue, $0) }
                 }
             )
-            if !childDecks.isEmpty {
-                usageRanks = await fetchUsageRanks()
-            } else {
+            if childDecks.isEmpty {
                 usageRanks = [:]
+                archivedSubdeckIDs = []
+            } else {
+                usageRanks = await fetchUsageRanks()
+                archivedSubdeckIDs = await DeckArchiving.archivedIDs(
+                    in: childDecks.map {
+                        DeckArchiving.Item(
+                            id: $0.id,
+                            fullName: $0.fullName,
+                            isFiltered: $0.isFiltered,
+                            dueCount: $0.counts.total
+                        )
+                    },
+                    using: cardClient
+                )
             }
         } catch {
             childDecks = []
+            archivedSubdeckIDs = []
             usageRanks = [:]
         }
     }
