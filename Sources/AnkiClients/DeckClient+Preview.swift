@@ -14,6 +14,7 @@ extension DeckClient {
         delete: { _ in CollectionChanges() },
         rebuildFilteredDeck: { _ in 0 },
         emptyFilteredDeck: { _ in },
+        createFilteredDeck: { _ in DeckCreation(id: DeckID(999), changes: CollectionChanges()) },
         extendLimits: { _, _, _ in },
         customStudyDefaults: { _ in
             CustomStudyDefaults(

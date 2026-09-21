@@ -157,4 +157,25 @@ import Testing
         #expect(snap.completedToday == 12)
         #expect(snap.todayProgressFraction == 12.0 / (12.0 + 25.0))
     }
+
+    @Test func rolloverNoteAppearsInsideThreeHours() {
+        let note = AnkiDay.rolloverNote(
+            now: date(10, 2), rolloverHour: 4, calendar: calendar
+        )
+        #expect(note == "New day in 2 hours")
+    }
+
+    @Test func rolloverNoteUsesMinutesWhenClose() {
+        let note = AnkiDay.rolloverNote(
+            now: date(10, 3, minute: 30), rolloverHour: 4, calendar: calendar
+        )
+        #expect(note == "New day in 30 minutes")
+    }
+
+    @Test func rolloverNoteHidesThroughTheMiddleOfTheDay() {
+        let note = AnkiDay.rolloverNote(
+            now: date(10, 12), rolloverHour: 4, calendar: calendar
+        )
+        #expect(note == nil)
+    }
 }

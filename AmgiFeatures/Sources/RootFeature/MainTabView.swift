@@ -207,7 +207,9 @@ struct MainTabView: View {
         switch section {
         case .library:
             NavigationStack {
-                DeckListView(onStartReview: { onSelectStudyDeck(DeckID(0)) })
+                DeckListView(onOpenToday: {
+                    $sectionRaw.withLock { $0 = MainSection.study.rawValue }
+                })
                     .accountChrome(showsMenu: showsAccountMenu, destination: $accountDestination)
             }
         case .read:
@@ -217,7 +219,13 @@ struct MainTabView: View {
             }
         case .study:
             NavigationStack {
-                StudyLandingView(onSelectDeck: onSelectStudyDeck)
+                StudyLandingView(
+                    onSelectDeck: onSelectStudyDeck,
+                    onOpenLibrary: {
+                        $sectionRaw.withLock { $0 = MainSection.library.rawValue }
+                    },
+                    showsContinueReading: showReaderTab
+                )
                     .accountChrome(showsMenu: showsAccountMenu, destination: $accountDestination)
             }
         case .stats:

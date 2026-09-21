@@ -145,6 +145,29 @@ public enum AnkiDay {
             bySettingHour: rolloverHour, minute: 0, second: 0, of: dayBefore
         ) ?? date
     }
+
+    /// "New day in 2 hours" when the next rollover is inside `horizon`.
+    /// Nil for the rest of the day — a countdown that is always visible
+    /// stops being orientation.
+    public static func rolloverNote(
+        now: Date,
+        rolloverHour: Int,
+        horizon: TimeInterval = 3 * 60 * 60,
+        calendar: Calendar = .current
+    ) -> String? {
+        let start = start(of: now, rolloverHour: rolloverHour, calendar: calendar)
+        guard let next = calendar.date(byAdding: .day, value: 1, to: start) else { return nil }
+        let remaining = next.timeIntervalSince(now)
+        guard remaining > 0, remaining <= horizon else { return nil }
+        if remaining >= 60 * 60 {
+            let hours = max(1, Int((remaining / 3600).rounded()))
+            let unit = hours == 1 ? "hour" : "hours"
+            return "New day in \(hours) \(unit)"
+        }
+        let minutes = max(1, Int((remaining / 60).rounded()))
+        let unit = minutes == 1 ? "minute" : "minutes"
+        return "New day in \(minutes) \(unit)"
+    }
 }
 
 // MARK: - Timeline projection

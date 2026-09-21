@@ -18,6 +18,8 @@ import Foundation
 final class StudyLandingModel {
     var contentState: StudyLandingState = .loading
     var selectedBook: ReaderBook?
+    var extraStudyError: String?
+    var extraStudyBusyID: String?
 
     let progressCoordinator = ReaderProgressCoordinator()
 
@@ -30,13 +32,21 @@ final class StudyLandingModel {
     @ObservationIgnored @Dependency(\.readerBookClient) private var readerBookClient
     @ObservationIgnored @Dependency(\.collectionStore) private var store
     @ObservationIgnored @Dependency(\.statsClient) private var statsClient
+    @ObservationIgnored @Dependency(\.deckClient) private var deckClient
+
+    private var loadToken = 0
 
     func load() async {
+        loadToken += 1
+        let token = loadToken
+        let hadContent: Bool
+        if case .loaded = contentState { hadContent = true } else { hadContent = false }
         do {
-            // 1. Deck tree → top-level decks only, with subdecks nested.
-            //    Parent counts already aggregate descendants in `deck_tree`,
-            //    so a deck with due subdecks still surfaces with a due count.
+            // 1. Deck tree → top-level decks only. Parent counts already
+            //    aggregate descendants, so a deck with due subdecks still
+            //    surfaces. Subdeck names become a caption, not nested rows.
             let tree = try await store.tree()
+            guard token == loadToken else { return }
             guard !tree.isEmpty else {
                 contentState = .empty
                 return
@@ -47,69 +57,136 @@ final class StudyLandingModel {
                 .sorted { $0.counts.total > $1.counts.total }
                 .map { Self.makeDeckRow(from: $0) }
 
-            // 2. Summary counts mirror the Library hero: sum top-level nodes
-            //    only. Each node's counts already include its descendants
-            //    (Anki aggregates children into parents in `deck_tree`), so
-            //    summing the flattened tree would double-count subdecks.
+            // 2. Answerable counts are the tree. Learning cards due later
+            //    today sit outside the learn-ahead window, so they are a
+            //    note — not part of the ring — or "due now" would include
+            //    cards the reviewer will not show yet.
             let totalDue = tree.reduce(0) { $0 + $1.counts.total }
             let totalNew = tree.reduce(0) { $0 + $1.counts.newCount }
-            // Learning remaining must include intraday cards due later today
-            // — tree counts drop them beyond the scheduler's learn-ahead
-            // window, which would make the ring's denominator drift from the
-            // reviewer's. Falls back to the tree count on failure.
-            let totalLearn = (try? await statsClient.learningDueToday(search: ""))
-                ?? tree.reduce(0) { $0 + $1.counts.learnCount }
+            let treeLearn = tree.reduce(0) { $0 + $1.counts.learnCount }
+            let learningToday = (try? await statsClient.learningDueToday(search: "")) ?? treeLearn
+            let learningReturning = max(0, learningToday - treeLearn)
             let totalReview = tree.reduce(0) { $0 + $1.counts.reviewCount }
             let deckCount = tree.filter { $0.counts.total > 0 }.count
+            guard token == loadToken else { return }
 
-            // 3. Build subtitle label from current weekday + deck count
             let weekday = Date().formatted(.dateTime.weekday(.wide))
-            let subtitleLabel: String
-            if deckCount == 0 {
-                subtitleLabel = weekday
-            } else {
-                subtitleLabel = "\(weekday) · \(deckCount) deck\(deckCount == 1 ? "" : "s") due"
-            }
-
-            // 3b. Resolve collection-wide daily progress for the ring. The
-            //     baseline is frozen at the first observation of today's Anki
-            //     day so the arc stays stable across the whole day.
+            let subtitleLabel = deckCount == 0
+                ? weekday
+                : "\(weekday) · \(deckCount) deck\(deckCount == 1 ? "" : "s") due"
             let dayProgress = await resolveCollectionProgress(totalDue: totalDue)
+            guard token == loadToken else { return }
 
+            // Carry streak/forecast across a refresh so the second phase
+            // doesn't flash back to a placeholder.
+            let carried = carriedSummary
             let summary = StudySummaryData(
                 totalDue: totalDue,
                 newCount: totalNew,
-                learnCount: totalLearn,
+                learnCount: treeLearn,
                 reviewCount: totalReview,
                 todayLabel: "Today",
                 subtitleLabel: subtitleLabel,
                 deckCount: deckCount,
                 reviewedToday: dayProgress.reviewedToday,
-                dueBaselineToday: dayProgress.dueBaselineToday
+                dueBaselineToday: dayProgress.dueBaselineToday,
+                learningReturning: learningReturning,
+                answerCount: carried?.answerCount ?? 0,
+                answerMillis: carried?.answerMillis ?? 0,
+                streak: carried?.streak ?? 0,
+                streakPending: carried == nil,
+                tomorrowDue: carried?.tomorrowDue,
+                backlogNote: carried?.backlogNote,
+                rolloverNote: carried?.rolloverNote
             )
 
-            // 4. Books → sort by lastRead desc → take 8 → map to DTO
-            let readingRecs = await loadReadingRecs()
+            let continueReading = totalDue == 0 ? await loadContinueReading() : nil
+            guard token == loadToken else { return }
+            contentState = .loaded(summary: summary, decks: deckRows, continueReading: continueReading)
 
-            contentState = .loaded(summary: summary, decks: deckRows, readingRecs: readingRecs)
-
-            // 5. Icons paint progressively: manual overrides are dictionary
-            //    lookups, semantic suggestions are RPC-backed per row. Same
-            //    paint-then-refine pattern as Library.
             await DeckIconLookup.refresh?()
             var iconRows = deckRows
             await Self.attachIconNames(to: &iconRows)
-            if case .loaded(let refreshedSummary, _, let refreshedRecs) = contentState {
+            guard token == loadToken else { return }
+            if case .loaded(let refreshedSummary, _, let refreshedReading) = contentState {
                 contentState = .loaded(
                     summary: refreshedSummary,
                     decks: iconRows,
-                    readingRecs: refreshedRecs
+                    continueReading: refreshedReading
                 )
             }
+
+            await loadActivity(token: token)
         } catch {
             Log.reader.error("Error loading: \(error)")
-            contentState = .empty
+            guard token == loadToken, !hadContent else { return }
+            contentState = .failed(error.localizedDescription)
         }
+    }
+
+    /// Builds a filtered deck for a caught-up action and returns its id
+    /// once it actually gathered cards.
+    func beginExtraStudy(_ action: StudyKeepGoingAction) async -> DeckID? {
+        extraStudyBusyID = action.id
+        extraStudyError = nil
+        defer { extraStudyBusyID = nil }
+        do {
+            let spec = FilteredDeckSpec(
+                name: action.deckName,
+                search: action.search,
+                limit: action.limit,
+                order: .due,
+                reschedule: action.reschedule
+            )
+            let created = try await deckClient.createFilteredDeck(spec)
+            let gathered = try await deckClient.rebuildFilteredDeck(created.id)
+            guard gathered > 0 else {
+                extraStudyError = "No cards matched."
+                return nil
+            }
+            store.invalidateAll(origin: .localUser)
+            return created.id
+        } catch {
+            Log.reader.error("Extra study failed: \(error)")
+            extraStudyError = "Couldn't start \(action.title.lowercased())."
+            return nil
+        }
+    }
+
+    private var carriedSummary: StudySummaryData? {
+        if case .loaded(let summary, _, _) = contentState { return summary }
+        return nil
+    }
+
+    /// Streak, time studied, tomorrow, and the rollover note. Published
+    /// onto whatever summary is current so a live review repaint in
+    /// between isn't overwritten with the pre-session counts.
+    private func loadActivity(token: Int) async {
+        let graphs = try? await statsClient.fetchGraphs("", 28)
+        guard token == loadToken, case .loaded(let summary, let decks, let reading) = contentState else { return }
+        let updated: StudySummaryData
+        if let graphs {
+            updated = summary.withActivity(
+                answerCount: graphs.today.answerCount,
+                answerMillis: graphs.today.answerMillis,
+                streak: StreakCalculator.streak(reviews: graphs.reviews.count),
+                tomorrowDue: graphs.futureDue.futureDue[1] ?? 0,
+                backlogNote: StudySummaryData.backlogNote(haveBacklog: graphs.futureDue.haveBacklog),
+                rolloverNote: AnkiDay.rolloverNote(now: Date(), rolloverHour: graphs.rolloverHour)
+            )
+        } else if summary.streakPending {
+            updated = summary.withActivity(
+                answerCount: summary.answerCount,
+                answerMillis: summary.answerMillis,
+                streak: summary.streak,
+                tomorrowDue: summary.tomorrowDue ?? 0,
+                backlogNote: summary.backlogNote,
+                rolloverNote: summary.rolloverNote
+            )
+        } else {
+            return
+        }
+        contentState = .loaded(summary: updated, decks: decks, continueReading: reading)
     }
 
     func selectBook(_ bookID: String) {
@@ -127,7 +204,7 @@ final class StudyLandingModel {
     /// anchor, then add the session's live counts. The day-progress arc,
     /// deck rows, and reading recommendations stay on the last full snapshot.
     func applyLiveCounts(_ snapshot: LiveReviewSnapshot) {
-        guard case .loaded(let summary, let decks, let readingRecs) = contentState else { return }
+        guard case .loaded(let summary, let decks, let continueReading) = contentState else { return }
         if liveSessionID != snapshot.sessionID {
             liveAnchorCounts = DeckCounts(
                 newCount: summary.newCount,
@@ -145,19 +222,14 @@ final class StudyLandingModel {
         )
 
         contentState = .loaded(
-            summary: StudySummaryData(
+            summary: summary.withLiveCounts(
                 totalDue: whole.total,
                 newCount: whole.newCount,
                 learnCount: whole.learnCount,
-                reviewCount: whole.reviewCount,
-                todayLabel: summary.todayLabel,
-                subtitleLabel: summary.subtitleLabel,
-                deckCount: summary.deckCount,
-                reviewedToday: summary.reviewedToday,
-                dueBaselineToday: summary.dueBaselineToday
+                reviewCount: whole.reviewCount
             ),
             decks: decks,
-            readingRecs: readingRecs
+            continueReading: continueReading
         )
     }
 
@@ -170,9 +242,7 @@ final class StudyLandingModel {
         liveAnchorCounts = nil
     }
 
-    /// Recursively maps a `DeckTreeNode` to view data. The top-level list
-    /// shows only this node's own `name` (last path segment), with its due
-    /// subdecks nested underneath — never the `parent::child` full path.
+    /// Maps a top-level deck. Due children are a caption, not rows.
     private static func makeDeckRow(from node: DeckTreeNode) -> StudyDeckRowData {
         StudyDeckRowData(
             id: node.id.rawValue,
@@ -182,13 +252,22 @@ final class StudyLandingModel {
             learnCount: node.counts.learnCount,
             reviewCount: node.counts.reviewCount,
             isFiltered: node.isFiltered,
-            subdecks: node.children
-                .filter { $0.counts.total > 0 }
-                .sorted { $0.counts.total > $1.counts.total }
-                .map { makeDeckRow(from: $0) },
-            // Manual overrides + cached suggestions paint instantly.
+            includesLabel: includesLabel(for: node),
             iconName: DeckIconLookup.initialIcon?(node.id.rawValue, node.name)
         )
+    }
+
+    private static func includesLabel(for node: DeckTreeNode) -> String? {
+        let names = node.children
+            .filter { $0.counts.total > 0 }
+            .sorted { $0.counts.total > $1.counts.total }
+            .map(\.name)
+        guard !names.isEmpty else { return nil }
+        let shown = names.prefix(3).joined(separator: ", ")
+        if names.count > 3 {
+            return "Includes \(shown)…"
+        }
+        return "Includes \(shown)"
     }
 
     /// Recursively resolves icons for every row (top-level decks and nested
@@ -214,6 +293,7 @@ final class StudyLandingModel {
                     reviewCount: row.reviewCount,
                     isFiltered: row.isFiltered,
                     subdecks: subdecks,
+                    includesLabel: row.includesLabel,
                     iconName: iconName
                 )
             }
@@ -232,29 +312,28 @@ final class StudyLandingModel {
         }
     }
 
-    private func loadReadingRecs() async -> [StudyReadingRecData] {
+    /// The book opened most recently, only when it has saved progress.
+    private func loadContinueReading() async -> StudyReadingRecData? {
         guard let configuration = ReaderConfigurationLoader.loadConfiguration(),
               let books = try? await readerBookClient.loadBooks(configuration) else {
-            return []
+            return nil
         }
 
-        var lastRead: [String: Date] = [:]
+        var best: (book: ReaderBook, at: Date)?
         for book in books {
-            lastRead[book.id] = await progressCoordinator.resolved(bookID: book.id)?.updatedAt
+            guard let at = await progressCoordinator.resolved(bookID: book.id)?.updatedAt else { continue }
+            if let current = best {
+                if at > current.at { best = (book, at) }
+            } else {
+                best = (book, at)
+            }
         }
-
-        return books
-            .sorted { lhs, rhs in
-                (lastRead[lhs.id] ?? .distantPast) > (lastRead[rhs.id] ?? .distantPast)
-            }
-            .prefix(8)
-            .map { book in
-                StudyReadingRecData(
-                    id: book.id,
-                    title: book.title,
-                    coverImagePath: book.coverImagePath,
-                    authorLabel: ""
-                )
-            }
+        guard let best else { return nil }
+        return StudyReadingRecData(
+            id: best.book.id,
+            title: best.book.title,
+            coverImagePath: best.book.coverImagePath,
+            authorLabel: best.book.author ?? ""
+        )
     }
 }

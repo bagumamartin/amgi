@@ -24,7 +24,7 @@ public struct LibraryListContent: View {
     let state: State
     @Binding var sortOrder: DeckSortOrder
     let onRefresh: () async -> Void
-    let onStartReview: () -> Void
+    let onOpenToday: () -> Void
     let onTapDeck: (DeckRowViewData) -> Void
     let onDeleteDeck: (Int64) async -> Void
     let onRenameDeck: (DeckRowViewData) -> Void
@@ -45,7 +45,7 @@ public struct LibraryListContent: View {
         state: State,
         sortOrder: Binding<DeckSortOrder> = .constant(.mostUsed),
         onRefresh: @escaping () async -> Void,
-        onStartReview: @escaping () -> Void,
+        onOpenToday: @escaping () -> Void,
         onTapDeck: @escaping (DeckRowViewData) -> Void,
         onDeleteDeck: @escaping (Int64) async -> Void,
         onRenameDeck: @escaping (DeckRowViewData) -> Void,
@@ -56,7 +56,7 @@ public struct LibraryListContent: View {
         self.state = state
         self._sortOrder = sortOrder
         self.onRefresh = onRefresh
-        self.onStartReview = onStartReview
+        self.onOpenToday = onOpenToday
         self.onTapDeck = onTapDeck
         self.onDeleteDeck = onDeleteDeck
         self.onRenameDeck = onRenameDeck
@@ -139,7 +139,7 @@ public struct LibraryListContent: View {
                 LibraryHeroCard(
                     data: hero,
                     activityPending: heatmap == nil,
-                    onStartReview: onStartReview
+                    onOpenToday: onOpenToday
                 )
                     // Full-bleed, same as the heatmap card — no extra inset
                     // that would show the grouped-section plate behind it.
@@ -224,7 +224,7 @@ public struct LibraryListContent: View {
                 LibraryHeroCard(
                     data: hero,
                     activityPending: heatmap == nil,
-                    onStartReview: onStartReview
+                    onOpenToday: onOpenToday
                 )
 
                 if !active.isEmpty {
@@ -500,7 +500,7 @@ private extension HeroData {
                 heatmap: .dense
             ),
             sortOrder: .constant(.mostUsed),
-            onRefresh: {}, onStartReview: {},
+            onRefresh: {}, onOpenToday: {},
             onTapDeck: { _ in }, onDeleteDeck: { _ in }, onRenameDeck: { _ in }, onCreateDeck: {}
         )
         .navigationTitle("Library")
@@ -521,7 +521,7 @@ private extension HeroData {
                 heatmap: .dense
             ),
             sortOrder: .constant(.mostUsed),
-            onRefresh: {}, onStartReview: {},
+            onRefresh: {}, onOpenToday: {},
             onTapDeck: { _ in }, onDeleteDeck: { _ in }, onRenameDeck: { _ in }, onCreateDeck: {}
         )
         .navigationTitle("Library")
@@ -539,7 +539,7 @@ private extension HeroData {
                 heatmap: .sparse
             ),
             sortOrder: .constant(.mostUsed),
-            onRefresh: {}, onStartReview: {},
+            onRefresh: {}, onOpenToday: {},
             onTapDeck: { _ in }, onDeleteDeck: { _ in }, onRenameDeck: { _ in }, onCreateDeck: {}
         )
         .navigationTitle("Library")
@@ -552,7 +552,7 @@ private extension HeroData {
         LibraryListContent(
             state: .loading,
             sortOrder: .constant(.mostUsed),
-            onRefresh: {}, onStartReview: {},
+            onRefresh: {}, onOpenToday: {},
             onTapDeck: { _ in }, onDeleteDeck: { _ in }, onRenameDeck: { _ in }, onCreateDeck: {}
         )
         .navigationTitle("Library")
@@ -565,7 +565,7 @@ private extension HeroData {
         LibraryListContent(
             state: .empty,
             sortOrder: .constant(.mostUsed),
-            onRefresh: {}, onStartReview: {},
+            onRefresh: {}, onOpenToday: {},
             onTapDeck: { _ in }, onDeleteDeck: { _ in }, onRenameDeck: { _ in }, onCreateDeck: {}
         )
         .navigationTitle("Library")

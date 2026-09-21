@@ -24,19 +24,19 @@ package struct DeckListView: View {
     /// in from the trailing edge — the row and the screen are the same thing.
     @Namespace private var deckTransition
 
-    private let onStartReview: () -> Void
+    private let onOpenToday: () -> Void
 
     /// Profile switching lives on the root sidebar footer (iPad / Mac) or the
     /// toolbar account menu (iPhone), not here — applying it twice doubled
     /// the leading profile pill.
-    package init(onStartReview: @escaping () -> Void = {}) {
-        self.onStartReview = onStartReview
+    package init(onOpenToday: @escaping () -> Void = {}) {
+        self.onOpenToday = onOpenToday
         _model = State(initialValue: DeckListModel())
     }
 
     /// Preview / test seam — internal so the model stays module-private.
-    init(model: DeckListModel, onStartReview: @escaping () -> Void = {}) {
-        self.onStartReview = onStartReview
+    init(model: DeckListModel, onOpenToday: @escaping () -> Void = {}) {
+        self.onOpenToday = onOpenToday
         _model = State(initialValue: model)
     }
 
@@ -55,7 +55,7 @@ package struct DeckListView: View {
             state: model.state,
             sortOrder: sortOrderBinding,
             onRefresh: { await model.load(sortOrder: sortOrderBinding.wrappedValue) },
-            onStartReview: onStartReview,
+            onOpenToday: onOpenToday,
             onTapDeck: { row in pendingDeck = row.asDeckInfo },
             onDeleteDeck: { rawID in await model.delete(DeckID(rawID)) },
             onRenameDeck: { row in renameTarget = row },

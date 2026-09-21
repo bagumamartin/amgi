@@ -10,21 +10,23 @@ import AmgiTheme
 /// one hue throughout, and hue flips land exactly on the dimmed boundaries —
 /// glowing once the ring closes, then resetting at Anki's next-day rollover.
 ///
-/// Centre shows: "DUE NOW" caption / large due numeral / "across N decks"
-/// subline / a subtle daily percentage separated by a small rule. Zero-due
-/// state shows "0" with "Nothing due today".
+/// Centre shows the due numeral and today's percent. Mix, time, and the
+/// day boundary live beside the ring — the centre is a mark, not a caption
+/// stack.
 public struct StudyDueRing: View {
     public let summary: StudySummaryData
+    public var diameter: CGFloat
 
     @Environment(\.palette) private var palette
 
     @State private var displayedDue = 0
 
-    private let ringSize: CGFloat = 224
-    private let lineWidth: CGFloat = 18
+    private var ringSize: CGFloat { diameter }
+    private var lineWidth: CGFloat { diameter >= 190 ? 18 : 14 }
 
-    public init(summary: StudySummaryData) {
+    public init(summary: StudySummaryData, diameter: CGFloat = 168) {
         self.summary = summary
+        self.diameter = diameter
     }
 
     public var body: some View {
@@ -150,37 +152,20 @@ public struct StudyDueRing: View {
     // MARK: - Centre text
 
     private var centerContent: some View {
-        VStack(spacing: 3) {
-            Text("DUE NOW")
+        VStack(spacing: 2) {
+            Text(summary.phase == .caughtUp ? "TODAY" : "DUE NOW")
                 .amgiFont(.micro)
                 .foregroundStyle(palette.textSecondary)
 
             Text("\(displayedDue)")
-                .font(.system(size: 44, weight: .bold, design: .rounded))
+                .font(.system(size: diameter >= 190 ? 44 : 34, weight: .bold, design: .rounded))
                 .foregroundStyle(palette.textPrimary)
                 .contentTransition(.numericText())
 
-            Text(sublineLabel)
-                .amgiFont(.micro)
-                .foregroundStyle(palette.textSecondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: ringSize - lineWidth * 2 - 16)
-
-            Capsule()
-                .fill(palette.separator)
-                .frame(width: 32, height: 1)
-
-            Text("\(summary.todayProgressPercent)% completed")
+            Text("\(summary.todayProgressPercent)%")
                 .amgiFont(.micro)
                 .monospacedDigit()
                 .foregroundStyle(palette.textTertiary)
-
-            if let closeRingLabel {
-                Text(closeRingLabel)
-                    .amgiFont(.micro)
-                    .monospacedDigit()
-                    .foregroundStyle(palette.textTertiary)
-            }
         }
         .onAppear {
             withAnimation(.spring(response: 0.8, dampingFraction: 0.8)) {
@@ -194,22 +179,6 @@ public struct StudyDueRing: View {
         }
     }
 
-    private var sublineLabel: String {
-        guard summary.totalDue > 0 else { return "Nothing due today" }
-        let n = summary.deckCount
-        return "across \(n) deck\(n == 1 ? "" : "s")"
-    }
-
-    private var closeRingLabel: String? {
-        let remaining = summary.cardsRemainingToClose
-        if remaining > 0 {
-            return "\(remaining) to close the ring"
-        } else if summary.reviewedToday > 0 {
-            return "Ring closed"
-        } else {
-            return nil
-        }
-    }
 }
 
 // MARK: - Previews

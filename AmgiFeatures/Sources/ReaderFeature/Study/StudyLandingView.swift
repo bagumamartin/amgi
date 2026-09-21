@@ -10,13 +10,23 @@ import Dependencies
 /// + reader books and maps to `StudyLandingContent.State`; forwards
 /// navigation callbacks to the parent (`RootView`).
 package struct StudyLandingView: View {
-    /// Called when the user taps a deck row or "Begin Session".
+    /// Called when the user starts a session or a single deck.
     /// Sets `pendingReviewDeckId` on RootView to trigger the
     /// existing fullscreen cover.
     let onSelectDeck: (DeckID) -> Void
+    /// Empty collection sends people to Library. Study does not import.
+    let onOpenLibrary: () -> Void
+    /// Continue-reading is offered only when the Read tab itself is on.
+    let showsContinueReading: Bool
 
-    package init(onSelectDeck: @escaping (DeckID) -> Void) {
+    package init(
+        onSelectDeck: @escaping (DeckID) -> Void,
+        onOpenLibrary: @escaping () -> Void = {},
+        showsContinueReading: Bool = false
+    ) {
         self.onSelectDeck = onSelectDeck
+        self.onOpenLibrary = onOpenLibrary
+        self.showsContinueReading = showsContinueReading
     }
 
     @Dependency(\.collectionStore) private var store
@@ -26,9 +36,20 @@ package struct StudyLandingView: View {
     package var body: some View {
         StudyLandingContent(
             state: model.contentState,
+            showsContinueReading: showsContinueReading,
+            extraStudyError: model.extraStudyError,
+            extraStudyBusyID: model.extraStudyBusyID,
             onBeginSession: beginSession,
             onSelectDeck: { id in onSelectDeck(DeckID(id)) },
             onSelectBook: { bookID in model.selectBook(bookID) },
+            onKeepGoing: { action in
+                Task {
+                    if let deckID = await model.beginExtraStudy(action) {
+                        onSelectDeck(deckID)
+                    }
+                }
+            },
+            onOpenLibrary: onOpenLibrary,
             onRefresh: { await model.load() }
         )
         .navigationTitle("Today")
@@ -72,8 +93,8 @@ package struct StudyLandingView: View {
     }
 
     private func beginSession() {
-        // Launch the virtual all-decks review scope, matching the Library's
-        // "Start today's review". The button is only enabled when totalDue > 0.
+        // Whole-collection queue. The button only exists while cards are
+        // answerable, so a caught-up day never lands here.
         guard case .loaded(let summary, _, _) = model.contentState,
               summary.totalDue > 0 else { return }
         onSelectDeck(DeckID(0))
