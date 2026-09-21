@@ -69,7 +69,7 @@ public struct LibraryHeroCard: View {
 
     private var sparkline: some View {
         SparklineBars(values: data.recentDayTotals)
-            .frame(height: isRegular ? nil : 36)
+            .frame(height: isRegular ? nil : LibraryHeroMetrics.compactSparklineHeight)
     }
 
     private var subtitleText: String {

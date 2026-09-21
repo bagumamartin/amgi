@@ -100,6 +100,7 @@ public struct AmgiHeroSummary<Decoration: View, Footer: View, Sidecar: View>: Vi
 /// Content width of the iPhone hero column (card minus AmgiCard insets).
 enum LibraryHeroMetrics {
     static let compactColumnWidth: CGFloat = 320
+    static let compactSparklineHeight: CGFloat = 64
 }
 
 /// Places the iPhone column at a fixed compact width and the sidecar
