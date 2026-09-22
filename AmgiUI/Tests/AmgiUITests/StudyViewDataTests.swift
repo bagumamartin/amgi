@@ -115,6 +115,23 @@ final class StudyViewDataTests: XCTestCase {
         XCTAssertEqual(StudySpan.ratedSearch(ease: nil, oldest: 6, newest: 0), "rated:7")
         XCTAssertEqual(StudySpan.ratedSearch(ease: 1, oldest: 14, newest: 8), "rated:15:1 -rated:8:1")
         XCTAssertEqual(StudySpan.dueSearch(daysAhead: 1), "is:review prop:due=1")
+        XCTAssertEqual(
+            StudySpan.criterionSearch(ease: nil, extra: "tag:leech", oldest: 1, newest: 1),
+            "rated:2 -rated:1 tag:leech"
+        )
+        XCTAssertEqual(
+            StudySpan.criterionSearch(ease: 1, extra: "prop:lapses>=1", oldest: 1, newest: 1),
+            "rated:2:1 -rated:1:1 prop:lapses>=1"
+        )
+        XCTAssertEqual(
+            StudySpan.scopedSearch("rated:2 -rated:1", deckFullName: "Korean", includeSubdecks: true),
+            "rated:2 -rated:1 deck:\"Korean\""
+        )
+        XCTAssertEqual(
+            StudySpan.scopedSearch("rated:2 -rated:1", deckFullName: "Korean", includeSubdecks: false),
+            "rated:2 -rated:1 deck:\"Korean\" -deck:\"Korean::*\""
+        )
+        XCTAssertEqual(StudySpan.scopedSearch("rated:2", deckFullName: "", includeSubdecks: false), "rated:2")
     }
 
     func testSpanTitlesAndEmptyCopy() {
@@ -129,17 +146,26 @@ final class StudyViewDataTests: XCTestCase {
         XCTAssertEqual(StudySpan.dayTitle(offset: 5, day: wednesday, calendar: calendar), "Wed 16 Sep")
         XCTAssertEqual(StudySpan.monthTitle(todayStart: today, anchor: 0, calendar: calendar), "September")
         XCTAssertEqual(
-            StudySpan.emptyRatingMessage(title: "Again", spanName: "Yesterday"),
-            "No Again ratings yesterday"
+            StudySpan.emptyCriterionMessage(noun: "leeches", spanName: "Yesterday"),
+            "No leeches yesterday"
+        )
+        XCTAssertEqual(
+            StudySpan.emptyCriterionMessage(noun: "Easy ratings", spanName: "September"),
+            "No Easy ratings in September"
         )
         XCTAssertEqual(StudySpan.dueEmptyMessage(spanName: "Tomorrow"), "Nothing due tomorrow")
         let rows = StudySpan.ratingRows(
-            again: 3, hard: 0, good: 1, easy: 2, reviewed: 6,
+            counts: ["leeches": 3, "easy": 2, "reviewed": 6],
             oldest: 1, newest: 1, spanName: "Yesterday"
         )
+        XCTAssertEqual(rows.map(\.id), StudySpan.criteria.map(\.id))
         XCTAssertEqual(rows.first?.count, 3)
-        XCTAssertEqual(rows.first?.search, "rated:2:1 -rated:1:1")
+        XCTAssertEqual(rows.first?.search, "rated:2 -rated:1 tag:leech")
+        XCTAssertEqual(rows.first?.reschedulesByDefault, true)
+        XCTAssertEqual(rows.first { $0.id == "easy" }?.reschedulesByDefault, false)
+        XCTAssertEqual(rows.first { $0.id == "solid" }?.reschedulesByDefault, false)
         XCTAssertEqual(rows.last?.count, 6)
+        XCTAssertEqual(rows.last?.title, "All reviewed")
     }
 
     func testWeekContainingAKnownMonday() {

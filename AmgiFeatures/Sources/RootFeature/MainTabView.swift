@@ -59,6 +59,7 @@ struct MainTabView: View {
     let refreshID: UUID
     let showReaderTab: Bool
     let onSelectStudyDeck: (DeckID) -> Void
+    let onPullCooling: () -> Void
 
     /// Persisted so menu commands and the sidebar share one source of truth.
     @Shared(.appStorage(NavigationPreferences.rootSection)) private var sectionRaw: String = MainSection.study.rawValue
@@ -224,7 +225,8 @@ struct MainTabView: View {
                     onOpenLibrary: {
                         $sectionRaw.withLock { $0 = MainSection.library.rawValue }
                     },
-                    showsContinueReading: showReaderTab
+                    showsContinueReading: showReaderTab,
+                    onPullCooling: onPullCooling
                 )
                     .accountChrome(showsMenu: showsAccountMenu, destination: $accountDestination)
             }

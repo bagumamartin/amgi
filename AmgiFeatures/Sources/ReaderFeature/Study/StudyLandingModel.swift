@@ -140,11 +140,11 @@ final class StudyLandingModel {
     /// detail screen, which starts at the whole match. Returns a message
     /// when the search is empty or the engine refuses; nil when review
     /// should open on `deckID`.
-    func study(row: StudyTimeRow, limit: Int, reschedule: Bool) async -> (deckID: DeckID?, message: String?) {
+    func study(search: String, limit: Int, reschedule: Bool) async -> (deckID: DeckID?, message: String?) {
         do {
             let spec = FilteredDeckSpec(
                 name: "Study · Selection",
-                search: row.search,
+                search: search,
                 limit: UInt32(max(1, limit)),
                 order: .due,
                 reschedule: reschedule
@@ -502,35 +502,64 @@ final class StudyLandingModel {
 
         guard let window = StudySpan.ratingWindow(offsets: spanOffsets) else {
             guard token == spanToken else { return }
-            spanRows = StudySpan.ratingRows(
-                again: 0, hard: 0, good: 0, easy: 0, reviewed: 0,
-                oldest: 0, newest: 0, spanName: spanName
-            )
+            spanRows = StudySpan.ratingRows(counts: [:], oldest: 0, newest: 0, spanName: spanName)
             return
         }
 
-        async let again = countRated(ease: 1, window: window)
-        async let hard = countRated(ease: 2, window: window)
-        async let good = countRated(ease: 3, window: window)
-        async let easy = countRated(ease: 4, window: window)
-        async let reviewed = countRated(ease: nil, window: window)
-        let counts = await (again, hard, good, easy, reviewed)
+        let counts = await countCriteria(window: window)
         guard token == spanToken else { return }
         spanRows = StudySpan.ratingRows(
-            again: counts.0,
-            hard: counts.1,
-            good: counts.2,
-            easy: counts.3,
-            reviewed: counts.4,
+            counts: counts,
             oldest: window.oldest,
             newest: window.newest,
             spanName: spanName
         )
     }
 
-    private func countRated(ease: Int?, window: (oldest: Int, newest: Int)) async -> Int {
-        let search = StudySpan.ratedSearch(ease: ease, oldest: window.oldest, newest: window.newest)
-        return (try? await cardClient.searchIds(search, nil).count) ?? 0
+    private func countCriteria(window: (oldest: Int, newest: Int)) async -> [String: Int] {
+        let client = cardClient
+        return await withTaskGroup(of: (String, Int).self) { group in
+            for criterion in StudySpan.criteria {
+                let search = StudySpan.criterionSearch(
+                    ease: criterion.ease,
+                    extra: criterion.extra,
+                    oldest: window.oldest,
+                    newest: window.newest
+                )
+                group.addTask {
+                    let count = (try? await client.searchIds(search, nil).count) ?? 0
+                    return (criterion.id, count)
+                }
+            }
+            var counts: [String: Int] = [:]
+            for await pair in group {
+                counts[pair.0] = pair.1
+            }
+            return counts
+        }
+    }
+
+    func matchCount(_ search: String) async -> Int {
+        (try? await cardClient.searchIds(search, nil).count) ?? 0
+    }
+
+    func deckChoices() async -> [StudyDeckChoice] {
+        let tree = (try? await deckClient.fetchTree()) ?? []
+        var choices = [StudyDeckChoice.all]
+        func walk(_ nodes: [DeckTreeNode]) {
+            for node in nodes where !node.isFiltered {
+                choices.append(
+                    StudyDeckChoice(
+                        id: node.id.rawValue,
+                        title: node.fullName.replacingOccurrences(of: "::", with: " · "),
+                        fullName: node.fullName
+                    )
+                )
+                walk(node.children)
+            }
+        }
+        walk(tree)
+        return choices
     }
 
     private static func dayTotals(_ reviews: [Int: ReviewCountsAndTimes.Reviews]) -> [Int: Int] {

@@ -533,72 +533,18 @@ struct ReviewContent: View {
 
     private var waitingForLearningView: some View {
         ScrollView {
-            VStack(spacing: AmgiSpacing.xl) {
-                Spacer(minLength: AmgiSpacing.xl)
-
-                ZStack {
-                    Circle()
-                        .fill(palette.accent.opacity(0.15))
-                        .frame(width: 88, height: 88)
-                    Image(systemName: "clock.badge.checkmark")
-                        .font(.system(size: 44))
-                        .foregroundStyle(palette.accent)
-                }
-                .accessibilityHidden(true)
-
-                VStack(spacing: AmgiSpacing.xs) {
-                    Text("Cards Cooling Down")
-                        .amgiFont(.displayHero)
-                        .foregroundStyle(palette.textPrimary)
-                        .multilineTextAlignment(.center)
-
-                    let count = session.waitingLearningCount
-                    Text("You've reviewed all immediate cards. \(count) learning card\(count == 1 ? " is" : "s are") scheduled for later today.")
-                        .amgiFont(.body)
-                        .foregroundStyle(palette.textSecondary)
-                        .multilineTextAlignment(.center)
-                }
-
-                VStack(spacing: AmgiSpacing.md) {
-                    Button {
-                        session.reviewAhead()
-                    } label: {
-                        HStack(spacing: AmgiSpacing.xs) {
-                            Image(systemName: "forward.fill")
-                            Text("Review Ahead Now (\(session.waitingLearningCount))")
-                        }
-                        .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(AmgiPrimaryButtonStyle())
-                    .keyboardShortcut(.defaultAction)
-
-                    Button {
-                        session.checkWaitingQueue()
-                    } label: {
-                        HStack(spacing: AmgiSpacing.xs) {
-                            Image(systemName: "arrow.clockwise")
-                            Text("Check Ready Cards")
-                        }
-                        .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(AmgiSecondaryButtonStyle())
-
-                    Button("Finish for Now") {
-                        session.finishEarly()
-                    }
-                    .amgiFont(.caption)
-                    .foregroundStyle(palette.textSecondary)
-                    .padding(.top, AmgiSpacing.xs)
-                }
-                .padding(.top, AmgiSpacing.md)
-
-                Spacer(minLength: AmgiSpacing.xl)
-            }
+            SessionCoolingCard(
+                count: session.waitingLearningCount,
+                onWait: onDismiss,
+                onDoNow: { session.reviewAhead() },
+                onCheckReady: { session.checkWaitingQueue() }
+            )
             .padding(.horizontal, AmgiSpacing.lg)
             .padding(.vertical, AmgiSpacing.xl)
             .frame(maxWidth: 480)
             .frame(maxWidth: .infinity)
         }
+        .amgiScreenCanvas()
     }
 }
 

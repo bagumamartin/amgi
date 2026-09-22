@@ -42,9 +42,11 @@ public struct StudyLandingContent: View {
     let onSelectGrain: (StudyGrain) -> Void
     let onSelectOffset: (Int) -> Void
     let onSelectTimeRow: (StudyTimeRow) -> Void
+    let onDoCoolingNow: () -> Void
 
     @Environment(\.palette) private var palette
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @State private var choseToWait = false
 
     public init(
         state: State,
@@ -66,7 +68,8 @@ public struct StudyLandingContent: View {
         onStepFuture: @escaping () -> Void = {},
         onSelectGrain: @escaping (StudyGrain) -> Void = { _ in },
         onSelectOffset: @escaping (Int) -> Void = { _ in },
-        onSelectTimeRow: @escaping (StudyTimeRow) -> Void = { _ in }
+        onSelectTimeRow: @escaping (StudyTimeRow) -> Void = { _ in },
+        onDoCoolingNow: @escaping () -> Void = {}
     ) {
         self.state = state
         self.showsContinueReading = showsContinueReading
@@ -88,6 +91,7 @@ public struct StudyLandingContent: View {
         self.onSelectGrain = onSelectGrain
         self.onSelectOffset = onSelectOffset
         self.onSelectTimeRow = onSelectTimeRow
+        self.onDoCoolingNow = onDoCoolingNow
     }
 
     public var body: some View {
@@ -279,7 +283,9 @@ public struct StudyLandingContent: View {
                 mixLine("Review", count: summary.reviewCount, color: palette.cardStateReview)
             }
             streakLine(summary)
-            note(summary.returningNote)
+            if summary.learningReturning == 0 || choseToWait {
+                note(summary.returningNote)
+            }
             if summary.phase != .caughtUp, summary.cardsRemainingToClose > 0 {
                 note("\(summary.cardsRemainingToClose) to close the ring")
             }
@@ -394,8 +400,17 @@ public struct StudyLandingContent: View {
                 if !extra.isEmpty {
                     deckSection("Extra session", decks: extra)
                 }
-            } else if showsContinueReading, let continueReading {
-                continueReadingSection(continueReading)
+            } else {
+                if summary.learningReturning > 0, !choseToWait {
+                    SessionCoolingCard(
+                        count: summary.learningReturning,
+                        onWait: { choseToWait = true },
+                        onDoNow: onDoCoolingNow
+                    )
+                }
+                if showsContinueReading, let continueReading {
+                    continueReadingSection(continueReading)
+                }
             }
         }
     }

@@ -111,6 +111,21 @@ public struct StudyTimeRow: Identifiable, Equatable, Hashable, Sendable {
     }
 }
 
+/// A deck the row screen can narrow to. `id` 0 is the whole collection.
+public struct StudyDeckChoice: Identifiable, Hashable, Sendable {
+    public let id: Int64
+    public let title: String
+    public let fullName: String
+
+    public init(id: Int64, title: String, fullName: String) {
+        self.id = id
+        self.title = title
+        self.fullName = fullName
+    }
+
+    public static let all = StudyDeckChoice(id: 0, title: "All decks", fullName: "")
+}
+
 /// Day-offset and search math for the Study page.
 ///
 /// Offsets are days before the current Anki day: 0 is today, positive is
@@ -266,34 +281,86 @@ public enum StudySpan {
         }
     }
 
+    /// One restudy cut for a span. The search is the span's `rated:` window
+    /// plus `extra`. Easy and Solid default to leaving the schedule alone.
+    public struct Criterion: Sendable, Equatable {
+        public let id: String
+        public let title: String
+        public let ease: Int?
+        public let extra: String
+        public let reschedulesByDefault: Bool
+        public let emptyNoun: String
+
+        public init(
+            id: String,
+            title: String,
+            ease: Int?,
+            extra: String,
+            reschedulesByDefault: Bool,
+            emptyNoun: String
+        ) {
+            self.id = id
+            self.title = title
+            self.ease = ease
+            self.extra = extra
+            self.reschedulesByDefault = reschedulesByDefault
+            self.emptyNoun = emptyNoun
+        }
+    }
+
+    public static let criteria: [Criterion] = [
+        Criterion(id: "leeches", title: "Leeches", ease: nil, extra: "tag:leech", reschedulesByDefault: true, emptyNoun: "leeches"),
+        Criterion(id: "relapsed", title: "Relapsed", ease: 1, extra: "prop:lapses>=1", reschedulesByDefault: true, emptyNoun: "relapses"),
+        Criterion(id: "hard", title: "Hard", ease: 2, extra: "", reschedulesByDefault: true, emptyNoun: "Hard ratings"),
+        Criterion(id: "solid", title: "Solid", ease: 3, extra: "prop:lapses=0", reschedulesByDefault: false, emptyNoun: "solid cards"),
+        Criterion(id: "easy", title: "Easy", ease: 4, extra: "", reschedulesByDefault: false, emptyNoun: "Easy ratings"),
+        Criterion(id: "reviewed", title: "All reviewed", ease: nil, extra: "", reschedulesByDefault: true, emptyNoun: "reviews"),
+    ]
+
+    public static func criterionSearch(ease: Int?, extra: String, oldest: Int, newest: Int) -> String {
+        let base = ratedSearch(ease: ease, oldest: oldest, newest: newest)
+        let extra = extra.trimmingCharacters(in: .whitespaces)
+        guard !extra.isEmpty else { return base }
+        return "\(base) \(extra)"
+    }
+
+    /// `deck:"Name"` includes subdecks. Turning that off excludes `Name::*`.
+    public static func scopedSearch(_ base: String, deckFullName: String, includeSubdecks: Bool) -> String {
+        guard !deckFullName.isEmpty else { return base }
+        let term = quotedDeck(deckFullName)
+        if includeSubdecks { return "\(base) \(term)" }
+        return "\(base) \(term) -\(quotedDeck(deckFullName + "::*"))"
+    }
+
     public static func ratingRows(
-        again: Int,
-        hard: Int,
-        good: Int,
-        easy: Int,
-        reviewed: Int,
+        counts: [String: Int],
         oldest: Int,
         newest: Int,
         spanName: String
     ) -> [StudyTimeRow] {
-        let specs: [(String, String, Int, Int?)] = [
-            ("again", "Again", again, 1),
-            ("hard", "Hard", hard, 2),
-            ("good", "Good", good, 3),
-            ("easy", "Easy", easy, 4),
-            ("reviewed", "Reviewed", reviewed, nil),
-        ]
-        return specs.map { id, title, count, ease in
+        criteria.map { criterion in
             StudyTimeRow(
-                id: id,
-                title: title,
-                count: count,
-                search: ratedSearch(ease: ease, oldest: oldest, newest: newest),
-                detailTitle: "\(title) · \(spanName)",
-                emptyMessage: emptyRatingMessage(title: title, spanName: spanName),
-                reschedulesByDefault: true
+                id: criterion.id,
+                title: criterion.title,
+                count: counts[criterion.id] ?? 0,
+                search: criterionSearch(
+                    ease: criterion.ease,
+                    extra: criterion.extra,
+                    oldest: oldest,
+                    newest: newest
+                ),
+                detailTitle: "\(criterion.title) · \(spanName)",
+                emptyMessage: emptyCriterionMessage(noun: criterion.emptyNoun, spanName: spanName),
+                reschedulesByDefault: criterion.reschedulesByDefault
             )
         }
+    }
+
+    private static func quotedDeck(_ name: String) -> String {
+        let escaped = name
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return "deck:\"\(escaped)\""
     }
 
     public static func dueRow(count: Int, daysAhead: Int, spanName: String) -> StudyTimeRow {
@@ -308,12 +375,8 @@ public enum StudySpan {
         )
     }
 
-    public static func emptyRatingMessage(title: String, spanName: String) -> String {
-        let where_ = spanPhrase(spanName)
-        if title == "Reviewed" {
-            return "No reviews \(where_)"
-        }
-        return "No \(title) ratings \(where_)"
+    public static func emptyCriterionMessage(noun: String, spanName: String) -> String {
+        "No \(noun) \(spanPhrase(spanName))"
     }
 
     public static func dueEmptyMessage(spanName: String) -> String {

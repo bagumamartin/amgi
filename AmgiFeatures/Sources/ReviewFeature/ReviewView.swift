@@ -46,11 +46,17 @@ package struct ReviewView: View {
 
     @State private var session: ReviewSession
     @State private var destination: ReviewDestination?
+    @State private var toreDownSession = false
 
-    package init(deckId: DeckID, onDismiss: @escaping () -> Void) {
+    @Dependency(\.deckClient) private var deckClient
+    @Dependency(\.collectionStore) private var store
+
+    package init(deckId: DeckID, pullCooling: Bool = false, onDismiss: @escaping () -> Void) {
         self.deckId = deckId
         self.onDismiss = onDismiss
-        self._session = State(initialValue: ReviewSession(deckId: deckId))
+        let session = ReviewSession(deckId: deckId)
+        session.pullCoolingOnStart = pullCooling
+        self._session = State(initialValue: session)
     }
 
     package var body: some View {
@@ -63,7 +69,7 @@ package struct ReviewView: View {
             tapLookup: tapLookup,
             showNextReviewTime: showNextReviewTime,
             destination: $destination,
-            onDismiss: onDismiss
+            onDismiss: dismiss
         )
         .task {
             ReviewAudioSession.apply(playInSilent: playAudioInSilentMode)
@@ -84,7 +90,35 @@ package struct ReviewView: View {
             ReviewAudioSession.apply(playInSilent: newValue)
         }
         .onDisappear {
-            Task { await writeWidgetSnapshot() }
+            Task {
+                await tearDownCompletedSession()
+                await writeWidgetSnapshot()
+            }
         }
+    }
+
+    /// A filtered deck built for one sitting ("Study · …", Custom Study)
+    /// goes back to its home decks and leaves the library once the queue
+    /// is done. Closing early keeps it so the sitting can be resumed.
+    private func dismiss() {
+        Task {
+            await tearDownCompletedSession()
+            onDismiss()
+        }
+    }
+
+    private func tearDownCompletedSession() async {
+        guard session.isFinished, !toreDownSession, deckId.rawValue != 0 else { return }
+        toreDownSession = true
+        guard let decks = try? await deckClient.fetchAll(),
+              let deck = decks.first(where: { $0.id == deckId }),
+              deck.isFiltered,
+              Self.isTemporarySession(deck.name) else { return }
+        _ = try? await deckClient.delete(deckId)
+        store.invalidateAll(origin: .localUser)
+    }
+
+    private static func isTemporarySession(_ name: String) -> Bool {
+        name == "Custom Study Session" || name.hasPrefix("Study · ")
     }
 }

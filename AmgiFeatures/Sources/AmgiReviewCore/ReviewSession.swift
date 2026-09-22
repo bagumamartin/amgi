@@ -41,6 +41,9 @@ private enum ReviewUndoError: Error {
 @Observable @MainActor
 public final class ReviewSession {
     public let deckId: DeckID
+    /// When set before `start()`, the learn-ahead window is widened for this
+    /// session so cooling cards are in the queue immediately.
+    public var pullCoolingOnStart = false
     public var isAllDecksScope: Bool { deckId.rawValue == 0 }
     public private(set) var activeDeckName: String = ""
 
@@ -308,6 +311,13 @@ public final class ReviewSession {
         Task {
             defer { isAdvancing = false }
             do {
+                if pullCoolingOnStart {
+                    if originalLearnAheadSecs.withLock({ $0 }) == nil {
+                        let original = try? scheduler.getLearnAheadSecs()
+                        originalLearnAheadSecs.withLock { $0 = original }
+                    }
+                    try? scheduler.setLearnAheadSecs(86_400)
+                }
                 var activeDeckIDs: [DeckID] = []
                 var initialCounts: [DeckID: DeckCounts] = [:]
                 if allDeckScope {

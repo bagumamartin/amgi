@@ -30,6 +30,7 @@ public struct RootView: View {
     @Bindable private var accountStore = AccountStore.shared
 
     @State private var pendingReviewDeckId: DeckID?
+    @State private var pullCooling = false
     @State private var refreshID = UUID()
     @State private var launchState = CollectionLaunchState.shared
 
@@ -122,7 +123,14 @@ public struct RootView: View {
         MainTabView(
             refreshID: refreshID,
             showReaderTab: showReaderTab,
-            onSelectStudyDeck: { pendingReviewDeckId = $0 }
+            onSelectStudyDeck: {
+                pullCooling = false
+                pendingReviewDeckId = $0
+            },
+            onPullCooling: {
+                pullCooling = true
+                pendingReviewDeckId = DeckID(0)
+            }
         )
         .alert(
             "Couldn't switch profile",
@@ -135,8 +143,9 @@ public struct RootView: View {
         // still drives the tabs not yet on CollectionStore
         .syncFlow { refreshID = UUID() }
         .fullScreenCover(item: $pendingReviewDeckId) { deckId in
-            ReviewView(deckId: deckId) {
+            ReviewView(deckId: deckId, pullCooling: pullCooling) {
                 pendingReviewDeckId = nil
+                pullCooling = false
                 store.invalidateAll()
                 refreshID = UUID()
             }
