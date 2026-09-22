@@ -9,6 +9,9 @@ STAGE_DIR="$BRIDGE_DIR/target/xcframework-stage"
 HEADER="$BRIDGE_DIR/include/anki_bridge.h"
 
 export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:$PATH"
+# Cargo must write into anki-bridge-rs/target. Packaging copies dylibs from
+# there; a leftover CARGO_TARGET_DIR would build elsewhere and ship the old engine.
+unset CARGO_TARGET_DIR
 export PROTOC="${PROTOC:-$(which protoc 2>/dev/null || echo /opt/homebrew/bin/protoc)}"
 
 # anki_proto's build script writes the protobuf descriptor pool and anki's build

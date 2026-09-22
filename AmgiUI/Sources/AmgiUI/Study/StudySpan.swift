@@ -5,6 +5,7 @@ public enum StudyGrain: String, CaseIterable, Identifiable, Sendable {
     case day
     case week
     case month
+    case year
 
     public var id: String { rawValue }
 
@@ -13,6 +14,7 @@ public enum StudyGrain: String, CaseIterable, Identifiable, Sendable {
         case .day: "Day"
         case .week: "Week"
         case .month: "Month"
+        case .year: "Year"
         }
     }
 }
@@ -77,9 +79,33 @@ public struct StudyMonthCell: Identifiable, Equatable, Sendable {
     }
 }
 
+/// One month inside the year wall. `monthOffset` is the Anki-day offset of
+/// the 1st, which is what tapping the month name opens.
+public struct StudyYearMonth: Identifiable, Equatable, Sendable {
+    public let month: Int
+    public let name: String
+    public let monthOffset: Int
+    public let isCurrent: Bool
+    public let cells: [StudyMonthCell]
+
+    public var id: Int { month }
+
+    public init(month: Int, name: String, monthOffset: Int, isCurrent: Bool, cells: [StudyMonthCell]) {
+        self.month = month
+        self.name = name
+        self.monthOffset = monthOffset
+        self.isCurrent = isCurrent
+        self.cells = cells
+    }
+}
+
 public enum StudyChartModel: Equatable, Sendable {
     case bars([StudyChartColumn])
+    /// Twenty-four hour bars for one Anki day, starting at the rollover hour.
+    /// `endLabel` repeats that hour at the far side so the scale is bookended.
+    case hours(columns: [StudyChartColumn], endLabel: String)
     case month(headers: [String], cells: [StudyMonthCell])
+    case year(months: [StudyYearMonth])
 }
 
 /// A row under the chart: a rating total, or the cards due on a future day.
@@ -132,7 +158,8 @@ public struct StudyDeckChoice: Identifiable, Hashable, Sendable {
 /// the past, negative is the future. `rated:` counts backward from the
 /// next rollover, so one day is the difference of two windows.
 public enum StudySpan {
-    public static let pastLimit = 370
+    /// Five years of Anki days, shared with the graphs fetch.
+    public static let pastLimit = 365 * 5
     public static let futureLimit = 60
 
     public static func date(todayStart: Date, offset: Int, calendar: Calendar = .current) -> Date {
@@ -140,8 +167,30 @@ public enum StudySpan {
     }
 
     public static func offset(todayStart: Date, dayStart: Date, calendar: Calendar = .current) -> Int {
-        let days = calendar.dateComponents([.day], from: todayStart, to: dayStart).day ?? 0
+        // Compare calendar dates, not the raw interval. An Anki day starts at
+        // the rollover hour, so a 4am start is only 20 hours from the next
+        // midnight and a raw day-count collapses two dates onto one.
+        let from = calendar.dateComponents([.year, .month, .day], from: todayStart)
+        let to = calendar.dateComponents([.year, .month, .day], from: dayStart)
+        let start = calendar.date(from: from) ?? todayStart
+        let end = calendar.date(from: to) ?? dayStart
+        let days = calendar.dateComponents([.day], from: start, to: end).day ?? 0
         return -days
+    }
+
+    /// Clock hour for one slot of an Anki day. Slot 0 is the rollover hour.
+    public static func ankiDayClockHour(rolloverHour: Int, slot: Int) -> Int {
+        let start = ((rolloverHour % 24) + 24) % 24
+        return (start + slot) % 24
+    }
+
+    public static func hourLabel(_ clockHour: Int) -> String {
+        let hour = ((clockHour % 24) + 24) % 24
+        switch hour {
+        case 0: return "12am"
+        case 12: return "12pm"
+        default: return hour < 12 ? "\(hour)am" : "\(hour - 12)pm"
+        }
     }
 
     public static func clamped(_ offset: Int) -> Int {
@@ -261,6 +310,15 @@ public enum StudySpan {
         return day.formatted(format.month(.wide).year())
     }
 
+    public static func yearTitle(
+        todayStart: Date,
+        anchor: Int,
+        calendar: Calendar = .current
+    ) -> String {
+        let day = date(todayStart: todayStart, offset: anchor, calendar: calendar)
+        return String(calendar.component(.year, from: day))
+    }
+
     public static func title(
         grain: StudyGrain,
         todayStart: Date,
@@ -269,16 +327,124 @@ public enum StudySpan {
     ) -> String {
         switch grain {
         case .day:
-            dayTitle(
+            return dayTitle(
                 offset: anchor,
                 day: date(todayStart: todayStart, offset: anchor, calendar: calendar),
                 calendar: calendar
             )
         case .week:
-            weekTitle(todayStart: todayStart, anchor: anchor, calendar: calendar)
+            return weekTitle(todayStart: todayStart, anchor: anchor, calendar: calendar)
         case .month:
-            monthTitle(todayStart: todayStart, anchor: anchor, calendar: calendar)
+            return monthTitle(todayStart: todayStart, anchor: anchor, calendar: calendar)
+        case .year:
+            return yearTitle(todayStart: todayStart, anchor: anchor, calendar: calendar)
         }
+    }
+
+    /// True when the span still contains the current Anki day.
+    public static func isCurrent(
+        grain: StudyGrain,
+        todayStart: Date,
+        anchor: Int,
+        calendar: Calendar = .current
+    ) -> Bool {
+        switch grain {
+        case .day:
+            return anchor == 0
+        case .week:
+            return weekOffsets(todayStart: todayStart, anchor: anchor, calendar: calendar).contains(0)
+        case .month:
+            let day = date(todayStart: todayStart, offset: anchor, calendar: calendar)
+            return calendar.isDate(day, equalTo: todayStart, toGranularity: .month)
+        case .year:
+            let day = date(todayStart: todayStart, offset: anchor, calendar: calendar)
+            return calendar.isDate(day, equalTo: todayStart, toGranularity: .year)
+        }
+    }
+
+    public static func jumpTitle(grain: StudyGrain) -> String {
+        switch grain {
+        case .day: "Today"
+        case .week: "This week"
+        case .month: "This month"
+        case .year: "This year"
+        }
+    }
+
+    /// Under an hour stays `N min`. At an hour, minutes are spelled out,
+    /// and a zero remainder drops them (`2 hours`).
+    public static func studiedDuration(minutes: Int) -> String? {
+        guard minutes > 0 else { return nil }
+        if minutes < 60 { return "\(minutes) min" }
+        let hours = minutes / 60
+        let remainder = minutes % 60
+        let hourWord = hours == 1 ? "hour" : "hours"
+        if remainder == 0 { return "\(hours) \(hourWord)" }
+        let minuteWord = remainder == 1 ? "minute" : "minutes"
+        return "\(hours) \(hourWord) \(remainder) \(minuteWord)"
+    }
+
+    /// Twelve mini months for the calendar year that contains `anchor`.
+    /// `activity` receives an Anki-day offset and returns that day's count
+    /// (reviews in the past, cards scheduled in the future).
+    public static func yearChart(
+        todayStart: Date,
+        anchor: Int,
+        calendar: Calendar = .current,
+        activity: (Int) -> Int
+    ) -> (year: Int, isCurrentYear: Bool, months: [StudyYearMonth]) {
+        let anchorDate = date(todayStart: todayStart, offset: anchor, calendar: calendar)
+        let year = calendar.component(.year, from: anchorDate)
+        let currentYear = calendar.component(.year, from: todayStart)
+        let currentMonth = calendar.component(.month, from: todayStart)
+        let months: [StudyYearMonth] = (1...12).compactMap { month in
+            var parts = DateComponents()
+            parts.year = year
+            parts.month = month
+            parts.day = 1
+            guard let first = calendar.date(from: parts) else { return nil }
+            let monthOffset = offset(todayStart: todayStart, dayStart: first, calendar: calendar)
+            let offsets = monthOffsets(todayStart: todayStart, anchor: monthOffset, calendar: calendar)
+            let cells = offsets.enumerated().map { index, dayOffset in
+                let number: String
+                if let dayOffset {
+                    let day = date(todayStart: todayStart, offset: dayOffset, calendar: calendar)
+                    number = String(calendar.component(.day, from: day))
+                } else {
+                    number = ""
+                }
+                return StudyMonthCell(
+                    index: index,
+                    offset: dayOffset,
+                    dayNumber: number,
+                    value: dayOffset.map(activity) ?? 0,
+                    isSelected: false,
+                    isToday: dayOffset == 0,
+                    isFuture: (dayOffset ?? 0) < 0
+                )
+            }
+            let name = first.formatted(dateFormat(calendar: calendar).month(.abbreviated))
+            return StudyYearMonth(
+                month: month,
+                name: name,
+                monthOffset: monthOffset,
+                isCurrent: year == currentYear && month == currentMonth,
+                cells: cells
+            )
+        }
+        return (year, year == currentYear, months)
+    }
+
+    /// Every Anki-day offset in the calendar year that contains `anchor`.
+    public static func yearDayOffsets(
+        todayStart: Date,
+        anchor: Int,
+        calendar: Calendar = .current
+    ) -> [Int] {
+        yearChart(todayStart: todayStart, anchor: anchor, calendar: calendar, activity: { _ in 0 })
+            .months
+            .flatMap(\.cells)
+            .compactMap(\.offset)
     }
 
     /// One restudy cut for a span. The search is the span's `rated:` window

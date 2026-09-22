@@ -3,8 +3,7 @@ import AmgiTheme
 
 /// Pure rendering surface for the Study landing screen. Owns no I/O.
 /// The container loads data and maps it to the single `State` value
-/// passed here. Title chrome ("Today") lives on the container's
-/// navigation bar.
+/// passed here. The period title lives on the navigation bar.
 public enum StudyLandingState: Equatable, Sendable {
     case loading
     case empty
@@ -43,6 +42,7 @@ public struct StudyLandingContent: View {
     let onSelectOffset: (Int) -> Void
     let onSelectTimeRow: (StudyTimeRow) -> Void
     let onDoCoolingNow: () -> Void
+    let onSelectMonth: (Int) -> Void
 
     @Environment(\.palette) private var palette
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -69,7 +69,8 @@ public struct StudyLandingContent: View {
         onSelectGrain: @escaping (StudyGrain) -> Void = { _ in },
         onSelectOffset: @escaping (Int) -> Void = { _ in },
         onSelectTimeRow: @escaping (StudyTimeRow) -> Void = { _ in },
-        onDoCoolingNow: @escaping () -> Void = {}
+        onDoCoolingNow: @escaping () -> Void = {},
+        onSelectMonth: @escaping (Int) -> Void = { _ in }
     ) {
         self.state = state
         self.showsContinueReading = showsContinueReading
@@ -92,6 +93,7 @@ public struct StudyLandingContent: View {
         self.onSelectOffset = onSelectOffset
         self.onSelectTimeRow = onSelectTimeRow
         self.onDoCoolingNow = onDoCoolingNow
+        self.onSelectMonth = onSelectMonth
     }
 
     public var body: some View {
@@ -134,7 +136,9 @@ public struct StudyLandingContent: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 spanControls
-                StudySpanChart(model: chart, onSelectOffset: onSelectOffset)
+                StudySpanChart(model: chart, onSelectOffset: onSelectOffset, onSelectMonth: onSelectMonth)
+                    .contentShape(Rectangle())
+                    .simultaneousGesture(periodSwipe)
                 if showsTodayDesk {
                     if horizontalSizeClass == .regular {
                         regularLayout(summary: summary, decks: decks, continueReading: continueReading)
@@ -153,10 +157,25 @@ public struct StudyLandingContent: View {
         .refreshable { await onRefresh() }
     }
 
+    /// A clearly horizontal drag steps one period. Vertical movement keeps scrolling.
+    private var periodSwipe: some Gesture {
+        DragGesture(minimumDistance: 28)
+            .onEnded { value in
+                let dx = value.translation.width
+                let dy = value.translation.height
+                guard abs(dx) > abs(dy) * 1.5, abs(dx) > 48 else { return }
+                if dx > 0 {
+                    if canStepPast { onStepPast() }
+                } else if canStepFuture {
+                    onStepFuture()
+                }
+            }
+    }
+
     private var spanControls: some View {
         HStack(spacing: 12) {
             stepButton(systemName: "chevron.left", enabled: canStepPast, action: onStepPast)
-            Picker("Span", selection: Binding(get: { grain }, set: onSelectGrain)) {
+            Picker("Span", selection: Binding(get: { grain }, set: { onSelectGrain($0) })) {
                 ForEach(StudyGrain.allCases) { item in
                     Text(item.title).tag(item)
                 }

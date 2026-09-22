@@ -59,9 +59,10 @@ package struct StudyLandingView: View {
             onStepPast: { model.step(towardsPast: true) },
             onStepFuture: { model.step(towardsPast: false) },
             onSelectGrain: { model.selectGrain($0) },
-            onSelectOffset: { model.selectDay($0) },
+            onSelectOffset: { model.focusDay($0) },
             onSelectTimeRow: { timeRow = $0 },
-            onDoCoolingNow: onPullCooling
+            onDoCoolingNow: onPullCooling,
+            onSelectMonth: { model.selectMonth($0) }
         )
         .navigationTitle(model.spanTitle)
         .navigationBarTitleDisplayMode(.large)
@@ -71,6 +72,9 @@ package struct StudyLandingView: View {
         }
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
+                if model.showsJump {
+                    Button(model.jumpTitle) { model.returnToNow() }
+                }
                 SyncToolbarButton()
             }
         }

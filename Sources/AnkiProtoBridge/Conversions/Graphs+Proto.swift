@@ -202,7 +202,10 @@ package extension GraphsSnapshot {
             retrievability: RetrievabilityBuckets(proto.retrievability),
             fsrs: proto.fsrs,
             stability: IntervalsBuckets(proto.stability),
-            trueRetention: TrueRetentionStats(proto.trueRetention)
+            trueRetention: TrueRetentionStats(proto.trueRetention),
+            hoursByDay: Dictionary(uniqueKeysWithValues: proto.hoursByDay.map { key, day in
+                (Int(key), day.total.map(Int.init))
+            })
         )
     }
 }

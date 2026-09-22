@@ -180,6 +180,81 @@ final class StudyViewDataTests: XCTestCase {
         XCTAssertEqual(yesterdayWeek, [7, 6, 5, 4, 3, 2, 1])
     }
 
+    func testStudiedDurationSpellsHoursPastSixtyMinutes() {
+        XCTAssertNil(StudySpan.studiedDuration(minutes: 0))
+        XCTAssertEqual(StudySpan.studiedDuration(minutes: 45), "45 min")
+        XCTAssertEqual(StudySpan.studiedDuration(minutes: 60), "1 hour")
+        XCTAssertEqual(StudySpan.studiedDuration(minutes: 61), "1 hour 1 minute")
+        XCTAssertEqual(StudySpan.studiedDuration(minutes: 83), "1 hour 23 minutes")
+        XCTAssertEqual(StudySpan.studiedDuration(minutes: 120), "2 hours")
+    }
+
+    func testYearWallAndJumpTargets() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        calendar.locale = Locale(identifier: "en_US_POSIX")
+        calendar.firstWeekday = 2
+        let monday = DateComponents(calendar: calendar, year: 2026, month: 9, day: 21).date!
+        XCTAssertEqual(StudySpan.pastLimit, 365 * 5)
+        XCTAssertEqual(StudySpan.title(grain: .year, todayStart: monday, anchor: 0, calendar: calendar), "2026")
+        XCTAssertTrue(StudySpan.isCurrent(grain: .year, todayStart: monday, anchor: 0, calendar: calendar))
+        XCTAssertFalse(StudySpan.isCurrent(grain: .year, todayStart: monday, anchor: 400, calendar: calendar))
+        XCTAssertEqual(StudySpan.jumpTitle(grain: .day), "Today")
+        XCTAssertEqual(StudySpan.jumpTitle(grain: .week), "This week")
+        XCTAssertEqual(StudySpan.jumpTitle(grain: .month), "This month")
+        XCTAssertEqual(StudySpan.jumpTitle(grain: .year), "This year")
+
+        let wall = StudySpan.yearChart(todayStart: monday, anchor: 0, calendar: calendar) { offset in
+            if offset == 0 { return 8 }
+            if offset == -1 { return 3 }
+            return 0
+        }
+        XCTAssertEqual(wall.year, 2026)
+        XCTAssertTrue(wall.isCurrentYear)
+        XCTAssertEqual(wall.months.count, 12)
+        let september = wall.months[8]
+        XCTAssertEqual(september.name, "Sep")
+        XCTAssertTrue(september.isCurrent)
+        XCTAssertFalse(wall.months[0].isCurrent)
+        let today = september.cells.first { $0.isToday }
+        XCTAssertEqual(today?.dayNumber, "21")
+        XCTAssertEqual(today?.value, 8)
+        let tomorrow = september.cells.first { $0.offset == -1 }
+        XCTAssertEqual(tomorrow?.value, 3)
+        XCTAssertEqual(tomorrow?.isFuture, true)
+        let days = StudySpan.yearDayOffsets(todayStart: monday, anchor: 0, calendar: calendar)
+        XCTAssertEqual(days.count, 365)
+        XCTAssertTrue(days.contains(0))
+    }
+
+    func testRolloverDoesNotDuplicateACalendarDay() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        calendar.locale = Locale(identifier: "en_US_POSIX")
+        calendar.firstWeekday = 2
+        let todayStart = DateComponents(calendar: calendar, year: 2026, month: 9, day: 22, hour: 4).date!
+        let offsets = StudySpan.monthOffsets(todayStart: todayStart, anchor: 0, calendar: calendar)
+        let numbers = offsets.compactMap { offset -> Int? in
+            guard let offset else { return nil }
+            let day = StudySpan.date(todayStart: todayStart, offset: offset, calendar: calendar)
+            return calendar.component(.day, from: day)
+        }
+        XCTAssertEqual(numbers.count, 30)
+        XCTAssertEqual(numbers.filter { $0 == 22 }.count, 1)
+        XCTAssertEqual(numbers[21], 22)
+        XCTAssertEqual(numbers[22], 23)
+    }
+
+    func testAnkiDayHoursStartAtRollover() {
+        XCTAssertEqual(StudySpan.ankiDayClockHour(rolloverHour: 4, slot: 0), 4)
+        XCTAssertEqual(StudySpan.ankiDayClockHour(rolloverHour: 4, slot: 6), 10)
+        XCTAssertEqual(StudySpan.ankiDayClockHour(rolloverHour: 4, slot: 20), 0)
+        XCTAssertEqual(StudySpan.hourLabel(4), "4am")
+        XCTAssertEqual(StudySpan.hourLabel(0), "12am")
+        XCTAssertEqual(StudySpan.hourLabel(22), "10pm")
+        XCTAssertEqual(StudySpan.hourLabel(StudySpan.ankiDayClockHour(rolloverHour: 0, slot: 18)), "6pm")
+    }
+
     func testBacklogNote() {
         XCTAssertEqual(
             StudySummaryData.backlogNote(haveBacklog: true),

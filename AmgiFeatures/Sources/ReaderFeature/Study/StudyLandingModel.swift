@@ -46,6 +46,8 @@ final class StudyLandingModel {
     private var reviewMillis: [Int: Int] = [:]
     /// Cards due on a future Anki day, keyed by days ahead (1 = tomorrow).
     private var futureDueCounts: [Int: Int] = [:]
+    /// Review counts for each local hour, keyed by days-before-today.
+    private var hoursByDay: [Int: [Int]] = [:]
 
     func load() async {
         loadToken += 1
@@ -180,16 +182,36 @@ final class StudyLandingModel {
         }
         let count = spanRows.first { $0.id == "reviewed" }?.count ?? reviewedInSpan
         let minutes = reviewedMillisInSpan / 60_000
-        if minutes > 0 {
-            return "\(count) reviewed · \(minutes) min"
+        if let duration = StudySpan.studiedDuration(minutes: minutes) {
+            return "\(count) reviewed · \(duration)"
         }
         return "\(count) reviewed"
     }
 
+    var showsJump: Bool {
+        !StudySpan.isCurrent(grain: grain, todayStart: todayStart, anchor: dayOffset)
+    }
+
+    var jumpTitle: String { StudySpan.jumpTitle(grain: grain) }
+
     var chart: StudyChartModel {
         let calendar = Calendar.current
         switch grain {
-        case .day, .week:
+        case .day:
+            let columns = (0..<24).map { slot in
+                let clock = StudySpan.ankiDayClockHour(rolloverHour: rolloverHour, slot: slot)
+                return StudyChartColumn(
+                    offset: clock,
+                    label: slot.isMultiple(of: 6) ? StudySpan.hourLabel(clock) : "",
+                    value: hourCount(clock),
+                    isSelected: false,
+                    isToday: false,
+                    isFuture: dayOffset < 0
+                )
+            }
+            let end = StudySpan.hourLabel(rolloverHour)
+            return .hours(columns: columns, endLabel: end)
+        case .week:
             let offsets = StudySpan.weekOffsets(todayStart: todayStart, anchor: dayOffset, calendar: calendar)
             let columns = offsets.map { offset in
                 let day = StudySpan.date(todayStart: todayStart, offset: offset, calendar: calendar)
@@ -200,7 +222,7 @@ final class StudyLandingModel {
                     offset: offset,
                     label: label,
                     value: activityCount(offset),
-                    isSelected: grain == .day && offset == dayOffset,
+                    isSelected: offset == dayOffset,
                     isToday: offset == 0,
                     isFuture: offset < 0
                 )
@@ -222,12 +244,20 @@ final class StudyLandingModel {
                     offset: offset,
                     dayNumber: number,
                     value: offset.map(activityCount) ?? 0,
-                    isSelected: false,
+                    isSelected: offset == dayOffset,
                     isToday: offset == 0,
                     isFuture: (offset ?? 0) < 0
                 )
             }
             return .month(headers: headers, cells: cells)
+        case .year:
+            let wall = StudySpan.yearChart(
+                todayStart: todayStart,
+                anchor: dayOffset,
+                calendar: calendar,
+                activity: { self.activityCount($0) }
+            )
+            return .year(months: wall.months)
         }
     }
 
@@ -243,6 +273,11 @@ final class StudyLandingModel {
             let anchor = StudySpan.date(todayStart: todayStart, offset: dayOffset, calendar: calendar)
             let moved = calendar.date(byAdding: .month, value: towardsPast ? -1 : 1, to: anchor) ?? anchor
             dayOffset = StudySpan.clamped(StudySpan.offset(todayStart: todayStart, dayStart: moved, calendar: calendar))
+        case .year:
+            let calendar = Calendar.current
+            let anchor = StudySpan.date(todayStart: todayStart, offset: dayOffset, calendar: calendar)
+            let moved = calendar.date(byAdding: .year, value: towardsPast ? -1 : 1, to: anchor) ?? anchor
+            dayOffset = StudySpan.clamped(StudySpan.offset(todayStart: todayStart, dayStart: moved, calendar: calendar))
         }
         Task { await reloadSpanRows() }
     }
@@ -252,10 +287,36 @@ final class StudyLandingModel {
         Task { await reloadSpanRows() }
     }
 
-    /// A bar or month cell drops the page onto that day.
-    func selectDay(_ offset: Int) {
-        grain = .day
+    /// Year opens that month with the day marked. Month opens the week.
+    /// Week opens the day.
+    func focusDay(_ offset: Int) {
+        let clamped = StudySpan.clamped(offset)
+        switch grain {
+        case .year:
+            grain = .month
+            dayOffset = clamped
+        case .month:
+            grain = .week
+            dayOffset = clamped
+        case .week:
+            grain = .day
+            dayOffset = clamped
+        case .day:
+            return
+        }
+        Task { await reloadSpanRows() }
+    }
+
+    /// The year wall's month name opens that month.
+    func selectMonth(_ offset: Int) {
+        grain = .month
         dayOffset = StudySpan.clamped(offset)
+        Task { await reloadSpanRows() }
+    }
+
+    /// Back to the current period, keeping the grain.
+    func returnToNow() {
+        dayOffset = 0
         Task { await reloadSpanRows() }
     }
 
@@ -268,13 +329,16 @@ final class StudyLandingModel {
     /// onto whatever summary is current so a live review repaint in
     /// between isn't overwritten with the pre-session counts.
     private func loadActivity(token: Int) async {
-        let graphs = try? await statsClient.fetchGraphs("", 400)
+        let graphs = try? await statsClient.fetchGraphs("", StudySpan.pastLimit)
         guard token == loadToken, case .loaded(let summary, let decks, let reading) = contentState else { return }
         if let graphs {
             rolloverHour = graphs.rolloverHour
             reviewTotals = Self.dayTotals(graphs.reviews.count)
             reviewMillis = Self.dayTotals(graphs.reviews.time)
             futureDueCounts = graphs.futureDue.futureDue
+            hoursByDay = Dictionary(uniqueKeysWithValues: graphs.hoursByDay.map { key, hours in
+                (-key, hours)
+            })
         }
         let updated: StudySummaryData
         if let graphs {
@@ -462,6 +526,8 @@ final class StudyLandingModel {
             return StudySpan.weekOffsets(todayStart: todayStart, anchor: dayOffset, calendar: calendar)
         case .month:
             return StudySpan.monthOffsets(todayStart: todayStart, anchor: dayOffset, calendar: calendar).compactMap { $0 }
+        case .year:
+            return StudySpan.yearDayOffsets(todayStart: todayStart, anchor: dayOffset, calendar: calendar)
         }
     }
 
@@ -476,6 +542,11 @@ final class StudyLandingModel {
     private func activityCount(_ offset: Int) -> Int {
         if offset >= 0 { return reviewTotals[offset] ?? 0 }
         return futureDueCounts[-offset] ?? 0
+    }
+
+    private func hourCount(_ hour: Int) -> Int {
+        guard dayOffset >= 0, let counts = hoursByDay[dayOffset], hour < counts.count else { return 0 }
+        return counts[hour]
     }
 
     private func reloadSpanRows() async {

@@ -141,6 +141,14 @@ private import SwiftProtobuf
         #expect(mirror.rolloverHour == 4)
         #expect(mirror.today.answerCount == 50)
         #expect(mirror.added.added[0] == 12)
+
+        var hours = Anki_Stats_GraphsResponse.DayHours()
+        hours.total = [UInt32](repeating: 0, count: 24)
+        hours.total[9] = 4
+        proto.hoursByDay = [0: hours, -1: hours]
+        let withHours = GraphsSnapshot(proto)
+        #expect(withHours.hoursByDay[0]?[9] == 4)
+        #expect(withHours.hoursByDay[-1]?.count == 24)
     }
 
     // MARK: - Request factory

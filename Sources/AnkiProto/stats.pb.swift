@@ -387,6 +387,11 @@ public nonisolated struct Anki_Stats_GraphsResponse: @unchecked Sendable {
   /// Clears the value of `trueRetention`. Subsequent reads from it will return its default value.
   public mutating func clearTrueRetention() {_uniqueStorage()._trueRetention = nil}
 
+  public var hoursByDay: Dictionary<Int32,Anki_Stats_GraphsResponse.DayHours> {
+    get {_storage._hoursByDay}
+    set {_uniqueStorage()._hoursByDay = newValue}
+  }
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public nonisolated struct Added: Sendable {
@@ -764,6 +769,20 @@ public nonisolated struct Anki_Stats_GraphsResponse: @unchecked Sendable {
     public init() {}
 
     fileprivate var _storage = _StorageClass.defaultInstance
+  }
+
+  /// 24 review counts. Index is the local hour. Map key matches reviews.count
+  /// (0 = today, negative = days before today).
+  public nonisolated struct DayHours: Sendable {
+    // SwiftProtobuf.Message conformance is added in an extension below. See the
+    // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+    // methods supported on all messages.
+
+    public var total: [UInt32] = []
+
+    public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+    public init() {}
   }
 
   public init() {}
@@ -1330,7 +1349,7 @@ nonisolated extension Anki_Stats_GraphsRequest: SwiftProtobuf.Message, SwiftProt
 
 nonisolated extension Anki_Stats_GraphsResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GraphsResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}buttons\0\u{3}card_counts\0\u{1}hours\0\u{1}today\0\u{1}eases\0\u{1}intervals\0\u{3}future_due\0\u{1}added\0\u{1}reviews\0\u{3}rollover_hour\0\u{1}difficulty\0\u{1}retrievability\0\u{1}fsrs\0\u{1}stability\0\u{3}true_retention\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}buttons\0\u{3}card_counts\0\u{1}hours\0\u{1}today\0\u{1}eases\0\u{1}intervals\0\u{3}future_due\0\u{1}added\0\u{1}reviews\0\u{3}rollover_hour\0\u{1}difficulty\0\u{1}retrievability\0\u{1}fsrs\0\u{1}stability\0\u{3}true_retention\0\u{3}hours_by_day\0")
 
   fileprivate class _StorageClass {
     var _buttons: Anki_Stats_GraphsResponse.Buttons? = nil
@@ -1348,6 +1367,7 @@ nonisolated extension Anki_Stats_GraphsResponse: SwiftProtobuf.Message, SwiftPro
     var _fsrs: Bool = false
     var _stability: Anki_Stats_GraphsResponse.Intervals? = nil
     var _trueRetention: Anki_Stats_GraphsResponse.TrueRetentionStats? = nil
+    var _hoursByDay: Dictionary<Int32,Anki_Stats_GraphsResponse.DayHours> = [:]
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -1373,6 +1393,7 @@ nonisolated extension Anki_Stats_GraphsResponse: SwiftProtobuf.Message, SwiftPro
       _fsrs = source._fsrs
       _stability = source._stability
       _trueRetention = source._trueRetention
+      _hoursByDay = source._hoursByDay
     }
   }
 
@@ -1406,6 +1427,7 @@ nonisolated extension Anki_Stats_GraphsResponse: SwiftProtobuf.Message, SwiftPro
         case 13: try { try decoder.decodeSingularBoolField(value: &_storage._fsrs) }()
         case 14: try { try decoder.decodeSingularMessageField(value: &_storage._stability) }()
         case 15: try { try decoder.decodeSingularMessageField(value: &_storage._trueRetention) }()
+        case 16: try { try decoder.decodeMapField(fieldType: SwiftProtobuf._ProtobufMessageMap<SwiftProtobuf.ProtobufInt32,Anki_Stats_GraphsResponse.DayHours>.self, value: &_storage._hoursByDay) }()
         default: break
         }
       }
@@ -1463,6 +1485,9 @@ nonisolated extension Anki_Stats_GraphsResponse: SwiftProtobuf.Message, SwiftPro
       try { if let v = _storage._trueRetention {
         try visitor.visitSingularMessageField(value: v, fieldNumber: 15)
       } }()
+      if !_storage._hoursByDay.isEmpty {
+        try visitor.visitMapField(fieldType: SwiftProtobuf._ProtobufMessageMap<SwiftProtobuf.ProtobufInt32,Anki_Stats_GraphsResponse.DayHours>.self, value: _storage._hoursByDay, fieldNumber: 16)
+      }
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -1487,6 +1512,7 @@ nonisolated extension Anki_Stats_GraphsResponse: SwiftProtobuf.Message, SwiftPro
         if _storage._fsrs != rhs_storage._fsrs {return false}
         if _storage._stability != rhs_storage._stability {return false}
         if _storage._trueRetention != rhs_storage._trueRetention {return false}
+        if _storage._hoursByDay != rhs_storage._hoursByDay {return false}
         return true
       }
       if !storagesAreEqual {return false}
@@ -2244,6 +2270,36 @@ nonisolated extension Anki_Stats_GraphsResponse.TrueRetentionStats.TrueRetention
     if lhs.youngFailed != rhs.youngFailed {return false}
     if lhs.maturePassed != rhs.maturePassed {return false}
     if lhs.matureFailed != rhs.matureFailed {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Anki_Stats_GraphsResponse.DayHours: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = Anki_Stats_GraphsResponse.protoMessageName + ".DayHours"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}total\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedUInt32Field(value: &self.total) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.total.isEmpty {
+      try visitor.visitPackedUInt32Field(value: self.total, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Anki_Stats_GraphsResponse.DayHours, rhs: Anki_Stats_GraphsResponse.DayHours) -> Bool {
+    if lhs.total != rhs.total {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
