@@ -23,8 +23,8 @@ public struct StudySpanChart: View {
         switch model {
         case .bars(let columns):
             bars(columns)
-        case .hours(let columns, let endLabel):
-            hourBars(columns, endLabel: endLabel)
+        case .hours(let columns, let axis):
+            hourBars(columns, axis: axis)
         case .month(let headers, let cells):
             month(headers: headers, cells: cells)
         case .year(let months):
@@ -40,77 +40,72 @@ public struct StudySpanChart: View {
                     onSelectOffset(column.offset)
                 } label: {
                     VStack(spacing: 6) {
+                        columnCaption(column.label, emphasized: column.isSelected)
+                        Spacer(minLength: 0)
                         RoundedRectangle(cornerRadius: 3, style: .continuous)
                             .fill(barFill(column))
                             .frame(height: barHeight(value: column.value, peak: peak))
-                        Text(column.label)
-                            .amgiFont(.micro)
-                            .foregroundStyle(column.isSelected ? palette.textPrimary : palette.textTertiary)
-                            .lineLimit(1)
+                        columnCaption(column.axis, emphasized: column.isSelected)
                     }
                     .frame(maxWidth: .infinity)
+                    .frame(height: 108)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(accessibility(column))
             }
         }
-        .frame(height: 108)
         .padding(.vertical, 4)
     }
 
-    private func hourBars(_ columns: [StudyChartColumn], endLabel: String) -> some View {
+    private func hourBars(_ columns: [StudyChartColumn], axis: [StudyAxisLabel]) -> some View {
         let peak = max(columns.map(\.value).max() ?? 0, 1)
-        let ticks = columns.compactMap { column -> String? in
-            column.label.isEmpty ? nil : column.label
-        }
         return VStack(spacing: 6) {
-            ZStack(alignment: .bottom) {
-                Rectangle()
-                    .fill(palette.separator)
-                    .frame(height: 1)
-                HStack(alignment: .bottom, spacing: 1) {
-                    ForEach(columns) { column in
-                        RoundedRectangle(cornerRadius: 2, style: .continuous)
-                            .fill(column.value > 0 ? palette.accent : Color.clear)
-                            .frame(height: barHeight(value: column.value, peak: peak))
-                            .frame(maxWidth: .infinity)
-                            .accessibilityLabel("\(column.label.isEmpty ? hourAccessibility(column.offset) : column.label), \(column.value)")
-                    }
+            HStack(spacing: 1) {
+                ForEach(columns) { column in
+                    columnCaption(column.label, emphasized: false)
+                        .minimumScaleFactor(0.4)
                 }
             }
-            .frame(height: 72)
-            hourScale(ticks: ticks, endLabel: endLabel)
+            HStack(alignment: .bottom, spacing: 1) {
+                ForEach(columns) { column in
+                    RoundedRectangle(cornerRadius: 2, style: .continuous)
+                        .fill(column.value > 0 ? palette.accent : palette.separator)
+                        .frame(height: barHeight(value: column.value, peak: peak))
+                        .frame(maxWidth: .infinity)
+                        .accessibilityLabel("\(column.label), \(column.value)")
+                }
+            }
+            .frame(height: 72, alignment: .bottom)
+            hourScale(axis, slots: columns.count)
         }
         .padding(.vertical, 4)
     }
 
-    /// Ticks sit on the hour they name. The Anki day starts at the rollover
-    /// and the same hour closes the scale, so the two ends match.
-    private func hourScale(ticks: [String], endLabel: String) -> some View {
-        Color.clear
-            .frame(maxWidth: .infinity)
-            .frame(height: 14)
-            .overlay(alignment: .leading) {
-                if let first = ticks.first {
-                    hourTick(first)
-                }
-            }
-            .overlay(alignment: .trailing) {
-                hourTick(endLabel)
-            }
-            .overlay {
-                GeometryReader { geo in
-                    let marks = Array(ticks.dropFirst())
-                    ForEach(Array(marks.enumerated()), id: \.offset) { index, mark in
-                        hourTick(mark)
-                            .position(
-                                x: geo.size.width * CGFloat(index + 1) / 4,
-                                y: geo.size.height / 2
-                            )
+    /// The word is centered on its hour column, so the middle of "Morning"
+    /// lines up with 6, "Noon" with 12, "Evening" with 18, "Midnight" with 0.
+    private func hourScale(_ marks: [StudyAxisLabel], slots: Int) -> some View {
+        let titled = Dictionary(uniqueKeysWithValues: marks.map { ($0.slot, $0.title) })
+        return HStack(spacing: 1) {
+            ForEach(0..<slots, id: \.self) { slot in
+                Color.clear
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 14)
+                    .overlay {
+                        if let title = titled[slot] {
+                            hourTick(title)
+                        }
                     }
-                }
             }
+        }
+    }
+
+    private func columnCaption(_ text: String, emphasized: Bool) -> some View {
+        Text(text)
+            .amgiFont(.micro)
+            .foregroundStyle(emphasized ? palette.textPrimary : palette.textTertiary)
+            .lineLimit(1)
+            .frame(maxWidth: .infinity)
     }
 
     private func hourTick(_ label: String) -> some View {
@@ -119,15 +114,6 @@ public struct StudySpanChart: View {
             .foregroundStyle(palette.textTertiary)
             .lineLimit(1)
             .fixedSize()
-    }
-
-    private func hourAccessibility(_ hour: Int) -> String {
-        switch hour {
-        case 0: "12am"
-        case 12: "12pm"
-        default:
-            hour < 12 ? "\(hour)am" : "\(hour - 12)pm"
-        }
     }
 
     private func barHeight(value: Int, peak: Int) -> CGFloat {
@@ -175,12 +161,12 @@ public struct StudySpanChart: View {
         let solid = isSolid(cell.value, maxCount: peak)
         return Text(cell.dayNumber)
             .amgiFont(.caption)
-            .foregroundStyle(solid ? Color.white : palette.textPrimary)
+            .foregroundStyle(cell.isFuture ? palette.textPrimary : (solid ? Color.white : palette.textPrimary))
             .frame(maxWidth: .infinity)
             .frame(height: 36)
             .background {
                 Circle()
-                    .fill(heatFill(cell.value, peak: peak))
+                    .fill(heatFill(cell.value, peak: peak, future: cell.isFuture))
                     .frame(width: 32, height: 32)
             }
             .overlay {
@@ -235,20 +221,38 @@ public struct StudySpanChart: View {
         let solid = isSolid(cell.value, maxCount: peak)
         return Text(cell.dayNumber)
             .amgiFont(.micro)
-            .foregroundStyle(cell.isToday || solid ? Color.white : palette.textPrimary)
+            .foregroundStyle(yearNumberColor(cell, solid: solid))
             .frame(maxWidth: .infinity)
             .frame(height: 16)
             .background {
                 if cell.isToday {
                     Circle().fill(palette.accent).frame(width: 16, height: 16)
                 } else if cell.value > 0 {
-                    Circle().fill(heatFill(cell.value, peak: peak)).frame(width: 16, height: 16)
+                    Circle()
+                        .fill(heatFill(cell.value, peak: peak, future: cell.isFuture))
+                        .frame(width: 16, height: 16)
                 }
             }
     }
 
-    private func heatFill(_ value: Int, peak: Int) -> Color {
+    private func yearNumberColor(_ cell: StudyMonthCell, solid: Bool) -> Color {
+        if cell.isFuture { return palette.textPrimary }
+        if cell.isToday || solid { return .white }
+        return palette.textPrimary
+    }
+
+    /// Past and today use the accent ramp. A future day is the same
+    /// intensity, drawn in grey so a forecast does not look like a review.
+    private func heatFill(_ value: Int, peak: Int, future: Bool) -> Color {
         guard value > 0 else { return .clear }
+        if future {
+            return HeatmapColorRamp.color(
+                count: value,
+                maxCount: peak,
+                base: palette.textPrimary,
+                empty: .clear
+            )
+        }
         return HeatmapColorRamp.color(count: value, maxCount: peak, palette: palette)
     }
 

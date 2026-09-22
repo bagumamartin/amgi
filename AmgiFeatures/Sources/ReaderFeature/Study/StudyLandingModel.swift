@@ -174,6 +174,10 @@ final class StudyLandingModel {
         StudySpan.title(grain: grain, todayStart: todayStart, anchor: dayOffset)
     }
 
+    var spanSubtitle: String {
+        StudySpan.subtitle(grain: grain, todayStart: todayStart, anchor: dayOffset)
+    }
+
     var spanHeadline: String {
         guard !showsTodayDesk else { return "" }
         if grain == .day, dayOffset < 0 {
@@ -198,33 +202,36 @@ final class StudyLandingModel {
         let calendar = Calendar.current
         switch grain {
         case .day:
+            let twentyFour = StudySpan.uses24HourClock()
             let columns = (0..<24).map { slot in
                 let clock = StudySpan.ankiDayClockHour(rolloverHour: rolloverHour, slot: slot)
                 return StudyChartColumn(
                     offset: clock,
-                    label: slot.isMultiple(of: 6) ? StudySpan.hourLabel(clock) : "",
+                    label: StudySpan.hourColumnLabel(clock, twentyFourHour: twentyFour),
                     value: hourCount(clock),
                     isSelected: false,
                     isToday: false,
                     isFuture: dayOffset < 0
                 )
             }
-            let end = StudySpan.hourLabel(rolloverHour)
-            return .hours(columns: columns, endLabel: end)
+            let axis = StudySpan.dayAxisMarks(rolloverHour: rolloverHour)
+            return .hours(columns: columns, axis: axis)
         case .week:
             let offsets = StudySpan.weekOffsets(todayStart: todayStart, anchor: dayOffset, calendar: calendar)
             let columns = offsets.map { offset in
                 let day = StudySpan.date(todayStart: todayStart, offset: offset, calendar: calendar)
+                let label = String(calendar.component(.day, from: day))
                 let weekday = calendar.component(.weekday, from: day)
                 let symbols = calendar.veryShortWeekdaySymbols
-                let label = symbols.indices.contains(weekday - 1) ? symbols[weekday - 1] : ""
+                let letter = symbols.indices.contains(weekday - 1) ? symbols[weekday - 1] : ""
                 return StudyChartColumn(
                     offset: offset,
                     label: label,
                     value: activityCount(offset),
                     isSelected: offset == dayOffset,
                     isToday: offset == 0,
-                    isFuture: offset < 0
+                    isFuture: offset < 0,
+                    axis: letter
                 )
             }
             return .bars(columns)

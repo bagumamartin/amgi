@@ -23,7 +23,10 @@ public enum StudyGrain: String, CaseIterable, Identifiable, Sendable {
 /// (0 = today, 1 = yesterday, −1 = tomorrow).
 public struct StudyChartColumn: Identifiable, Equatable, Sendable {
     public let offset: Int
+    /// Date or hour, drawn above the bar.
     public let label: String
+    /// Weekday letter under a week bar. Empty on the day chart.
+    public let axis: String
     public let value: Int
     public let isSelected: Bool
     public let isToday: Bool
@@ -37,10 +40,12 @@ public struct StudyChartColumn: Identifiable, Equatable, Sendable {
         value: Int,
         isSelected: Bool,
         isToday: Bool,
-        isFuture: Bool
+        isFuture: Bool,
+        axis: String = ""
     ) {
         self.offset = offset
         self.label = label
+        self.axis = axis
         self.value = value
         self.isSelected = isSelected
         self.isToday = isToday
@@ -99,11 +104,27 @@ public struct StudyYearMonth: Identifiable, Equatable, Sendable {
     }
 }
 
+/// One word on the day-chart axis. `slot` is the hour column it is
+/// centered on, so Morning sits on 6, Noon on 12, Evening on 18,
+/// Midnight on 0.
+public struct StudyAxisLabel: Equatable, Sendable, Identifiable {
+    public let title: String
+    public let slot: Int
+
+    public var id: String { "\(slot)-\(title)" }
+
+    public init(title: String, slot: Int) {
+        self.title = title
+        self.slot = slot
+    }
+}
+
 public enum StudyChartModel: Equatable, Sendable {
     case bars([StudyChartColumn])
     /// Twenty-four hour bars for one Anki day, starting at the rollover hour.
-    /// `endLabel` repeats that hour at the far side so the scale is bookended.
-    case hours(columns: [StudyChartColumn], endLabel: String)
+    /// Hour numbers sit above the bars. The axis is morning, noon, evening,
+    /// and midnight, each centered on its hour.
+    case hours(columns: [StudyChartColumn], axis: [StudyAxisLabel])
     case month(headers: [String], cells: [StudyMonthCell])
     case year(months: [StudyYearMonth])
 }
@@ -184,12 +205,42 @@ public enum StudySpan {
         return (start + slot) % 24
     }
 
-    public static func hourLabel(_ clockHour: Int) -> String {
+    /// True when the locale's hour cycle is 24-hour. Anything else,
+    /// including an unknown cycle, stays 12-hour.
+    public static func uses24HourClock(locale: Locale = .current) -> Bool {
+        let format = DateFormatter.dateFormat(fromTemplate: "j", options: 0, locale: locale) ?? ""
+        return format.contains("H")
+    }
+
+    /// Axis bookend. 12-hour keeps the meridiem (`4am`); 24-hour is the hour (`16`).
+    public static func hourLabel(_ clockHour: Int, twentyFourHour: Bool = false) -> String {
         let hour = ((clockHour % 24) + 24) % 24
+        if twentyFourHour { return String(hour) }
         switch hour {
         case 0: return "12am"
         case 12: return "12pm"
         default: return hour < 12 ? "\(hour)am" : "\(hour - 12)pm"
+        }
+    }
+
+    /// Short label under one hour bar. 12-hour is the number plus `a`/`p`.
+    public static func hourColumnLabel(_ clockHour: Int, twentyFourHour: Bool = false) -> String {
+        let hour = ((clockHour % 24) + 24) % 24
+        if twentyFourHour { return String(hour) }
+        switch hour {
+        case 0: return "12a"
+        case 12: return "12p"
+        default: return hour < 12 ? "\(hour)a" : "\(hour - 12)p"
+        }
+    }
+
+    /// Morning (6), noon (12), evening (18), and midnight (0), each centered
+    /// on that hour's column of the Anki day.
+    public static func dayAxisMarks(rolloverHour: Int) -> [StudyAxisLabel] {
+        let start = ((rolloverHour % 24) + 24) % 24
+        let periods = [("Morning", 6), ("Noon", 12), ("Evening", 18), ("Midnight", 0)]
+        return periods.map { name, clock in
+            StudyAxisLabel(title: name, slot: (clock - start + 24) % 24)
         }
     }
 
@@ -276,10 +327,9 @@ public enum StudySpan {
         case 1: return "Yesterday"
         case -1: return "Tomorrow"
         default:
-            let weekday = day.formatted(dateFormat(calendar: calendar).weekday(.abbreviated))
             let dayNumber = calendar.component(.day, from: day)
             let month = day.formatted(dateFormat(calendar: calendar).month(.abbreviated))
-            return "\(weekday) \(dayNumber) \(month)"
+            return "\(dayNumber) \(month)"
         }
     }
 
@@ -318,6 +368,85 @@ public enum StudySpan {
         let day = date(todayStart: todayStart, offset: anchor, calendar: calendar)
         return String(calendar.component(.year, from: day))
     }
+
+    /// Line under the large title. Day is the full weekday. Week is the
+    /// week-of-year. Month is the season, flipped south of the equator.
+    /// Year is leap or common.
+    public static func subtitle(
+        grain: StudyGrain,
+        todayStart: Date,
+        anchor: Int,
+        calendar: Calendar = .current
+    ) -> String {
+        switch grain {
+        case .day:
+            let day = date(todayStart: todayStart, offset: anchor, calendar: calendar)
+            return day.formatted(dateFormat(calendar: calendar).weekday(.wide))
+        case .week:
+            let offsets = weekOffsets(todayStart: todayStart, anchor: anchor, calendar: calendar)
+            let probe = offsets.first ?? anchor
+            let day = date(todayStart: todayStart, offset: probe, calendar: calendar)
+            let week = calendar.component(.weekOfYear, from: day)
+            return "Week \(week)"
+        case .month:
+            let day = date(todayStart: todayStart, offset: anchor, calendar: calendar)
+            let month = calendar.component(.month, from: day)
+            return seasonName(month: month, calendar: calendar)
+        case .year:
+            let day = date(todayStart: todayStart, offset: anchor, calendar: calendar)
+            let year = calendar.component(.year, from: day)
+            return isLeapYear(year) ? "Leap year" : "Common year"
+        }
+    }
+
+    public static func isLeapYear(_ year: Int) -> Bool {
+        (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+    }
+
+    /// Meteorological season. Southern regions and time zones swap the
+    /// northern names, because September is spring there.
+    public static func seasonName(month: Int, calendar: Calendar = .current) -> String {
+        let southern = isSouthernHemisphere(
+            locale: calendar.locale ?? .current,
+            timeZone: calendar.timeZone
+        )
+        switch month {
+        case 3, 4, 5: return southern ? autumnName(locale: calendar.locale) : "Spring"
+        case 6, 7, 8: return southern ? "Winter" : "Summer"
+        case 9, 10, 11: return southern ? "Spring" : autumnName(locale: calendar.locale)
+        default: return southern ? "Summer" : "Winter"
+        }
+    }
+
+    public static func isSouthernHemisphere(locale: Locale, timeZone: TimeZone) -> Bool {
+        if let region = locale.region?.identifier.uppercased(), southernRegions.contains(region) {
+            return true
+        }
+        let zone = timeZone.identifier
+        return southernTimeZones.contains { zone == $0 || zone.hasPrefix($0) }
+    }
+
+    private static func autumnName(locale: Locale?) -> String {
+        locale?.region?.identifier == "US" ? "Fall" : "Autumn"
+    }
+
+    /// Countries whose population lives mostly south of the equator.
+    private static let southernRegions: Set<String> = [
+        "AO", "AR", "AU", "BO", "BR", "BW", "CL", "FJ", "LS", "MG", "MW", "MZ",
+        "NA", "NC", "NZ", "PE", "PG", "PY", "RE", "SB", "SC", "SZ", "TL", "TO",
+        "UY", "VU", "WS", "ZA", "ZM", "ZW",
+    ]
+
+    private static let southernTimeZones: [String] = [
+        "Australia/", "Antarctica/",
+        "Pacific/Auckland", "Pacific/Chatham", "Pacific/Fiji", "Pacific/Apia",
+        "Pacific/Tongatapu", "Pacific/Port_Moresby", "Pacific/Guadalcanal",
+        "America/Argentina", "America/Buenos_Aires", "America/Santiago",
+        "America/Asuncion", "America/Montevideo", "America/Sao_Paulo",
+        "America/La_Paz", "America/Lima",
+        "Africa/Johannesburg", "Africa/Maputo", "Africa/Harare",
+        "Africa/Lusaka", "Africa/Windhoek", "Africa/Gaborone",
+    ]
 
     public static func title(
         grain: StudyGrain,

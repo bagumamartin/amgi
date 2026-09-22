@@ -71,11 +71,16 @@ package struct StudyLandingView: View {
             StudyTimeDetailScreen(row: row, model: model, onOpenDeck: onSelectDeck)
         }
         .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                if model.showsJump {
+            ToolbarItem(placement: .topBarTrailing) {
+                SyncToolbarButton()
+            }
+            if model.showsJump {
+                if #available(iOS 26.0, *) {
+                    ToolbarSpacer(.fixed, placement: .topBarTrailing)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
                     Button(model.jumpTitle) { model.returnToNow() }
                 }
-                SyncToolbarButton()
             }
         }
         .sheet(item: $model.selectedBook) { book in
@@ -100,11 +105,12 @@ package struct StudyLandingView: View {
     }
 
     private var navigationSubtitle: String {
-        guard model.showsTodayDesk,
-              case .loaded(let summary, _, _) = model.contentState else {
-            return ""
+        if model.showsTodayDesk,
+           case .loaded(let summary, _, _) = model.contentState,
+           !summary.subtitleLabel.isEmpty {
+            return summary.subtitleLabel
         }
-        return summary.subtitleLabel
+        return model.spanSubtitle
     }
 
     private func beginSession() {
