@@ -7,9 +7,9 @@ import Dependencies
 import Foundation
 import SyncFeature
 
-/// Unix-socket bridge that lets amgi-mcp execute RPCs against THIS
+/// Unix-socket bridge that lets ijuka-mcp execute RPCs against THIS
 /// process's live engine while the app is running. This is what makes
-/// agents and Amgi work simultaneously: rslib serializes collection
+/// agents and Ijuka work simultaneously: rslib serializes collection
 /// access, so instead of fighting it, whichever process owns the engine
 /// serves the other. When the app quits, its socket vanishes and the
 /// helper falls back to opening the collection directly.
@@ -111,12 +111,12 @@ package enum MCPBridgeServer {
                 reply(
                     client,
                     status: .unavailable,
-                    payload: Data("MCP settings are malformed; access is disabled until Amgi rewrites them.".utf8)
+                    payload: Data("MCP settings are malformed; access is disabled until Ijuka rewrites them.".utf8)
                 )
                 return
             }
             guard settings.enabled else {
-                reply(client, status: .unavailable, payload: Data("The agent server is switched off in Amgi settings.".utf8))
+                reply(client, status: .unavailable, payload: Data("The agent server is switched off in Ijuka settings.".utf8))
                 return
             }
 
@@ -155,7 +155,7 @@ package enum MCPBridgeServer {
                 reply(
                     client, status: .unavailable,
                     payload: Data(
-                        "Profile mismatch: agent requested '\(frame.profileID)' but Amgi has '\(activeProfile)' open.".utf8
+                        "Profile mismatch: agent requested '\(frame.profileID)' but Ijuka has '\(activeProfile)' open.".utf8
                     )
                 )
                 return
@@ -188,7 +188,7 @@ package enum MCPBridgeServer {
                     } else {
                         reply(
                             client, status: .unavailable,
-                            payload: Data("No active review session — open Amgi and start reviewing.".utf8)
+                            payload: Data("No active review session — open Ijuka and start reviewing.".utf8)
                         )
                     }
                 } else {
@@ -204,7 +204,7 @@ package enum MCPBridgeServer {
             ) else {
                 reply(
                     client, status: .unavailable,
-                    payload: Data("This raw engine operation is not exposed through Amgi MCP.".utf8)
+                    payload: Data("This raw engine operation is not exposed through Ijuka MCP.".utf8)
                 )
                 return
             }
@@ -220,7 +220,7 @@ package enum MCPBridgeServer {
             if requiredTier > .readOnly && settings.blockWritesWhileAppRunning {
                 reply(
                     client, status: .unavailable,
-                    payload: Data("Agent writes are blocked while Amgi is running.".utf8)
+                    payload: Data("Agent writes are blocked while Ijuka is running.".utf8)
                 )
                 return
             }

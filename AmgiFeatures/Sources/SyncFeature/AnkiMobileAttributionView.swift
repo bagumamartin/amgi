@@ -14,7 +14,7 @@ package struct AnkiMobileAttributionView: View {
             Label("Sync Server Compatibility", systemImage: "arrow.triangle.2.circlepath")
                 .amgiFont(.bodyEmphasis)
                 .foregroundStyle(palette.textPrimary)
-            Text("Amgi syncs with self-hosted and custom Anki-compatible sync servers. Amgi is an independent application and is not affiliated with, sponsored by, or endorsed by AnkiWeb or Damien Elmes.")
+            Text("Ijuka syncs with self-hosted and custom Anki-compatible sync servers. Ijuka is an independent application and is not affiliated with, sponsored by, or endorsed by AnkiWeb or Damien Elmes.")
                 .amgiFont(.caption)
                 .foregroundStyle(palette.textSecondary)
         }

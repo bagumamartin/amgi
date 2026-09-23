@@ -8,11 +8,11 @@
 		<string>$(PRODUCT_BUNDLE_IDENTIFIER).automatic-sync</string>
 	</array>
 	<key>CFBundleDisplayName</key>
-	<string>Amgi</string>
+	<string>Ijuka</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIconName</key>
-	<string>AppIcon</string>
+	<string>Acorn</string>
 	<key>CFBundleIdentifier</key>
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleName</key>
@@ -37,11 +37,11 @@
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>NSCameraUsageDescription</key>
-	<string>Amgi uses the camera to add pictures to your cards.</string>
+	<string>Ijuka uses the camera to add pictures to your cards.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Amgi uses the microphone to record audio notes for your cards.</string>
+	<string>Ijuka uses the microphone to record audio notes for your cards.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Amgi shows your recent photos so you can add pictures to your cards.</string>
+	<string>Ijuka shows your recent photos so you can add pictures to your cards.</string>
 	<key>UIAppFonts</key>
 	<array>
 		<string>Fonts/SarasaMonoK-Regular.ttf</string>

@@ -1,7 +1,7 @@
 import Foundation
 
 /// Live review-session state published by Amgi.app's `ReviewSession` and
-/// served to the `amgi-mcp` helper over the IPC bridge
+/// served to the `ijuka-mcp` helper over the IPC bridge
 /// (`MCPBridge.sessionStateMethod`). Lets an AI agent see WHICH card is
 /// on the user's screen, the deck scope, and what was answered today —
 /// context the engine alone cannot know.

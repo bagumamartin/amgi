@@ -10,7 +10,7 @@ struct PrivacyPolicyView: View {
             SettingsSectionHeader(title: "Overview")
             SettingsGroup {
                 VStack(alignment: .leading, spacing: AmgiSpacing.md) {
-                    Text("Amgi is built with a strict local-first and privacy-respecting philosophy. We do not track you, sell your data, or serve advertisements.")
+                    Text("Ijuka is built with a strict local-first and privacy-respecting philosophy. We do not track you, sell your data, or serve advertisements.")
                         .amgiFont(.body)
                         .foregroundStyle(palette.textPrimary)
                 }
@@ -33,7 +33,7 @@ struct PrivacyPolicyView: View {
                     Label("Custom Sync Servers", systemImage: "server.rack")
                         .amgiFont(.bodyEmphasis)
                         .foregroundStyle(palette.textPrimary)
-                    Text("If you configure sync, communication occurs directly between your device and your specified sync server over encrypted HTTPS. Amgi operates no intermediary servers.")
+                    Text("If you configure sync, communication occurs directly between your device and your specified sync server over encrypted HTTPS. Ijuka operates no intermediary servers.")
                         .amgiFont(.caption)
                         .foregroundStyle(palette.textSecondary)
                 }
@@ -70,7 +70,7 @@ struct PrivacyPolicyView: View {
                     Label("Zero Tracking", systemImage: "hand.raised.fill")
                         .amgiFont(.bodyEmphasis)
                         .foregroundStyle(palette.textPrimary)
-                    Text("Amgi includes no third-party tracking SDKs, analytics engines, or advertising networks. We do not collect or share personal identifiers.")
+                    Text("Ijuka includes no third-party tracking SDKs, analytics engines, or advertising networks. We do not collect or share personal identifiers.")
                         .amgiFont(.caption)
                         .foregroundStyle(palette.textSecondary)
                 }

@@ -75,7 +75,7 @@ package struct StudyLandingView: View {
                 SyncToolbarButton()
             }
             if model.showsJump {
-                if #available(iOS 26.0, *) {
+                if #available(iOS 26.0, macOS 26.0, *) {
                     ToolbarSpacer(.fixed, placement: .topBarTrailing)
                 }
                 ToolbarItem(placement: .topBarTrailing) {

@@ -1,9 +1,17 @@
 // AmgiApp/Sources/AmgiAppApp.swift
 import SwiftUI
 import RootFeature
+import WidgetFeature
+import AppIntents
 #if os(macOS)
 import AppKit
 #endif
+
+struct IjukaAppIntents: AppIntentsPackage {
+    static var includedPackages: [any AppIntentsPackage.Type] {
+        [IjukaRootIntentsPackage.self, IjukaWidgetIntentsPackage.self]
+    }
+}
 
 /// The iOS app target holds only `@main`. Dependency composition lives in
 /// `AmgiRoot.bootstrap()` and view composition in `RootView`, both in the
@@ -37,7 +45,7 @@ private final class AmgiAppDelegate: NSObject, NSApplicationDelegate {
     func application(_ application: NSApplication, open urls: [URL]) {
         guard let firstURL = urls.first, firstURL.scheme == "amgi" else { return }
         let ownPID = ProcessInfo.processInfo.processIdentifier
-        let bundleID = Bundle.main.bundleIdentifier ?? "com.bagumamartin.AmgiApp"
+        let bundleID = Bundle.main.bundleIdentifier ?? "com.bagumamartin.ijuka"
         guard let existing = NSRunningApplication
             .runningApplications(withBundleIdentifier: bundleID)
             .first(where: { $0.processIdentifier != ownPID })

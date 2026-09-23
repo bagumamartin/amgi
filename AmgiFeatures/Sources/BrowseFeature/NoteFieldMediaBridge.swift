@@ -231,13 +231,19 @@ struct NoteFieldMediaBridge: ViewModifier {
         let desired = "paste-\(UUID().uuidString).\(ext)"
         do {
             let filename = try await mediaClient.addFile(desired, data)
+            guard mediaClient.localURL(filename) != nil else { return }
             await MainActor.run {
                 session.insertMedia(filename: filename)
             }
         } catch {
-            try? await mediaClient.save(data, desired)
-            await MainActor.run {
-                session.insertMedia(filename: desired)
+            do {
+                try await mediaClient.save(data, desired)
+                guard mediaClient.localURL(desired) != nil else { return }
+                await MainActor.run {
+                    session.insertMedia(filename: desired)
+                }
+            } catch {
+                return
             }
         }
     }

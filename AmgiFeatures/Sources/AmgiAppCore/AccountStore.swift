@@ -129,7 +129,7 @@ public final class AccountStore {
     // MARK: - Filesystem helpers
 
     /// Parent of every profile directory (canonical via `CollectionLayout`
-    /// so the app, watch, and amgi-mcp helper agree).
+    /// so the app, watch, and ijuka-mcp helper agree).
     public static var collectionRoot: URL {
         CollectionLayout.rootDirectory()
     }

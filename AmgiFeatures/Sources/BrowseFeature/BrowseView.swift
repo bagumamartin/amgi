@@ -899,7 +899,7 @@ package struct BrowseView: View {
             Button {
                 invertSelection()
             } label: {
-                Label("Invert Selection", systemImage: "arrow.triangle.2.circlepath.square")
+                Label("Invert Selection", systemImage: "arrow.left.arrow.right")
             }
             .disabled(model.ids.isEmpty)
             .keyboardShortcut("a", modifiers: [.command, .shift])

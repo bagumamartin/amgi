@@ -27,14 +27,14 @@ func startMacWidgetRefreshLoop() {
     }
 }
 
-/// Observes the amgi-mcp helper's change notification. Every agent
+/// Observes the ijuka-mcp helper's change notification. Every agent
 /// mutation lands in the SAME collection.anki2 this app has open; the
 /// notification just tells us to bump `CollectionStore`'s generation so
 /// all generation-keyed screens reload and show the agent's edits
 /// immediately. Sync propagation rides the normal automatic-sync cycle.
 func observeHelperMutations() {
     let observer = DistributedNotificationCenter.default().addObserver(
-        forName: Notification.Name("com.amgi.collection.changed"),
+        forName: Notification.Name("com.ijuka.collection.changed"),
         object: nil,
         queue: nil
     ) { _ in

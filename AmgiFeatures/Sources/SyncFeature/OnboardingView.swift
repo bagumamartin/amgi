@@ -105,17 +105,25 @@ package struct OnboardingView: View {
     private var heroSection: some View {
         VStack(spacing: AmgiSpacing.md) {
             ZStack {
-                RoundedRectangle(cornerRadius: AmgiRadius.hero, style: .continuous)
-                    .fill(palette.accent.opacity(0.12))
-                    .frame(width: 72, height: 72)
+                if showServerSetup {
+                    RoundedRectangle(cornerRadius: AmgiRadius.hero, style: .continuous)
+                        .fill(palette.accent.opacity(0.12))
+                        .frame(width: 72, height: 72)
 
-                Image(systemName: showServerSetup ? "server.rack" : "rectangle.stack.fill")
-                    .font(.system(size: 32, weight: .semibold))
-                    .foregroundStyle(palette.accent)
-                    .contentTransition(.symbolEffect(.replace))
+                    Image(systemName: "server.rack")
+                        .font(.system(size: 32, weight: .semibold))
+                        .foregroundStyle(palette.accent)
+                        .contentTransition(.symbolEffect(.replace))
+                } else {
+                    Image("IjukaAppIcon", bundle: .main)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 72, height: 72)
+                        .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.hero, style: .continuous))
+                }
             }
 
-            Text(showServerSetup ? "Sync Server Setup" : "Welcome to Amgi")
+            Text(showServerSetup ? "Sync Server Setup" : "Welcome to Ijuka")
                 .amgiFont(.displayHero)
                 .foregroundStyle(palette.textPrimary)
                 .multilineTextAlignment(.center)

@@ -9,9 +9,9 @@ import AppKit
 
 /// Agent access settings — deliberately free of implementation
 /// vocabulary. From the user's point of view there is no "helper",
-/// "server", or "binary": installing Amgi is the entire setup, and this
+/// "server", or "binary": installing Ijuka is the entire setup, and this
 /// pane only answers three questions: who may connect, how much they
-/// may do, and how to point an assistant at Amgi.
+/// may do, and how to point an assistant at Ijuka.
 #if os(macOS)
 struct MCPServerSettingsView: View {
     @State private var manager = MCPManager.shared
@@ -35,7 +35,7 @@ struct MCPServerSettingsView: View {
 
     private var accessSection: some View {
         Section {
-            Toggle("Let AI assistants work with Amgi", isOn: enabledBinding)
+            Toggle("Let AI assistants work with Ijuka", isOn: enabledBinding)
             if manager.settings.enabled {
                 Picker("They can…", selection: tierBinding) {
                     Text("Only look").tag(ToolTier.readOnly)
@@ -44,7 +44,7 @@ struct MCPServerSettingsView: View {
                 }
                 .pickerStyle(.radioGroup)
 
-                Toggle("Allow changes while Amgi is open", isOn: blockBinding)
+                Toggle("Allow changes while Ijuka is open", isOn: blockBinding)
                 Toggle("Keep an automatic backup before any deletion", isOn: snapshotsBinding)
             }
         } header: {
@@ -111,13 +111,13 @@ struct MCPServerSettingsView: View {
                     }
                 }
             } else {
-                Text("This copy of Amgi is missing part of the assistant feature. Updating or reinstalling Amgi restores it.")
+                Text("This copy of Ijuka is missing part of the assistant feature. Updating or reinstalling Ijuka restores it.")
                     .foregroundStyle(palette.textSecondary)
             }
         } header: {
             Text("Connect an AI assistant")
         } footer: {
-            Text("Works with any MCP client (Claude, Cursor, Codex, Zed, Gemini, Qwen, …): choose STDIO, Command uvx, Parameters amgi-mcp — or paste the JSON. First launch downloads the tiny launcher from PyPI. If your client shows an error, run uvx amgi-mcp --help once in Terminal to warm the cache, then restart the client. Works whether Amgi is open or not.")
+                Text("Works with any MCP client (Claude, Cursor, Codex, Zed, Gemini, Qwen, …): choose STDIO, Command uvx, Parameters ijuka-mcp — or paste the JSON. First launch downloads the tiny launcher from PyPI. If your client shows an error, run uvx ijuka-mcp --help once in Terminal to warm the cache, then restart the client. Works whether Ijuka is open or not.")
         }
     }
 
@@ -170,7 +170,7 @@ struct MCPServerSettingsView: View {
         ContentUnavailableView(
             "Mac Only",
             systemImage: "desktopcomputer",
-            description: Text("AI assistants connect through Amgi for Mac.")
+            description: Text("AI assistants connect through Ijuka for Mac.")
         )
     }
 }

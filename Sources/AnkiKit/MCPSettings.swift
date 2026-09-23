@@ -23,7 +23,7 @@ public enum ToolTier: String, Codable, Sendable, Comparable {
 }
 
 /// Persisted MCP configuration. Written by the app's Settings pane,
-/// read by the `amgi-mcp` helper at startup. Lives at
+/// read by the `ijuka-mcp` helper at startup. Lives at
 /// `<collectionRoot>/mcp.json` — a plain file rather than
 /// UserDefaults because it must be readable cross-process without
 /// CFPreferences cache staleness, and it doubles as the seam for a
@@ -78,7 +78,7 @@ public struct MCPSettings: Codable, Sendable {
             return try loadStrict(from: path)
         } catch {
             FileHandle.standardError.write(
-                Data("amgi-mcp: malformed \(path) (\(error)); using defaults\n".utf8)
+                Data("ijuka-mcp: malformed \(path) (\(error)); using defaults\n".utf8)
             )
             return .default
         }

@@ -8,15 +8,15 @@ import Observation
 /// registration snippets.
 ///
 /// The helper process itself lives in the AnkiBridge package
-/// (`amgi-mcp` executable); this store only manages its configuration.
+/// (`ijuka-mcp` executable); this store only manages its configuration.
 @MainActor
 @Observable
 final class MCPManager {
     static let shared = MCPManager()
 
     /// Where clients look for the helper, in priority order:
-    /// 1. User override (`defaults write amgi.mcp.helperPath …`)
-    /// 2. Bundled with the app — `Amgi.app/Contents/Helpers/amgi-mcp`.
+    /// 1. User override (`defaults write ijuka.mcp.helperPath …`)
+    /// 2. Bundled with the app under Contents/Helpers/ijuka-mcp.
     ///    This is the normal case for end users: installing the app is
     ///    all that's needed, and the path survives app updates.
     /// 3. PATH installs (~/bin, /usr/local/bin) — developer convenience
@@ -35,11 +35,11 @@ final class MCPManager {
         // Bundle.main resolves correctly for both.
         let contents = Bundle.main.bundleURL
             .appendingPathComponent("Contents", isDirectory: true)
-        paths.append(contents.appendingPathComponent("Helpers/amgi-mcp").path)
+        paths.append(contents.appendingPathComponent("Helpers/ijuka-mcp").path)
         // Fallback layout in case the copy phase destination changes.
-        paths.append(contents.appendingPathComponent("MacOS/amgi-mcp").path)
-        paths.append("\(realHomeDirectory())/bin/amgi-mcp")
-        paths.append("/usr/local/bin/amgi-mcp")
+        paths.append(contents.appendingPathComponent("MacOS/ijuka-mcp").path)
+        paths.append("\(realHomeDirectory())/bin/ijuka-mcp")
+        paths.append("/usr/local/bin/ijuka-mcp")
         return paths
     }
 
@@ -78,7 +78,7 @@ final class MCPManager {
     /// First existing helper binary, preferring an explicit install over
     /// a Debug build product that may vanish with `.build`.
     var detectedHelperPath: String? {
-        if let override = UserDefaults.standard.string(forKey: "amgi.mcp.helperPath"),
+        if let override = UserDefaults.standard.string(forKey: "ijuka.mcp.helperPath"),
            FileManager.default.fileExists(atPath: override) {
             return override
         }
@@ -96,7 +96,7 @@ final class MCPManager {
         var id: String { label }
     }
 
-    /// The one industry-standard registration: `uvx amgi-mcp` over stdio.
+    /// The one industry-standard registration: `uvx ijuka-mcp` over stdio.
     /// Every MCP client speaks this (Claude Desktop/Code, Cursor, Codex,
     /// Zed, Gemini, Qwen, Hermes, …). The PyPI shim finds the bundled
     /// helper itself, so no absolute paths and no per-client formats.
@@ -104,16 +104,16 @@ final class MCPManager {
         [
             .init(
                 label: "Command / Parameters",
-                text: "Command: uvx\nParameters: amgi-mcp"
+                text: "Command: uvx\nParameters: ijuka-mcp"
             ),
             .init(
                 label: "JSON configuration",
                 text: """
                 {
                   "mcpServers": {
-                    "amgi": {
+                    "ijuka": {
                       "command": "uvx",
-                      "args": ["amgi-mcp"]
+                      "args": ["ijuka-mcp"]
                     }
                   }
                 }

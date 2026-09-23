@@ -13,7 +13,7 @@ struct CollectionBusyView: View {
         VStack(spacing: AmgiSpacing.lg) {
             ProgressView()
                 .controlSize(.large)
-            Text("Amgi is busy")
+            Text("Ijuka is busy")
                 .amgiFont(.sectionHeading)
             Text(
                 "An AI assistant is using your collection right now. "

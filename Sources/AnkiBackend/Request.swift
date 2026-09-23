@@ -11,7 +11,7 @@ public import Foundation
 ///   - Time-sensitive fields (`Date()` timestamps in answer payloads)
 ///     reflect when the RPC is sent, not when the `Request` was built.
 public struct Request<Response: Sendable>: Sendable {
-    /// Read access is required by the amgi-mcp IPC bridge: the helper
+    /// Read access is required by the ijuka-mcp IPC bridge: the helper
     /// forwards (service, method, encoded-body) triples to whichever
     /// process owns the engine (the app via unix socket, or its own
     /// backend when the app is closed).

@@ -12,7 +12,7 @@ struct AboutView: View {
 
     var body: some View {
         SettingsPage {
-            SettingsSectionHeader(title: "Amgi")
+            SettingsSectionHeader(title: "Ijuka")
             SettingsGroup {
                 SettingsValueRow(
                     title: "Version",
@@ -22,8 +22,8 @@ struct AboutView: View {
                 )
                 SettingsSeparator()
                 SettingsValueRow(
-                    title: "Korean origin",
-                    value: "암기 — memorization",
+                    title: "Runyoro meaning",
+                    value: "Ijuka — remember or recall",
                     systemImage: "character.book.closed",
                     tone: .mature
                 )
@@ -57,7 +57,7 @@ struct AboutView: View {
                 }
             }
 
-            SettingsFootnote("Amgi uses the official Anki Rust backend. The backend code is licensed under AGPL-3.0 and remains the work of its authors.")
+            SettingsFootnote("Ijuka uses the official Anki Rust backend. The backend code is licensed under AGPL-3.0 and remains the work of its authors.")
         }
         .navigationTitle("About")
         .navigationBarTitleDisplayMode(.inline)

@@ -1,0 +1,782 @@
+{
+  "color-space-for-untagged-svg-colors" : "display-p3",
+  "features" : [
+    "refractivity"
+  ],
+  "fill" : {
+    "solid" : "display-p3:0.35686,0.24706,0.83922,1.00000"
+  },
+  "groups" : [
+    {
+      "blend-mode" : "normal",
+      "blur-material" : null,
+      "layers" : [
+        {
+          "image-name" : "Acorn-Layer-001.svg",
+          "name" : "Acorn-Layer-001"
+        },
+        {
+          "image-name" : "Acorn-Layer-002.svg",
+          "name" : "Acorn-Layer-002"
+        },
+        {
+          "image-name" : "Acorn-Layer-003.svg",
+          "name" : "Acorn-Layer-003"
+        },
+        {
+          "image-name" : "Acorn-Layer-004.svg",
+          "name" : "Acorn-Layer-004"
+        },
+        {
+          "image-name" : "Acorn-Layer-005.svg",
+          "name" : "Acorn-Layer-005"
+        },
+        {
+          "image-name" : "Acorn-Layer-006.svg",
+          "name" : "Acorn-Layer-006"
+        },
+        {
+          "image-name" : "Acorn-Layer-007.svg",
+          "name" : "Acorn-Layer-007"
+        },
+        {
+          "image-name" : "Acorn-Layer-008.svg",
+          "name" : "Acorn-Layer-008"
+        },
+        {
+          "image-name" : "Acorn-Layer-009.svg",
+          "name" : "Acorn-Layer-009"
+        },
+        {
+          "image-name" : "Acorn-Layer-010.svg",
+          "name" : "Acorn-Layer-010"
+        },
+        {
+          "image-name" : "Acorn-Layer-011.svg",
+          "name" : "Acorn-Layer-011"
+        },
+        {
+          "image-name" : "Acorn-Layer-012.svg",
+          "name" : "Acorn-Layer-012"
+        },
+        {
+          "image-name" : "Acorn-Layer-013.svg",
+          "name" : "Acorn-Layer-013"
+        },
+        {
+          "image-name" : "Acorn-Layer-014.svg",
+          "name" : "Acorn-Layer-014"
+        },
+        {
+          "image-name" : "Acorn-Layer-015.svg",
+          "name" : "Acorn-Layer-015"
+        },
+        {
+          "image-name" : "Acorn-Layer-016.svg",
+          "name" : "Acorn-Layer-016"
+        },
+        {
+          "image-name" : "Acorn-Layer-017.svg",
+          "name" : "Acorn-Layer-017"
+        },
+        {
+          "image-name" : "Acorn-Layer-018.svg",
+          "name" : "Acorn-Layer-018"
+        },
+        {
+          "image-name" : "Acorn-Layer-019.svg",
+          "name" : "Acorn-Layer-019"
+        },
+        {
+          "image-name" : "Acorn-Layer-020.svg",
+          "name" : "Acorn-Layer-020"
+        },
+        {
+          "image-name" : "Acorn-Layer-021.svg",
+          "name" : "Acorn-Layer-021"
+        },
+        {
+          "image-name" : "Acorn-Layer-022.svg",
+          "name" : "Acorn-Layer-022"
+        },
+        {
+          "image-name" : "Acorn-Layer-023.svg",
+          "name" : "Acorn-Layer-023"
+        },
+        {
+          "image-name" : "Acorn-Layer-024.svg",
+          "name" : "Acorn-Layer-024"
+        },
+        {
+          "image-name" : "Acorn-Layer-025.svg",
+          "name" : "Acorn-Layer-025"
+        },
+        {
+          "image-name" : "Acorn-Layer-026.svg",
+          "name" : "Acorn-Layer-026"
+        },
+        {
+          "image-name" : "Acorn-Layer-027.svg",
+          "name" : "Acorn-Layer-027"
+        },
+        {
+          "image-name" : "Acorn-Layer-028.svg",
+          "name" : "Acorn-Layer-028"
+        },
+        {
+          "image-name" : "Acorn-Layer-029.svg",
+          "name" : "Acorn-Layer-029"
+        },
+        {
+          "image-name" : "Acorn-Layer-030.svg",
+          "name" : "Acorn-Layer-030"
+        },
+        {
+          "image-name" : "Acorn-Layer-031.svg",
+          "name" : "Acorn-Layer-031"
+        },
+        {
+          "image-name" : "Acorn-Layer-032.svg",
+          "name" : "Acorn-Layer-032"
+        },
+        {
+          "image-name" : "Acorn-Layer-033.svg",
+          "name" : "Acorn-Layer-033"
+        },
+        {
+          "image-name" : "Acorn-Layer-034.svg",
+          "name" : "Acorn-Layer-034"
+        },
+        {
+          "image-name" : "Acorn-Layer-035.svg",
+          "name" : "Acorn-Layer-035"
+        },
+        {
+          "image-name" : "Acorn-Layer-036.svg",
+          "name" : "Acorn-Layer-036"
+        },
+        {
+          "image-name" : "Acorn-Layer-037.svg",
+          "name" : "Acorn-Layer-037"
+        },
+        {
+          "image-name" : "Acorn-Layer-038.svg",
+          "name" : "Acorn-Layer-038"
+        },
+        {
+          "image-name" : "Acorn-Layer-039.svg",
+          "name" : "Acorn-Layer-039"
+        },
+        {
+          "image-name" : "Acorn-Layer-040.svg",
+          "name" : "Acorn-Layer-040"
+        },
+        {
+          "image-name" : "Acorn-Layer-041.svg",
+          "name" : "Acorn-Layer-041"
+        },
+        {
+          "image-name" : "Acorn-Layer-042.svg",
+          "name" : "Acorn-Layer-042"
+        },
+        {
+          "image-name" : "Acorn-Layer-043.svg",
+          "name" : "Acorn-Layer-043"
+        },
+        {
+          "image-name" : "Acorn-Layer-044.svg",
+          "name" : "Acorn-Layer-044"
+        },
+        {
+          "image-name" : "Acorn-Layer-045.svg",
+          "name" : "Acorn-Layer-045"
+        },
+        {
+          "image-name" : "Acorn-Layer-046.svg",
+          "name" : "Acorn-Layer-046"
+        },
+        {
+          "image-name" : "Acorn-Layer-047.svg",
+          "name" : "Acorn-Layer-047"
+        },
+        {
+          "image-name" : "Acorn-Layer-048.svg",
+          "name" : "Acorn-Layer-048"
+        },
+        {
+          "image-name" : "Acorn-Layer-049.svg",
+          "name" : "Acorn-Layer-049"
+        },
+        {
+          "image-name" : "Acorn-Layer-050.svg",
+          "name" : "Acorn-Layer-050"
+        },
+        {
+          "image-name" : "Acorn-Layer-051.svg",
+          "name" : "Acorn-Layer-051"
+        },
+        {
+          "image-name" : "Acorn-Layer-052.svg",
+          "name" : "Acorn-Layer-052"
+        },
+        {
+          "image-name" : "Acorn-Layer-053.svg",
+          "name" : "Acorn-Layer-053"
+        },
+        {
+          "image-name" : "Acorn-Layer-054.svg",
+          "name" : "Acorn-Layer-054"
+        },
+        {
+          "image-name" : "Acorn-Layer-055.svg",
+          "name" : "Acorn-Layer-055"
+        },
+        {
+          "image-name" : "Acorn-Layer-056.svg",
+          "name" : "Acorn-Layer-056"
+        },
+        {
+          "image-name" : "Acorn-Layer-057.svg",
+          "name" : "Acorn-Layer-057"
+        },
+        {
+          "image-name" : "Acorn-Layer-058.svg",
+          "name" : "Acorn-Layer-058"
+        },
+        {
+          "image-name" : "Acorn-Layer-059.svg",
+          "name" : "Acorn-Layer-059"
+        },
+        {
+          "image-name" : "Acorn-Layer-060.svg",
+          "name" : "Acorn-Layer-060"
+        },
+        {
+          "image-name" : "Acorn-Layer-061.svg",
+          "name" : "Acorn-Layer-061"
+        },
+        {
+          "image-name" : "Acorn-Layer-062.svg",
+          "name" : "Acorn-Layer-062"
+        },
+        {
+          "image-name" : "Acorn-Layer-063.svg",
+          "name" : "Acorn-Layer-063"
+        },
+        {
+          "image-name" : "Acorn-Layer-064.svg",
+          "name" : "Acorn-Layer-064"
+        },
+        {
+          "image-name" : "Acorn-Layer-065.svg",
+          "name" : "Acorn-Layer-065"
+        },
+        {
+          "image-name" : "Acorn-Layer-066.svg",
+          "name" : "Acorn-Layer-066"
+        },
+        {
+          "image-name" : "Acorn-Layer-067.svg",
+          "name" : "Acorn-Layer-067"
+        },
+        {
+          "image-name" : "Acorn-Layer-068.svg",
+          "name" : "Acorn-Layer-068"
+        },
+        {
+          "image-name" : "Acorn-Layer-069.svg",
+          "name" : "Acorn-Layer-069"
+        },
+        {
+          "image-name" : "Acorn-Layer-070.svg",
+          "name" : "Acorn-Layer-070"
+        },
+        {
+          "image-name" : "Acorn-Layer-071.svg",
+          "name" : "Acorn-Layer-071"
+        },
+        {
+          "image-name" : "Acorn-Layer-072.svg",
+          "name" : "Acorn-Layer-072"
+        },
+        {
+          "image-name" : "Acorn-Layer-073.svg",
+          "name" : "Acorn-Layer-073"
+        },
+        {
+          "image-name" : "Acorn-Layer-074.svg",
+          "name" : "Acorn-Layer-074"
+        },
+        {
+          "image-name" : "Acorn-Layer-075.svg",
+          "name" : "Acorn-Layer-075"
+        },
+        {
+          "image-name" : "Acorn-Layer-076.svg",
+          "name" : "Acorn-Layer-076"
+        },
+        {
+          "image-name" : "Acorn-Layer-077.svg",
+          "name" : "Acorn-Layer-077"
+        },
+        {
+          "image-name" : "Acorn-Layer-078.svg",
+          "name" : "Acorn-Layer-078"
+        },
+        {
+          "image-name" : "Acorn-Layer-079.svg",
+          "name" : "Acorn-Layer-079"
+        },
+        {
+          "image-name" : "Acorn-Layer-080.svg",
+          "name" : "Acorn-Layer-080"
+        },
+        {
+          "image-name" : "Acorn-Layer-081.svg",
+          "name" : "Acorn-Layer-081"
+        },
+        {
+          "image-name" : "Acorn-Layer-082.svg",
+          "name" : "Acorn-Layer-082"
+        },
+        {
+          "image-name" : "Acorn-Layer-083.svg",
+          "name" : "Acorn-Layer-083"
+        },
+        {
+          "image-name" : "Acorn-Layer-084.svg",
+          "name" : "Acorn-Layer-084"
+        },
+        {
+          "image-name" : "Acorn-Layer-085.svg",
+          "name" : "Acorn-Layer-085"
+        },
+        {
+          "image-name" : "Acorn-Layer-086.svg",
+          "name" : "Acorn-Layer-086"
+        },
+        {
+          "image-name" : "Acorn-Layer-087.svg",
+          "name" : "Acorn-Layer-087"
+        },
+        {
+          "image-name" : "Acorn-Layer-088.svg",
+          "name" : "Acorn-Layer-088"
+        },
+        {
+          "image-name" : "Acorn-Layer-089.svg",
+          "name" : "Acorn-Layer-089"
+        },
+        {
+          "image-name" : "Acorn-Layer-090.svg",
+          "name" : "Acorn-Layer-090"
+        },
+        {
+          "image-name" : "Acorn-Layer-091.svg",
+          "name" : "Acorn-Layer-091"
+        },
+        {
+          "image-name" : "Acorn-Layer-092.svg",
+          "name" : "Acorn-Layer-092"
+        },
+        {
+          "image-name" : "Acorn-Layer-093.svg",
+          "name" : "Acorn-Layer-093"
+        },
+        {
+          "image-name" : "Acorn-Layer-094.svg",
+          "name" : "Acorn-Layer-094"
+        },
+        {
+          "image-name" : "Acorn-Layer-095.svg",
+          "name" : "Acorn-Layer-095"
+        },
+        {
+          "image-name" : "Acorn-Layer-096.svg",
+          "name" : "Acorn-Layer-096"
+        },
+        {
+          "image-name" : "Acorn-Layer-097.svg",
+          "name" : "Acorn-Layer-097"
+        },
+        {
+          "image-name" : "Acorn-Layer-098.svg",
+          "name" : "Acorn-Layer-098"
+        },
+        {
+          "image-name" : "Acorn-Layer-099.svg",
+          "name" : "Acorn-Layer-099"
+        },
+        {
+          "image-name" : "Acorn-Layer-100.svg",
+          "name" : "Acorn-Layer-100"
+        },
+        {
+          "image-name" : "Acorn-Layer-101.svg",
+          "name" : "Acorn-Layer-101"
+        },
+        {
+          "image-name" : "Acorn-Layer-102.svg",
+          "name" : "Acorn-Layer-102"
+        },
+        {
+          "image-name" : "Acorn-Layer-103.svg",
+          "name" : "Acorn-Layer-103"
+        },
+        {
+          "image-name" : "Acorn-Layer-104.svg",
+          "name" : "Acorn-Layer-104"
+        },
+        {
+          "image-name" : "Acorn-Layer-105.svg",
+          "name" : "Acorn-Layer-105"
+        },
+        {
+          "image-name" : "Acorn-Layer-106.svg",
+          "name" : "Acorn-Layer-106"
+        },
+        {
+          "image-name" : "Acorn-Layer-107.svg",
+          "name" : "Acorn-Layer-107"
+        },
+        {
+          "image-name" : "Acorn-Layer-108.svg",
+          "name" : "Acorn-Layer-108"
+        },
+        {
+          "image-name" : "Acorn-Layer-109.svg",
+          "name" : "Acorn-Layer-109"
+        },
+        {
+          "image-name" : "Acorn-Layer-110.svg",
+          "name" : "Acorn-Layer-110"
+        },
+        {
+          "image-name" : "Acorn-Layer-111.svg",
+          "name" : "Acorn-Layer-111"
+        },
+        {
+          "image-name" : "Acorn-Layer-112.svg",
+          "name" : "Acorn-Layer-112"
+        },
+        {
+          "image-name" : "Acorn-Layer-113.svg",
+          "name" : "Acorn-Layer-113"
+        },
+        {
+          "image-name" : "Acorn-Layer-114.svg",
+          "name" : "Acorn-Layer-114"
+        },
+        {
+          "image-name" : "Acorn-Layer-115.svg",
+          "name" : "Acorn-Layer-115"
+        },
+        {
+          "image-name" : "Acorn-Layer-116.svg",
+          "name" : "Acorn-Layer-116"
+        },
+        {
+          "image-name" : "Acorn-Layer-117.svg",
+          "name" : "Acorn-Layer-117"
+        },
+        {
+          "image-name" : "Acorn-Layer-118.svg",
+          "name" : "Acorn-Layer-118"
+        },
+        {
+          "image-name" : "Acorn-Layer-119.svg",
+          "name" : "Acorn-Layer-119"
+        },
+        {
+          "image-name" : "Acorn-Layer-120.svg",
+          "name" : "Acorn-Layer-120"
+        },
+        {
+          "image-name" : "Acorn-Layer-121.svg",
+          "name" : "Acorn-Layer-121"
+        },
+        {
+          "image-name" : "Acorn-Layer-122.svg",
+          "name" : "Acorn-Layer-122"
+        },
+        {
+          "image-name" : "Acorn-Layer-123.svg",
+          "name" : "Acorn-Layer-123"
+        },
+        {
+          "image-name" : "Acorn-Layer-124.svg",
+          "name" : "Acorn-Layer-124"
+        },
+        {
+          "image-name" : "Acorn-Layer-125.svg",
+          "name" : "Acorn-Layer-125"
+        },
+        {
+          "image-name" : "Acorn-Layer-126.svg",
+          "name" : "Acorn-Layer-126"
+        },
+        {
+          "image-name" : "Acorn-Layer-127.svg",
+          "name" : "Acorn-Layer-127"
+        },
+        {
+          "image-name" : "Acorn-Layer-128.svg",
+          "name" : "Acorn-Layer-128"
+        },
+        {
+          "image-name" : "Acorn-Layer-129.svg",
+          "name" : "Acorn-Layer-129"
+        },
+        {
+          "image-name" : "Acorn-Layer-130.svg",
+          "name" : "Acorn-Layer-130"
+        },
+        {
+          "image-name" : "Acorn-Layer-131.svg",
+          "name" : "Acorn-Layer-131"
+        },
+        {
+          "image-name" : "Acorn-Layer-132.svg",
+          "name" : "Acorn-Layer-132"
+        },
+        {
+          "image-name" : "Acorn-Layer-133.svg",
+          "name" : "Acorn-Layer-133"
+        },
+        {
+          "image-name" : "Acorn-Layer-134.svg",
+          "name" : "Acorn-Layer-134"
+        },
+        {
+          "image-name" : "Acorn-Layer-135.svg",
+          "name" : "Acorn-Layer-135"
+        },
+        {
+          "image-name" : "Acorn-Layer-136.svg",
+          "name" : "Acorn-Layer-136"
+        },
+        {
+          "image-name" : "Acorn-Layer-137.svg",
+          "name" : "Acorn-Layer-137"
+        },
+        {
+          "image-name" : "Acorn-Layer-138.svg",
+          "name" : "Acorn-Layer-138"
+        },
+        {
+          "image-name" : "Acorn-Layer-139.svg",
+          "name" : "Acorn-Layer-139"
+        },
+        {
+          "image-name" : "Acorn-Layer-140.svg",
+          "name" : "Acorn-Layer-140"
+        },
+        {
+          "image-name" : "Acorn-Layer-141.svg",
+          "name" : "Acorn-Layer-141"
+        },
+        {
+          "image-name" : "Acorn-Layer-142.svg",
+          "name" : "Acorn-Layer-142"
+        },
+        {
+          "image-name" : "Acorn-Layer-143.svg",
+          "name" : "Acorn-Layer-143"
+        },
+        {
+          "image-name" : "Acorn-Layer-144.svg",
+          "name" : "Acorn-Layer-144"
+        },
+        {
+          "image-name" : "Acorn-Layer-145.svg",
+          "name" : "Acorn-Layer-145"
+        },
+        {
+          "image-name" : "Acorn-Layer-146.svg",
+          "name" : "Acorn-Layer-146"
+        },
+        {
+          "image-name" : "Acorn-Layer-147.svg",
+          "name" : "Acorn-Layer-147"
+        },
+        {
+          "image-name" : "Acorn-Layer-148.svg",
+          "name" : "Acorn-Layer-148"
+        },
+        {
+          "image-name" : "Acorn-Layer-149.svg",
+          "name" : "Acorn-Layer-149"
+        },
+        {
+          "image-name" : "Acorn-Layer-150.svg",
+          "name" : "Acorn-Layer-150"
+        },
+        {
+          "image-name" : "Acorn-Layer-151.svg",
+          "name" : "Acorn-Layer-151"
+        },
+        {
+          "image-name" : "Acorn-Layer-152.svg",
+          "name" : "Acorn-Layer-152"
+        },
+        {
+          "image-name" : "Acorn-Layer-153.svg",
+          "name" : "Acorn-Layer-153"
+        },
+        {
+          "image-name" : "Acorn-Layer-154.svg",
+          "name" : "Acorn-Layer-154"
+        },
+        {
+          "image-name" : "Acorn-Layer-155.svg",
+          "name" : "Acorn-Layer-155"
+        },
+        {
+          "image-name" : "Acorn-Layer-156.svg",
+          "name" : "Acorn-Layer-156"
+        },
+        {
+          "image-name" : "Acorn-Layer-157.svg",
+          "name" : "Acorn-Layer-157"
+        },
+        {
+          "image-name" : "Acorn-Layer-158.svg",
+          "name" : "Acorn-Layer-158"
+        },
+        {
+          "image-name" : "Acorn-Layer-159.svg",
+          "name" : "Acorn-Layer-159"
+        },
+        {
+          "image-name" : "Acorn-Layer-160.svg",
+          "name" : "Acorn-Layer-160"
+        },
+        {
+          "image-name" : "Acorn-Layer-161.svg",
+          "name" : "Acorn-Layer-161"
+        },
+        {
+          "image-name" : "Acorn-Layer-162.svg",
+          "name" : "Acorn-Layer-162"
+        },
+        {
+          "image-name" : "Acorn-Layer-163.svg",
+          "name" : "Acorn-Layer-163"
+        },
+        {
+          "image-name" : "Acorn-Layer-164.svg",
+          "name" : "Acorn-Layer-164"
+        },
+        {
+          "image-name" : "Acorn-Layer-165.svg",
+          "name" : "Acorn-Layer-165"
+        },
+        {
+          "image-name" : "Acorn-Layer-166.svg",
+          "name" : "Acorn-Layer-166"
+        },
+        {
+          "image-name" : "Acorn-Layer-167.svg",
+          "name" : "Acorn-Layer-167"
+        },
+        {
+          "image-name" : "Acorn-Layer-168.svg",
+          "name" : "Acorn-Layer-168"
+        },
+        {
+          "image-name" : "Acorn-Layer-169.svg",
+          "name" : "Acorn-Layer-169"
+        },
+        {
+          "image-name" : "Acorn-Layer-170.svg",
+          "name" : "Acorn-Layer-170"
+        },
+        {
+          "image-name" : "Acorn-Layer-171.svg",
+          "name" : "Acorn-Layer-171"
+        },
+        {
+          "image-name" : "Acorn-Layer-172.svg",
+          "name" : "Acorn-Layer-172"
+        },
+        {
+          "image-name" : "Acorn-Layer-173.svg",
+          "name" : "Acorn-Layer-173"
+        },
+        {
+          "image-name" : "Acorn-Layer-174.svg",
+          "name" : "Acorn-Layer-174"
+        },
+        {
+          "image-name" : "Acorn-Layer-175.svg",
+          "name" : "Acorn-Layer-175"
+        },
+        {
+          "image-name" : "Acorn-Layer-176.svg",
+          "name" : "Acorn-Layer-176"
+        },
+        {
+          "image-name" : "Acorn-Layer-177.svg",
+          "name" : "Acorn-Layer-177"
+        },
+        {
+          "image-name" : "Acorn-Layer-178.svg",
+          "name" : "Acorn-Layer-178"
+        },
+        {
+          "image-name" : "Acorn-Layer-179.svg",
+          "name" : "Acorn-Layer-179"
+        },
+        {
+          "image-name" : "Acorn-Layer-180.svg",
+          "name" : "Acorn-Layer-180"
+        },
+        {
+          "image-name" : "Acorn-Layer-181.svg",
+          "name" : "Acorn-Layer-181"
+        },
+        {
+          "image-name" : "Acorn-Layer-182.svg",
+          "name" : "Acorn-Layer-182"
+        },
+        {
+          "image-name" : "Acorn-Layer-183.svg",
+          "name" : "Acorn-Layer-183"
+        },
+        {
+          "image-name" : "Acorn-Layer-184.svg",
+          "name" : "Acorn-Layer-184"
+        }
+      ],
+      "lighting" : "combined",
+      "name" : "Acorn",
+      "position" : {
+        "scale" : 0.7,
+        "translation-in-points" : [
+          0,
+          0
+        ]
+      },
+      "refractivity" : {
+        "depth" : 0,
+        "enabled" : true,
+        "strength" : 0.5
+      },
+      "shadow" : {
+        "kind" : "layer-color",
+        "opacity" : 0.5
+      },
+      "specular" : true,
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.3
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  }
+}

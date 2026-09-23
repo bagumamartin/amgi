@@ -69,6 +69,7 @@ final class NativeMediaImageCache {
     }
 
     nonisolated private static func decode(path: String, maxPixelDimension: Int) -> CGImage? {
+        guard FileManager.default.fileExists(atPath: path) else { return nil }
         guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil) else {
             return nil
         }

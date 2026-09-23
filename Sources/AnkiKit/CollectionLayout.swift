@@ -2,7 +2,7 @@ public import Foundation
 
 /// Canonical on-disk layout of an Amgi profile's collection directory.
 ///
-/// Shared by the app (`AccountStore`), the watch app, and the `amgi-mcp`
+/// Shared by the app (`AccountStore`), the watch app, and the `ijuka-mcp`
 /// helper so every process resolves the same files.
 ///
 /// Root resolution order (macOS matters most here):
@@ -20,11 +20,6 @@ public import Foundation
 /// On iOS/watchOS the plain Application Support layout is unchanged
 /// (each platform's sandbox IS the single owner).
 public enum CollectionLayout {
-    /// The macOS app-group identifier as it appears on disk (Team ID
-    /// prefixed — see project.yml's APP_GROUP_IDENTIFIER note).
-    private static let macGroupContainerName =
-        "39557WW39R.group.com.bagumamartin.AmgiApp"
-
     /// Root directory holding one subdirectory per profile.
     public static func rootDirectory(
         environment: [String: String] = ProcessInfo.processInfo.environment
@@ -115,16 +110,13 @@ public enum CollectionLayout {
     }
 
 
-    private static let macGroupID = "group.com.bagumamartin.AmgiApp"
-    private static let macGroupOnDiskName =
-        "39557WW39R.group.com.bagumamartin.AmgiApp"
+    private static let macGroupID = "group.com.bagumamartin.ijuka"
 
     /// Canonical Mac root: <group container>/AnkiCollection.
     ///
     /// The ENTITLED app must use FileManager.containerURL — the sandbox
-    /// grants write access to exactly the directory it resolves (the
-    /// Team-ID-prefixed on-disk form), not to reconstructed paths. The
-    /// unsandboxed helper falls back to the stable on-disk locations.
+    /// grants write access to exactly the directory it resolves. The
+    /// unsandboxed helper falls back to the standard group-container path.
     public static func macGroupAnkiCollectionRoot() -> URL {
         let fm = FileManager.default
         if let groupDir = fm.containerURL(
@@ -135,11 +127,8 @@ public enum CollectionLayout {
 
         let groupContainers = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
             .appendingPathComponent("Library/Group Containers", isDirectory: true)
-        // Match containerURL's on-disk convention first, but prefer any
-        // variant that already holds migrated data.
         let candidates = [
             groupContainers.appendingPathComponent(macGroupID, isDirectory: true),
-            groupContainers.appendingPathComponent(macGroupOnDiskName, isDirectory: true),
         ]
         for candidate in candidates {
             let root = candidate.appendingPathComponent("AnkiCollection", isDirectory: true)

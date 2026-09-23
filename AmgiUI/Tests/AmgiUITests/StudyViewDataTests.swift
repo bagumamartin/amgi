@@ -204,9 +204,9 @@ final class StudyViewDataTests: XCTestCase {
         XCTAssertTrue(StudySpan.isCurrent(grain: .year, todayStart: monday, anchor: 0, calendar: calendar))
         XCTAssertFalse(StudySpan.isCurrent(grain: .year, todayStart: monday, anchor: 400, calendar: calendar))
         XCTAssertEqual(StudySpan.jumpTitle(grain: .day), "Today")
-        XCTAssertEqual(StudySpan.jumpTitle(grain: .week), "This week")
-        XCTAssertEqual(StudySpan.jumpTitle(grain: .month), "This month")
-        XCTAssertEqual(StudySpan.jumpTitle(grain: .year), "This year")
+        XCTAssertEqual(StudySpan.jumpTitle(grain: .week), "Present")
+        XCTAssertEqual(StudySpan.jumpTitle(grain: .month), "Present")
+        XCTAssertEqual(StudySpan.jumpTitle(grain: .year), "Present")
 
         let wall = StudySpan.yearChart(todayStart: monday, anchor: 0, calendar: calendar) { offset in
             if offset == 0 { return 8 }

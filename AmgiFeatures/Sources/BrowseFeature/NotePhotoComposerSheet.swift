@@ -591,7 +591,7 @@ private struct NoteInSheetCamera: View {
             Text("Allow camera access")
                 .amgiFont(.bodyEmphasis)
                 .foregroundStyle(palette.textPrimary)
-            Text("Amgi uses the camera to add pictures to your cards.")
+            Text("Ijuka uses the camera to add pictures to your cards.")
                 .amgiFont(.caption)
                 .foregroundStyle(palette.textSecondary)
                 .multilineTextAlignment(.center)

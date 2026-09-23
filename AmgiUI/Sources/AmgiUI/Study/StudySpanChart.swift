@@ -34,36 +34,46 @@ public struct StudySpanChart: View {
 
     private func bars(_ columns: [StudyChartColumn]) -> some View {
         let peak = max(columns.map(\.value).max() ?? 0, 1)
-        return HStack(alignment: .bottom, spacing: 8) {
-            ForEach(columns) { column in
-                Button {
-                    onSelectOffset(column.offset)
-                } label: {
-                    VStack(spacing: 6) {
-                        columnCaption(column.label, emphasized: column.isSelected)
-                        Spacer(minLength: 0)
+        return VStack(spacing: headerGap) {
+            HStack(spacing: 8) {
+                ForEach(columns) { column in
+                    headerLabel(column.label, emphasized: column.isSelected)
+                        .contentShape(Rectangle())
+                        .onTapGesture { onSelectOffset(column.offset) }
+                }
+            }
+            HStack(alignment: .bottom, spacing: 8) {
+                ForEach(columns) { column in
+                    Button {
+                        onSelectOffset(column.offset)
+                    } label: {
                         RoundedRectangle(cornerRadius: 3, style: .continuous)
                             .fill(barFill(column))
                             .frame(height: barHeight(value: column.value, peak: peak))
-                        columnCaption(column.axis, emphasized: column.isSelected)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                            .contentShape(Rectangle())
                     }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 108)
-                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(accessibility(column))
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(accessibility(column))
+            }
+            .frame(height: 72, alignment: .bottom)
+            HStack(spacing: 8) {
+                ForEach(columns) { column in
+                    headerLabel(column.axis, emphasized: column.isSelected)
+                        .contentShape(Rectangle())
+                        .onTapGesture { onSelectOffset(column.offset) }
+                }
             }
         }
-        .padding(.vertical, 4)
     }
 
     private func hourBars(_ columns: [StudyChartColumn], axis: [StudyAxisLabel]) -> some View {
         let peak = max(columns.map(\.value).max() ?? 0, 1)
-        return VStack(spacing: 6) {
+        return VStack(spacing: headerGap) {
             HStack(spacing: 1) {
                 ForEach(columns) { column in
-                    columnCaption(column.label, emphasized: false)
+                    headerLabel(column.label, emphasized: false)
                         .minimumScaleFactor(0.4)
                 }
             }
@@ -79,7 +89,6 @@ public struct StudySpanChart: View {
             .frame(height: 72, alignment: .bottom)
             hourScale(axis, slots: columns.count)
         }
-        .padding(.vertical, 4)
     }
 
     /// The word is centered on its hour column, so the middle of "Morning"
@@ -100,12 +109,16 @@ public struct StudySpanChart: View {
         }
     }
 
-    private func columnCaption(_ text: String, emphasized: Bool) -> some View {
+    /// Same gap the month grid uses between its weekday letters and the days.
+    private var headerGap: CGFloat { 6 }
+
+    /// Matches the month chart's weekday row: micro type, flush to the top of the chart.
+    private func headerLabel(_ text: String, emphasized: Bool) -> some View {
         Text(text)
             .amgiFont(.micro)
             .foregroundStyle(emphasized ? palette.textPrimary : palette.textTertiary)
             .lineLimit(1)
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, alignment: .center)
     }
 
     private func hourTick(_ label: String) -> some View {
@@ -135,12 +148,9 @@ public struct StudySpanChart: View {
     private func month(headers: [String], cells: [StudyMonthCell]) -> some View {
         let peak = max(cells.map(\.value).max() ?? 0, 1)
         let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 7)
-        return LazyVGrid(columns: columns, spacing: 6) {
+        return LazyVGrid(columns: columns, spacing: headerGap) {
             ForEach(Array(headers.enumerated()), id: \.offset) { _, header in
-                Text(header)
-                    .amgiFont(.micro)
-                    .foregroundStyle(palette.textTertiary)
-                    .frame(maxWidth: .infinity)
+                headerLabel(header, emphasized: false)
             }
             ForEach(cells) { cell in
                 if let offset = cell.offset {

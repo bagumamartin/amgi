@@ -1,6 +1,6 @@
 public import Foundation
 
-/// Wire protocol for the amgi-mcp IPC bridge — the mechanism that lets
+/// Wire protocol for the ijuka-mcp IPC bridge — the mechanism that lets
 /// AI agents and Amgi.app use the engine AT THE SAME TIME.
 ///
 /// Ownership model: rslib holds an exclusive lock per collection, so

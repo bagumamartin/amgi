@@ -201,6 +201,11 @@ private struct NativeMediaImageView: View {
     let mediaFolder: URL?
 
     @State private var cgImage: CGImage?
+    @State private var imageUnavailable = false
+
+    private var mediaPath: String? {
+        mediaFolder?.appendingPathComponent(filename).path
+    }
 
     var body: some View {
         Group {
@@ -209,25 +214,33 @@ private struct NativeMediaImageView: View {
                     .resizable()
                     .scaledToFit()
                     .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.small, style: .continuous))
+            } else if imageUnavailable {
+                Label("Image unavailable", systemImage: "photo")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
-        .task(id: filename) { await load() }
+        .task(id: mediaPath) { await load() }
     }
 
     private func load() async {
-        if cgImage != nil { return }
-        guard let mediaFolder else { return }
-        let path = mediaFolder.appendingPathComponent(filename).path
+        cgImage = nil
+        imageUnavailable = false
+        guard let path = mediaPath else { return }
 
-        let startedAt = Date()
-        let decoded = await NativeMediaImageCache.shared.image(at: path)
-        let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
-
-        if let decoded {
-            cgImage = decoded
-            print("[NativeCard] image \(filename) ready in \(elapsedMs)ms")
-        } else {
-            print("[NativeCard] missing/unreadable media: \(filename)")
+        // Media sync may still be writing the file when a review card appears.
+        // Avoid asking ImageIO to open a path that does not exist, and retry
+        // while this card remains on screen so the image can appear later.
+        while !Task.isCancelled {
+            if FileManager.default.fileExists(atPath: path) {
+                if let decoded = await NativeMediaImageCache.shared.image(at: path) {
+                    guard !Task.isCancelled else { return }
+                    cgImage = decoded
+                    return
+                }
+            }
+            imageUnavailable = true
+            try? await Task.sleep(for: .seconds(2))
         }
     }
 }

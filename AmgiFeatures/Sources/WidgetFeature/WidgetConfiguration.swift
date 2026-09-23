@@ -1,5 +1,5 @@
 // AmgiFeatures/Sources/WidgetFeature/WidgetConfiguration.swift
-import AppIntents
+public import AppIntents
 import WidgetKit
 import Foundation
 import AmgiAppCore
@@ -50,3 +50,6 @@ struct AmgiWidgetIntent: WidgetConfigurationIntent {
     @Parameter(title: "Deck")
     var deck: DeckEntity?
 }
+
+/// Exposes the package's widget configuration intent to the app and extension.
+public struct IjukaWidgetIntentsPackage: AppIntentsPackage {}

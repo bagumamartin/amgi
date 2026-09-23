@@ -494,9 +494,7 @@ public enum StudySpan {
     public static func jumpTitle(grain: StudyGrain) -> String {
         switch grain {
         case .day: "Today"
-        case .week: "This week"
-        case .month: "This month"
-        case .year: "This year"
+        case .week, .month, .year: "Present"
         }
     }
 

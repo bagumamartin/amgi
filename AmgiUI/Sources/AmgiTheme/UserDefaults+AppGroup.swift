@@ -13,14 +13,12 @@ public extension UserDefaults {
         // Must match AmgiAppCore.AppGroup.identifier and both .entitlements
         // files. AmgiTheme is dependency-free on purpose, so it cannot
         // import the canonical constant — `AppGroup.identifier` is the
-        // local copy (personal team `group.com.bagumamartin.AmgiApp`).
+        // local copy.
         let defaults = UserDefaults(suiteName: AppGroup.identifier) ?? .standard
         // One-time migration: copy values the previous suites still hold
         // (selected theme, etc.) so preferences survive an ID rename.
-        // HEAD used the unprefixed `group.com.amgiapp`; the macOS branch
-        // used the Team-ID-prefixed personal-team ID.
+        // Older builds used `group.com.amgiapp`.
         migrateLegacySuite("group.com.amgiapp", into: defaults)
-        migrateLegacySuite(AppGroup.legacyIdentifier, into: defaults)
         return defaults
     }()
 

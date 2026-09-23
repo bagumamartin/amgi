@@ -7,7 +7,7 @@ public import Observation
 public enum CollectionChangeOrigin: Sendable, Equatable {
     case localUser
     case remoteSync
-    /// amgi-mcp helper wrote to the shared collection from outside the
+    /// ijuka-mcp helper wrote to the shared collection from outside the
     /// app process. Refreshes UI and rides the automatic sync like a
     /// local user change, since the edit is ours to propagate.
     case helperMutation

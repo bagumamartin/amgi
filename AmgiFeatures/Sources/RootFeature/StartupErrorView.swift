@@ -34,7 +34,7 @@ struct StartupErrorView: View {
                 .multilineTextAlignment(.center)
 
             if didReset {
-                Text("Collection removed. Quit and reopen Amgi, then sync to restore your cards.")
+                Text("Collection removed. Quit and reopen Ijuka, then sync to restore your cards.")
                     .amgiStatusText(.info, font: .caption)
                     .multilineTextAlignment(.center)
             } else {

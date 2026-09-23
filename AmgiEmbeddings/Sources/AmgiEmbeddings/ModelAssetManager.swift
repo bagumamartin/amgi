@@ -123,16 +123,12 @@ public actor ModelAssetManager {
     }
 
     /// Resolves `<group>/AmgiEmbeddings/models` via the entitled container.
-    /// The group ID is platform-dependent — kept in sync with
-    /// `AppGroup.identifier` (AmgiTheme) and the `APP_GROUP_IDENTIFIER`
+    /// The group ID is kept in sync with `AppGroup.identifier` (AmgiTheme)
+    /// and the `APP_GROUP_IDENTIFIER`
     /// build setting by hand; this package must not depend on AmgiTheme
     /// (wrong direction) or AnkiKit (Rust-linked) for six lines.
     nonisolated static func groupContainerModelsRoot() -> URL? {
-        #if os(macOS)
-        let groupID = "39557WW39R.group.com.bagumamartin.AmgiApp"
-        #else
-        let groupID = "group.com.bagumamartin.AmgiApp"
-        #endif
+        let groupID = "group.com.bagumamartin.ijuka"
         guard let groupDir = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: groupID
         ) else { return nil }

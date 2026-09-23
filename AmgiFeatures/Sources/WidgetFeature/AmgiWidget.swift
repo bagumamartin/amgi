@@ -17,7 +17,7 @@ public struct AmgiWidget: Widget {
             AmgiWidgetEntryView(entry: entry)
                 .containerBackground(.fill.tertiary, for: .widget)
         }
-        .configurationDisplayName("Amgi")
+        .configurationDisplayName("Ijuka")
         .description("See your cards due today.")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }

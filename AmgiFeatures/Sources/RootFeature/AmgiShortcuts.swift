@@ -1,5 +1,8 @@
-import AppIntents
+public import AppIntents
 import Foundation
+
+/// Makes the shortcuts declared in RootFeature discoverable from the app.
+public struct IjukaRootIntentsPackage: AppIntentsPackage {}
 
 /// Donates the app's actions to Spotlight, Siri, and Apple Intelligence.
 ///

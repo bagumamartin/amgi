@@ -212,7 +212,7 @@ package struct SettingsView: View {
             SettingsSectionHeader(title: "About")
             SettingsGroup {
                 SettingsRowLink(
-                    title: "About Amgi",
+                    title: "About Ijuka",
                     systemImage: "info.circle",
                     tone: .accent,
                     detail: appVersion
@@ -224,7 +224,7 @@ package struct SettingsView: View {
     }
 
     private var footer: some View {
-        Text("Amgi · v\(appVersion) · Built with care")
+        Text("Ijuka · v\(appVersion) · Built with care")
             .amgiFont(.micro)
             .foregroundStyle(palette.textTertiary)
             .frame(maxWidth: .infinity, alignment: .center)

@@ -1,12 +1,10 @@
-name: Publish amgi-mcp to PyPI
+name: Publish ijuka-mcp to PyPI
 
 on:
   workflow_dispatch:
   push:
     tags:
-      - 'mcp-v*'
-      - 'amgi-mcp-v*'
-      - 'python-v*'
+      - 'ijuka-mcp-v*'
 
 permissions:
   contents: read
@@ -17,6 +15,7 @@ jobs:
     # Trusted publishing (OIDC) — no token needed, just configure PyPI:
     # https://pypi.org/manage/account/publishing/
     # Publisher: GitHub, Owner: bagumamartin, Repo: amgi, Workflow: publish-pypi.yml
+    # PyPI project: ijuka-mcp. Tag this release ijuka-mcp-v1.2.0.
     permissions:
       id-token: write
     steps:
