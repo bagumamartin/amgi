@@ -13,8 +13,16 @@ anki_proto = { path = "../anki-upstream/rslib/proto" }
 prost = "0.13"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+regex = "1"
+rusqlite = { version = "0.36.0", features = ["bundled"] }
+tempfile = "3"
+zip = { version = "4.1.0", default-features = false, features = ["deflate"] }
+zstd = "0.13.3"
 
 [profile.release]
 opt-level = "s"     # Optimize for size (iOS binary)
 lto = true
-strip = true
+# Keep line tables in the linked dylib until dsymutil has extracted them.
+# Stripping here makes the App Store archive miss AnkiRustLib's dSYM.
+debug = 1
+strip = false

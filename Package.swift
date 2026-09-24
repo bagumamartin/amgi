@@ -113,6 +113,7 @@ let package = Package(
             dependencies: [
                 "AnkiRustLib",
                 "AnkiProto",
+                .product(name: "SwiftProtobuf", package: "swift-protobuf"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
                 .product(name: "DependenciesMacros", package: "swift-dependencies"),
             ],
@@ -130,7 +131,13 @@ let package = Package(
         ),
         .testTarget(
             name: "AnkiProtoBridgeTests",
-            dependencies: ["AnkiProtoBridge", "AnkiProto"],
+            dependencies: [
+                "AnkiProtoBridge",
+                "AnkiProto",
+                "AnkiKit",
+                "AnkiBackend",
+                .product(name: "SwiftProtobuf", package: "swift-protobuf"),
+            ],
             swiftSettings: sharedSwiftSettings
         ),
         // MARK: - Libraries
@@ -157,6 +164,7 @@ let package = Package(
             dependencies: [
                 "AnkiKit",
                 "AnkiBackend",
+                "AnkiProtoBridge",
                 "AnkiServices",
                 "AnkiSync",
                 .product(name: "AmgiReader", package: "AmgiReader"),
@@ -190,7 +198,10 @@ let package = Package(
         ),
         .testTarget(
             name: "AnkiServicesTests",
-            dependencies: ["AnkiServices"],
+            dependencies: [
+                "AnkiServices",
+                .product(name: "Dependencies", package: "swift-dependencies"),
+            ],
             swiftSettings: sharedSwiftSettings
         ),
         .testTarget(

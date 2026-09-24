@@ -1,6 +1,7 @@
 package import SwiftUI
 import AmgiAppCore
 import AmgiAppShared
+import AppIntents
 import AmgiUI
 import AnkiKit
 import AnkiClients
@@ -16,7 +17,6 @@ package struct DeckListView: View {
     @Shared(.appStorage(NavigationPreferences.deckSortOrder)) private var sortOrderRaw: String = DeckSortOrder.mostUsed.rawValue
     @State private var model: DeckListModel
     @State private var showCreateSheet = false
-    @State private var showExportSheet = false
     @State private var showImport = false
     @State private var renameTarget: DeckRowViewData?
     @State private var pendingDeck: DeckInfo?
@@ -51,7 +51,8 @@ package struct DeckListView: View {
     }
 
     package var body: some View {
-        LibraryListContent(
+        let profile = AccountStore.shared.selectedContext
+        return LibraryListContent(
             state: model.state,
             sortOrder: sortOrderBinding,
             onRefresh: { await model.load(sortOrder: sortOrderBinding.wrappedValue) },
@@ -67,6 +68,14 @@ package struct DeckListView: View {
         // conformance in AmgiUI. It declares equality over `state`, so this
         // turns a field walk into a value compare.
         .equatable()
+        .appEntityIdentifierIfAvailable(forSelectionType: Int64.self) { rawID in
+            guard let entity = DeckEntity(
+                context: profile,
+                deckID: DeckID(rawID),
+                name: "Deck"
+            ) else { return nil }
+            return EntityIdentifier(for: entity)
+        }
         .navigationTitle("Library")
         .navigationDestination(item: $pendingDeck) { deck in
             DeckDetailView(deck: deck)
@@ -80,17 +89,12 @@ package struct DeckListView: View {
                 showCreateSheet = false
             }
         }
-        .sheet(isPresented: $showExportSheet) {
-            ExportPackagesSheet()
-        }
         .sheet(item: $renameTarget) { row in
             RenameDeckSheet(deckId: DeckID(row.id), currentName: row.fullName) {
                 renameTarget = nil
             }
         }
-        .deckImport(isPresented: $showImport) {
-            store.invalidateAll()
-        }
+        .deckImport(isPresented: $showImport)
         // Keyed on the store's generation: any Invalidation (deck mutation,
         // sync, import, review-end) re-runs the load; `.task` still cancels
         // on disappear.
@@ -108,15 +112,19 @@ package struct DeckListView: View {
             } label: {
                 Image(systemName: "square.and.arrow.down")
             }
-            .accessibilityLabel("Import deck")
-            .help("Import deck")
+            .accessibilityLabel("Import files")
+            .help("Import Anki files")
             Button {
-                showExportSheet = true
+                ExportRequestRouter.shared.request(
+                    scope: .collection,
+                    allowsScopeChange: true,
+                    sourceName: "Library"
+                )
             } label: {
                 Image(systemName: "square.and.arrow.up")
             }
             .accessibilityLabel("Export")
-            .help("Export deck or collection package")
+            .help("Export a deck, collection, or notes")
             Button("New Deck", systemImage: "plus") {
                 showCreateSheet = true
             }

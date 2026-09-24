@@ -22,6 +22,12 @@ package enum NoteEmbedderBridge {
         try? await TextEmbedder.shared.embed(text, prefix: .passage)
     }
 
+    /// Identity of the currently installed embedding model. Persisted vectors
+    /// are valid only for this exact version.
+    package static var installedModelVersion: Int? {
+        ModelAssetManager.installedVersion()
+    }
+
     /// Dot product over L2-normalized vectors = cosine similarity.
     package static func cosine(_ lhs: [Float], _ rhs: [Float]) -> Float {
         TextEmbedder.cosine(lhs, rhs)

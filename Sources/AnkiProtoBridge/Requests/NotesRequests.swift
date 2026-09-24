@@ -67,12 +67,42 @@ extension Request where Response == NewNoteTemplate {
     }
 }
 
-// MARK: - addNote / updateNote / removeNote (Void)
+// MARK: - addNote / updateNote / removeNote
+
+extension Request where Response == NoteCreation {
+    /// Adds one note and returns its stable ID plus the engine change record.
+    public static func addNoteWithResult(
+        template: NewNoteTemplate,
+        deckId: DeckID
+    ) -> Self {
+        Self(
+            serviceId: ServiceID.notes,
+            methodId: NotesMethod.addNote,
+            encode: {
+                var note = Anki_Notes_Note()
+                note.notetypeID = template.notetypeId.rawValue
+                note.fields = template.fields
+                note.tags = template.tags
+
+                var proto = Anki_Notes_AddNoteRequest()
+                proto.note = note
+                proto.deckID = deckId.rawValue
+                return try proto.serializedData()
+            },
+            decode: { bytes in
+                let response = try Anki_Notes_AddNoteResponse(serializedBytes: bytes)
+                return NoteCreation(
+                    noteID: NoteID(response.noteID),
+                    changes: CollectionChanges(response.changes.changes)
+                )
+            }
+        )
+    }
+}
 
 extension Request where Response == Void {
-    /// Adds a note built from `template` to `deckId`. The backend's
-    /// returned change-record is discarded — callers refresh state via
-    /// their own queries.
+    /// Adds a note built from `template` to `deckId`. Compatibility wrapper
+    /// for callers that intentionally refresh by querying.
     public static func addNote(template: NewNoteTemplate, deckId: DeckID) -> Self {
         Self(
             serviceId: ServiceID.notes,

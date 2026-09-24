@@ -16,6 +16,8 @@ struct WatchReviewView: View {
     /// every state change — including isAudioPlaying flips — on the slowest
     /// CPU in the project.
     @State private var strippedText: String = ""
+    @State private var syncTask: Task<Void, Never>?
+    @Dependency(\.syncClient) private var syncClient
 
     private var currentHTML: String {
         session.showAnswer ? session.backHTML : session.frontHTML
@@ -85,6 +87,15 @@ struct WatchReviewView: View {
         }
         .onChange(of: session.frontHTML) { _, new in playAudio(from: new) }
         .onChange(of: session.showAnswer) { _, show in if show { playAudio(from: session.backHTML) } }
+        .onChange(of: session.successfulMutationCount) { _, _ in
+            scheduleCollectionSync()
+        }
+        .onDisappear {
+            syncTask?.cancel()
+            if session.successfulMutationCount > 0 {
+                scheduleCollectionSync(immediate: true)
+            }
+        }
     }
     private var waitingForLearningView: some View {
         ScrollView {
@@ -157,6 +168,22 @@ struct WatchReviewView: View {
         }
         .padding(10).buttonStyle(.plain).frame(maxWidth: .infinity).background(color)
     }
+    private func scheduleCollectionSync(immediate: Bool = false) {
+        syncTask?.cancel()
+        let client = syncClient
+        syncTask = Task {
+            if !immediate {
+                do {
+                    try await Task.sleep(for: .seconds(5))
+                } catch {
+                    return
+                }
+            }
+            guard !Task.isCancelled else { return }
+            _ = try? await client.syncCollection()
+        }
+    }
+
     private func ratingButton(_ rating: Rating, color: Color) -> some View {
         reviewButton(session.nextIntervals[rating] ?? "", color: color, font: .caption) {
             session.answer(rating: rating)

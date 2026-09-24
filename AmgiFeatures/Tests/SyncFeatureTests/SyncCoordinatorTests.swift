@@ -71,7 +71,7 @@ private func restoreFullSyncFlag(_ snapshot: FullSyncFlagSnapshot) {
     )
 }
 
-@Suite("SyncCoordinator state machine")
+@Suite("SyncCoordinator state machine", .serialized)
 struct SyncCoordinatorTests {
 
     @Test @MainActor
@@ -124,12 +124,18 @@ struct SyncCoordinatorTests {
     /// rolling the timestamp back made the sync look entirely lost.
     @Test @MainActor
     func mediaSyncErrorSurfacesButKeepsTheCollectionSyncRecord() async throws {
+        let mediaErrorReported = AsyncFlag()
         try await withDependencies {
             $0.appStorageKeyFormatWarningEnabled = false
             $0.syncClient.sync = { SyncSummary() }
             $0.syncClient.mediaSyncStatus = {
+                if await mediaErrorReported.value {
+                    return MediaSyncStatus(active: false, progress: nil)
+                }
+                await mediaErrorReported.set()
                 throw SyncError(message: "Media checksum mismatch")
             }
+            $0.syncClient.abortMediaSync = { await mediaErrorReported.set() }
         } operation: {
             // `lastSyncedAtUnix` is process-wide UserDefaults that other
             // tests also write, so pin it to a timestamp rather than testing
@@ -154,7 +160,10 @@ struct SyncCoordinatorTests {
             $0.appStorageKeyFormatWarningEnabled = false
             $0.syncClient.sync = { SyncSummary() }
             $0.syncClient.mediaSyncStatus = {
-                MediaSyncStatus(
+                if await abortRecorder.value {
+                    return MediaSyncStatus(active: false, progress: nil)
+                }
+                return MediaSyncStatus(
                     active: true,
                     progress: MediaSyncProgress(
                         checked: "Checked: 4",
@@ -170,7 +179,7 @@ struct SyncCoordinatorTests {
             try await Task.sleep(for: .milliseconds(50))
             #expect(coordinator.state == .syncingMedia("Checked: 4 \u{00B7} Added: 1\u{2191} 0\u{2193}"))
             coordinator.cancel()
-            try await Task.sleep(for: .milliseconds(50))
+            await coordinator.cancelAndWait()
             #expect(coordinator.state == .idle)
             #expect(await abortRecorder.value)
         }

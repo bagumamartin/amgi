@@ -1,4 +1,5 @@
 import OSLog
+import AmgiAppShared
 import AmgiAppCore
 import AnkiBackend
 import AnkiKit
@@ -31,6 +32,7 @@ final class NoteEditorModel {
 
     @ObservationIgnored @Dependency(\.noteClient) private var noteClient
     @ObservationIgnored @Dependency(\.notetypesService) private var notetypesService
+    @ObservationIgnored @Dependency(\.collectionStore) private var collectionStore
     @ObservationIgnored private let note: NoteRecord
     @ObservationIgnored private let deckID: DeckID?
 
@@ -158,6 +160,7 @@ final class NoteEditorModel {
 
         do {
             try await noteClient.save(updatedNote)
+            collectionStore.markLocalMutation()
             markSaved()
             return true
         } catch {

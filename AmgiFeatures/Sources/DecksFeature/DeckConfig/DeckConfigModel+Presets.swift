@@ -1,3 +1,4 @@
+import AmgiAppShared
 import AnkiClients
 import AnkiKit
 import Dependencies
@@ -9,6 +10,7 @@ extension DeckConfigModel {
         defer { isPresetMutating = false }
         do {
             try await deckClient.selectDeckPreset(deckId, target, applyToChildren)
+            collectionStore.markLocalMutation()
             await loadConfig()
         } catch {
             destination = .alert(.presetError("Failed to switch preset: \(error.localizedDescription)"))
@@ -22,6 +24,7 @@ extension DeckConfigModel {
         defer { isPresetMutating = false }
         do {
             try await deckClient.createDeckPreset(deckId, base, uniqueName(name), applyToChildren)
+            collectionStore.markLocalMutation()
             newPresetName = ""
             await loadConfig()
         } catch {
@@ -40,6 +43,7 @@ extension DeckConfigModel {
             // Reuse selectDeckPreset which writes the existing config's row in
             // place — same RPC the Anki Desktop "rename preset" flow uses.
             try await deckClient.selectDeckPreset(deckId, base, applyToChildren)
+            collectionStore.markLocalMutation()
             await loadConfig()
         } catch {
             destination = .alert(.presetError("Failed to rename preset: \(error.localizedDescription)"))
@@ -52,6 +56,7 @@ extension DeckConfigModel {
         defer { isPresetMutating = false }
         do {
             try await deckClient.deleteDeckPreset(deckId, current.id, fallback, applyToChildren)
+            collectionStore.markLocalMutation()
             await loadConfig()
         } catch {
             destination = .alert(.presetError("Failed to delete preset: \(error.localizedDescription)"))
@@ -104,6 +109,7 @@ extension DeckConfigModel {
 
         do {
             try await deckClient.optimizeFsrsPresets(deckId, loaded.config)
+            collectionStore.markLocalMutation()
             await loadConfig()
         } catch {
             destination = .alert(.fsrsError(error.localizedDescription))

@@ -3,13 +3,18 @@ import SwiftUI
 import RootFeature
 import WidgetFeature
 import AppIntents
+import AppIntentsFeature
 #if os(macOS)
 import AppKit
 #endif
 
 struct IjukaAppIntents: AppIntentsPackage {
     static var includedPackages: [any AppIntentsPackage.Type] {
-        [IjukaRootIntentsPackage.self, IjukaWidgetIntentsPackage.self]
+        [
+            IjukaRootIntentsPackage.self,
+            IjukaAutomationIntentsPackage.self,
+            IjukaWidgetIntentsPackage.self,
+        ]
     }
 }
 

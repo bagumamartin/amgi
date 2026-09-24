@@ -1,3 +1,4 @@
+import AmgiAppShared
 import AnkiClients
 import AnkiKit
 import Dependencies
@@ -19,6 +20,7 @@ final class DeckConfigModel {
     // Internal rather than private: the preset/FSRS methods live in
     // DeckConfigModel+Presets.swift now, and `private` is file-scoped.
     @ObservationIgnored @Dependency(\.deckClient) var deckClient
+    @ObservationIgnored @Dependency(\.collectionStore) var collectionStore
 
     var loaded: LoadedConfig?
     var isLoading = true
@@ -305,6 +307,7 @@ final class DeckConfigModel {
                 applyAllParentLimits,
                 fsrsHealthCheck
             )
+            collectionStore.markLocalMutation()
             return true
         } catch {
             destination = .alert(.saveFailed(error.localizedDescription))

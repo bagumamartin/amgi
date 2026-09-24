@@ -58,7 +58,7 @@ struct AmgiShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: OpenDeckIntent(),
             phrases: [
-                "open \(\.$deck) in \(.applicationName)",
+                "open \(\.$target) in \(.applicationName)",
             ],
             shortTitle: "Open Deck",
             systemImageName: "rectangle.stack"

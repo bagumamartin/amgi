@@ -1,156 +1,30 @@
 package import SwiftUI
-import AmgiUI
-public import AnkiKit
-import AnkiClients
-import AnkiServices
-import Dependencies
-import AmgiTheme
+package import AnkiKit
 
-/// Export entry point for both package kinds: whole collection as `.colpkg`
-/// or a single deck as `.apkg`.
-///
-/// Flow: pick scope + media toggle → Export writes to a timestamped temp
-/// file off-main → success row offers ShareLink. Errors render inline.
+/// Compatibility name for older feature call sites. Export presentation is
+/// owned by `ExportReviewView` and the root `ExportRequestRouter`; this wrapper
+/// keeps the old sheet entry point source-compatible while using the same
+/// format-aware review and native Save As flow.
 package struct ExportPackagesSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.palette) private var palette
+    private let request: ExportRequest
 
-    @State private var decks: [DeckInfo] = []
-    @State private var exportWholeCollection = true
-    @State private var selectedDeckID: DeckID?
-    @State private var includeMedia = true
-    @State private var isExporting = false
-    @State private var failureMessage: String?
-    @State private var exportedURL: URL?
-
-    @Dependency(\.importExportService) private var importExport
-    @Dependency(\.deckClient) private var deckClient
-
-    package init() {}
-
-    private static var stamp: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyyMMdd-HHmm"
-        return formatter.string(from: Date())
+    package init(
+        scope: ExportScope = .collection,
+        allowedFormats: [ExportFormat] = ExportFormat.allCases,
+        allowsScopeChange: Bool = true,
+        sourceName: String? = nil,
+        itemCount: Int? = nil
+    ) {
+        self.request = ExportRequest(
+            scope: scope,
+            allowedFormats: allowedFormats,
+            allowsScopeChange: allowsScopeChange,
+            sourceName: sourceName,
+            itemCount: itemCount
+        )
     }
 
     package var body: some View {
-        NavigationStack {
-            Form {
-                scopeSection
-                optionsSection
-                resultSection
-            }
-            .navigationTitle("Export")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-            }
-        }
-        .presentationDetents([.medium, .large])
-        .task {
-            decks = (try? await deckClient.fetchAll()) ?? []
-            if selectedDeckID == nil { selectedDeckID = decks.first?.id }
-        }
-    }
-
-    private var scopeSection: some View {
-        Section("What to export") {
-            Picker("Scope", selection: $exportWholeCollection) {
-                Text("Whole collection").tag(true)
-                Text("Single deck").tag(false)
-            }
-            .pickerStyle(.segmented)
-
-            if exportWholeCollection {
-                Text("Everything — all decks, scheduling and settings — as one .colpkg backup.")
-                    .amgiFont(.caption)
-                    .foregroundStyle(palette.textSecondary)
-            } else {
-                Picker("Deck", selection: $selectedDeckID) {
-                    ForEach(decks) { deck in
-                        Text(deck.name).tag(Optional(deck.id))
-                    }
-                }
-            }
-        }
-    }
-
-    private var optionsSection: some View {
-        Section("Options") {
-            Toggle("Include media", isOn: $includeMedia)
-            Button {
-                Task { await run() }
-            } label: {
-                if isExporting {
-                    HStack { ProgressView(); Text("Exporting…") }
-                } else {
-                    Label("Export \(exportWholeCollection ? "Collection" : "Deck")",
-                          systemImage: "square.and.arrow.up")
-                }
-            }
-            .disabled(isExporting || (!exportWholeCollection && selectedDeckID == nil))
-        }
-    }
-
-    @ViewBuilder
-    private var resultSection: some View {
-        if let exportedURL {
-            Section("Done") {
-                LabeledContent("File", value: exportedURL.lastPathComponent)
-                ShareLink(item: exportedURL) {
-                    Label("Share…", systemImage: "square.and.arrow.up")
-                }
-                .buttonStyle(.borderedProminent)
-            }
-        } else if let failureMessage {
-            Section {
-                Text(failureMessage)
-                    .amgiFont(.body)
-                    .foregroundStyle(palette.danger)
-            }
-        }
-    }
-
-    private func run() async {
-        isExporting = true
-        failureMessage = nil
-        defer { isExporting = false }
-
-        do {
-            let service = importExport
-            let media = includeMedia
-            let url: URL
-            switch (exportWholeCollection, selectedDeckID) {
-            case (true, _):
-                let path = Self.destinationURL(name: "AmgiCollection-\(Self.stamp)", ext: "colpkg").path
-                try await Task.detached(priority: .userInitiated) {
-                    try service.exportCollectionPackage(path, media)
-                }.value
-                url = URL(fileURLWithPath: path)
-            case (false, .some(let deckID)):
-                guard let deck = decks.first(where: { $0.id == deckID }) else { return }
-                let safeName = deck.name.replacingOccurrences(of: "::", with: "-")
-                let path = Self.destinationURL(name: "\(safeName)-\(Self.stamp)", ext: "apkg").path
-                try await Task.detached(priority: .userInitiated) {
-                    _ = try service.exportDeckPackage(
-                        deckID, path, true, true, media, false
-                    )
-                }.value
-                url = URL(fileURLWithPath: path)
-            case (false, .none):
-                return
-            }
-            exportedURL = url
-        } catch {
-            failureMessage = "Export failed: \(error.localizedDescription)"
-        }
-    }
-
-    private static func destinationURL(name: String, ext: String) -> URL {
-        FileManager.default.temporaryDirectory
-            .appending(component: "\(name).\(ext)")
+        ExportReviewView(request: request)
     }
 }

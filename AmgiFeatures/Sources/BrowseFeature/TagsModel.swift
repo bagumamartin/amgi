@@ -1,3 +1,4 @@
+import AmgiAppShared
 import AnkiClients
 import AnkiKit
 import Dependencies
@@ -20,6 +21,7 @@ final class TagsModel {
     var isDeleting = false
 
     @ObservationIgnored @Dependency(\.tagClient) private var tagClient
+    @ObservationIgnored @Dependency(\.collectionStore) private var collectionStore
 
     func loadTags() async {
         do {
@@ -41,6 +43,7 @@ final class TagsModel {
             } else {
                 try await tagClient.addTagToNotes(name, targetNoteIDs)
             }
+            collectionStore.markLocalMutation()
             await loadTags()
             return true
         } catch {
@@ -54,6 +57,7 @@ final class TagsModel {
         defer { isApplying = false }
         do {
             try await tagClient.addTagToNotes(tag, targetNoteIDs)
+            collectionStore.markLocalMutation()
         } catch {
             errorMessage = "Failed to apply tag: \(error.localizedDescription)"
         }
@@ -64,6 +68,7 @@ final class TagsModel {
         defer { isApplying = false }
         do {
             try await tagClient.removeTagFromNotes(tag, targetNoteIDs)
+            collectionStore.markLocalMutation()
         } catch {
             errorMessage = "Failed to remove tag: \(error.localizedDescription)"
         }
@@ -74,6 +79,7 @@ final class TagsModel {
         defer { isDeleting = false }
         do {
             try await tagClient.removeTag(tag)
+            collectionStore.markLocalMutation()
             await loadTags()
         } catch {
             errorMessage = "Failed to delete tag: \(error.localizedDescription)"
@@ -86,6 +92,7 @@ final class TagsModel {
         guard !trimmed.isEmpty, trimmed != oldName else { return false }
         do {
             try await tagClient.renameTag(oldName, trimmed)
+            collectionStore.markLocalMutation()
             await loadTags()
             return true
         } catch {

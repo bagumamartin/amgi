@@ -1,42 +1,14 @@
-import AnkiBackend
 public import AnkiKit
 import AnkiServices
 import Dependencies
 public import Foundation
 
-enum ImportError: Error, LocalizedError {
-    case accessDenied
-    case importFailed(String)
-
-    var errorDescription: String? {
-        switch self {
-        case .accessDenied: return "Cannot access the selected file"
-        case .importFailed(let msg): return msg
-        }
-    }
-}
-
+@available(*, deprecated, message: "Use ExportReviewView and ExportRequestRouter for native Save As and sharing.")
 public enum ImportHelper {
-    public static func importPackage(from url: URL) async throws -> String {
-        guard url.startAccessingSecurityScopedResource() else {
-            throw ImportError.accessDenied
-        }
-        defer { url.stopAccessingSecurityScopedResource() }
-
-        let tempDir = FileManager.default.temporaryDirectory
-        let tempFile = tempDir.appendingPathComponent(url.lastPathComponent)
-        try? FileManager.default.removeItem(at: tempFile)
-        try FileManager.default.copyItem(at: url, to: tempFile)
-        defer { try? FileManager.default.removeItem(at: tempFile) }
-
-        @Dependency(\.importExportService) var importExportService
-        let path = tempFile.path
-        return try await backendOffload { try importExportService.importAnkiPackage(path) }
-    }
-
     /// Exports a single deck as an `.apkg` file in the temporary directory and
     /// returns the URL. The default options preserve scheduling, deck configs,
     /// and media — matching upstream Anki's "Export including media" preset.
+    @available(*, unavailable, message: "Exports are routed through ExportRequestRouter and ExportReviewView.")
     public static func exportDeck(
         deckId: DeckID,
         deckName: String,

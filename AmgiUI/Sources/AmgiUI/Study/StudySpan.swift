@@ -125,6 +125,10 @@ public enum StudyChartModel: Equatable, Sendable {
     /// Hour numbers sit above the bars. The axis is morning, noon, evening,
     /// and midnight, each centered on its hour.
     case hours(columns: [StudyChartColumn], axis: [StudyAxisLabel])
+    /// A future day has a reliable daily due count, but no reliable forecast
+    /// for how those cards will be distributed across the clock. Render the
+    /// honest daily summary instead of an empty 24-hour chart.
+    case forecastDay(title: String, count: Int)
     case month(headers: [String], cells: [StudyMonthCell])
     case year(months: [StudyYearMonth])
 }
@@ -138,6 +142,13 @@ public struct StudyTimeRow: Identifiable, Equatable, Hashable, Sendable {
     public let detailTitle: String
     public let emptyMessage: String
     public let reschedulesByDefault: Bool
+    /// A short explanation shown beside a row, such as "FSRS stability
+    /// under 21 days" or "Includes subdecks".
+    public let subtitle: String?
+    /// When a row represents a deck's historical relevance, preselect that
+    /// deck in the restudy detail screen.
+    public let initialDeckID: Int64?
+    public let deckFullName: String?
 
     public init(
         id: String,
@@ -146,7 +157,10 @@ public struct StudyTimeRow: Identifiable, Equatable, Hashable, Sendable {
         search: String,
         detailTitle: String,
         emptyMessage: String,
-        reschedulesByDefault: Bool
+        reschedulesByDefault: Bool,
+        subtitle: String? = nil,
+        initialDeckID: Int64? = nil,
+        deckFullName: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -155,6 +169,9 @@ public struct StudyTimeRow: Identifiable, Equatable, Hashable, Sendable {
         self.detailTitle = detailTitle
         self.emptyMessage = emptyMessage
         self.reschedulesByDefault = reschedulesByDefault
+        self.subtitle = subtitle
+        self.initialDeckID = initialDeckID
+        self.deckFullName = deckFullName
     }
 }
 
@@ -176,12 +193,17 @@ public struct StudyDeckChoice: Identifiable, Hashable, Sendable {
 /// Day-offset and search math for the Study page.
 ///
 /// Offsets are days before the current Anki day: 0 is today, positive is
-/// the past, negative is the future. `rated:` counts backward from the
-/// next rollover, so one day is the difference of two windows.
+/// the past, negative is the future. Historical answer searches use
+/// `prop:rated`, whose exact-day values are 0 for today, -1 for yesterday,
+/// and so on.
 public enum StudySpan {
     /// Five years of Anki days, shared with the graphs fetch.
     public static let pastLimit = 365 * 5
     public static let futureLimit = 60
+    /// Calendar navigation (month/year) is not limited to the short forecast
+    /// horizon. The graph can still be sparse this far out, but dates should
+    /// never collapse from next year to roughly 60 days away.
+    public static let calendarFutureLimit = 365 * 5
 
     public static func date(todayStart: Date, offset: Int, calendar: Calendar = .current) -> Date {
         calendar.date(byAdding: .day, value: -offset, to: todayStart) ?? todayStart
@@ -248,6 +270,12 @@ public enum StudySpan {
         min(pastLimit, max(-futureLimit, offset))
     }
 
+    /// Calendar-period navigation uses the full available year horizon. The
+    /// 60-day forecast limit remains appropriate for a single day bar.
+    public static func calendarClamped(_ offset: Int) -> Int {
+        min(pastLimit, max(-calendarFutureLimit, offset))
+    }
+
     /// Seven Anki-day offsets for the week that contains `anchor`, ordered
     /// from the locale's first weekday.
     public static func weekOffsets(
@@ -306,19 +334,58 @@ public enum StudySpan {
         return (oldest, newest)
     }
 
-    /// `ease` is 1...4. Nil matches every answer button.
+    /// `ease` is 1...4. Nil matches every answer button. The Anki search
+    /// grammar uses negative `prop:rated` values for exact past days; a range
+    /// is expressed as two property constraints rather than `rated:` windows.
     public static func ratedSearch(ease: Int?, oldest: Int, newest: Int) -> String {
         let oldest = max(oldest, newest, 0)
         let newest = max(min(newest, oldest), 0)
         let easeSuffix = ease.map { ":\($0)" } ?? ""
-        if newest == 0 {
-            return "rated:\(oldest + 1)\(easeSuffix)"
+        let oldestValue = -oldest
+        let newestValue = -newest
+        if oldest == newest {
+            return "prop:rated=\(oldestValue)\(easeSuffix)"
         }
-        return "rated:\(oldest + 1)\(easeSuffix) -rated:\(newest)\(easeSuffix)"
+        return "prop:rated>=\(oldestValue)\(easeSuffix) prop:rated<=\(newestValue)\(easeSuffix)"
     }
 
+    /// Matches the engine's non-new, non-suspended future-due set. Learning
+    /// and review cards share the same daily due property; `is:review` alone
+    /// silently drops first-learning cards from the forecast/detail view.
     public static func dueSearch(daysAhead: Int) -> String {
-        "is:review prop:due=\(max(1, daysAhead))"
+        "(is:learn or is:review) prop:due=\(max(1, daysAhead)) -is:suspended"
+    }
+
+    /// FSRS stability below this many days is presented as "unstable" in
+    /// Study. This is a product threshold, not an engine-defined category;
+    /// keeping it named makes the choice easy to revisit when the scheduler
+    /// changes its young/mature boundary.
+    public static let unstableStabilityDays = 21
+
+    /// Cards that were answered on a particular past Anki day. This is
+    /// intentionally not `ratedSearch`: a day row means "answered at any
+    /// point that day", not "the latest answer falls in this window".
+    public static func relevanceSearch(dayOffset: Int) -> String? {
+        if dayOffset > 0 { return "prop:rated=\(-dayOffset)" }
+        if dayOffset < 0 { return dueSearch(daysAhead: -dayOffset) }
+        return nil
+    }
+
+    /// Current FSRS instability combined with the selected day's relevance.
+    /// The stability property is current card state, so callers should label
+    /// this as "unstable now" rather than implying historical stability.
+    public static func unstableSearch(dayOffset: Int) -> String? {
+        guard let relevance = relevanceSearch(dayOffset: dayOffset) else {
+            return "is:due prop:s<\(unstableStabilityDays)"
+        }
+        return "\(relevance) prop:s<\(unstableStabilityDays)"
+    }
+
+    public static var backlogSearch: String {
+        // Match GraphsSnapshot.future_due: learning and review cards are
+        // eligible, suspended cards are not, while future buried cards remain
+        // part of the backlog estimate.
+        "(is:learn or is:review) prop:due<0 -is:suspended"
     }
 
     public static func dayTitle(offset: Int, day: Date, calendar: Calendar = .current) -> String {
@@ -574,8 +641,9 @@ public enum StudySpan {
             .compactMap(\.offset)
     }
 
-    /// One restudy cut for a span. The search is the span's `rated:` window
-    /// plus `extra`. Easy and Solid default to leaving the schedule alone.
+    /// One restudy cut for a span. The search is the span's exact
+    /// `prop:rated` window plus `extra`. Easy and Solid default to leaving
+    /// the schedule alone.
     public struct Criterion: Sendable, Equatable {
         public let id: String
         public let title: String
@@ -619,29 +687,40 @@ public enum StudySpan {
 
     /// `deck:"Name"` includes subdecks. Turning that off excludes `Name::*`.
     public static func scopedSearch(_ base: String, deckFullName: String, includeSubdecks: Bool) -> String {
-        guard !deckFullName.isEmpty else { return base }
+        let scope = deckScopeSearch(deckFullName, includeSubdecks: includeSubdecks)
+        guard !scope.isEmpty else { return base }
+        return "\(base) \(scope)"
+    }
+
+    /// A standalone deck scope, useful when the deck term itself is the
+    /// search passed to the stats graph endpoint.
+    public static func deckScopeSearch(_ deckFullName: String, includeSubdecks: Bool = true) -> String {
+        guard !deckFullName.isEmpty else { return "" }
         let term = quotedDeck(deckFullName)
-        if includeSubdecks { return "\(base) \(term)" }
-        return "\(base) \(term) -\(quotedDeck(deckFullName + "::*"))"
+        if includeSubdecks { return term }
+        return "\(term) -\(quotedDeck(deckFullName + "::*"))"
     }
 
     public static func ratingRows(
         counts: [String: Int],
         oldest: Int,
         newest: Int,
-        spanName: String
+        spanName: String,
+        additionalSearch: String? = nil
     ) -> [StudyTimeRow] {
         criteria.map { criterion in
-            StudyTimeRow(
+            let baseSearch = criterionSearch(
+                ease: criterion.ease,
+                extra: criterion.extra,
+                oldest: oldest,
+                newest: newest
+            )
+            let scoped = additionalSearch.map { "\(baseSearch) \($0)" } ?? baseSearch
+            return StudyTimeRow(
                 id: criterion.id,
                 title: criterion.title,
                 count: counts[criterion.id] ?? 0,
-                search: criterionSearch(
-                    ease: criterion.ease,
-                    extra: criterion.extra,
-                    oldest: oldest,
-                    newest: newest
-                ),
+                search: scoped,
                 detailTitle: "\(criterion.title) · \(spanName)",
                 emptyMessage: emptyCriterionMessage(noun: criterion.emptyNoun, spanName: spanName),
                 reschedulesByDefault: criterion.reschedulesByDefault
@@ -656,15 +735,58 @@ public enum StudySpan {
         return "deck:\"\(escaped)\""
     }
 
-    public static func dueRow(count: Int, daysAhead: Int, spanName: String) -> StudyTimeRow {
+    public static func dueRow(
+        count: Int,
+        daysAhead: Int,
+        spanName: String,
+        search explicitSearch: String? = nil
+    ) -> StudyTimeRow {
         StudyTimeRow(
             id: "due",
             title: "Due this day",
             count: count,
-            search: dueSearch(daysAhead: daysAhead),
+            search: explicitSearch ?? dueSearch(daysAhead: daysAhead),
             detailTitle: "Due · \(spanName)",
             emptyMessage: dueEmptyMessage(spanName: spanName),
-            reschedulesByDefault: true
+            reschedulesByDefault: true,
+            subtitle: "Scheduled for this Anki day"
+        )
+    }
+
+    public static func backlogRow(
+        count: Int,
+        search explicitSearch: String? = nil
+    ) -> StudyTimeRow {
+        StudyTimeRow(
+            id: "backlog",
+            title: "Backlog",
+            count: count,
+            search: explicitSearch ?? backlogSearch,
+            detailTitle: "Backlog",
+            emptyMessage: "No overdue cards",
+            reschedulesByDefault: true,
+            subtitle: "Past due · daily limits may be holding reviews back"
+        )
+    }
+
+    public static func unstableRow(
+        count: Int,
+        dayOffset: Int,
+        spanName: String,
+        search explicitSearch: String? = nil
+    ) -> StudyTimeRow {
+        let search = explicitSearch
+            ?? unstableSearch(dayOffset: dayOffset)
+            ?? "is:due prop:s<\(unstableStabilityDays)"
+        return StudyTimeRow(
+            id: "unstable",
+            title: "Unstable now",
+            count: count,
+            search: search,
+            detailTitle: "Unstable · \(spanName)",
+            emptyMessage: "No unstable cards \(spanPhrase(spanName))",
+            reschedulesByDefault: false,
+            subtitle: "FSRS stability under \(unstableStabilityDays) days"
         )
     }
 

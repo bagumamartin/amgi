@@ -163,12 +163,15 @@ struct DeckDetailView: View {
                 alertTitle: alertTitle,
                 alertActions: { AnyView(alertActions(for: $0)) },
                 alertMessage: { AnyView(alertMessage(for: $0)) },
-                onImportResult: { result in Task { await runImport(result) } }
+                onImportResult: { result in
+                    if case .success(let url) = result {
+                        ImportRequestRouter.shared.request(url)
+                    }
+                    destination = nil
+                }
             ))
-            .overlay(alignment: .top) { ImportInProgressBanner(visible: model.importInProgress) }
             .overlay(alignment: .bottom) { RebuildFeedbackBanner(feedback: model.rebuildFeedback) }
             .animation(AmgiMotion.momentum, value: model.rebuildFeedback)
-            .animation(AmgiMotion.momentum, value: model.importInProgress)
             // Keyed on the store's generation so mutations (subdeck create,
             // rebuild/empty, import) reload this screen via Invalidation.
             .task(id: store.generation) {
@@ -291,15 +294,13 @@ struct DeckDetailView: View {
                 Button {
                     destination = .importer
                 } label: {
-                    Label("Import .apkg…", systemImage: "square.and.arrow.down")
+                    Label("Import Files…", systemImage: "square.and.arrow.down")
                 }
-                .disabled(model.importInProgress)
                 Button {
-                    Task { await runExport() }
+                    runExport()
                 } label: {
                     Label("Export Deck…", systemImage: "square.and.arrow.up")
                 }
-                .disabled(model.exportInProgress)
             } label: {
                 // No hand-drawn material circle: on iOS 26 the toolbar draws
                 // its own Liquid Glass capsule behind the item, and a material
@@ -396,10 +397,6 @@ private extension DeckDetailView {
                     store.apply(CollectionChanges(deck: true, studyQueues: true))
                 }
             }
-        case .exportFile(let url):
-            ShareSheet(items: [url]) {
-                destination = nil
-            }
         }
     }
 
@@ -467,22 +464,12 @@ private extension DeckDetailView {
         }
     }
 
-    func runExport() async {
-        switch await model.exportDeck() {
-        case .success(let url):
-            destination = .sheet(.exportFile(url))
-        case .failure(let msg):
-            destination = .alert(.error(msg))
-        }
-    }
-
-    func runImport(_ result: Result<URL, any Error>) async {
-        switch await model.handleImport(result) {
-        case .success(let summary):
-            destination = .alert(.info(summary))
-        case .failure(let msg):
-            destination = .alert(.error(msg))
-        }
+    func runExport() {
+        ExportRequestRouter.shared.request(
+            scope: .deck(deck.id, name: deck.name),
+            sourceName: "Library",
+            itemCount: deck.counts.total
+        )
     }
 
     /// Anki's own prefills for the same two custom-study fields. We don't

@@ -41,6 +41,30 @@ struct PrivacyPolicyView: View {
                 .padding(.vertical, AmgiSpacing.md)
             }
 
+            SettingsSectionHeader(title: "Apple Intelligence & System Search")
+            SettingsGroup {
+                VStack(alignment: .leading, spacing: AmgiSpacing.sm) {
+                    Label("On-device Assistance", systemImage: "sparkles")
+                        .amgiFont(.bodyEmphasis)
+                        .foregroundStyle(palette.textPrimary)
+                    Text("When enabled and available, Study Assistant sends a bounded set of matching note fields to Apple’s on-device system model. Ijuka does not proxy these requests through an Ijuka server. The assistant cannot rate, schedule, edit, or delete cards in this release.")
+                        .amgiFont(.caption)
+                        .foregroundStyle(palette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Divider().padding(.vertical, AmgiSpacing.xs)
+
+                    Label("System Search", systemImage: "magnifyingglass")
+                        .amgiFont(.bodyEmphasis)
+                        .foregroundStyle(palette.textPrimary)
+                    Text("Deck names can be indexed in Spotlight so system search can open Ijuka. Note answers are not indexed. Showing private note titles in system results is off unless you enable it in Settings.")
+                        .amgiFont(.caption)
+                        .foregroundStyle(palette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(AmgiSpacing.lg)
+            }
+
             SettingsSectionHeader(title: "Permissions")
             SettingsGroup {
                 VStack(alignment: .leading, spacing: AmgiSpacing.sm) {

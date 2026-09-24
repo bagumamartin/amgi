@@ -7,9 +7,11 @@ import Foundation
 import WidgetKit
 
 /// Fetches current deck data + streak, writes per-deck snapshot files to the
-/// App Group container, then signals WidgetKit to reload all timelines.
+/// App Group container, then signals WidgetKit to reload this widget's
+/// timelines.
 /// Safe to call from any async context.
-public func writeWidgetSnapshot() async {
+@discardableResult
+public func writeWidgetSnapshot() async -> Bool {
     // Skip during XCTest runs — the lifecycle hooks that call this run inside
     // the host app's scene phase / didFinishLaunching, which fire even when
     // the app is hosting a test bundle. Calling unimplemented dependency stubs
@@ -17,25 +19,22 @@ public func writeWidgetSnapshot() async {
     // error. Tests that genuinely need widget-snapshot behavior can call this
     // directly inside their own withDependencies overrides.
     if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
-        return
+        return false
     }
 
     @Dependency(\.collectionStore) var collectionStore
     @Dependency(\.statsClient) var statsClient
+    let profileID = await MainActor.run(body: { AccountStore.shared.selectedContext.id })
 
     do {
         // Match the Library hero: top-level nodes already include their
         // descendants' due counts, so summing a flat deck list would count
         // parent/subdeck cards more than once.
-        let tree = try await collectionStore.tree()
+        let tree = try await collectionStore.freshTree()
         let libraryDecks = tree.map(\.asDeckInfo)
         let individualDecks = tree.flattened()
 
         var keptIds: Set<Int64> = [0]
-        defer {
-            WidgetSnapshotStore.removeSnapshots(notIn: keptIds)
-            WidgetCenter.shared.reloadAllTimelines()
-        }
 
         // 28-day stats graph for streak + daily counts. The rollover hour
         // rides along — the widget's day boundary comes from here, never
@@ -70,6 +69,7 @@ public func writeWidgetSnapshot() async {
         )
         let allDecksSnapshot = WidgetSnapshot(
             deckId: 0,
+            profileID: profileID,
             deckName: "All Decks",
             newCount: aggregateBase.newCount,
             learnCount: aggregateBase.learnCount,
@@ -86,6 +86,9 @@ public func writeWidgetSnapshot() async {
                 futureDue: graphs.futureDue.futureDue
             )
         )
+        guard await MainActor.run(body: { AccountStore.shared.selectedContext.id }) == profileID else {
+            return false
+        }
         try WidgetSnapshotStore.write(allDecksSnapshot)
 
         // Graduated counts are scoped searches, so compute them only where
@@ -96,9 +99,9 @@ public func writeWidgetSnapshot() async {
             let hasWidget = WidgetSnapshotStore.read(deckId: deck.id.rawValue) != nil
             guard deck.counts.total > 0 || hasWidget else { continue }
             keptIds.insert(deck.id.rawValue)
-            let completed = try await statsClient.graduatedToday(
+            guard let completed = try? await statsClient.graduatedToday(
                 search: DeckSearch.term(deck.name)
-            )
+            ) else { continue }
             let learning = (try? await statsClient.learningDueToday(
                 search: DeckSearch.term(deck.name)
             )) ?? deck.counts.learnCount
@@ -120,6 +123,7 @@ public func writeWidgetSnapshot() async {
             }
             let snapshot = WidgetSnapshot(
                 deckId: deck.id.rawValue,
+                profileID: profileID,
                 deckName: deck.name,
                 newCount: base.newCount,
                 learnCount: base.learnCount,
@@ -138,10 +142,33 @@ public func writeWidgetSnapshot() async {
                     )
                 }
             )
-            try WidgetSnapshotStore.write(snapshot)
+            guard await MainActor.run(body: { AccountStore.shared.selectedContext.id }) == profileID else {
+                return false
+            }
+            do {
+                try WidgetSnapshotStore.write(snapshot)
+            } catch {
+                Log.widget.error("Failed to write deck \(deck.id.rawValue): \(error)")
+            }
         }
+
+        // A profile switch may have happened while the engine queries were in
+        // flight. Never publish the old profile's deck IDs or names after the
+        // active collection has changed.
+        guard await MainActor.run(body: { AccountStore.shared.selectedContext.id }) == profileID else {
+            return false
+        }
+
+        // Cleanup and reload happen only after the complete snapshot set has
+        // been written. A transient stats failure must preserve the last
+        // known-good per-deck files rather than turning a widget into
+        // "All Decks" or an empty state.
+        WidgetSnapshotStore.removeSnapshots(notIn: keptIds)
+        WidgetCenter.shared.reloadTimelines(ofKind: "AmgiWidget")
+        return true
     } catch {
         Log.widget.error("Failed: \(error)")
+        return false
     }
 }
 

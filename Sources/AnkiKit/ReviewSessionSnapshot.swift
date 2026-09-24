@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Live review-session state published by Amgi.app's `ReviewSession` and
 /// served to the `ijuka-mcp` helper over the IPC bridge
@@ -20,6 +20,12 @@ public struct ReviewSessionSnapshot: Codable, Sendable, Equatable {
     public var deckId: Int64
     public var deckName: String
     public var isAllDecksScope: Bool
+
+    /// Runtime profile fence. These fields are never written to disk; they
+    /// travel only with the live in-process/MCP snapshot so an assistant
+    /// cannot explain a card from a collection that is no longer active.
+    public var profileID: String?
+    public var profileSelectionID: UUID?
 
     /// The card currently on screen, nil between cards / when finished.
     public var currentCardId: Int64?
@@ -70,6 +76,7 @@ public struct ReviewSessionSnapshot: Codable, Sendable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, updatedAtMs, deckId, deckName, isAllDecksScope
+        case profileID, profileSelectionID
         case currentCardId, currentNoteId, cardOrdinal, queueRemaining, isFinished, isWaitingForLearning
         case isAnswerRevealed
         case reviewed, correct, streak, remainingNew, remainingLearning, remainingReview
@@ -83,6 +90,8 @@ public struct ReviewSessionSnapshot: Codable, Sendable, Equatable {
         deckId = try c.decode(Int64.self, forKey: .deckId)
         deckName = try c.decode(String.self, forKey: .deckName)
         isAllDecksScope = try c.decode(Bool.self, forKey: .isAllDecksScope)
+        profileID = try c.decodeIfPresent(String.self, forKey: .profileID)
+        profileSelectionID = try c.decodeIfPresent(UUID.self, forKey: .profileSelectionID)
         currentCardId = try c.decodeIfPresent(Int64.self, forKey: .currentCardId)
         currentNoteId = try c.decodeIfPresent(Int64.self, forKey: .currentNoteId)
         cardOrdinal = try c.decode(UInt32.self, forKey: .cardOrdinal)
@@ -106,6 +115,9 @@ public struct ReviewSessionSnapshot: Codable, Sendable, Equatable {
         try c.encode(deckId, forKey: .deckId)
         try c.encode(deckName, forKey: .deckName)
         try c.encode(isAllDecksScope, forKey: .isAllDecksScope)
+        try c.encodeIfPresent(profileID, forKey: .profileID)
+        // profileSelectionID is runtime-only and is intentionally omitted
+        // from the MCP/persisted representation.
         try c.encodeIfPresent(currentCardId, forKey: .currentCardId)
         try c.encodeIfPresent(currentNoteId, forKey: .currentNoteId)
         try c.encode(cardOrdinal, forKey: .cardOrdinal)
@@ -139,13 +151,17 @@ public struct ReviewSessionSnapshot: Codable, Sendable, Equatable {
         remainingNew: Int,
         remainingLearning: Int,
         remainingReview: Int,
-        answered: [Answered]
+        answered: [Answered],
+        profileID: String? = nil,
+        profileSelectionID: UUID? = nil
     ) {
         self.schemaVersion = Self.schemaVersion
         self.updatedAtMs = Int64(Date.now.timeIntervalSince1970 * 1000)
         self.deckId = deckId
         self.deckName = deckName
         self.isAllDecksScope = isAllDecksScope
+        self.profileID = profileID
+        self.profileSelectionID = profileSelectionID
         self.currentCardId = currentCardId
         self.currentNoteId = currentNoteId
         self.cardOrdinal = cardOrdinal

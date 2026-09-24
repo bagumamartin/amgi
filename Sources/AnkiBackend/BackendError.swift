@@ -47,6 +47,13 @@ public struct BackendError: Error, LocalizedError, CustomStringConvertible, Send
         if let parsed = try? Anki_Backend_BackendError(serializedBytes: errorBytes) {
             self.kind = Kind(parsed.kind)
             self.message = parsed.message
+        } else if let rawMessage = String(data: errorBytes, encoding: .utf8),
+                  !rawMessage.isEmpty {
+            // Amgi aux service (200) uses UTF-8 error bodies rather than the
+            // protobuf envelope. Preserve those actionable import/inspection
+            // messages instead of collapsing them to "Unknown backend error".
+            self.kind = .invalidInput
+            self.message = rawMessage
         } else {
             self.kind = .ioError
             self.message = "Unknown backend error"

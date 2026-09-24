@@ -1,0 +1,188 @@
+import AmgiAppCore
+import AmgiAppShared
+import AnkiBackend
+import AnkiServices
+import Dependencies
+import Foundation
+import SyncFeature
+
+/// Replaces the active profile with a `.colpkg` backup. This lifecycle belongs
+/// at the composition root because the engine requires its collection lock to
+/// be closed while files are replaced, unlike every merge-style importer.
+@MainActor
+func replaceCurrentCollection(with stagedPackageURL: URL) async throws {
+    @Dependency(\.ankiBackend) var backend
+    @Dependency(\.collectionStore) var collectionStore
+    @Dependency(\.syncCoordinator) var syncCoordinator
+    @Dependency(\.importExportService) var importExport
+
+    let profileID = AccountStore.shared.selectedID
+    let profileDirectory = AccountStore.profileDirectory(for: profileID)
+    let collectionPath = profileDirectory.appendingPathComponent("collection.anki2").path
+    let mediaFolderPath = profileDirectory.appendingPathComponent("media", isDirectory: true).path
+    let mediaDatabasePath = profileDirectory.appendingPathComponent("media.db").path
+
+    let recoveryDirectory = profileDirectory.appendingPathComponent("Recovery", isDirectory: true)
+    try FileManager.default.createDirectory(at: recoveryDirectory, withIntermediateDirectories: true)
+    let recoveryURL = recoveryDirectory
+        .appendingPathComponent("Amgi-Recovery-\(UUID().uuidString).colpkg")
+    var preserveRecovery = false
+    defer {
+        if !preserveRecovery {
+            try? FileManager.default.removeItem(at: recoveryURL)
+        }
+    }
+
+    guard syncCoordinator.beginCollectionLifecycle() else {
+        throw CancellationError()
+    }
+    defer { syncCoordinator.endCollectionLifecycle() }
+    await syncCoordinator.cancelAndWait()
+    await WidgetRefreshCoordinator.shared.cancelAndWait()
+
+    // Desktop Anki creates a backup before replacing a collection. Do the same
+    // so a malformed package or interrupted media restore can be rolled back.
+    // The upstream export RPC deliberately takes the collection out of the
+    // backend while it writes the package, so it is already closed when this
+    // returns; calling closeCollection again would fail with CollectionNotOpen.
+    do {
+        try await backendOffload {
+            try importExport.exportCollectionPackage(recoveryURL.path, true)
+        }
+    } catch {
+        // Export takes ownership before writing. Normalize either possible
+        // outcome (still open on an early failure, already closed otherwise)
+        // before returning the original error to the review screen.
+        try? await backendOffload { try backend.closeCollection() }
+        try? await reopenAfterReplacement(
+            backend: backend,
+            profileID: profileID,
+            collectionPath: collectionPath,
+            mediaFolderPath: mediaFolderPath,
+            mediaDatabasePath: mediaDatabasePath
+        )
+        throw error
+    }
+
+    do {
+        try await importExport.importCollectionPackage(
+            collectionPath,
+            stagedPackageURL.path,
+            mediaFolderPath,
+            mediaDatabasePath
+        )
+    } catch {
+        do {
+            try await importExport.importCollectionPackage(
+                collectionPath,
+                recoveryURL.path,
+                mediaFolderPath,
+                mediaDatabasePath
+            )
+        } catch let recoveryError {
+            try? await reopenAfterReplacement(
+                backend: backend,
+                profileID: profileID,
+                collectionPath: collectionPath,
+                mediaFolderPath: mediaFolderPath,
+                mediaDatabasePath: mediaDatabasePath
+            )
+            preserveRecovery = true
+            throw ImportCollectionReplacementError.recoveryFailed(
+                importError: error.localizedDescription,
+                recoveryError: recoveryError.localizedDescription,
+                recoveryPath: recoveryURL.path
+            )
+        }
+        preserveRecovery = true
+        try await reopenAfterReplacement(
+            backend: backend,
+            profileID: profileID,
+            collectionPath: collectionPath,
+            mediaFolderPath: mediaFolderPath,
+            mediaDatabasePath: mediaDatabasePath
+        )
+        preserveRecovery = false
+        syncCoordinator.resetForProfileSwitch()
+        throw error
+    }
+
+    // Keep the verified recovery package until the replacement collection has
+    // actually reopened. If startup cannot reopen the restored database, the
+    // user must still have a durable local copy to recover from.
+    preserveRecovery = true
+    try await reopenAfterReplacement(
+        backend: backend,
+        profileID: profileID,
+        collectionPath: collectionPath,
+        mediaFolderPath: mediaFolderPath,
+        mediaDatabasePath: mediaDatabasePath
+    )
+    preserveRecovery = false
+    syncCoordinator.resetForProfileSwitch()
+    collectionStore.invalidateAll(origin: .localUser)
+    WidgetSnapshotStore.removeAllSnapshots()
+    await WidgetRefreshCoordinator.shared.refreshNow()
+}
+
+private func reopenCollection(
+    backend: AnkiBackend,
+    collectionPath: String,
+    mediaFolderPath: String,
+    mediaDatabasePath: String
+) async throws {
+    try await backendOffload {
+        try FileManager.default.createDirectory(
+            at: URL(fileURLWithPath: mediaFolderPath, isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try backend.openCollection(
+            collectionPath: collectionPath,
+            mediaFolderPath: mediaFolderPath,
+            mediaDbPath: mediaDatabasePath
+        )
+    }
+}
+
+@MainActor
+private func reopenAfterReplacement(
+    backend: AnkiBackend,
+    profileID: String,
+    collectionPath: String,
+    mediaFolderPath: String,
+    mediaDatabasePath: String
+) async throws {
+    do {
+        try await reopenCollection(
+            backend: backend,
+            collectionPath: collectionPath,
+            mediaFolderPath: mediaFolderPath,
+            mediaDatabasePath: mediaDatabasePath
+        )
+    } catch {
+        // Keep the app recoverable if the restored collection is temporarily
+        // unavailable (for example, an external helper still owns the lock).
+        // CollectionLaunchState will show its native busy screen and retry.
+        CollectionLaunchState.shared.configure(
+            backend: backend,
+            profileID: profileID,
+            error: error.localizedDescription
+        )
+        throw error
+    }
+}
+
+private enum ImportCollectionReplacementError: Error, LocalizedError {
+    case recoveryFailed(importError: String, recoveryError: String, recoveryPath: String)
+
+    var errorDescription: String? {
+        switch self {
+        case .recoveryFailed(let importError, let recoveryError, let recoveryPath):
+            return """
+                The collection backup could not be imported (\(importError)). \
+                Ijuka also could not restore the automatic recovery backup (\(recoveryError)). \
+                The recovery copy was kept at \(recoveryPath). Quit and reopen Ijuka, then restore that copy.
+                """
+        }
+    }
+}

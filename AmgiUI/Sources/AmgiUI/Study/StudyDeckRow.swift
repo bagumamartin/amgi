@@ -25,7 +25,12 @@ public struct StudyDeckRow: View {
                         .foregroundStyle(palette.textPrimary)
                         .lineLimit(1)
                     if data.isFiltered {
-                        Text("Extra session")
+                        Text(
+                            data.name == "Study · Selection"
+                                || data.name.hasPrefix("Study · Session · ")
+                                ? "Resume session"
+                                : "Extra session"
+                        )
                             .amgiFont(.caption)
                             .foregroundStyle(palette.customStudyBadge)
                     } else if !mixLabel.isEmpty {
@@ -42,18 +47,31 @@ public struct StudyDeckRow: View {
                     }
                 }
                 Spacer(minLength: 12)
-                Text("\(data.totalDue)")
-                    .amgiFont(.caption)
-                    .fontWeight(.bold)
-                    .monospacedDigit()
-                    .foregroundStyle(palette.textPrimary)
+                VStack(alignment: .trailing, spacing: 3) {
+                    Text("\(data.totalDue)")
+                        .amgiFont(.bodyEmphasis, .monospacedDigits)
+                        .foregroundStyle(palette.textPrimary)
+                    DeckCountBadges(
+                        newCount: data.newCount,
+                        learnCount: data.learnCount,
+                        reviewCount: data.reviewCount
+                    )
+                }
             }
             .padding(.vertical, 10)
             .padding(.horizontal, 12)
-            .frame(minHeight: 56)
+            .frame(minHeight: 64)
             .contentShape(Rectangle())
         }
         .buttonStyle(.pressScale)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityHint("Starts a review session for this deck")
+    }
+
+    private var accessibilityLabel: String {
+        var parts = ["Study \(data.name)", "\(data.totalDue) cards due"]
+        if let includes = data.includesLabel { parts.append(includes) }
+        return parts.joined(separator: ", ")
     }
 
     private var mixLabel: String {

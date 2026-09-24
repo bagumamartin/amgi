@@ -115,7 +115,14 @@ enum ImportExportMethod {
     static let importCollectionPackage: UInt32 = 0
     static let exportCollectionPackage: UInt32 = 1
     static let importAnkiPackage: UInt32 = 2
+    static let getImportAnkiPackagePresets: UInt32 = 3
     static let exportAnkiPackage: UInt32 = 4
+    static let getCSVMetadata: UInt32 = 5
+    static let importCSV: UInt32 = 6
+    static let exportNoteCSV: UInt32 = 7
+    static let exportCardCSV: UInt32 = 8
+    static let importJSONFile: UInt32 = 9
+    static let importJSONString: UInt32 = 10
 }
 
 enum NotesMethod {
@@ -146,6 +153,9 @@ enum SearchMethod {
 /// Aux methods (JSON wire format, not protobuf).
 enum AuxMethod {
     static let findDupesExact: UInt32 = 0
+    static let inspectAnkiPackage: UInt32 = 1
+    static let inspectMnemosyne: UInt32 = 2
+    static let importMnemosyne: UInt32 = 3
 }
 
 /// BackendConfigService (9).

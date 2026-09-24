@@ -35,24 +35,12 @@ final class DeckDetailModel {
 
     var actionInFlight = false
     var rebuildFeedback: String?
-    var exportInProgress = false
-    var importInProgress = false
 
     @ObservationIgnored @Dependency(\.deckClient) private var deckClient
     @ObservationIgnored @Dependency(\.statsClient) private var statsClient
     @ObservationIgnored @Dependency(\.cardClient) private var cardClient
     @ObservationIgnored @Dependency(\.collectionStore) private var store
     @ObservationIgnored private var statsTask: Task<Void, Never>?
-
-    enum ImportOutcome {
-        case success(String)
-        case failure(String)
-    }
-
-    enum ExportOutcome {
-        case success(URL)
-        case failure(String)
-    }
 
     init(deck: DeckInfo) {
         self.deck = deck
@@ -241,34 +229,6 @@ final class DeckDetailModel {
         }
     }
 
-    func exportDeck() async -> ExportOutcome {
-        exportInProgress = true
-        defer { exportInProgress = false }
-        do {
-            let deckId = deck.id
-            let deckName = deck.name
-            let url = try await Task.detached {
-                try ImportHelper.exportDeck(deckId: deckId, deckName: deckName)
-            }.value
-            return .success(url)
-        } catch {
-            return .failure("Failed to export deck: \(error.localizedDescription)")
-        }
-    }
-
-    func handleImport(_ result: Result<URL, any Error>) async -> ImportOutcome {
-        switch result {
-        case .success(let url):
-            let ext = url.pathExtension.lowercased()
-            guard ext == "apkg" || ext == "colpkg" else {
-                return .failure("Unsupported file type. Please select an .apkg or .colpkg file.")
-            }
-            return await runImport(from: url)
-        case .failure(let error):
-            return .failure("Could not select file: \(error.localizedDescription)")
-        }
-    }
-
     /// Returns nil on success; otherwise an error message to surface.
     func createSubdeck(rawName: String) async -> String? {
         let trimmed = rawName.trimmingCharacters(in: .whitespaces)
@@ -297,18 +257,4 @@ private extension DeckDetailModel {
         return []
     }
 
-    func runImport(from url: URL) async -> ImportOutcome {
-        importInProgress = true
-        defer { importInProgress = false }
-        do {
-            // ImportHelper offloads the engine work itself now.
-            let summary = try await ImportHelper.importPackage(from: url)
-            // Import can touch anything; the generation bump reloads this
-            // screen and the Library behind it.
-            store.apply(.all)
-            return .success(summary)
-        } catch {
-            return .failure("Import failed: \(error.localizedDescription)")
-        }
-    }
 }

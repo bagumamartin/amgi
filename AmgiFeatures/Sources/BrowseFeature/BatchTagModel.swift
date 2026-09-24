@@ -1,3 +1,4 @@
+import AmgiAppShared
 import AnkiClients
 import AnkiKit
 import Dependencies
@@ -14,6 +15,7 @@ final class BatchTagModel {
     var isApplying = false
 
     @ObservationIgnored @Dependency(\.tagClient) private var tagClient
+    @ObservationIgnored @Dependency(\.collectionStore) private var collectionStore
 
     func loadTags() async {
         if let tags = try? await tagClient.getAllTags() {
@@ -24,9 +26,16 @@ final class BatchTagModel {
     func apply(noteIDs: Set<NoteID>, tags: Set<String>) async {
         isApplying = true
         let ids = Array(noteIDs)
+        var changed = false
         for tag in tags {
-            try? await tagClient.addTagToNotes(tag, ids)
+            do {
+                try await tagClient.addTagToNotes(tag, ids)
+                changed = true
+            } catch {
+                continue
+            }
         }
+        if changed { collectionStore.markLocalMutation() }
         isApplying = false
     }
 }

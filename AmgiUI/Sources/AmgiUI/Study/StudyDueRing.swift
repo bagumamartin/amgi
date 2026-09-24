@@ -1,18 +1,13 @@
 public import SwiftUI
 import AmgiTheme
 
-/// Large circular progress ring for the Study landing screen.
+/// Large circular progress visualization for the Study landing screen.
 ///
-/// The ring is segmented by the live new/learning/review mix, with each arc
-/// sized proportionally to the cards still due in that state. Today's
-/// completion is drawn as full-strength copies of those same segments
-/// revealed clockwise up to the completed fraction — single-state days stay
-/// one hue throughout, and hue flips land exactly on the dimmed boundaries —
-/// glowing once the ring closes, then resetting at Anki's next-day rollover.
-///
-/// Centre shows the due numeral and today's percent. Mix, time, and the
-/// day boundary live beside the ring — the centre is a mark, not a caption
-/// stack.
+/// Three fixed concentric rings keep the live new/learning/review mix
+/// readable at a glance. Each category owns one ring: its colored arc is
+/// the share of the live queue in that state, sitting on a dim track in the
+/// same category color. The centre keeps the total due count and today's
+/// completion percentage as the compact focal point.
 public struct StudyDueRing: View {
     public let summary: StudySummaryData
     public var diameter: CGFloat
@@ -22,7 +17,13 @@ public struct StudyDueRing: View {
     @State private var displayedDue = 0
 
     private var ringSize: CGFloat { diameter }
-    private var lineWidth: CGFloat { diameter >= 190 ? 18 : 14 }
+    private var lineWidth: CGFloat { max(10, min(16, diameter * 0.075)) }
+    private var ringSpacing: CGFloat { max(3, diameter * 0.02) }
+    private var ringStep: CGFloat { lineWidth + ringSpacing }
+
+    private var categoryTotal: Int {
+        max(0, summary.newCount + summary.learnCount + summary.reviewCount)
+    }
 
     public init(summary: StudySummaryData, diameter: CGFloat = 168) {
         self.summary = summary
@@ -31,122 +32,66 @@ public struct StudyDueRing: View {
 
     public var body: some View {
         ZStack {
-            trackCircle
-            ZStack {
-                compositionArcs
-                progressArc
-            }
-            .animation(.spring(response: 0.5, dampingFraction: 0.85), value: summary)
+            categoryRings
             centerContent
         }
         .frame(width: ringSize, height: ringSize)
+        .animation(AmgiMotion.standard, value: summary)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilitySummary)
     }
 
-    // MARK: - Track
+    // MARK: - Category rings
 
-    @ViewBuilder
-    private var trackCircle: some View {
-        // With a segmented composition, the dim arcs themselves are the
-        // track — a full separator circle underneath would fill the segment
-        // gaps with its own tone, erasing the boundaries. The plain circle
-        // remains only for the zero-due fallback sweep.
-        if compositionSegments.isEmpty {
+    /// New, Learning, and Review are deliberately fixed from outside in so
+    /// the colors and their positions remain learnable as counts change.
+    private var categoryRings: some View {
+        ZStack {
+            categoryRing(
+                count: summary.newCount,
+                color: palette.cardStateNew,
+                diameter: ringSize
+            )
+            categoryRing(
+                count: summary.learnCount,
+                color: palette.cardStateLearning,
+                diameter: ringSize - ringStep * 2
+            )
+            categoryRing(
+                count: summary.reviewCount,
+                color: palette.cardStateReview,
+                diameter: ringSize - ringStep * 4
+            )
+        }
+    }
+
+    private func categoryRing(count: Int, color: Color, diameter: CGFloat) -> some View {
+        let fraction = categoryFraction(for: count)
+        return ZStack {
             Circle()
-                .stroke(palette.separator, lineWidth: lineWidth)
-                .frame(width: ringSize, height: ringSize)
-        }
-    }
+                .stroke(
+                    color.opacity(0.16),
+                    style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+                )
+                .frame(width: diameter, height: diameter)
 
-    // MARK: - Segments
-
-    private struct SegmentRange {
-        let color: Color
-        let start: Double
-        let end: Double
-    }
-
-    /// The live new/learning/review composition laid out clockwise from the
-    /// top, with a small angular gap between non-zero segments.
-    private var compositionSegments: [SegmentRange] {
-        let entries: [(Color, Int)] = [
-            (palette.cardStateNew, summary.newCount),
-            (palette.cardStateLearning, summary.learnCount),
-            (palette.cardStateReview, summary.reviewCount),
-        ]
-        let active = entries.filter { $0.1 > 0 }
-        guard !active.isEmpty else { return [] }
-
-        let activeTotal = active.reduce(0) { $0 + $1.1 }
-        // Wide enough that the background showing through reads as a real
-        // separator at ring size (≈8pt at 224pt diameter).
-        let gap = 0.012
-        let totalGap = gap * Double(active.count - 1)
-
-        var cursor = 0.0
-        var segments: [SegmentRange] = []
-        for (index, entry) in active.enumerated() {
-            let fraction = Double(entry.1) / Double(activeTotal)
-            let span = fraction * (1 - totalGap)
-            segments.append(SegmentRange(color: entry.0, start: cursor, end: cursor + span))
-            cursor += span
-            if index < active.count - 1 { cursor += gap }
-        }
-        return segments
-    }
-
-    private var compositionArcs: some View {
-        ForEach(Array(compositionSegments.enumerated()), id: \.offset) { _, segment in
-            Circle()
-                .trim(from: segment.start, to: segment.end)
-                .stroke(segment.color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .butt))
-                .rotationEffect(.degrees(-90))
-                .opacity(0.28)
-        }
-    }
-
-    /// The day's progress: full-strength copies of the composition segments
-    /// revealed clockwise up to the completed fraction, so each category
-    /// fills in place and hue flips land exactly on the dim backdrop's
-    /// boundaries. With no composition (zero due) it falls back to the
-    /// single positive sweep, glowing once the day's baseline is cleared.
-    private var progressArc: some View {
-        let fraction = summary.todayProgressFraction
-        let lit = litSegments(upTo: fraction)
-        return Group {
-            if compositionSegments.isEmpty {
+            if fraction > 0 {
                 Circle()
                     .trim(from: 0, to: fraction)
-                    .stroke(palette.positive, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                    .stroke(
+                        color,
+                        style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+                    )
                     .rotationEffect(.degrees(-90))
-            } else {
-                ForEach(Array(lit.enumerated()), id: \.offset) { index, segment in
-                    Circle()
-                        .trim(from: segment.start, to: segment.end)
-                        .stroke(
-                            segment.color,
-                            style: StrokeStyle(
-                                lineWidth: lineWidth,
-                                // Round sweep tip while the ring is open;
-                                // butt joints keep lit/dim boundaries flush.
-                                lineCap: index == lit.count - 1 && fraction < 1 ? .round : .butt
-                            )
-                        )
-                        .rotationEffect(.degrees(-90))
-                }
+                    .frame(width: diameter, height: diameter)
             }
         }
-        .shadow(color: palette.positive.opacity(fraction * 0.45), radius: fraction >= 1 ? 10 : 0)
+        .frame(width: diameter, height: diameter)
     }
 
-    /// `compositionSegments` clamped to `fraction`: segments wholly beyond
-    /// the completed point are dropped, the straddling one is trimmed.
-    private func litSegments(upTo fraction: Double) -> [SegmentRange] {
-        guard fraction > 0 else { return [] }
-        var lit: [SegmentRange] = []
-        for segment in compositionSegments where segment.start < fraction {
-            lit.append(SegmentRange(color: segment.color, start: segment.start, end: min(segment.end, fraction)))
-        }
-        return lit
+    private func categoryFraction(for count: Int) -> Double {
+        guard categoryTotal > 0 else { return 0 }
+        return min(1, max(0, Double(count) / Double(categoryTotal)))
     }
 
     // MARK: - Centre text
@@ -166,19 +111,45 @@ public struct StudyDueRing: View {
                 .amgiFont(.micro)
                 .monospacedDigit()
                 .foregroundStyle(palette.textTertiary)
+            progressIndicator
         }
         .onAppear {
-            withAnimation(.spring(response: 0.8, dampingFraction: 0.8)) {
+            withAnimation(AmgiMotion.standard) {
                 displayedDue = summary.totalDue
             }
         }
         .onChange(of: summary.totalDue) { _, newValue in
-            withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) {
+            withAnimation(AmgiMotion.standard) {
                 displayedDue = newValue
             }
         }
     }
 
+    private var progressIndicator: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(palette.separator.opacity(0.55))
+                Capsule()
+                    .fill(palette.accent)
+                    .frame(width: proxy.size.width * summary.todayProgressFraction)
+            }
+        }
+        .frame(width: min(max(diameter * 0.36, 48), 82), height: 4)
+        .accessibilityHidden(true)
+    }
+
+    // MARK: - Accessibility
+
+    private var accessibilitySummary: String {
+        let progress = "\(summary.todayProgressPercent)% of today's goal complete"
+        guard summary.totalDue > 0 else {
+            return "No cards due today. \(progress)."
+        }
+
+        let due = summary.totalDue == 1 ? "1 card" : "\(summary.totalDue) cards"
+        return "\(due) due today. New \(summary.newCount), learning \(summary.learnCount), review \(summary.reviewCount). \(progress)."
+    }
 }
 
 // MARK: - Previews

@@ -15,8 +15,12 @@ import Foundation
 /// package has no edge to AnkiBridge — so it carries a local copy that
 /// points back here.
 public enum ProfileScope: Sendable {
-    /// UserDefaults key holding the selected profile's id.
+    /// UserDefaults key holding the selected profile's filesystem anchor.
     public static let anchorKey = "amgi.selectedUser"
+
+    /// UserDefaults key holding the selected profile's generation-qualified
+    /// system scope. This is intentionally separate from the filesystem anchor.
+    public static let scopeAnchorKey = "amgi.selectedScopeID"
 
     /// Profile id used when no selection has been made, and by processes
     /// with no profile registry of their own (the watch app).

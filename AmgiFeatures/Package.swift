@@ -38,6 +38,8 @@ let package = Package(
     products: [
         .library(name: "AmgiAppCore", targets: ["AmgiAppCore"]),
         .library(name: "AmgiAppShared", targets: ["AmgiAppShared"]),
+        .library(name: "AppIntentsFeature", targets: ["AppIntentsFeature"]),
+        .library(name: "AssistantFeature", targets: ["AssistantFeature"]),
         .library(name: "AmgiCharts", targets: ["AmgiCharts"]),
         .library(name: "TemplatesFeature", targets: ["TemplatesFeature"]),
         .library(name: "StatsFeature", targets: ["StatsFeature"]),
@@ -74,7 +76,10 @@ let package = Package(
         ),
         .testTarget(
             name: "AmgiAppCoreTests",
-            dependencies: ["AmgiAppCore"],
+            dependencies: [
+                "AmgiAppCore",
+                .product(name: "AnkiKit", package: "amgi"),
+            ],
             swiftSettings: sharedSwiftSettings
         ),
         .target(
@@ -82,8 +87,10 @@ let package = Package(
             dependencies: [
                 "AmgiAppCore",
                 .product(name: "AnkiKit", package: "amgi"),
+                .product(name: "AnkiBackend", package: "amgi"),
                 .product(name: "AnkiClients", package: "amgi"),
                 .product(name: "AnkiServices", package: "amgi"),
+                .product(name: "AmgiCardWeb", package: "amgi"),
                 .product(name: "AmgiTheme", package: "AmgiUI"),
                 .product(name: "AmgiUI", package: "AmgiUI"),
                 .product(name: "AmgiIcons", package: "AmgiIcons"),
@@ -94,7 +101,56 @@ let package = Package(
         ),
         .testTarget(
             name: "AmgiAppSharedTests",
-            dependencies: ["AmgiAppShared"],
+            dependencies: [
+                "AmgiAppShared",
+                .product(name: "AnkiKit", package: "amgi"),
+                .product(name: "AnkiClients", package: "amgi"),
+                .product(name: "AnkiServices", package: "amgi"),
+                .product(name: "Dependencies", package: "swift-dependencies"),
+            ],
+            swiftSettings: sharedSwiftSettings
+        ),
+        .target(
+            name: "AppIntentsFeature",
+            dependencies: [
+                "AmgiAppCore",
+                "AmgiAppShared",
+                .product(name: "AnkiKit", package: "amgi"),
+                .product(name: "AnkiClients", package: "amgi"),
+                .product(name: "Dependencies", package: "swift-dependencies"),
+            ],
+            swiftSettings: sharedSwiftSettings
+        ),
+        .testTarget(
+            name: "AppIntentsFeatureTests",
+            dependencies: [
+                "AppIntentsFeature",
+                "AmgiAppCore",
+                "AmgiAppShared",
+            ],
+            swiftSettings: sharedSwiftSettings
+        ),
+        .target(
+            name: "AssistantFeature",
+            dependencies: [
+                "AmgiAppCore",
+                "AmgiAppShared",
+                "AmgiReviewCore",
+                .product(name: "AnkiKit", package: "amgi"),
+                .product(name: "AnkiClients", package: "amgi"),
+                .product(name: "AmgiCardWeb", package: "amgi"),
+                .product(name: "AmgiTheme", package: "AmgiUI"),
+                .product(name: "AmgiUI", package: "AmgiUI"),
+                .product(name: "Dependencies", package: "swift-dependencies"),
+            ],
+            swiftSettings: sharedSwiftSettings
+        ),
+        .testTarget(
+            name: "AssistantFeatureTests",
+            dependencies: [
+                "AssistantFeature",
+                "AmgiAppCore",
+            ],
             swiftSettings: sharedSwiftSettings
         ),
         .target(
@@ -110,6 +166,7 @@ let package = Package(
             name: "TemplatesFeature",
             dependencies: [
                 "AmgiAppCore",
+                "AmgiAppShared",
                 .product(name: "AnkiKit", package: "amgi"),
                 .product(name: "AnkiClients", package: "amgi"),
                 .product(name: "AnkiServices", package: "amgi"),
@@ -161,9 +218,12 @@ let package = Package(
         .target(
             name: "BrowseFeature",
             dependencies: [
+                "AmgiAppCore",
                 "AmgiAppShared",
                 .product(name: "AnkiKit", package: "amgi"),
+                .product(name: "AnkiBackend", package: "amgi"),
                 .product(name: "AnkiClients", package: "amgi"),
+                .product(name: "AnkiProtoBridge", package: "amgi"),
                 .product(name: "AnkiServices", package: "amgi"),
                 .product(name: "AmgiCardWeb", package: "amgi"),
                 .product(name: "AmgiTheme", package: "AmgiUI"),
@@ -181,6 +241,7 @@ let package = Package(
                 .product(name: "AnkiKit", package: "amgi"),
                 .product(name: "AnkiClients", package: "amgi"),
                 .product(name: "AnkiServices", package: "amgi"),
+                .product(name: "Dependencies", package: "swift-dependencies"),
             ],
             swiftSettings: sharedSwiftSettings
         ),
@@ -225,6 +286,7 @@ let package = Package(
                 "ReviewFeature",
                 "StatsFeature",
                 .product(name: "AnkiKit", package: "amgi"),
+                .product(name: "AnkiBackend", package: "amgi"),
                 .product(name: "AnkiClients", package: "amgi"),
                 .product(name: "AmgiTheme", package: "AmgiUI"),
                 .product(name: "AmgiUI", package: "AmgiUI"),
@@ -328,8 +390,11 @@ let package = Package(
             name: "SyncFeatureTests",
             dependencies: [
                 "SyncFeature",
+                "AmgiAppCore",
                 .product(name: "AnkiKit", package: "amgi"),
                 .product(name: "AnkiClients", package: "amgi"),
+                .product(name: "AnkiSync", package: "amgi"),
+                .product(name: "Dependencies", package: "swift-dependencies"),
                 .product(name: "Sharing", package: "swift-sharing"),
             ],
             swiftSettings: sharedSwiftSettings
@@ -381,6 +446,7 @@ let package = Package(
             dependencies: [
                 "AmgiAppCore",
                 "AmgiReviewCore",
+                "AssistantFeature",
                 "BrowseFeature",
                 "ReaderFeature",
                 "ReviewFeature",
@@ -443,6 +509,9 @@ let package = Package(
             dependencies: [
                 "AmgiAppCore",
                 "AmgiAppShared",
+                "AppIntentsFeature",
+                "AssistantFeature",
+                "AmgiReviewCore",
                 "BrowseFeature",
                 "DecksFeature",
                 "ReaderFeature",
@@ -453,6 +522,7 @@ let package = Package(
                 .product(name: "AnkiKit", package: "amgi"),
                 .product(name: "AnkiBackend", package: "amgi"),
                 .product(name: "AnkiClients", package: "amgi"),
+                .product(name: "AnkiServices", package: "amgi"),
                 .product(name: "AnkiSync", package: "amgi"),
                 .product(name: "AmgiReader", package: "AmgiReader"),
                 .product(name: "AmgiTheme", package: "AmgiUI"),

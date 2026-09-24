@@ -58,8 +58,11 @@ struct MainTabView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let refreshID: UUID
     let showReaderTab: Bool
+    let studyTodayRequest: Int
+    let studyTodayDeckID: Int64?
     let onSelectStudyDeck: (DeckID) -> Void
     let onPullCooling: () -> Void
+    let onOpenAssistant: () -> Void
 
     /// Persisted so menu commands and the sidebar share one source of truth.
     @Shared(.appStorage(NavigationPreferences.rootSection)) private var sectionRaw: String = MainSection.study.rawValue
@@ -147,6 +150,11 @@ struct MainTabView: View {
             systemImage: previousSection.systemImage,
             action: { selectionBinding.wrappedValue = previousSection }
         ))
+        .accountChrome(
+            showsMenu: false,
+            destination: $accountDestination,
+            openAssistant: onOpenAssistant
+        )
     }
 
     /// Section list + profile/Settings chips. Settings pushes on the
@@ -211,12 +219,20 @@ struct MainTabView: View {
                 DeckListView(onOpenToday: {
                     $sectionRaw.withLock { $0 = MainSection.study.rawValue }
                 })
-                    .accountChrome(showsMenu: showsAccountMenu, destination: $accountDestination)
+                    .accountChrome(
+                        showsMenu: showsAccountMenu,
+                        destination: $accountDestination,
+                        openAssistant: onOpenAssistant
+                    )
             }
         case .read:
             NavigationStack {
                 ReaderLibraryView(refreshID: refreshID)
-                    .accountChrome(showsMenu: showsAccountMenu, destination: $accountDestination)
+                    .accountChrome(
+                        showsMenu: showsAccountMenu,
+                        destination: $accountDestination,
+                        openAssistant: onOpenAssistant
+                    )
             }
         case .study:
             NavigationStack {
@@ -226,19 +242,35 @@ struct MainTabView: View {
                         $sectionRaw.withLock { $0 = MainSection.library.rawValue }
                     },
                     showsContinueReading: showReaderTab,
-                    onPullCooling: onPullCooling
+                    onPullCooling: onPullCooling,
+                    todayRequest: studyTodayRequest,
+                    todayDeckID: studyTodayDeckID
                 )
-                    .accountChrome(showsMenu: showsAccountMenu, destination: $accountDestination)
+                    .accountChrome(
+                        showsMenu: showsAccountMenu,
+                        destination: $accountDestination,
+                        openAssistant: onOpenAssistant
+                    )
             }
         case .stats:
             NavigationStack {
                 StatsDashboardView(refreshID: refreshID)
-                    .accountChrome(showsMenu: showsAccountMenu, destination: $accountDestination)
+                    .accountChrome(
+                        showsMenu: showsAccountMenu,
+                        destination: $accountDestination,
+                        openAssistant: onOpenAssistant
+                    )
             }
         case .browse:
             // BrowseView is itself a NavigationSplitView. Wrapping it in
-            // another stack blanks compact and steals column destinations.
+            // another stack blanks compact and steals column destinations,
+            // but its own chrome still needs the assistant entry point.
             BrowseView()
+                .accountChrome(
+                    showsMenu: showsAccountMenu,
+                    destination: $accountDestination,
+                    openAssistant: onOpenAssistant
+                )
         }
     }
 
@@ -260,12 +292,24 @@ private extension View {
     @ViewBuilder
     func accountChrome(
         showsMenu: Bool,
-        destination: Binding<AccountMenuDestination?>
+        destination: Binding<AccountMenuDestination?>,
+        openAssistant: @escaping () -> Void
     ) -> some View {
-        if showsMenu {
-            accountMenu()
-        } else {
-            accountMenuDestinations(destination)
+        Group {
+            if showsMenu {
+                accountMenu()
+            } else {
+                accountMenuDestinations(destination)
+            }
+        }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(action: openAssistant) {
+                    Image(systemName: "sparkles")
+                }
+                .accessibilityLabel("Study Assistant")
+                .help("Study Assistant")
+            }
         }
     }
 }

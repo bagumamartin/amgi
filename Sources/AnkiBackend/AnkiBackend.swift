@@ -7,6 +7,10 @@ private import SwiftProtobuf
 public final class AnkiBackend: Sendable {
     private let backendPtr: Int64
     private let lock = NSLock()
+    /// Serializes lifecycle-sensitive sequences as well as individual RPCs.
+    /// This is recursive because the export wrapper nests invoke/close/open
+    /// calls while holding one lifecycle transaction.
+    private let lifecycleLock = NSRecursiveLock()
     /// Count of bridge-dispatched agent RPCs that are waiting on or executing
     /// inside the backend. Interactive app calls use this to request Anki's
     /// cooperative abort before waiting for the serialization lock.
@@ -100,19 +104,38 @@ public final class AnkiBackend: Sendable {
         mediaFolderPath: String,
         mediaDbPath: String
     ) throws {
-        mediaFolderStorage.withLock { $0 = mediaFolderPath }
+        let previousMediaFolder = mediaFolderStorage.withLock { current in
+            let previous = current
+            current = mediaFolderPath
+            return previous
+        }
 
         var req = Anki_Collection_OpenCollectionRequest()
         req.collectionPath = collectionPath
         req.mediaFolderPath = mediaFolderPath
         req.mediaDbPath = mediaDbPath
-        try callVoid(service: Service.collection, method: CollectionMethod.open, request: req)
+        do {
+            try callVoid(service: Service.collection, method: CollectionMethod.open, request: req)
+        } catch {
+            mediaFolderStorage.withLock { $0 = previousMediaFolder }
+            throw error
+        }
     }
 
     public func closeCollection(downgradeToSchema11: Bool = false) throws {
         var req = Anki_Collection_CloseCollectionRequest()
         req.downgradeToSchema11 = downgradeToSchema11
         try callVoid(service: Service.collection, method: CollectionMethod.close, request: req)
+        mediaFolderStorage.withLock { $0 = nil }
+    }
+
+    /// Runs a lifecycle-sensitive sequence while preventing another RPC from
+    /// observing the intermediate state. Individual RPCs also take this lock,
+    /// so composite operations may safely nest `invoke`, `close`, and `open`.
+    public func withLifecycleAccess<T>(_ operation: () throws -> T) rethrows -> T {
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+        return try operation()
     }
 
     /// Runs non-engine work while excluding every backend RPC. Intended for
@@ -204,6 +227,8 @@ public final class AnkiBackend: Sendable {
         input: Data,
         prioritizeInteractive: Bool = true
     ) throws(BackendError) -> Data {
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
         if prioritizeInteractive {
             interactiveCallCount.withLock { $0 += 1 }
             if agentCallCount.withLock({ $0 > 0 }) {

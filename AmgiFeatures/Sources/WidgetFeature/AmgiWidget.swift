@@ -29,18 +29,21 @@ struct AmgiWidgetEntryView: View {
     let entry: WidgetEntry
 
     var body: some View {
-        Group {
+        let theme = ThemeManager.shared
+        theme.refreshFromDefaults()
+        let palette = theme.palette(for: colorScheme)
+        return Group {
             switch family {
             case .systemSmall:
                 SmallWidgetView(snapshot: entry.snapshot)
             case .systemMedium:
                 MediumWidgetView(snapshot: entry.snapshot)
             case .systemLarge:
-                LargeWidgetView(snapshot: entry.snapshot)
+                LargeWidgetView(snapshot: entry.snapshot, date: entry.date)
             default:
                 SmallWidgetView(snapshot: entry.snapshot)
             }
         }
-        .environment(\.palette, ThemeManager.shared.palette(for: colorScheme))
+        .environment(\.palette, palette)
     }
 }

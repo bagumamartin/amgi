@@ -110,28 +110,79 @@ final class StudyViewDataTests: XCTestCase {
     }
 
     func testSpanSearchesASinglePastDayAndAWeek() {
-        XCTAssertEqual(StudySpan.ratedSearch(ease: 1, oldest: 1, newest: 1), "rated:2:1 -rated:1:1")
-        XCTAssertEqual(StudySpan.ratedSearch(ease: 4, oldest: 0, newest: 0), "rated:1:4")
-        XCTAssertEqual(StudySpan.ratedSearch(ease: nil, oldest: 6, newest: 0), "rated:7")
-        XCTAssertEqual(StudySpan.ratedSearch(ease: 1, oldest: 14, newest: 8), "rated:15:1 -rated:8:1")
-        XCTAssertEqual(StudySpan.dueSearch(daysAhead: 1), "is:review prop:due=1")
+        XCTAssertEqual(StudySpan.ratedSearch(ease: 1, oldest: 1, newest: 1), "prop:rated=-1:1")
+        XCTAssertEqual(StudySpan.ratedSearch(ease: 4, oldest: 0, newest: 0), "prop:rated=0:4")
+        XCTAssertEqual(StudySpan.ratedSearch(ease: nil, oldest: 6, newest: 0), "prop:rated>=-6 prop:rated<=0")
+        XCTAssertEqual(
+            StudySpan.ratedSearch(ease: 1, oldest: 14, newest: 8),
+            "prop:rated>=-14:1 prop:rated<=-8:1"
+        )
+        XCTAssertEqual(StudySpan.dueSearch(daysAhead: 1), "(is:learn or is:review) prop:due=1 -is:suspended")
         XCTAssertEqual(
             StudySpan.criterionSearch(ease: nil, extra: "tag:leech", oldest: 1, newest: 1),
-            "rated:2 -rated:1 tag:leech"
+            "prop:rated=-1 tag:leech"
         )
         XCTAssertEqual(
             StudySpan.criterionSearch(ease: 1, extra: "prop:lapses>=1", oldest: 1, newest: 1),
-            "rated:2:1 -rated:1:1 prop:lapses>=1"
+            "prop:rated=-1:1 prop:lapses>=1"
         )
         XCTAssertEqual(
-            StudySpan.scopedSearch("rated:2 -rated:1", deckFullName: "Korean", includeSubdecks: true),
-            "rated:2 -rated:1 deck:\"Korean\""
+            StudySpan.scopedSearch("prop:rated=-1", deckFullName: "Korean", includeSubdecks: true),
+            "prop:rated=-1 deck:\"Korean\""
         )
         XCTAssertEqual(
-            StudySpan.scopedSearch("rated:2 -rated:1", deckFullName: "Korean", includeSubdecks: false),
-            "rated:2 -rated:1 deck:\"Korean\" -deck:\"Korean::*\""
+            StudySpan.scopedSearch("prop:rated=-1", deckFullName: "Korean", includeSubdecks: false),
+            "prop:rated=-1 deck:\"Korean\" -deck:\"Korean::*\""
         )
-        XCTAssertEqual(StudySpan.scopedSearch("rated:2", deckFullName: "", includeSubdecks: false), "rated:2")
+        XCTAssertEqual(StudySpan.scopedSearch("prop:rated=-1", deckFullName: "", includeSubdecks: false), "prop:rated=-1")
+    }
+
+    func testStudyRelevanceAndAttentionSearches() {
+        XCTAssertEqual(StudySpan.relevanceSearch(dayOffset: 1), "prop:rated=-1")
+        XCTAssertEqual(StudySpan.relevanceSearch(dayOffset: -1), "(is:learn or is:review) prop:due=1 -is:suspended")
+        XCTAssertNil(StudySpan.relevanceSearch(dayOffset: 0))
+        XCTAssertEqual(StudySpan.unstableSearch(dayOffset: 0), "is:due prop:s<21")
+        XCTAssertEqual(StudySpan.unstableSearch(dayOffset: 1), "prop:rated=-1 prop:s<21")
+        XCTAssertEqual(
+            StudySpan.unstableSearch(dayOffset: -2),
+            "(is:learn or is:review) prop:due=2 -is:suspended prop:s<21"
+        )
+        XCTAssertEqual(
+            StudySpan.backlogSearch,
+            "(is:learn or is:review) prop:due<0 -is:suspended"
+        )
+        let unstable = StudySpan.unstableRow(
+            count: 4,
+            dayOffset: 7,
+            spanName: "Last week",
+            search: "prop:rated=-7 prop:s<21"
+        )
+        XCTAssertEqual(unstable.search, "prop:rated=-7 prop:s<21")
+        XCTAssertEqual(unstable.subtitle, "FSRS stability under 21 days")
+    }
+
+    func testCalendarNavigationDoesNotUseShortForecastLimit() {
+        XCTAssertEqual(StudySpan.clamped(-365), -60)
+        XCTAssertEqual(StudySpan.calendarClamped(-365), -365)
+        XCTAssertEqual(StudySpan.calendarClamped(-StudySpan.calendarFutureLimit - 10), -StudySpan.calendarFutureLimit)
+    }
+
+    func testForecastUpdatesTodayCountWithoutChangingFutureDays() {
+        let forecast = StudyForecastData(
+            days: [
+                StudyForecastDay(offset: 0, label: "Today", accessibilityLabel: "Today, 10 cards", count: 10),
+                StudyForecastDay(offset: -1, label: "Tomorrow", accessibilityLabel: "Tomorrow, 20 cards", count: 20)
+            ],
+            tomorrowDue: 20,
+            dailyLoad: 15,
+            backlogCount: 0,
+            hasBacklog: false,
+            unstableDueCount: nil,
+            fsrsEnabled: false
+        )
+        let updated = forecast.updatingTodayCount(4)
+        XCTAssertEqual(updated.days[0].count, 4)
+        XCTAssertEqual(updated.days[1], forecast.days[1])
     }
 
     func testSpanTitlesAndEmptyCopy() {
@@ -164,7 +215,7 @@ final class StudyViewDataTests: XCTestCase {
         )
         XCTAssertEqual(rows.map(\.id), StudySpan.criteria.map(\.id))
         XCTAssertEqual(rows.first?.count, 3)
-        XCTAssertEqual(rows.first?.search, "rated:2 -rated:1 tag:leech")
+        XCTAssertEqual(rows.first?.search, "prop:rated=-1 tag:leech")
         XCTAssertEqual(rows.first?.reschedulesByDefault, true)
         XCTAssertEqual(rows.first { $0.id == "easy" }?.reschedulesByDefault, false)
         XCTAssertEqual(rows.first { $0.id == "solid" }?.reschedulesByDefault, false)

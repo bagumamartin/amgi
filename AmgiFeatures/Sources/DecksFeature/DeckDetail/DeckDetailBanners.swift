@@ -1,26 +1,6 @@
 import SwiftUI
 import AmgiTheme
 
-/// Top-of-screen "Importing…" pill shown while an .apkg / .colpkg import
-/// is running. Hidden when `visible == false`.
-struct ImportInProgressBanner: View {
-    let visible: Bool
-
-    var body: some View {
-        if visible {
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text("Importing…").amgiFont(.caption)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .amgiMaterial(.light, in: Capsule())
-            .padding(.top, 8)
-            .transition(AmgiMotion.slide(from: .top))
-        }
-    }
-}
-
 /// Bottom-of-screen toast surfaced after a successful filtered-deck rebuild.
 /// `feedback == nil` hides the banner; the container animates the change.
 struct RebuildFeedbackBanner: View {

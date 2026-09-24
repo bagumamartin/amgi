@@ -50,6 +50,7 @@ final class SavedSearchStore {
     private(set) var searches: [SavedSearch] = []
 
     @ObservationIgnored @Dependency(\.ankiBackend) private var backend
+    @ObservationIgnored @Dependency(\.collectionStore) private var collectionStore
 
     func refresh() {
         let stored: [String: String]? = try? backend.getConfigJSONValue(for: Self.configKey)
@@ -66,7 +67,12 @@ final class SavedSearchStore {
         var stored: [String: String] =
             (try? backend.getConfigJSONValue(for: Self.configKey)) ?? [:]
         stored[name] = query
-        try? backend.setConfigJSONValue(stored, for: Self.configKey)
+        do {
+            try backend.setConfigJSONValue(stored, for: Self.configKey)
+            collectionStore.markLocalMutation()
+        } catch {
+            return
+        }
         refresh()
     }
 
@@ -74,7 +80,12 @@ final class SavedSearchStore {
         var stored: [String: String] =
             (try? backend.getConfigJSONValue(for: Self.configKey)) ?? [:]
         stored.removeValue(forKey: name)
-        try? backend.setConfigJSONValue(stored, for: Self.configKey)
+        do {
+            try backend.setConfigJSONValue(stored, for: Self.configKey)
+            collectionStore.markLocalMutation()
+        } catch {
+            return
+        }
         refresh()
     }
 
@@ -99,6 +110,7 @@ final class FlagLabelStore {
     private(set) var labels: [String: String] = defaults
 
     @ObservationIgnored @Dependency(\.ankiBackend) private var backend
+    @ObservationIgnored @Dependency(\.collectionStore) private var collectionStore
 
     func refresh() {
         let stored: [String: String]? = try? backend.getConfigJSONValue(for: Self.configKey)
@@ -122,7 +134,12 @@ final class FlagLabelStore {
         } else {
             stored[String(flag)] = trimmed
         }
-        try? backend.setConfigJSONValue(stored, for: Self.configKey)
+        do {
+            try backend.setConfigJSONValue(stored, for: Self.configKey)
+            collectionStore.markLocalMutation()
+        } catch {
+            return
+        }
         refresh()
     }
 
@@ -305,8 +322,8 @@ private extension Color {
 /// measured evidence says otherwise.
 @MainActor
 @Observable
-final class SemanticNoteIndex {
-    static let shared = SemanticNoteIndex()
+package final class SemanticNoteIndex {
+    package static let shared = SemanticNoteIndex()
 
     struct Entry: Codable, Sendable {
         /// FNV-1a of the source text — cheap staleness invalidation.
@@ -316,6 +333,7 @@ final class SemanticNoteIndex {
 
     private struct DiskShape: Codable {
         var version: Int
+        var modelVersion: Int?
         var entries: [Int64: Entry]
     }
 
@@ -330,6 +348,8 @@ final class SemanticNoteIndex {
     private var fileURL: URL?
     private var loadAttempted = false
     private var isBuilding = false
+    private var profileGeneration = 0
+    private var activeModelVersion: Int?
 
     var isReady: Bool { !entries.isEmpty }
     var progressDescription: String? { isBuilding ? "Building semantic index…" : nil }
@@ -339,26 +359,55 @@ final class SemanticNoteIndex {
     private func resolveFileURL() -> URL {
         if let fileURL { return fileURL }
         let dir = AccountStore.profileDirectory(for: AccountStore.shared.current.id)
-        let url = dir.appendingPathComponent("semantic-index.json")
+        let model = activeModelVersion.map(String.init) ?? "unavailable"
+        let url = dir.appendingPathComponent("semantic-index-v\(Self.version)-m\(model).json")
         fileURL = url
         return url
     }
 
+    private func synchronizeModelIdentity() {
+        let current = NoteEmbedderBridge.installedModelVersion
+        guard current != activeModelVersion else { return }
+        activeModelVersion = current
+        profileGeneration &+= 1
+        entries.removeAll(keepingCapacity: false)
+        fileURL = nil
+        loadAttempted = false
+        isBuilding = false
+    }
+
     private func loadIfNeeded() {
+        synchronizeModelIdentity()
         guard !loadAttempted else { return }
         loadAttempted = true
         let url = resolveFileURL()
         guard let data = try? Data(contentsOf: url),
               let shape = try? JSONDecoder().decode(DiskShape.self, from: data),
-              shape.version == Self.version else { return }
+              shape.version == Self.version,
+              shape.modelVersion == activeModelVersion else { return }
         entries = shape.entries.filter { $0.value.vector.count == 384 }
     }
 
     private func persist() {
-        let shape = DiskShape(version: Self.version, entries: entries)
+        let shape = DiskShape(
+            version: Self.version,
+            modelVersion: activeModelVersion,
+            entries: entries
+        )
         if let data = try? JSONEncoder().encode(shape) {
             try? data.write(to: resolveFileURL(), options: .atomic)
         }
+    }
+
+    /// Invalidates every in-memory and on-disk path decision after a profile
+    /// switch. In-flight embedding checks the generation again before it can
+    /// publish IDs from the previous collection.
+    package func resetForProfileSwitch() {
+        profileGeneration &+= 1
+        entries.removeAll(keepingCapacity: false)
+        fileURL = nil
+        loadAttempted = false
+        isBuilding = false
     }
 
     /// Embeds any changed/new notes (bounded corpus), evicting stale ones.
@@ -367,7 +416,9 @@ final class SemanticNoteIndex {
         guard !records.isEmpty, !isBuilding else { return }
         loadIfNeeded()
         isBuilding = true
-        defer { isBuilding = false }
+        let generation = profileGeneration
+        let modelVersion = activeModelVersion
+        defer { if profileGeneration == generation { isBuilding = false } }
 
         // Recent-first keeps the most useful slice under the cap.
         var changed: [(Int64, String, UInt64)] = []
@@ -382,13 +433,15 @@ final class SemanticNoteIndex {
 
         for (id, text, hash) in changed.prefix(Self.corpusCap) {
             guard let vector = await NoteEmbedderBridge.embedPassage(text) else { break }
+            guard profileGeneration == generation,
+                  activeModelVersion == modelVersion else { return }
             entries[id] = Entry(textHash: hash, vector: vector)
         }
         // Drop ids that vanished from the corpus.
         let removed = entries.keys.filter { !liveIDs.contains($0) }
         for key in removed { entries.removeValue(forKey: key) }
 
-        if !changed.isEmpty { persist() }
+        if !changed.isEmpty || !removed.isEmpty { persist() }
     }
 
     /// First non-empty trimmed field, HTML-stripped (fields split on \u{1f}).
@@ -406,9 +459,13 @@ final class SemanticNoteIndex {
     func search(_ query: String, topK: Int = 50) async -> [Int64]? {
         loadIfNeeded()
         guard isReady, !query.isEmpty else { return nil }
+        let generation = profileGeneration
+        let modelVersion = activeModelVersion
         guard let queryVector = await NoteEmbedderBridge.embedQuery(query) else {
             return nil
         }
+        guard profileGeneration == generation,
+              activeModelVersion == modelVersion else { return nil }
         var scored: [(Int64, Float)] = []
         scored.reserveCapacity(entries.count)
         for (id, entry) in entries {

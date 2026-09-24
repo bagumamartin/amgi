@@ -177,7 +177,9 @@ public struct StudySummaryData: Equatable, Sendable {
         totalDue: Int,
         newCount: Int,
         learnCount: Int,
-        reviewCount: Int
+        reviewCount: Int,
+        reviewedToday: Int? = nil,
+        dueBaselineToday: Int? = nil
     ) -> StudySummaryData {
         StudySummaryData(
             totalDue: totalDue,
@@ -187,8 +189,8 @@ public struct StudySummaryData: Equatable, Sendable {
             todayLabel: todayLabel,
             subtitleLabel: subtitleLabel,
             deckCount: deckCount,
-            reviewedToday: reviewedToday,
-            dueBaselineToday: dueBaselineToday,
+            reviewedToday: reviewedToday ?? self.reviewedToday,
+            dueBaselineToday: dueBaselineToday ?? self.dueBaselineToday,
             learningReturning: learningReturning,
             answerCount: answerCount,
             answerMillis: answerMillis,
@@ -244,6 +246,88 @@ public struct StudySummaryData: Equatable, Sendable {
     /// baseline minus reviewed). Drives the "N to close the ring" nudge.
     public var cardsRemainingToClose: Int {
         max(dueBaselineToday - reviewedToday, 0)
+    }
+}
+
+/// One day in the short workload forecast shown on the Today desk.
+/// `offset` follows Study's convention: 0 is today and negative values
+/// are in the future.
+public struct StudyForecastDay: Identifiable, Equatable, Sendable {
+    public let offset: Int
+    public let label: String
+    public let accessibilityLabel: String
+    public let count: Int
+
+    public var id: Int { offset }
+
+    public init(offset: Int, label: String, accessibilityLabel: String, count: Int) {
+        self.offset = offset
+        self.label = label
+        self.accessibilityLabel = accessibilityLabel
+        self.count = max(count, 0)
+    }
+}
+
+/// Actionable workload context that accompanies today's summary and the
+/// short forecast. This is deliberately separate from `StudySummaryData`:
+/// forecast and attention rows are secondary data and may be unavailable
+/// while the primary deck tree is still usable.
+public struct StudyForecastData: Equatable, Sendable {
+    public let days: [StudyForecastDay]
+    public let tomorrowDue: Int
+    public let dailyLoad: Int
+    public let backlogCount: Int
+    public let hasBacklog: Bool
+    public let unstableDueCount: Int?
+    public let fsrsEnabled: Bool
+
+    public init(
+        days: [StudyForecastDay],
+        tomorrowDue: Int,
+        dailyLoad: Int,
+        backlogCount: Int,
+        hasBacklog: Bool,
+        unstableDueCount: Int?,
+        fsrsEnabled: Bool
+    ) {
+        self.days = days
+        self.tomorrowDue = max(tomorrowDue, 0)
+        self.dailyLoad = max(dailyLoad, 0)
+        self.backlogCount = max(backlogCount, 0)
+        self.hasBacklog = hasBacklog
+        self.unstableDueCount = unstableDueCount.map { max($0, 0) }
+        self.fsrsEnabled = fsrsEnabled
+    }
+
+    public static let empty = StudyForecastData(
+        days: [],
+        tomorrowDue: 0,
+        dailyLoad: 0,
+        backlogCount: 0,
+        hasBacklog: false,
+        unstableDueCount: nil,
+        fsrsEnabled: false
+    )
+
+    public func updatingTodayCount(_ count: Int) -> StudyForecastData {
+        let updatedDays = days.map { day in
+            guard day.offset == 0 else { return day }
+            return StudyForecastDay(
+                offset: day.offset,
+                label: day.label,
+                accessibilityLabel: "Today, \(max(count, 0)) cards",
+                count: count
+            )
+        }
+        return StudyForecastData(
+            days: updatedDays,
+            tomorrowDue: tomorrowDue,
+            dailyLoad: dailyLoad,
+            backlogCount: backlogCount,
+            hasBacklog: hasBacklog,
+            unstableDueCount: unstableDueCount,
+            fsrsEnabled: fsrsEnabled
+        )
     }
 }
 

@@ -1,4 +1,5 @@
-import Foundation
+public import Foundation
+public import AnkiKit
 
 struct SyncLogEntry: Identifiable, Sendable, Equatable {
     let id: UUID
@@ -26,4 +27,13 @@ struct SyncFullSyncRequirement: Sendable, Equatable {
 
     /// True when the local collection appears empty — UI may default to download.
     let localIsEmpty: Bool
+}
+
+package enum SyncExecutionResult: Sendable {
+    case success(SyncSummary)
+    case noServer
+    case needsLogin
+    case needsFullSync
+    case cancelled
+    case failed(String)
 }

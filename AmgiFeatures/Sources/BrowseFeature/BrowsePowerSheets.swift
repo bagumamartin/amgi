@@ -1,4 +1,5 @@
 import SwiftUI
+import AmgiAppShared
 import Combine
 import Foundation
 import AmgiUI
@@ -181,200 +182,6 @@ final class BrowseCopyHandoff: ObservableObject {
     private init() {}
 }
 
-// MARK: - Export selected notes
-
-struct BrowseExportSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.palette) private var palette
-    let noteIDs: [NoteID]
-    let cardIDs: [CardID]
-    var model: BrowseModel
-
-    @Dependency(\.importExportService) private var importExport
-    @State private var includeMedia = true
-    @State private var includeScheduling = false
-    @State private var includeDeckConfigs = true
-    @State private var status: String?
-    @State private var working = false
-    @State private var shareURL: IdentifiableURL?
-    @State private var resolvedNotes: [NoteID]?
-    @State private var resolvedCards: [CardID] = []
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    Text(scopeLabel)
-                        .amgiFont(.body)
-                        .foregroundStyle(palette.textSecondary)
-                    Toggle("Include media", isOn: $includeMedia)
-                    Toggle("Include scheduling", isOn: $includeScheduling)
-                    Toggle("Include deck presets", isOn: $includeDeckConfigs)
-                }
-                if let status {
-                    Section { Text(status).amgiFont(.caption) }
-                }
-                Section {
-                    Button {
-                        Task { await export() }
-                    } label: {
-                        Label("Export…", systemImage: "square.and.arrow.up")
-                    }
-                    .disabled(working || scopeEmpty)
-                }
-            }
-            .navigationTitle("Export Selected")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
-            .task { await resolve() }
-            .sheet(item: $shareURL) { item in
-                BrowseShareSheet(url: item.url)
-            }
-        }
-        .presentationDetents([.medium, .large])
-    }
-
-    private var scopeEmpty: Bool {
-        (resolvedNotes ?? noteIDs).isEmpty && resolvedCards.isEmpty && cardIDs.isEmpty
-    }
-
-    private var scopeLabel: String {
-        if !cardIDs.isEmpty || !resolvedCards.isEmpty {
-            let n = resolvedCards.isEmpty ? cardIDs.count : resolvedCards.count
-            return "\(n) card\(n == 1 ? "" : "s") selected — exports their notes."
-        }
-        let n = (resolvedNotes ?? noteIDs).count
-        return "\(n) note\(n == 1 ? "" : "s") selected."
-    }
-
-    /// Cards resolve to their notes (export is note-granular); notes pass
-    /// through. Resolution happens up front so the label and the export agree.
-    private func resolve() async {
-        if !cardIDs.isEmpty {
-            resolvedCards = cardIDs
-            resolvedNotes = await model.noteIDsOfCards(cardIDs)
-        } else {
-            resolvedNotes = noteIDs
-        }
-    }
-
-    private func export() async {
-        working = true
-        defer { working = false }
-        let notes = resolvedNotes ?? noteIDs
-        // Card-scoped selections export via the `card_ids` limit arm so the
-        // exact cards (not all sibling cards) land in the package.
-        let useCards = !resolvedCards.isEmpty
-        guard !notes.isEmpty || useCards else {
-            status = "Nothing to export."
-            return
-        }
-        let fileName = "amgi-selection-\(Int(Date().timeIntervalSince1970)).apkg"
-        let outURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
-        // Copy out of @State before the off-main hop: the backend closure is
-        // @Sendable and must not capture MainActor-isolated state.
-        let cards = resolvedCards
-        let media = includeMedia
-        let scheduling = includeScheduling
-        let configs = includeDeckConfigs
-        let path = outURL.path
-        do {
-            let service = importExport
-            let count: UInt32 = try await backendOffload {
-                if useCards {
-                    try service.exportCardsPackage(
-                        cards, path, scheduling, configs, media, false
-                    )
-                } else {
-                    try service.exportNotesPackage(
-                        notes, path, scheduling, configs, media, false
-                    )
-                }
-            }
-            status = "Exported \(count) note\(count == 1 ? "" : "s") to \(fileName)."
-            shareURL = IdentifiableURL(url: outURL)
-        } catch {
-            status = "Couldn't export: \(error.localizedDescription)"
-        }
-    }
-}
-
-private struct IdentifiableURL: Identifiable {
-    let url: URL
-    var id: String { url.absoluteString }
-}
-
-#if canImport(UIKit)
-import UIKit
-struct BrowseShareSheet: UIViewControllerRepresentable {
-    let url: URL
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: [url], applicationActivities: nil)
-    }
-    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
-}
-#else
-import AppKit
-/// macOS share sheet via the native sharing picker (parity with
-/// `UIActivityViewController` on iOS): reveals the file in Finder as a
-/// fallback so the export is never stranded.
-struct BrowseShareSheet: NSViewRepresentable {
-    let url: URL
-
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 120))
-        let label = NSTextField(labelWithString: url.lastPathComponent)
-        label.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(label)
-        NSLayoutConstraint.activate([
-            label.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            label.topAnchor.constraint(equalTo: view.topAnchor, constant: 12),
-        ])
-        let button = NSButton(title: "Share…", target: context.coordinator, action: #selector(Coordinator.share(_:)))
-        button.bezelStyle = .rounded
-        button.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(button)
-        NSLayoutConstraint.activate([
-            button.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            button.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 12),
-        ])
-        let reveal = NSButton(title: "Reveal in Finder", target: context.coordinator, action: #selector(Coordinator.reveal(_:)))
-        reveal.bezelStyle = .inline
-        reveal.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(reveal)
-        NSLayoutConstraint.activate([
-            reveal.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            reveal.topAnchor.constraint(equalTo: button.bottomAnchor, constant: 4),
-        ])
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {}
-
-    func makeCoordinator() -> Coordinator { Coordinator(url: url) }
-
-    @MainActor final class Coordinator: NSObject {
-        let url: URL
-        init(url: URL) { self.url = url }
-
-        @objc func share(_ sender: NSButton) {
-            guard let window = sender.window else { return }
-            let picker = NSSharingServicePicker(items: [url])
-            picker.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
-            _ = window
-        }
-
-        @objc func reveal(_ sender: Any) {
-            NSWorkspace.shared.activateFileViewerSelecting([url])
-        }
-    }
-}
-#endif
-
 // MARK: - Change Note Type
 
 struct ChangeNotetypeSheet: View {
@@ -525,6 +332,7 @@ struct FilteredDeckSheet: View {
     let query: String
 
     @Dependency(\.decksService) private var decks
+    @Dependency(\.collectionStore) private var collectionStore
     @State private var name = "Browse Results"
     @State private var limit = 100
     @State private var order: FilteredDeckOrder = .oldestReviewedFirst
@@ -590,6 +398,7 @@ struct FilteredDeckSheet: View {
         do {
             let created = try await backendOffload { try service.createFilteredDeck(spec) }
             let gathered = try await backendOffload { try service.rebuildFilteredDeck(created.id) }
+            collectionStore.markLocalMutation()
             status = "Built “\(trimmed)” with \(gathered) card\(gathered == 1 ? "" : "s")."
             dismiss()
         } catch {

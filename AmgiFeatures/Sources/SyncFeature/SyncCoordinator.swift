@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 import SwiftUI
 #if os(iOS)
 import UIKit
@@ -35,7 +35,8 @@ package final class SyncCoordinator {
     }
 
     @ObservationIgnored @Dependency(\.syncClient) var syncClient
-    @ObservationIgnored private var activeTask: Task<Void, Never>?
+    @ObservationIgnored @Dependency(\.collectionStore) private var collectionStore
+    @ObservationIgnored private var activeTask: Task<SyncExecutionResult, Never>?
     /// Set by `cancel()`. Distinct from `activeTask` because cancellation is
     /// advisory — the in-flight FFI call still runs to completion, so the
     /// task handle has to stay put to keep the re-entry gate shut.
@@ -48,6 +49,12 @@ package final class SyncCoordinator {
     /// status. Injectable so tests don't pay the real interval.
     @ObservationIgnored private let mediaPollInterval: Duration
     @ObservationIgnored private var automaticSyncDebounce: Task<Void, Never>?
+    @ObservationIgnored private var scheduledSyncTask: Task<Void, Never>?
+    @ObservationIgnored private var mediaAbortTask: Task<Void, Never>?
+    @ObservationIgnored private var mergeProgressID: UUID?
+    @ObservationIgnored private var collectionLifecycleDepth = 0
+    @ObservationIgnored private var activeSyncIncludesMedia = false
+    private var isCollectionLifecycleBlocked: Bool { collectionLifecycleDepth > 0 }
 
     // Profile-scoped persisted state. Computed per access — the key embeds
     // the active profile id, and this coordinator is a singleton that
@@ -60,6 +67,14 @@ package final class SyncCoordinator {
     private var needsFullSyncFlag: Bool {
         get { UserDefaults.standard.bool(forKey: SyncPreferences.Keys.needsFullSyncForCurrentUser()) }
         set { UserDefaults.standard.set(newValue, forKey: SyncPreferences.Keys.needsFullSyncForCurrentUser()) }
+    }
+
+    /// Monotonic local-mutation marker. It is persisted per profile so a
+    /// dirty collection survives suspension, app termination, and profile
+    /// switches without relying on an in-memory timer.
+    private var dirtyGeneration: Int {
+        get { UserDefaults.standard.integer(forKey: SyncPreferences.Keys.dirtyGenerationForCurrentUser()) }
+        set { UserDefaults.standard.set(newValue, forKey: SyncPreferences.Keys.dirtyGenerationForCurrentUser()) }
     }
 
     private static let logCap = 100
@@ -104,37 +119,184 @@ package final class SyncCoordinator {
 
     // MARK: - Public surface (stubs filled in Phase B)
 
-    func startSync() async {
-        guard activeTask == nil else {
-            appendLog("Sync already in progress", level: .warning)
+    /// Starts a user-visible sync. The task remains asynchronous for the
+    /// existing toolbar/sheet callers; `startSyncAndWait` below is used by
+    /// background work that must observe the real completion.
+    package func startSync(includeMedia: Bool = true) async {
+        _ = beginSync(includeMedia: includeMedia, automatic: false)
+    }
+
+    package func startSyncAndWait(includeMedia: Bool = true) async -> SyncExecutionResult {
+        guard !Task.isCancelled else { return .cancelled }
+        guard activeTask == nil, mediaAbortTask == nil else { return .cancelled }
+        let task = beginSync(includeMedia: includeMedia, automatic: true)
+        return await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.cancel()
+            }
+        }
+    }
+
+    /// Runs a quiet, collection-only check for lifecycle/background callers.
+    /// Unlike `requestAutomaticSync`, this also pulls remote changes when the
+    /// local profile is clean.
+    package func runScheduledCollectionSync() async -> SyncExecutionResult {
+        await startSyncAndWait(includeMedia: false)
+    }
+
+    /// Foreground-friendly variant that avoids a network request on every
+    /// scene activation. The OS still decides when the actual background task
+    /// runs; this is only the inexpensive in-process recovery path.
+    package func runScheduledCollectionSyncIfNeeded(after interval: TimeInterval = 15 * 60) {
+        guard !isCollectionLifecycleBlocked,
+              !needsFullSyncFlag,
+              !(KeychainHelper.loadEndpoint() ?? "").isEmpty,
+              !(KeychainHelper.loadHostKey() ?? "").isEmpty
+        else { return }
+        if let lastSuccessfulSync,
+           Date().timeIntervalSince(lastSuccessfulSync) < interval {
             return
         }
-
-        clearLog()
-        state = .syncing(message: "Connecting…")
-        appendLog("Starting sync")
-
-        let task = Task { [weak self] in
+        guard scheduledSyncTask == nil, activeTask == nil else { return }
+        let profileID = AccountStore.shared.selectedID
+        scheduledSyncTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let client = self.syncClient
+            defer { self.scheduledSyncTask = nil }
+            guard AccountStore.shared.selectedID == profileID else { return }
+            _ = await self.runScheduledCollectionSync()
+        }
+    }
+
+    private func beginSync(
+        includeMedia: Bool,
+        automatic: Bool
+    ) -> Task<SyncExecutionResult, Never> {
+        guard !isCollectionLifecycleBlocked else {
+            return Task<SyncExecutionResult, Never> { .cancelled }
+        }
+        guard activeTask == nil, mediaAbortTask == nil else {
+            appendLog("Sync already in progress", level: .warning)
+            return Task<SyncExecutionResult, Never> { .cancelled }
+        }
+
+        NetworkMonitor.shared.start()
+        if automatic && !NetworkMonitor.shared.isSatisfied {
+            appendLog("Automatic sync skipped: network unavailable", level: .warning)
+            return Task<SyncExecutionResult, Never> { .failed("Network unavailable") }
+        }
+        let hasEndpoint = !(KeychainHelper.loadEndpoint() ?? "").isEmpty
+        let hasHostKey = !(KeychainHelper.loadHostKey() ?? "").isEmpty
+        if automatic && !hasEndpoint {
+            appendLog("Automatic sync skipped: no sync server", level: .warning)
+            return Task<SyncExecutionResult, Never> { .noServer }
+        }
+        if automatic && !hasHostKey {
+            requiresLogin = true
+            appendLog("Automatic sync skipped: authentication required", level: .warning)
+            return Task<SyncExecutionResult, Never> { .needsLogin }
+        }
+        if needsFullSyncFlag {
+            if !automatic {
+                state = .needsFullSync(SyncFullSyncRequirement(
+                    reason: "A full sync was requested previously and not yet completed",
+                    localIsEmpty: false
+                ))
+            }
+            return Task<SyncExecutionResult, Never> { .needsFullSync }
+        }
+
+        let profileID = AccountStore.shared.selectedID
+        let expectedDirtyGeneration = dirtyGeneration
+        activeSyncIncludesMedia = includeMedia
+        let client = syncClient
+        if !automatic {
+            clearLog()
+            state = .syncing(message: "Connecting…")
+        }
+        appendLog(automatic ? "Automatic collection sync requested" : "Starting sync")
+
+        let task = Task { [weak self] () -> SyncExecutionResult in
+            guard let self else { return .cancelled }
+            defer {
+                self.activeSyncIncludesMedia = false
+                if self.mediaAbortTask == nil {
+                    self.endBackgroundExecutionIfNeeded()
+                }
+            }
+            var collectionCommitted = false
             do {
-                let summary = try await client.sync()
-                // `syncCollection` kicks media off in the background and
-                // returns immediately; without this the sheet claimed
-                // success while media was still downloading.
-                let mediaFailure = try await self.awaitMediaCompletion(using: client)
-                // Recorded even when media failed: the collection is
-                // already committed by this point, and letting one bad
-                // media file roll the timestamp back made the next sync
-                // look overdue and the last one look lost.
+                try Task.checkCancellation()
+                collectionCommitted = true
+                let summary: SyncSummary
+                if includeMedia {
+                    summary = try await client.sync()
+                } else {
+                    summary = try await client.syncCollection()
+                }
+                collectionCommitted = true
+                // `sync()` kicks media off in the background and returns
+                // immediately; without this the sheet claimed success while
+                // media was still downloading. Collection-only background
+                // sync deliberately skips this wait and never starts media.
+                let mediaFailure = includeMedia
+                    ? try await self.awaitMediaCompletion(using: client)
+                    : nil
+                try Task.checkCancellation()
+
+                guard AccountStore.shared.selectedID == profileID else {
+                    self.activeTask = nil
+                    self.isCancelling = false
+                    self.state = .idle
+                    return .cancelled
+                }
+                try Task.checkCancellation()
+
+                // Recorded even when media failed: the collection is already
+                // committed by this point, and letting one bad media file roll
+                // the timestamp back made the next sync look overdue.
                 self.lastSyncedAtUnix = Date().timeIntervalSince1970
+                self.requiresLogin = false
                 self.needsFullSyncFlag = false
+                self.clearDirty(through: expectedDirtyGeneration)
+                self.collectionStore.invalidateAll(origin: .remoteSync)
+                if automatic {
+                    self.appendLog(
+                        mediaFailure.map { "Automatic collection sync complete; media skipped (\($0))" }
+                            ?? "Automatic collection sync complete"
+                    )
+                } else {
+                    self.report(mediaFailure: mediaFailure, otherwise: summary)
+                }
+                // Keep activeTask installed until the snapshot write finishes;
+                // profile switching and collection replacement must not close
+                // the database while this task still reads it.
+                await WidgetRefreshCoordinator.shared.refreshNow()
+                try Task.checkCancellation()
                 self.activeTask = nil
                 self.isCancelling = false
-                self.report(mediaFailure: mediaFailure, otherwise: summary)
-                // Sync can change counts without any review — refresh widgets
-                // or they keep showing the pre-sync collection.
-                await writeWidgetSnapshot()
+                if self.dirtyGeneration > expectedDirtyGeneration {
+                    self.resumeAutomaticSyncIfNeeded(reason: "Changes arrived during sync")
+                }
+                if let mediaFailure {
+                    return .failed("Collection synced, but media failed: \(mediaFailure)")
+                }
+                return .success(summary)
+            } catch is CancellationError {
+                let wasCancellationRequested = self.isCancelling
+                if collectionCommitted {
+                    self.collectionStore.invalidateAll(origin: .remoteSync)
+                    WidgetRefreshCoordinator.shared.request(reason: "Cancelled sync committed collection")
+                }
+                _ = self.finishCancellationIfNeeded()
+                self.activeTask = nil
+                if !wasCancellationRequested, case .syncing = self.state {
+                    self.state = .idle
+                } else if !wasCancellationRequested, case .syncingMedia = self.state {
+                    self.state = .idle
+                }
+                return .cancelled
             } catch let error as SyncError where error == .fullSyncRequired {
                 self.appendLog("Server requires a full sync", level: .warning)
                 self.state = .needsFullSync(SyncFullSyncRequirement(
@@ -144,24 +306,42 @@ package final class SyncCoordinator {
                 self.needsFullSyncFlag = true
                 self.activeTask = nil
                 self.isCancelling = false
+                return .needsFullSync
             } catch let error as SyncError where error == .authFailed {
                 self.appendLog("Authentication failed", level: .error)
                 self.requiresLogin = true
-                self.state = .error("Authentication failed — please sign in again")
+                if !automatic {
+                    self.state = .error("Authentication failed — please sign in again")
+                }
                 self.activeTask = nil
                 self.isCancelling = false
+                return .needsLogin
             } catch {
                 self.activeTask = nil
+                if collectionCommitted {
+                    self.collectionStore.invalidateAll(origin: .remoteSync)
+                    WidgetRefreshCoordinator.shared.request(reason: "Sync failure refreshed collection")
+                }
                 // A cancelled sync shouldn't surface as a failure.
-                guard !self.finishCancellationIfNeeded() else { return }
+                guard !self.finishCancellationIfNeeded() else { return .cancelled }
                 self.appendLog("Sync failed: \(error.localizedDescription)", level: .error)
-                self.state = .error(error.localizedDescription)
+                if !automatic {
+                    self.state = .error(error.localizedDescription)
+                }
+                return .failed(error.localizedDescription)
             }
         }
         activeTask = task
+        #if os(iOS)
+        if UIApplication.shared.applicationState == .background {
+            beginBackgroundExecutionIfNeeded()
+        }
+        #endif
+        return task
     }
 
     func confirmFullSync(direction: SyncDirection) async {
+        guard !isCollectionLifecycleBlocked, mediaAbortTask == nil else { return }
         guard case .needsFullSync = state else {
             appendLog("Cannot confirm full sync — not in needsFullSync state", level: .warning)
             return
@@ -171,31 +351,176 @@ package final class SyncCoordinator {
         state = .syncing(message: label)
         appendLog("Full sync started: \(direction == .upload ? "upload" : "download")")
 
-        let task = Task { [weak self] in
-            guard let self else { return }
+        activeSyncIncludesMedia = true
+        let expectedDirtyGeneration = dirtyGeneration
+        let task = Task { [weak self] () -> SyncExecutionResult in
+            guard let self else { return .cancelled }
+            defer {
+                self.activeSyncIncludesMedia = false
+                if self.mediaAbortTask == nil {
+                    self.endBackgroundExecutionIfNeeded()
+                }
+            }
+            var collectionCommitted = false
             let client = self.syncClient
             do {
+                try Task.checkCancellation()
+                collectionCommitted = true
                 try await client.fullSync(direction)
+                collectionCommitted = true
                 let mediaFailure = try await self.awaitMediaCompletion(using: client)
                 self.lastSyncedAtUnix = Date().timeIntervalSince1970
+                self.requiresLogin = false
                 self.needsFullSyncFlag = false
-                self.activeTask = nil
-                self.isCancelling = false
+                self.clearDirty(through: expectedDirtyGeneration)
+                self.collectionStore.invalidateAll(origin: .remoteSync)
                 self.report(mediaFailure: mediaFailure, otherwise: SyncSummary())
                 // A full download replaces the whole collection — widgets are
-                // guaranteed stale without a rewrite.
-                await writeWidgetSnapshot()
+                // guaranteed stale without a rewrite. Keep activeTask set
+                // until this read completes so lifecycle operations wait.
+                await WidgetRefreshCoordinator.shared.refreshNow()
+                try Task.checkCancellation()
+                self.activeTask = nil
+                self.isCancelling = false
+                if self.dirtyGeneration > expectedDirtyGeneration {
+                    self.resumeAutomaticSyncIfNeeded(reason: "Changes arrived during full sync")
+                }
+                if let mediaFailure {
+                    return .failed("Collection synced, but media failed: \(mediaFailure)")
+                }
+                return .success(SyncSummary())
+            } catch is CancellationError {
+                let wasCancellationRequested = self.isCancelling
+                if collectionCommitted {
+                    self.collectionStore.invalidateAll(origin: .remoteSync)
+                    WidgetRefreshCoordinator.shared.request(reason: "Cancelled full sync committed collection")
+                }
+                _ = self.finishCancellationIfNeeded()
+                self.activeTask = nil
+                if !wasCancellationRequested { self.state = .idle }
+                return .cancelled
             } catch {
                 self.activeTask = nil
-                guard !self.finishCancellationIfNeeded() else { return }
+                if collectionCommitted {
+                    self.collectionStore.invalidateAll(origin: .remoteSync)
+                    WidgetRefreshCoordinator.shared.request(reason: "Full sync failure refreshed collection")
+                }
+                guard !self.finishCancellationIfNeeded() else { return .cancelled }
                 self.appendLog("Full sync failed: \(error.localizedDescription)", level: .error)
                 self.state = .error(error.localizedDescription)
+                return .failed(error.localizedDescription)
             }
         }
         activeTask = task
+        #if os(iOS)
+        if UIApplication.shared.applicationState == .background {
+            beginBackgroundExecutionIfNeeded()
+        }
+        #endif
     }
 
-    func signOut() async {
+    /// Performs the destructive download/import/upload merge through the same
+    /// operation gate as ordinary sync. The UI action remains manual, but it
+    /// can no longer race profile changes, exports, or another sync.
+    func mergeFullSync() {
+        guard !isCollectionLifecycleBlocked, mediaAbortTask == nil else { return }
+        guard case .needsFullSync = state else {
+            appendLog("Cannot merge — not in needsFullSync state", level: .warning)
+            return
+        }
+
+        state = .syncing(message: "Preparing merge…")
+        appendLog("Full sync merge started")
+        activeSyncIncludesMedia = true
+        let expectedDirtyGeneration = dirtyGeneration
+        let profileID = AccountStore.shared.selectedID
+        let progressID = UUID()
+        mergeProgressID = progressID
+
+        let task = Task { [weak self] () -> SyncExecutionResult in
+            guard let self else { return .cancelled }
+            defer {
+                self.activeSyncIncludesMedia = false
+                if self.mediaAbortTask == nil {
+                    self.endBackgroundExecutionIfNeeded()
+                }
+            }
+            var collectionCommitted = false
+            let client = self.syncClient
+            do {
+                try Task.checkCancellation()
+                // The merge workflow is destructive once it starts. Treat any
+                // failure after this point as potentially partially committed
+                // so the shared cache and widget are refreshed conservatively.
+                collectionCommitted = true
+                try await client.merge { message in
+                    Task { @MainActor [weak self] in
+                        guard let self, self.mergeProgressID == progressID else { return }
+                        self.state = .syncing(message: message)
+                    }
+                }
+                collectionCommitted = true
+                try Task.checkCancellation()
+                let mediaFailure = try await self.awaitMediaCompletion(using: client)
+                try Task.checkCancellation()
+                guard AccountStore.shared.selectedID == profileID else {
+                    self.mergeProgressID = nil
+                    self.activeTask = nil
+                    self.isCancelling = false
+                    return .cancelled
+                }
+
+                self.lastSyncedAtUnix = Date().timeIntervalSince1970
+                self.requiresLogin = false
+                self.needsFullSyncFlag = false
+                self.clearDirty(through: expectedDirtyGeneration)
+                self.collectionStore.invalidateAll(origin: .remoteSync)
+                self.mergeProgressID = nil
+                self.report(mediaFailure: mediaFailure, otherwise: SyncSummary())
+                await WidgetRefreshCoordinator.shared.refreshNow()
+                try Task.checkCancellation()
+                self.activeTask = nil
+                self.isCancelling = false
+                if self.dirtyGeneration > expectedDirtyGeneration {
+                    self.resumeAutomaticSyncIfNeeded(reason: "Changes arrived during merge")
+                }
+                if let mediaFailure {
+                    return .failed("Collection synced, but media failed: \(mediaFailure)")
+                }
+                return .success(SyncSummary())
+            } catch is CancellationError {
+                let wasCancellationRequested = self.isCancelling
+                if collectionCommitted {
+                    self.collectionStore.invalidateAll(origin: .remoteSync)
+                    WidgetRefreshCoordinator.shared.request(reason: "Cancelled merge committed collection")
+                }
+                _ = self.finishCancellationIfNeeded()
+                self.mergeProgressID = nil
+                self.activeTask = nil
+                if !wasCancellationRequested { self.state = .idle }
+                return .cancelled
+            } catch {
+                self.mergeProgressID = nil
+                self.activeTask = nil
+                if collectionCommitted {
+                    self.collectionStore.invalidateAll(origin: .remoteSync)
+                    WidgetRefreshCoordinator.shared.request(reason: "Merge failure refreshed collection")
+                }
+                guard !self.finishCancellationIfNeeded() else { return .cancelled }
+                self.appendLog("Merge failed: \(error.localizedDescription)", level: .error)
+                self.state = .error(error.localizedDescription)
+                return .failed(error.localizedDescription)
+            }
+        }
+        activeTask = task
+        #if os(iOS)
+        if UIApplication.shared.applicationState == .background {
+            beginBackgroundExecutionIfNeeded()
+        }
+        #endif
+    }
+
+    package func signOut() async {
         cancel()
         KeychainHelper.deleteEndpoint()
         KeychainHelper.deleteHostKey()
@@ -205,16 +530,75 @@ package final class SyncCoordinator {
         requiresLogin = false
     }
 
-    /// Debounced collection sync after an out-of-process helper mutation.
-    /// No-ops when no sync server is configured.
+    /// Debounced collection-only sync after a confirmed local mutation.
+    /// The dirty marker is recorded even when no server is configured, so a
+    /// later sign-in or foreground pass can still catch up safely.
     package func requestAutomaticSync(reason: String) {
-        guard KeychainHelper.loadEndpoint() != nil else { return }
+        let profileID = AccountStore.shared.selectedID
+        dirtyGeneration &+= 1
+        guard !(KeychainHelper.loadEndpoint() ?? "").isEmpty else { return }
+        guard !needsFullSyncFlag, !isCollectionLifecycleBlocked else { return }
+
         automaticSyncDebounce?.cancel()
         automaticSyncDebounce = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(2))
-            guard !Task.isCancelled, let self else { return }
-            appendLog("Automatic sync requested: \(reason)")
-            await startSync()
+            do {
+                try await Task.sleep(for: .seconds(5))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled,
+                  let self,
+                  AccountStore.shared.selectedID == profileID
+            else { return }
+            self.appendLog("Automatic sync requested: \(reason)")
+            _ = await self.startSyncAndWait(includeMedia: false)
+        }
+    }
+
+    /// Resumes a pending collection sync without creating a new dirty event.
+    /// Used when the app returns to the foreground or a profile is reopened.
+    package func resumeAutomaticSyncIfNeeded(reason: String) {
+        guard dirtyGeneration > 0,
+              !isCollectionLifecycleBlocked,
+              !(KeychainHelper.loadEndpoint() ?? "").isEmpty,
+              !(KeychainHelper.loadHostKey() ?? "").isEmpty,
+              !needsFullSyncFlag
+        else { return }
+
+        let profileID = AccountStore.shared.selectedID
+        automaticSyncDebounce?.cancel()
+        automaticSyncDebounce = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .milliseconds(250))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled,
+                  let self,
+                  AccountStore.shared.selectedID == profileID
+            else { return }
+            self.appendLog("Pending automatic sync resumed: \(reason)")
+            _ = await self.startSyncAndWait(includeMedia: false)
+        }
+    }
+
+    /// Prevents new sync operations while the caller closes, replaces, or
+    /// resets the collection. Call `cancelAndWait()` immediately after this
+    /// method, then pair it with `endCollectionLifecycle()` in a defer.
+    @discardableResult
+    package func beginCollectionLifecycle() -> Bool {
+        guard collectionLifecycleDepth == 0 else { return false }
+        collectionLifecycleDepth = 1
+        WidgetRefreshCoordinator.shared.beginDrain()
+        cancel()
+        return true
+    }
+
+    package func endCollectionLifecycle() {
+        guard collectionLifecycleDepth > 0 else { return }
+        collectionLifecycleDepth -= 1
+        if collectionLifecycleDepth == 0 {
+            WidgetRefreshCoordinator.shared.endDrain()
         }
     }
 
@@ -246,28 +630,57 @@ package final class SyncCoordinator {
     /// operation — collection-level data loss. The task clears itself when
     /// the in-flight work actually finishes.
     package func cancel() {
+        automaticSyncDebounce?.cancel()
+        automaticSyncDebounce = nil
+        scheduledSyncTask?.cancel()
+        mergeProgressID = nil
         guard activeTask != nil, !isCancelling else { return }
         isCancelling = true
         activeTask?.cancel()
-        if case .syncing = state {
-            appendLog("Cancelling — finishing the current step in the background", level: .warning)
-        } else if case .syncingMedia = state {
-            // Media sync *is* abortable in the engine, unlike the collection
-            // RPC — so cancelling it actually stops work rather than just
-            // hiding it.
+        if activeSyncIncludesMedia, case .syncingMedia = state {
             appendLog("Media sync cancelled", level: .warning)
             let client = syncClient
-            Task { [weak self] in
+            mediaAbortTask = Task { [weak self] in
                 do {
                     try await client.abortMediaSync()
                 } catch {
                     self?.appendLog(
-                        "Failed to abort media sync: \(error.localizedDescription)",
+                        "Failed to request media abort: \(error.localizedDescription)",
                         level: .error
                     )
                 }
+                guard let self else { return }
+                // `abort_media_sync` acknowledges the request but does
+                // not itself join the engine worker. Poll until the worker
+                // is actually idle before lifecycle work closes the
+                // collection. Status errors are retried rather than treated
+                // as proof that the worker stopped.
+                await self.drainMediaCompletion(using: client)
+                self.mediaAbortTask = nil
+                self.endBackgroundExecutionIfNeeded()
+            }
+            // Media polling may wait on a long backend interval. Reflect the
+            // cancellation immediately while keeping activeTask installed as
+            // the re-entry gate until the FFI call unwinds.
+            state = .idle
+        } else if case .syncing = state {
+            appendLog("Cancelling — finishing the current step in the background", level: .warning)
+        }
+    }
+
+    /// Cancels an active sync and waits until its task has actually released
+    /// the backend before a collection-lifecycle operation begins. The waiter
+    /// is deliberately non-cancellable: a caller losing its own task must not
+    /// release a lifecycle barrier while the engine operation is still live.
+    package func cancelAndWait() async {
+        cancel()
+        let waiter = Task { @MainActor [weak self] in
+            guard let self else { return }
+            while self.activeTask != nil || self.mediaAbortTask != nil || self.scheduledSyncTask != nil {
+                try? await Task.sleep(for: .milliseconds(50))
             }
         }
+        await waiter.value
     }
 
     // MARK: - Log helpers (used by all behaviors)
@@ -286,6 +699,11 @@ package final class SyncCoordinator {
 }
 
 private extension SyncCoordinator {
+    func clearDirty(through generation: Int) {
+        guard dirtyGeneration == generation else { return }
+        dirtyGeneration = 0
+    }
+
     /// Waits out the media sync and *returns* its failure rather than
     /// throwing it. The collection sync has already committed by the time
     /// this runs, so a media error is a partial failure, not a failed sync,
@@ -300,7 +718,18 @@ private extension SyncCoordinator {
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            return error.localizedDescription
+            let message = error.localizedDescription
+            // A media status error can leave the engine worker alive. Abort
+            // and join it before allowing the active collection task to
+            // clear, otherwise a lifecycle operation could close underneath
+            // that worker.
+            do {
+                try await client.abortMediaSync()
+            } catch {
+                appendLog("Failed to request media abort after error: \(error.localizedDescription)", level: .error)
+            }
+            await drainMediaCompletion(using: client)
+            return message
         }
     }
 
@@ -324,14 +753,37 @@ private extension SyncCoordinator {
 
     /// Polls the engine until its background media task reports idle,
     /// publishing each progress snapshot as `.syncingMedia`.
-    func waitForMediaCompletion(using client: SyncClient) async throws {
+    func waitForMediaCompletion(
+        using client: SyncClient,
+        publishProgress: Bool = true
+    ) async throws {
         while true {
             try Task.checkCancellation()
             let status = try await client.mediaSyncStatus()
             guard status.active else { return }
 
-            state = .syncingMedia(Self.mediaProgressMessage(status.progress))
+            if publishProgress {
+                state = .syncingMedia(Self.mediaProgressMessage(status.progress))
+            }
             try await Task.sleep(for: mediaPollInterval)
+        }
+    }
+
+    func drainMediaCompletion(using client: SyncClient) async {
+        while true {
+            do {
+                try await waitForMediaCompletion(using: client, publishProgress: false)
+                return
+            } catch is CancellationError {
+                return
+            } catch {
+                appendLog("Media drain status failed: \(error.localizedDescription)", level: .error)
+                do {
+                    try await Task.sleep(for: mediaPollInterval)
+                } catch {
+                    return
+                }
+            }
         }
     }
 
@@ -368,20 +820,15 @@ private extension SyncCoordinator {
 
     func beginBackgroundExecutionIfNeeded() {
         #if os(iOS)
-        let isSyncing: Bool
-        switch state {
-        case .syncing, .syncingMedia: isSyncing = true
-        default: isSyncing = false
-        }
-        guard isSyncing, backgroundTaskID == .invalid else { return }
+        guard activeTask != nil, backgroundTaskID == .invalid else { return }
         backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "AmgiSync") { [weak self] in
             // System forced expiration — end task and let cancel() handle state.
             Task { @MainActor in
-                self?.endBackgroundExecutionIfNeeded()
                 self?.cancel()
+                self?.endBackgroundExecutionIfNeeded()
             }
         }
-        appendLog("Backgrounded mid-sync — extending execution window")
+        appendLog("Background sync started — extending execution window")
         #endif
     }
 

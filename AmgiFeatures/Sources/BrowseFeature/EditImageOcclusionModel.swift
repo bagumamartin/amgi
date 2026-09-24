@@ -1,3 +1,4 @@
+import AmgiAppShared
 import AnkiKit
 import AnkiClients
 import Dependencies
@@ -25,6 +26,7 @@ final class EditImageOcclusionModel {
     var saveError: String?
 
     @ObservationIgnored @Dependency(\.imageOcclusionClient) private var client
+    @ObservationIgnored @Dependency(\.collectionStore) private var collectionStore
     @ObservationIgnored private let noteId: NoteID
 
     init(noteId: NoteID) {
@@ -70,6 +72,7 @@ final class EditImageOcclusionModel {
 
         do {
             try await client.updateNote(noteId, occlusions, header, backExtra, tags)
+            collectionStore.markLocalMutation()
             return true
         } catch {
             saveError = error.localizedDescription

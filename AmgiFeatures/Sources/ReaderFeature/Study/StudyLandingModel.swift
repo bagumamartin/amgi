@@ -21,8 +21,20 @@ final class StudyLandingModel {
     var grain: StudyGrain = .day
     /// Days before the current Anki day. Positive is the past, negative the future.
     var dayOffset: Int = 0
+    /// One-shot scope supplied by a configured widget deep link. Nil is the
+    /// normal collection-wide Study desk.
+    var landingDeckID: Int64?
+    var landingDeckName: String?
     var spanRows: [StudyTimeRow] = []
     var spanRowsLoading = false
+    var forecast: StudyForecastData?
+    var todayAttentionRows: [StudyTimeRow] = []
+    var spanDeckRows: [StudyTimeRow] = []
+    var spanDeckRowsLoading = false
+    var spanDeckTitle = "Relevant decks"
+    var spanRowsError: String?
+    var spanDeckRowsError: String?
+    var workloadError: String?
 
     let progressCoordinator = ReaderProgressCoordinator()
 
@@ -33,6 +45,7 @@ final class StudyLandingModel {
     private var liveSessionID: UUID?
 
     @ObservationIgnored @Dependency(\.readerBookClient) private var readerBookClient
+    @ObservationIgnored @Dependency(\.epubLibraryClient) private var epubLibraryClient
     @ObservationIgnored @Dependency(\.collectionStore) private var store
     @ObservationIgnored @Dependency(\.statsClient) private var statsClient
     @ObservationIgnored @Dependency(\.deckClient) private var deckClient
@@ -40,7 +53,13 @@ final class StudyLandingModel {
 
     private var loadToken = 0
     private var spanToken = 0
+    private var bookToken = 0
     private var rolloverHour = 4
+    private var hasActivitySnapshot = false
+    private var activitySearch = ""
+    private var topLevelStudyDecks: [DeckTreeNode] = []
+    private var supportsStability = false
+    private var relevantDeckCache: [Int: [StudyTimeRow]] = [:]
     /// Review counts keyed by days-before-today.
     private var reviewTotals: [Int: Int] = [:]
     private var reviewMillis: [Int: Int] = [:]
@@ -54,12 +73,28 @@ final class StudyLandingModel {
         let token = loadToken
         let hadContent: Bool
         if case .loaded = contentState { hadContent = true } else { hadContent = false }
+        if !hadContent {
+            forecast = nil
+            todayAttentionRows = []
+            spanDeckRows = []
+            spanDeckRowsLoading = false
+            spanRowsError = nil
+            spanDeckRowsError = nil
+            workloadError = nil
+        }
+        relevantDeckCache = [:]
         do {
             // 1. Deck tree → top-level decks only. Parent counts already
             //    aggregate descendants, so a deck with due subdecks still
             //    surfaces. Subdeck names become a caption, not nested rows.
-            let tree = try await store.tree()
+            let fullTree = try await store.tree()
+            activitySearch = Self.searchScope(in: fullTree, deckID: landingDeckID)
+            landingDeckName = landingDeckID.flatMap { id in
+                Self.findNode(fullTree, id: id)?.fullName
+            }
+            let tree = Self.scopedTree(fullTree, deckID: landingDeckID)
             guard token == loadToken else { return }
+            topLevelStudyDecks = tree.filter { !$0.isFiltered }
             guard !tree.isEmpty else {
                 contentState = .empty
                 return
@@ -77,7 +112,7 @@ final class StudyLandingModel {
             let totalDue = tree.reduce(0) { $0 + $1.counts.total }
             let totalNew = tree.reduce(0) { $0 + $1.counts.newCount }
             let treeLearn = tree.reduce(0) { $0 + $1.counts.learnCount }
-            let learningToday = (try? await statsClient.learningDueToday(search: "")) ?? treeLearn
+            let learningToday = (try? await statsClient.learningDueToday(search: activitySearch)) ?? treeLearn
             let learningReturning = max(0, learningToday - treeLearn)
             let totalReview = tree.reduce(0) { $0 + $1.counts.reviewCount }
             let deckCount = tree.filter { $0.counts.total > 0 }.count
@@ -87,7 +122,10 @@ final class StudyLandingModel {
             let subtitleLabel = deckCount == 0
                 ? weekday
                 : "\(weekday) · \(deckCount) deck\(deckCount == 1 ? "" : "s") due"
-            let dayProgress = await resolveCollectionProgress(totalDue: totalDue)
+            let dayProgress = await resolveCollectionProgress(
+                totalDue: totalDue,
+                search: activitySearch
+            )
             guard token == loadToken else { return }
 
             // Carry streak/forecast across a refresh so the second phase
@@ -145,7 +183,7 @@ final class StudyLandingModel {
     func study(search: String, limit: Int, reschedule: Bool) async -> (deckID: DeckID?, message: String?) {
         do {
             let spec = FilteredDeckSpec(
-                name: "Study · Selection",
+                name: "Study · Session · \(UUID().uuidString.prefix(8))",
                 search: search,
                 limit: UInt32(max(1, limit)),
                 order: .due,
@@ -168,7 +206,14 @@ final class StudyLandingModel {
 
     var canStepPast: Bool { dayOffset < StudySpan.pastLimit }
 
-    var canStepFuture: Bool { dayOffset > -StudySpan.futureLimit }
+    var canStepFuture: Bool {
+        switch grain {
+        case .day:
+            dayOffset > -StudySpan.futureLimit
+        case .week, .month, .year:
+            dayOffset > -StudySpan.calendarFutureLimit
+        }
+    }
 
     var spanTitle: String {
         StudySpan.title(grain: grain, todayStart: todayStart, anchor: dayOffset)
@@ -183,6 +228,10 @@ final class StudyLandingModel {
         if grain == .day, dayOffset < 0 {
             let count = spanRows.first?.count ?? futureDueCounts[-dayOffset] ?? 0
             return "\(count) due"
+        }
+        if !spanOffsets.isEmpty, spanOffsets.allSatisfy({ $0 < 0 }) {
+            let count = spanOffsets.reduce(0) { $0 + activityCount($1) }
+            return "\(count) scheduled"
         }
         let count = spanRows.first { $0.id == "reviewed" }?.count ?? reviewedInSpan
         let minutes = reviewedMillisInSpan / 60_000
@@ -202,6 +251,12 @@ final class StudyLandingModel {
         let calendar = Calendar.current
         switch grain {
         case .day:
+            if dayOffset < 0 {
+                return .forecastDay(
+                    title: spanTitle,
+                    count: futureDueCounts[-dayOffset] ?? 0
+                )
+            }
             let twentyFour = StudySpan.uses24HourClock()
             let columns = (0..<24).map { slot in
                 let clock = StudySpan.ankiDayClockHour(rolloverHour: rolloverHour, slot: slot)
@@ -274,17 +329,17 @@ final class StudyLandingModel {
         case .day:
             dayOffset = StudySpan.clamped(dayOffset + sign)
         case .week:
-            dayOffset = StudySpan.clamped(dayOffset + sign * 7)
+            dayOffset = StudySpan.calendarClamped(dayOffset + sign * 7)
         case .month:
             let calendar = Calendar.current
             let anchor = StudySpan.date(todayStart: todayStart, offset: dayOffset, calendar: calendar)
             let moved = calendar.date(byAdding: .month, value: towardsPast ? -1 : 1, to: anchor) ?? anchor
-            dayOffset = StudySpan.clamped(StudySpan.offset(todayStart: todayStart, dayStart: moved, calendar: calendar))
+            dayOffset = StudySpan.calendarClamped(StudySpan.offset(todayStart: todayStart, dayStart: moved, calendar: calendar))
         case .year:
             let calendar = Calendar.current
             let anchor = StudySpan.date(todayStart: todayStart, offset: dayOffset, calendar: calendar)
             let moved = calendar.date(byAdding: .year, value: towardsPast ? -1 : 1, to: anchor) ?? anchor
-            dayOffset = StudySpan.clamped(StudySpan.offset(todayStart: todayStart, dayStart: moved, calendar: calendar))
+            dayOffset = StudySpan.calendarClamped(StudySpan.offset(todayStart: todayStart, dayStart: moved, calendar: calendar))
         }
         Task { await reloadSpanRows() }
     }
@@ -297,7 +352,7 @@ final class StudyLandingModel {
     /// Year opens that month with the day marked. Month opens the week.
     /// Week opens the day.
     func focusDay(_ offset: Int) {
-        let clamped = StudySpan.clamped(offset)
+        let clamped = StudySpan.calendarClamped(offset)
         switch grain {
         case .year:
             grain = .month
@@ -309,7 +364,8 @@ final class StudyLandingModel {
             grain = .day
             dayOffset = clamped
         case .day:
-            return
+            guard dayOffset != clamped else { return }
+            dayOffset = clamped
         }
         Task { await reloadSpanRows() }
     }
@@ -317,7 +373,7 @@ final class StudyLandingModel {
     /// The year wall's month name opens that month.
     func selectMonth(_ offset: Int) {
         grain = .month
-        dayOffset = StudySpan.clamped(offset)
+        dayOffset = StudySpan.calendarClamped(offset)
         Task { await reloadSpanRows() }
     }
 
@@ -327,17 +383,82 @@ final class StudyLandingModel {
         Task { await reloadSpanRows() }
     }
 
+    /// Explicit deep-link/widget destination. Unlike `returnToNow`, this
+    /// always returns to the compact Today desk and discards a historical
+    /// detail selection that may still be mounted in the navigation stack.
+    func showToday(deckID: Int64? = nil) async {
+        landingDeckID = deckID == 0 ? nil : deckID
+        grain = .day
+        dayOffset = 0
+        spanRows = []
+        spanDeckRows = []
+        spanDeckRowsLoading = false
+        forecast = nil
+        todayAttentionRows = []
+        workloadError = nil
+        await load()
+    }
+
+    /// Opens the historical explorer on yesterday so the first result is a
+    /// concrete day with a useful deck-relevance section.
+    func showHistory() async {
+        grain = .day
+        dayOffset = 1
+        spanRows = []
+        spanDeckRows = []
+        spanDeckRowsLoading = false
+        await reloadSpanRows()
+    }
+
+    /// Keeps an open Study tab honest across the Anki day boundary. Scene
+    /// activation handles foregrounding; this handles a tab left open overnight.
+    func waitForNextRollover() async {
+        if !hasActivitySnapshot {
+            do {
+                try await Task.sleep(for: .seconds(2))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            await waitForNextRollover()
+            return
+        }
+
+        let calendar = Calendar.current
+        let now = Date()
+        let start = AnkiDay.start(of: now, rolloverHour: rolloverHour, calendar: calendar)
+        guard let next = calendar.date(byAdding: .day, value: 1, to: start) else { return }
+        let seconds = max(1, next.timeIntervalSince(now) + 1)
+        do {
+            try await Task.sleep(for: .seconds(seconds))
+        } catch {
+            return
+        }
+        guard !Task.isCancelled else { return }
+        await load()
+        await waitForNextRollover()
+    }
+
     private var carriedSummary: StudySummaryData? {
         if case .loaded(let summary, _, _) = contentState { return summary }
         return nil
     }
 
-    /// Streak, time studied, tomorrow, and the rollover note. Published
-    /// onto whatever summary is current so a live review repaint in
+    /// Streak, time studied, forecast, and actionable attention rows.
+    /// Published onto whatever summary is current so a live review repaint in
     /// between isn't overwritten with the pre-session counts.
     private func loadActivity(token: Int) async {
-        let graphs = try? await statsClient.fetchGraphs("", StudySpan.pastLimit)
-        guard token == loadToken, case .loaded(let summary, let decks, let reading) = contentState else { return }
+        workloadError = nil
+        let graphs: GraphsSnapshot?
+        do {
+            graphs = try await statsClient.fetchGraphs(activitySearch, StudySpan.pastLimit)
+        } catch {
+            graphs = nil
+        }
+
+        guard token == loadToken,
+              case .loaded(let summary, let decks, let reading) = contentState else { return }
+
         if let graphs {
             rolloverHour = graphs.rolloverHour
             reviewTotals = Self.dayTotals(graphs.reviews.count)
@@ -346,7 +467,15 @@ final class StudyLandingModel {
             hoursByDay = Dictionary(uniqueKeysWithValues: graphs.hoursByDay.map { key, hours in
                 (-key, hours)
             })
+            hasActivitySnapshot = true
+            supportsStability = graphs.fsrs
+        } else {
+            supportsStability = false
+            if forecast == nil {
+                forecast = .empty
+            }
         }
+
         let updated: StudySummaryData
         if let graphs {
             updated = summary.withActivity(
@@ -369,13 +498,116 @@ final class StudyLandingModel {
         } else {
             return
         }
+
         contentState = .loaded(summary: updated, decks: decks, continueReading: reading)
+
+        guard token == loadToken, let graphs else { return }
+        let workload = await makeWorkloadContext(
+            graphs: graphs,
+            currentDue: updated.totalDue
+        )
+        guard token == loadToken else { return }
+        forecast = workload.forecast
+        todayAttentionRows = workload.attentionRows
+        workloadError = workload.error
+    }
+
+    private func scopedActivitySearch(_ base: String) -> String {
+        guard !activitySearch.isEmpty else { return base }
+        return "\(base) \(activitySearch)"
+    }
+
+    private func makeWorkloadContext(
+        graphs: GraphsSnapshot,
+        currentDue: Int
+    ) async -> (forecast: StudyForecastData, attentionRows: [StudyTimeRow], error: String?) {
+        let calendar = Calendar.current
+        let start = AnkiDay.start(of: Date(), rolloverHour: graphs.rolloverHour, calendar: calendar)
+        let days = (0..<7).map { offset -> StudyForecastDay in
+            let date = StudySpan.date(todayStart: start, offset: -offset, calendar: calendar)
+            let count = offset == 0 ? currentDue : graphs.futureDue.futureDue[offset] ?? 0
+            let label: String
+            if offset == 0 {
+                label = "Today"
+            } else if offset == 1 {
+                label = "Tomorrow"
+            } else {
+                label = date.formatted(.dateTime.weekday(.abbreviated))
+            }
+            let spokenDate = date.formatted(.dateTime.weekday(.wide))
+            return StudyForecastDay(
+                offset: -offset,
+                label: label,
+                accessibilityLabel: "\(spokenDate), \(count) cards",
+                count: count
+            )
+        }
+
+        let graphBacklogCount = graphs.futureDue.backlogCount
+        let searchedBacklogCount: Int?
+        do {
+            searchedBacklogCount = try await cardClient.searchIds(
+                scopedActivitySearch(StudySpan.backlogSearch),
+                nil
+            ).count
+        } catch {
+            searchedBacklogCount = nil
+        }
+        // The detail row uses the same search, so prefer its count when it is
+        // available. Fall back to the graph only when the search itself fails.
+        let backlogCount = searchedBacklogCount ?? graphBacklogCount
+        var attentionRows: [StudyTimeRow] = []
+        if backlogCount > 0 {
+            attentionRows.append(StudySpan.backlogRow(
+                count: backlogCount,
+                search: scopedActivitySearch(StudySpan.backlogSearch)
+            ))
+        }
+
+        var unstableCount: Int?
+        var workloadErrorMessage: String?
+        if graphs.fsrs, let search = StudySpan.unstableSearch(dayOffset: 0) {
+            do {
+                let count = try await cardClient.searchIds(
+                    scopedActivitySearch(search),
+                    nil
+                ).count
+                unstableCount = count
+                attentionRows.append(StudySpan.unstableRow(
+                    count: count,
+                    dayOffset: 0,
+                    spanName: "today",
+                    search: scopedActivitySearch(search)
+                ))
+            } catch {
+                workloadErrorMessage = "The unstable-card count couldn't be loaded."
+            }
+        }
+
+        let forecast = StudyForecastData(
+            days: days,
+            tomorrowDue: graphs.futureDue.futureDue[1] ?? 0,
+            dailyLoad: graphs.futureDue.dailyLoad,
+            backlogCount: backlogCount,
+            hasBacklog: graphs.futureDue.haveBacklog || backlogCount > 0,
+            unstableDueCount: unstableCount,
+            fsrsEnabled: graphs.fsrs
+        )
+        return (forecast, attentionRows, workloadErrorMessage)
     }
 
     func selectBook(_ bookID: String) {
-        guard let configuration = ReaderConfigurationLoader.loadConfiguration() else { return }
+        bookToken += 1
+        let token = bookToken
         Task {
-            if let book = try? await readerBookClient.loadBook(bookID, configuration) {
+            if let configuration = ReaderConfigurationLoader.loadConfiguration(),
+               let book = try? await readerBookClient.loadBook(bookID, configuration) {
+                guard token == bookToken else { return }
+                selectedBook = book
+                return
+            }
+            if let book = await epubLibraryClient.listBooks().first(where: { $0.id == bookID }),
+               token == bookToken {
                 selectedBook = book
             }
         }
@@ -404,16 +636,26 @@ final class StudyLandingModel {
             reviewCount: max(0, anchor.reviewCount - snapshot.baseline.reviewCount) + snapshot.live.reviewCount
         )
 
+        let answeredDelta =
+            max(0, snapshot.baseline.newCount - snapshot.live.newCount)
+            + max(0, snapshot.baseline.learnCount - snapshot.live.learnCount)
+            + max(0, snapshot.baseline.reviewCount - snapshot.live.reviewCount)
+        let liveReviewed = max(0, summary.reviewedToday + answeredDelta)
+        let liveBaseline = max(summary.dueBaselineToday, liveReviewed + whole.total, 1)
+        let updatedSummary = summary.withLiveCounts(
+            totalDue: whole.total,
+            newCount: whole.newCount,
+            learnCount: whole.learnCount,
+            reviewCount: whole.reviewCount,
+            reviewedToday: liveReviewed,
+            dueBaselineToday: liveBaseline
+        )
         contentState = .loaded(
-            summary: summary.withLiveCounts(
-                totalDue: whole.total,
-                newCount: whole.newCount,
-                learnCount: whole.learnCount,
-                reviewCount: whole.reviewCount
-            ),
+            summary: updatedSummary,
             decks: decks,
             continueReading: continueReading
         )
+        forecast = forecast?.updatingTodayCount(whole.total)
     }
 
     /// Forgets the live-session anchor. The next full `load()` (triggered by
@@ -423,6 +665,25 @@ final class StudyLandingModel {
     func clearLiveCounts() {
         liveSessionID = nil
         liveAnchorCounts = nil
+    }
+
+    private static func findNode(_ nodes: [DeckTreeNode], id: Int64) -> DeckTreeNode? {
+        for node in nodes {
+            if node.id.rawValue == id { return node }
+            if let match = findNode(node.children, id: id) { return match }
+        }
+        return nil
+    }
+
+    private static func scopedTree(_ tree: [DeckTreeNode], deckID: Int64?) -> [DeckTreeNode] {
+        guard let deckID, deckID != 0 else { return tree }
+        return findNode(tree, id: deckID).map { [$0] } ?? []
+    }
+
+    private static func searchScope(in tree: [DeckTreeNode], deckID: Int64?) -> String {
+        guard let deckID, deckID != 0,
+              let node = findNode(tree, id: deckID) else { return "" }
+        return StudySpan.deckScopeSearch(node.fullName)
     }
 
     /// Maps a top-level deck. Due children are a caption, not rows.
@@ -483,9 +744,12 @@ final class StudyLandingModel {
         }
     }
 
-    private func resolveCollectionProgress(totalDue: Int) async -> (reviewedToday: Int, dueBaselineToday: Int) {
+    private func resolveCollectionProgress(
+        totalDue: Int,
+        search: String
+    ) async -> (reviewedToday: Int, dueBaselineToday: Int) {
         do {
-            let completedToday = try await statsClient.graduatedToday(search: "")
+            let completedToday = try await statsClient.graduatedToday(search: search)
             // Live denominator (completed + remaining) rather than a frozen
             // baseline, so the ring can't read 100% while cards are still due.
             let baseline = max(completedToday + totalDue, 1)
@@ -495,20 +759,30 @@ final class StudyLandingModel {
         }
     }
 
-    /// The book opened most recently, only when it has saved progress.
+    /// The most recently updated book with unfinished progress, across both
+    /// reader sources. The Study recommendation should not silently omit an
+    /// EPUB library or offer a book the user already finished.
     private func loadContinueReading() async -> StudyReadingRecData? {
-        guard let configuration = ReaderConfigurationLoader.loadConfiguration(),
-              let books = try? await readerBookClient.loadBooks(configuration) else {
-            return nil
+        async let epubBooks = epubLibraryClient.listBooks()
+
+        var ankiBooks: [ReaderBook] = []
+        if let configuration = ReaderConfigurationLoader.loadConfiguration() {
+            ankiBooks = (try? await readerBookClient.loadBooks(configuration)) ?? []
         }
+        let epub = await epubBooks
+        let books = ankiBooks + epub
+        guard !books.isEmpty else { return nil }
 
         var best: (book: ReaderBook, at: Date)?
         for book in books {
-            guard let at = await progressCoordinator.resolved(bookID: book.id)?.updatedAt else { continue }
+            guard let progress = await progressCoordinator.resolved(bookID: book.id),
+                  hasUnfinishedReading(book: book, progress: progress) else { continue }
             if let current = best {
-                if at > current.at { best = (book, at) }
+                if progress.updatedAt > current.at {
+                    best = (book, progress.updatedAt)
+                }
             } else {
-                best = (book, at)
+                best = (book, progress.updatedAt)
             }
         }
         guard let best else { return nil }
@@ -518,6 +792,22 @@ final class StudyLandingModel {
             coverImagePath: best.book.coverImagePath,
             authorLabel: best.book.author ?? ""
         )
+    }
+
+    private func hasUnfinishedReading(
+        book: ReaderBook,
+        progress: ReaderSavedProgress
+    ) -> Bool {
+        guard let chapterIndex = book.chapters.firstIndex(where: { $0.id == progress.chapterID }) else {
+            // A progress record from an older library can outlive a removed
+            // chapter. Keep it actionable only when the saved position is
+            // demonstrably inside the book rather than at a completed end.
+            return progress.progress > 0 && progress.progress < 1
+        }
+        if chapterIndex < book.chapters.count - 1 {
+            return true
+        }
+        return progress.progress < 1
     }
 
     private var todayStart: Date {
@@ -559,66 +849,244 @@ final class StudyLandingModel {
     private func reloadSpanRows() async {
         spanToken += 1
         let token = spanToken
+        spanRows = []
+        spanDeckRows = []
+        spanDeckRowsLoading = false
+        spanRowsError = nil
+        spanDeckRowsError = nil
         guard !showsTodayDesk else {
-            spanRows = []
             spanRowsLoading = false
             return
         }
-        spanRows = []
         spanRowsLoading = true
         defer { if token == spanToken { spanRowsLoading = false } }
 
         let spanName = spanTitle
         if grain == .day, dayOffset < 0 {
             let ahead = -dayOffset
-            let search = StudySpan.dueSearch(daysAhead: ahead)
-            let count = (try? await cardClient.searchIds(search, nil).count) ?? (futureDueCounts[ahead] ?? 0)
+            let search = scopedActivitySearch(StudySpan.dueSearch(daysAhead: ahead))
+            // The graph is the scheduler's authoritative future-due set. A
+            // direct search is only a fallback when the graph has not filled
+            // this day yet; never overwrite the graph with a review-only
+            // count because that would drop learning cards.
+            let count: Int
+            if let graphCount = futureDueCounts[ahead] {
+                count = graphCount
+            } else {
+                count = (try? await cardClient.searchIds(search, nil).count) ?? 0
+            }
             guard token == spanToken else { return }
-            spanRows = [StudySpan.dueRow(count: count, daysAhead: ahead, spanName: spanName)]
+            var rows = [StudySpan.dueRow(
+                count: count,
+                daysAhead: ahead,
+                spanName: spanName,
+                search: search
+            )]
+            if supportsStability, let unstableSearch = StudySpan.unstableSearch(dayOffset: dayOffset) {
+                do {
+                    let unstableCount = try await cardClient.searchIds(unstableSearch, nil).count
+                    rows.append(StudySpan.unstableRow(
+                        count: unstableCount,
+                        dayOffset: dayOffset,
+                        spanName: spanName
+                    ))
+                } catch {
+                    if token == spanToken {
+                        spanRowsError = "The unstable-card count couldn't be loaded."
+                    }
+                }
+            }
+            spanRows = rows
+            spanRowsLoading = false
+            await loadRelevantDecks(token: token)
             return
         }
 
         guard let window = StudySpan.ratingWindow(offsets: spanOffsets) else {
             guard token == spanToken else { return }
-            spanRows = StudySpan.ratingRows(counts: [:], oldest: 0, newest: 0, spanName: spanName)
+            // An all-future period has no rating window. The chart remains the
+            // source of truth for that forecast; avoid manufacturing empty
+            // "reviewed" rows that look like real zeroes.
+            spanRows = []
+            spanRowsLoading = false
+            await loadRelevantDecks(token: token)
             return
         }
 
-        let counts = await countCriteria(window: window)
+        let counts = await countCriteria(window: window, token: token)
         guard token == spanToken else { return }
-        spanRows = StudySpan.ratingRows(
+        var rows = StudySpan.ratingRows(
             counts: counts,
             oldest: window.oldest,
             newest: window.newest,
-            spanName: spanName
+            spanName: spanName,
+            additionalSearch: activitySearch.isEmpty ? nil : activitySearch
         )
-    }
-
-    private func countCriteria(window: (oldest: Int, newest: Int)) async -> [String: Int] {
-        let client = cardClient
-        return await withTaskGroup(of: (String, Int).self) { group in
-            for criterion in StudySpan.criteria {
-                let search = StudySpan.criterionSearch(
-                    ease: criterion.ease,
-                    extra: criterion.extra,
+        if supportsStability {
+            let unstableSearch = scopedActivitySearch(
+                StudySpan.criterionSearch(
+                    ease: nil,
+                    extra: "prop:s<\(StudySpan.unstableStabilityDays)",
                     oldest: window.oldest,
                     newest: window.newest
                 )
-                group.addTask {
-                    let count = (try? await client.searchIds(search, nil).count) ?? 0
-                    return (criterion.id, count)
+            )
+            do {
+                let unstableCount = try await cardClient.searchIds(unstableSearch, nil).count
+                rows.insert(
+                    StudySpan.unstableRow(
+                        count: unstableCount,
+                        dayOffset: dayOffset,
+                        spanName: spanName,
+                        search: unstableSearch
+                    ),
+                    at: 0
+                )
+            } catch {
+                if token == spanToken {
+                    spanRowsError = "The unstable-card count couldn't be loaded."
                 }
             }
-            var counts: [String: Int] = [:]
-            for await pair in group {
-                counts[pair.0] = pair.1
+        }
+        spanRows = rows
+        spanRowsLoading = false
+        await loadRelevantDecks(token: token)
+    }
+
+    /// Finds the top-level decks that contributed answers or scheduled work
+    /// on an exact historical day. Deck terms include descendants, so a
+    /// parent row is a useful session target without double-counting nested
+    /// rows. Results are cached because the engine serializes searches.
+    /// The engine's revlog does not retain a card's deck at answer time, so
+    /// a historical row means "cards currently in this deck that were
+    /// reviewed/due then", not a perfect reconstruction of deck membership.
+    private func loadRelevantDecks(token: Int) async {
+        guard grain == .day, dayOffset != 0,
+              let baseSearch = StudySpan.relevanceSearch(dayOffset: dayOffset) else {
+            if token == spanToken {
+                spanDeckTitle = "Relevant decks"
+                spanDeckRows = []
+                spanDeckRowsLoading = false
+                spanDeckRowsError = nil
             }
-            return counts
+            return
+        }
+
+        spanDeckTitle = dayOffset > 0 ? "Decks with cards reviewed" : "Decks with cards due"
+        if let cached = relevantDeckCache[dayOffset] {
+            spanDeckRows = cached
+            spanDeckRowsLoading = false
+            return
+        }
+
+        spanDeckRowsLoading = true
+        var rows: [StudyTimeRow] = []
+        var hadFailure = false
+        let isFuture = dayOffset < 0
+        let futureDaysAhead = isFuture ? -dayOffset : 0
+        let scopedBaseSearch = scopedActivitySearch(baseSearch)
+        for node in topLevelStudyDecks {
+            if Task.isCancelled || token != spanToken { return }
+            let count: Int
+            do {
+                if isFuture {
+                    if activitySearch.isEmpty {
+                        // Use the same graph producer as the aggregate
+                        // forecast so learning cards and buried future cards
+                        // are not lost in a review-only card search.
+                        let deckScope = StudySpan.deckScopeSearch(node.fullName)
+                        let deckGraph = try await statsClient.fetchGraphs(deckScope, 1)
+                        count = deckGraph.futureDue.futureDue[futureDaysAhead] ?? 0
+                    } else {
+                        // A configured widget is already scoped to its one
+                        // deck; reuse the aggregate graph instead of issuing a
+                        // second identical graph request.
+                        count = futureDueCounts[futureDaysAhead] ?? 0
+                    }
+                } else {
+                    let scoped = activitySearch.isEmpty
+                        ? StudySpan.scopedSearch(
+                            baseSearch,
+                            deckFullName: node.fullName,
+                            includeSubdecks: true
+                        )
+                        : scopedBaseSearch
+                    count = try await cardClient.searchIds(scoped, nil).count
+                }
+            } catch {
+                hadFailure = true
+                continue
+            }
+            guard count > 0 else { continue }
+            rows.append(StudyTimeRow(
+                id: "day-deck-\(node.id.rawValue)",
+                title: node.name,
+                count: count,
+                search: baseSearch,
+                detailTitle: "\(node.name) · \(spanTitle)",
+                emptyMessage: "No matching cards in \(node.name)",
+                reschedulesByDefault: true,
+                subtitle: node.children.isEmpty ? nil : "Includes subdecks",
+                initialDeckID: node.id.rawValue,
+                deckFullName: node.fullName
+            ))
+        }
+        guard token == spanToken, !Task.isCancelled else { return }
+        rows.sort {
+            if $0.count != $1.count { return $0.count > $1.count }
+            return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+        }
+        let capped = Array(rows.prefix(12))
+        if !hadFailure {
+            relevantDeckCache[dayOffset] = capped
+        }
+        spanDeckRows = capped
+        spanDeckRowsLoading = false
+        if hadFailure {
+            spanDeckRowsError = "Some deck counts couldn't be loaded. Pull to refresh to try again."
         }
     }
 
-    func matchCount(_ search: String) async -> Int {
-        (try? await cardClient.searchIds(search, nil).count) ?? 0
+    private func countCriteria(
+        window: (oldest: Int, newest: Int),
+        token: Int
+    ) async -> [String: Int] {
+        let client = cardClient
+        let result = await withTaskGroup(of: (String, Int, Bool).self) { group in
+            for criterion in StudySpan.criteria {
+                let search = scopedActivitySearch(
+                    StudySpan.criterionSearch(
+                        ease: criterion.ease,
+                        extra: criterion.extra,
+                        oldest: window.oldest,
+                        newest: window.newest
+                    )
+                )
+                group.addTask {
+                    do {
+                        let count = try await client.searchIds(search, nil).count
+                        return (criterion.id, count, false)
+                    } catch {
+                        return (criterion.id, 0, true)
+                    }
+                }
+            }
+            var counts: [String: Int] = [:]
+            var hadFailure = false
+            for await (id, count, failed) in group {
+                counts[id] = count
+                hadFailure = hadFailure || failed
+            }
+            return (counts, hadFailure)
+        }
+        if result.1, token == spanToken {
+            spanRowsError = "Some study filters couldn't be loaded. Pull to refresh to try again."
+        }
+        return result.0
+    }
+
+    func matchCount(_ search: String) async -> Int? {
+        try? await cardClient.searchIds(search, nil).count
     }
 
     func deckChoices() async -> [StudyDeckChoice] {

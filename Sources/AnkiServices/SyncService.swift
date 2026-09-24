@@ -12,6 +12,9 @@ private let logger = Logger(label: "com.ankiapp.sync.service")
 @DependencyClient
 public struct SyncService: Sendable {
     public var sync: @Sendable (_ endpoint: String, _ hostKey: String) async throws -> SyncSummary
+    /// Collection-only sync used by short-lived background work. The engine
+    /// does not start its asynchronous media task for this variant.
+    public var syncCollection: @Sendable (_ endpoint: String, _ hostKey: String) async throws -> SyncSummary
     public var fullSync: @Sendable (_ endpoint: String, _ hostKey: String, _ direction: SyncDirection) async throws -> Void
     public var mediaSyncStatus: @Sendable () async throws -> MediaSyncStatus
     public var abortMediaSync: @Sendable () async throws -> Void
@@ -21,59 +24,73 @@ public struct SyncService: Sendable {
 extension SyncService: DependencyKey {
     public static let liveValue: Self = {
         @Dependency(\.ankiBackend) var backend
+
+        @Sendable
+        func performSync(endpoint: String, hostKey: String, syncMedia: Bool) async throws -> SyncSummary {
+            var auth = SyncAuth(hkey: hostKey, endpoint: endpoint)
+
+            do {
+                let result = try await backend.invoke(.syncCollection(auth: auth, syncMedia: syncMedia))
+                logger.info("SyncCollection: required=\(result.required), message='\(result.serverMessage)'")
+
+                if let newEndpoint = result.newEndpoint {
+                    auth = SyncAuth(hkey: auth.hkey, endpoint: newEndpoint)
+                    // AnkiWeb pins upload/download to a specific shard and
+                    // only emits the redirect here — persist it so later
+                    // FullUploadOrDownload calls hit the shard directly.
+                    try KeychainHelper.saveCurrentEndpoint(newEndpoint)
+                }
+
+                switch result.required {
+                case .noChanges, .normalSync:
+                    return SyncSummary()
+
+                case .fullSync:
+                    logger.info("Full sync required - user must choose direction")
+                    throw SyncError.fullSyncRequired
+
+                case .fullDownload:
+                    logger.info("Full download required (local collection empty)")
+                    // An empty local collection is a safe bootstrap case: the
+                    // server has explicitly asked for a full download. Keep
+                    // this allowed for background work, while requiring an
+                    // explicit user choice for a destructive full upload.
+                    try await backend.invoke(.fullUploadOrDownload(
+                        auth: auth, upload: false, serverUsn: result.serverMediaUsn
+                    ))
+                    // Not `try?`: a full download that lands a corrupt
+                    // collection must surface, not be reported as a
+                    // successful sync.
+                    _ = try await backendOffload { try backend.invoke(.checkDatabase) }
+                    return SyncSummary()
+
+                case .fullUpload:
+                    logger.info("Full upload required")
+                    guard syncMedia else { throw SyncError.fullSyncRequired }
+                    try await backend.invoke(.fullUploadOrDownload(
+                        auth: auth, upload: true, serverUsn: result.serverMediaUsn
+                    ))
+                    return SyncSummary()
+
+                case .unrecognized(let v):
+                    // Reporting success here would tell the user their
+                    // work is safe when nothing was transferred.
+                    logger.error("Unrecognized sync state: \(v)")
+                    throw SyncError(message: "The server reported an unrecognized sync state (\(v)). Nothing was transferred.")
+                }
+            } catch let error as BackendError {
+                logger.error("Sync error: \(error.message)")
+                if error.isSyncAuthError { throw SyncError.authFailed }
+                throw SyncError(message: error.message)
+            }
+        }
+
         return Self(
             sync: { endpoint, hostKey in
-                var auth = SyncAuth(hkey: hostKey, endpoint: endpoint)
-
-                do {
-                    let result = try await backend.invoke(.syncCollection(auth: auth, syncMedia: true))
-                    logger.info("SyncCollection: required=\(result.required), message='\(result.serverMessage)'")
-
-                    if let newEndpoint = result.newEndpoint {
-                        auth = SyncAuth(hkey: auth.hkey, endpoint: newEndpoint)
-                        // AnkiWeb pins upload/download to a specific shard and
-                        // only emits the redirect here — persist it so later
-                        // FullUploadOrDownload calls hit the shard directly.
-                        try KeychainHelper.saveCurrentEndpoint(newEndpoint)
-                    }
-
-                    switch result.required {
-                    case .noChanges, .normalSync:
-                        return SyncSummary()
-
-                    case .fullSync:
-                        logger.info("Full sync required - user must choose direction")
-                        throw SyncError.fullSyncRequired
-
-                    case .fullDownload:
-                        logger.info("Full download required (local collection empty)")
-                        try await backend.invoke(.fullUploadOrDownload(
-                            auth: auth, upload: false, serverUsn: result.serverMediaUsn
-                        ))
-                        // Not `try?`: a full download that lands a corrupt
-                        // collection must surface, not be reported as a
-                        // successful sync.
-                        _ = try await backendOffload { try backend.invoke(.checkDatabase) }
-                        return SyncSummary()
-
-                    case .fullUpload:
-                        logger.info("Full upload required")
-                        try await backend.invoke(.fullUploadOrDownload(
-                            auth: auth, upload: true, serverUsn: result.serverMediaUsn
-                        ))
-                        return SyncSummary()
-
-                    case .unrecognized(let v):
-                        // Reporting success here would tell the user their
-                        // work is safe when nothing was transferred.
-                        logger.error("Unrecognized sync state: \(v)")
-                        throw SyncError(message: "The server reported an unrecognized sync state (\(v)). Nothing was transferred.")
-                    }
-                } catch let error as BackendError {
-                    logger.error("Sync error: \(error.message)")
-                    if error.isSyncAuthError { throw SyncError.authFailed }
-                    throw SyncError(message: error.message)
-                }
+                try await performSync(endpoint: endpoint, hostKey: hostKey, syncMedia: true)
+            },
+            syncCollection: { endpoint, hostKey in
+                try await performSync(endpoint: endpoint, hostKey: hostKey, syncMedia: false)
             },
             fullSync: { endpoint, hostKey, direction in
                 let auth = SyncAuth(hkey: hostKey, endpoint: endpoint)

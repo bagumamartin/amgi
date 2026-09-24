@@ -71,6 +71,13 @@ extension SyncClient: DependencyKey {
                 logger.info("Starting sync")
                 return try await syncService.sync(endpoint, hostKey)
             },
+            syncCollection: {
+                let hostKey = KeychainHelper.loadHostKey() ?? ""
+                guard !hostKey.isEmpty else { throw SyncError.authFailed }
+                let endpoint = KeychainHelper.loadCurrentEndpoint() ?? KeychainHelper.loadEndpoint() ?? ""
+                logger.info("Starting collection-only sync")
+                return try await syncService.syncCollection(endpoint, hostKey)
+            },
             fullSync: { direction in
                 let hostKey = KeychainHelper.loadHostKey() ?? ""
                 guard !hostKey.isEmpty else { throw SyncError.authFailed }

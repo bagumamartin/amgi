@@ -8,6 +8,7 @@ public struct StudySpanChart: View {
     let onSelectMonth: (Int) -> Void
 
     @Environment(\.palette) private var palette
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     public init(
         model: StudyChartModel,
@@ -25,11 +26,34 @@ public struct StudySpanChart: View {
             bars(columns)
         case .hours(let columns, let axis):
             hourBars(columns, axis: axis)
+        case .forecastDay(let title, let count):
+            forecastDay(title: title, count: count)
         case .month(let headers, let cells):
             month(headers: headers, cells: cells)
         case .year(let months):
             yearWall(months)
         }
+    }
+
+    private func forecastDay(title: String, count: Int) -> some View {
+        VStack(spacing: AmgiSpacing.sm) {
+            Image(systemName: "calendar.badge.clock")
+                .font(.system(size: 22, weight: .medium))
+                .foregroundStyle(palette.accent)
+                .accessibilityHidden(true)
+            Text(count == 0 ? "Nothing scheduled" : "\(count) scheduled")
+                .amgiFont(.bodyEmphasis, .monospacedDigits)
+                .foregroundStyle(palette.textPrimary)
+            Text(count == 0 ? "No cards are due on \(title.lowercased())." : "Cards are scheduled for \(title.lowercased()).")
+                .amgiFont(.caption)
+                .foregroundStyle(palette.textSecondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, minHeight: 150)
+        .padding(.horizontal, AmgiSpacing.lg)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(count == 0 ? "Nothing scheduled on \(title)" : "\(count) cards scheduled on \(title)")
     }
 
     private func bars(_ columns: [StudyChartColumn]) -> some View {
@@ -72,9 +96,9 @@ public struct StudySpanChart: View {
         let peak = max(columns.map(\.value).max() ?? 0, 1)
         return VStack(spacing: headerGap) {
             HStack(spacing: 1) {
-                ForEach(columns) { column in
-                    headerLabel(column.label, emphasized: false)
-                        .minimumScaleFactor(0.4)
+                ForEach(Array(columns.enumerated()), id: \.element.id) { index, column in
+                    headerLabel(index % 3 == 0 ? column.label : "", emphasized: false)
+                        .minimumScaleFactor(0.7)
                 }
             }
             HStack(alignment: .bottom, spacing: 1) {
@@ -142,7 +166,9 @@ public struct StudySpanChart: View {
     }
 
     private func accessibility(_ column: StudyChartColumn) -> String {
-        "\(column.label), \(column.value)"
+        let kind = column.isFuture ? "scheduled" : "reviewed"
+        let selection = column.isSelected ? ", selected" : ""
+        return "\(column.label), \(column.value) \(kind)\(selection)"
     }
 
     private func month(headers: [String], cells: [StudyMonthCell]) -> some View {
@@ -160,8 +186,9 @@ public struct StudySpanChart: View {
                         monthCell(cell, peak: peak)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(monthAccessibility(cell))
                 } else {
-                    Color.clear.frame(height: 36)
+                    Color.clear.frame(height: 40)
                 }
             }
         }
@@ -173,7 +200,7 @@ public struct StudySpanChart: View {
             .amgiFont(.caption)
             .foregroundStyle(cell.isFuture ? palette.textPrimary : (solid ? Color.white : palette.textPrimary))
             .frame(maxWidth: .infinity)
-            .frame(height: 36)
+            .frame(height: 40)
             .background {
                 Circle()
                     .fill(heatFill(cell.value, peak: peak, future: cell.isFuture))
@@ -188,9 +215,16 @@ public struct StudySpanChart: View {
             }
     }
 
+    private func monthAccessibility(_ cell: StudyMonthCell) -> String {
+        let kind = cell.isFuture ? "scheduled" : "reviewed"
+        let selection = cell.isSelected ? ", selected" : ""
+        return "Day \(cell.dayNumber), \(cell.value) \(kind)\(selection)"
+    }
+
     private func yearWall(_ months: [StudyYearMonth]) -> some View {
         let peak = max(months.flatMap(\.cells).map(\.value).max() ?? 0, 1)
-        let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
+        let columnCount = horizontalSizeClass == .regular ? 3 : 2
+        let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: columnCount)
         return LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
             ForEach(months) { month in
                 miniMonth(month, peak: peak)
@@ -219,8 +253,9 @@ public struct StudySpanChart: View {
                             yearDay(cell, peak: peak)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel(monthAccessibility(cell))
                     } else {
-                        Color.clear.frame(height: 16)
+                        Color.clear.frame(height: 20)
                     }
                 }
             }
@@ -233,7 +268,7 @@ public struct StudySpanChart: View {
             .amgiFont(.micro)
             .foregroundStyle(yearNumberColor(cell, solid: solid))
             .frame(maxWidth: .infinity)
-            .frame(height: 16)
+            .frame(height: 20)
             .background {
                 if cell.isToday {
                     Circle().fill(palette.accent).frame(width: 16, height: 16)

@@ -810,14 +810,17 @@ final class BrowseModel {
         await run("reposition") { _ = try await self.cardClient.repositionCards(cardIDs, start, step, false, false) }
     }
 
-    private func run(_ verb: String, _ work: () async throws -> Void) async {
+    @discardableResult
+    private func run(_ verb: String, _ work: () async throws -> Void) async -> Bool {
         do {
             try await work()
+            await refreshAfterMutation()
+            return true
         } catch {
             errorMessage = "Couldn't \(verb): \(error.localizedDescription)"
             Log.browse.error("Browse \(verb) failed: \(error)")
+            return false
         }
-        await refreshAfterMutation()
     }
 
     private func runBatch<ID>(
@@ -841,7 +844,9 @@ final class BrowseModel {
                 ? "Couldn't \(verb) \(failures == 1 ? "that item" : "those \(failures) items"): \(firstError ?? "unknown error")"
                 : "\(failures) of \(ids.count) items couldn't be \(verb)d: \(firstError ?? "unknown error")"
         }
-        await refreshAfterMutation()
+        if failures < ids.count {
+            await refreshAfterMutation()
+        }
     }
 
     func refreshUndoStatus() async {
@@ -852,20 +857,20 @@ final class BrowseModel {
         guard canUndo else { return }
         do {
             try await cardClient.undoLast()
+            await refreshAfterMutation()
         } catch {
             errorMessage = "Couldn't undo: \(error.localizedDescription)"
         }
-        await refreshAfterMutation()
     }
 
     func redoLast() async {
         guard canRedo else { return }
         do {
             try await cardClient.redoLast()
+            await refreshAfterMutation()
         } catch {
             errorMessage = "Couldn't redo: \(error.localizedDescription)"
         }
-        await refreshAfterMutation()
     }
 
     /// After any engine op the CollectionStore generation bumps itself via
@@ -1524,7 +1529,12 @@ final class BrowseModel {
     }
 
     func setActiveColumns(_ keys: [String]) async {
-        try? await ankiBackend.invoke(.setActiveBrowserColumns(keys))
+        do {
+            try await ankiBackend.invoke(.setActiveBrowserColumns(keys))
+            collectionStore.markLocalMutation()
+        } catch {
+            return
+        }
         browserRows.removeAll()
         var prefs = viewPrefs
         switch mode {
@@ -1596,8 +1606,13 @@ final class BrowseModel {
             return nil
         }
         guard let node = find(tagTree?.children ?? []) else { return }
-        try? await tagClient.setCollapsed(path, !node.collapsed)
-        if let tree = try? await tagClient.tagTree() { tagTree = tree }
+        do {
+            try await tagClient.setCollapsed(path, !node.collapsed)
+            collectionStore.markLocalMutation()
+            if let tree = try? await tagClient.tagTree() { tagTree = tree }
+        } catch {
+            return
+        }
     }
 
     func deleteCollectionTag(_ tag: String) async {
@@ -1612,11 +1627,11 @@ final class BrowseModel {
         let service = decksService
         do {
             _ = try await backendOffload { try service.renameDeck(id, trimmed) }
+            await loadDecks()
+            await refreshAfterMutation()
         } catch {
             errorMessage = "Couldn't rename deck: \(error.localizedDescription)"
         }
-        await loadDecks()
-        await refreshAfterMutation()
     }
 
     @ObservationIgnored @Dependency(\.decksService) private var decksService

@@ -31,6 +31,11 @@ public final class CollectionStore {
 
     @ObservationIgnored @Dependency(\.deckClient) private var deckClient
 
+    /// Called after a collection mutation is confirmed. The sink is injected
+    /// by the app composition root so this module does not need to depend on
+    /// SyncFeature or on any other feature that reacts to collection changes.
+    @ObservationIgnored public var onCollectionChange: ((CollectionChangeOrigin) -> Void)?
+
     @ObservationIgnored private var cachedTree: [DeckTreeNode]?
     @ObservationIgnored private var cachedGeneration = -1
     @ObservationIgnored private var inFlight: Task<[DeckTreeNode], any Error>?
@@ -61,13 +66,36 @@ public final class CollectionStore {
         return tree
     }
 
-    public func apply(_ changes: CollectionChanges, origin _: CollectionChangeOrigin = .localUser) {
-        guard changes.affectsDeckTree else { return }
-        generation += 1
+    /// Fetches the deck tree without consulting or updating the UI cache.
+    /// Snapshot writers use this after a mutation so a newly opened profile
+    /// or an invalidation racing the write cannot publish stale due counts.
+    public func freshTree() async throws -> [DeckTreeNode] {
+        try await deckClient.fetchTree()
     }
 
-    public func invalidateAll(origin _: CollectionChangeOrigin = .refresh) {
+    public func apply(_ changes: CollectionChanges, origin: CollectionChangeOrigin = .localUser) {
+        if changes.affectsDeckTree {
+            generation += 1
+        }
+        notifyCollectionChange(origin)
+    }
+
+    public func invalidateAll(origin: CollectionChangeOrigin = .refresh) {
         generation += 1
+        notifyCollectionChange(origin)
+    }
+
+    /// Records a confirmed mutation that does not invalidate the deck tree
+    /// itself (for example, a review answer or a tag-only edit). These still
+    /// need a sync and a widget refresh, even though the cached tree remains
+    /// valid.
+    public func markLocalMutation() {
+        notifyCollectionChange(.localUser)
+    }
+
+    private func notifyCollectionChange(_ origin: CollectionChangeOrigin) {
+        guard origin != .refresh else { return }
+        onCollectionChange?(origin)
     }
 }
 

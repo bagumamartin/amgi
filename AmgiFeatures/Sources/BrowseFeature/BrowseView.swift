@@ -214,7 +214,22 @@ package struct BrowseView: View {
             },
             onPresentSheet: { sheet, notes, cards in
                 batchScopeOverride = BatchScope(notes: notes, cards: cards)
-                activeSheet = sheet
+                if sheet == .export {
+                    let noteIDs = Array(notes)
+                    let cardIDs = Array(cards)
+                    let scope: ExportScope = cardIDs.isEmpty
+                        ? .notes(noteIDs, label: "Selected notes")
+                        : .cards(cardIDs, label: "Selected cards")
+                    ExportRequestRouter.shared.request(
+                        scope: scope,
+                        sourceName: "Browse",
+                        itemCount: cardIDs.isEmpty ? noteIDs.count : cardIDs.count
+                    )
+                    batchScopeOverride = nil
+                    activeSheet = nil
+                } else {
+                    activeSheet = sheet
+                }
             },
             onPresentTagSheet: { notes, cards in
                 batchScopeOverride = BatchScope(notes: notes, cards: cards)
@@ -429,7 +444,7 @@ package struct BrowseView: View {
                         }
                     } else if SemanticNoteIndex.shared.progressDescription != nil {
                         Label("Preparing meaning-based search…", systemImage: "sparkles")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(palette.textSecondary)
                     }
                 }
                 ForEach(model.recentQueries.prefix(8), id: \.self) { query in
@@ -460,12 +475,17 @@ package struct BrowseView: View {
     private func appear() async {
         await model.loadDecks()
         // Drill-in from a deck detail screen or an amgi://browse deep link.
-        if model.rootDeck == nil, let seed = BrowseLauncher.shared.consume(), !seed.isEmpty {
-            if seed.hasPrefix("deck:"), let name = seed.dropFirst(5).trimmedQuoted,
-               let deck = model.allDecks.first(where: { $0.name == name }) {
+        if model.rootDeck == nil, let request = BrowseLauncher.shared.consumeRequest() {
+            if let deckID = request.deckID,
+               let deck = model.allDecks.first(where: { $0.id.rawValue == deckID }) {
                 model.source = .deck(deck.id)
-            } else {
-                model.searchText = seed
+            } else if let seed = request.query, !seed.isEmpty {
+                if seed.hasPrefix("deck:"), let name = seed.dropFirst(5).trimmedQuoted,
+                   let deck = model.allDecks.first(where: { $0.name == name }) {
+                    model.source = .deck(deck.id)
+                } else {
+                    model.searchText = seed
+                }
             }
         }
         await model.loadInitial()
@@ -704,11 +724,7 @@ package struct BrowseView: View {
                 model: model
             )
         case .export:
-            BrowseExportSheet(
-                noteIDs: Array(batchNotes),
-                cardIDs: Array(batchCards),
-                model: model
-            )
+            EmptyView()
         case .changeNotetype:
             ChangeNotetypeSheet(
                 noteIDs: Array(batchNotes),
@@ -1065,7 +1081,16 @@ package struct BrowseView: View {
                     Label("Create Copy…", systemImage: "doc.on.doc")
                 }
                 Button {
-                    activeSheet = .export
+                    let notes = Array(selectionState.selectedNoteIDs)
+                    let cards = Array(selectionState.selectedCardIDs)
+                    let scope: ExportScope = cards.isEmpty
+                        ? .notes(notes, label: "Selected notes")
+                        : .cards(cards, label: "Selected cards")
+                    ExportRequestRouter.shared.request(
+                        scope: scope,
+                        sourceName: "Browse",
+                        itemCount: cards.isEmpty ? notes.count : cards.count
+                    )
                 } label: {
                     Label("Export Selected…", systemImage: "square.and.arrow.up")
                 }

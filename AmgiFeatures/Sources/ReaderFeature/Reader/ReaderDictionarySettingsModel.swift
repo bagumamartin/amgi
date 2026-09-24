@@ -1,3 +1,4 @@
+import AmgiAppShared
 import AmgiReader
 import AmgiReaderDictionary
 import Dependencies
@@ -17,6 +18,7 @@ final class ReaderDictionarySettingsModel {
     var actionError: String?
 
     @ObservationIgnored @Dependency(\.dictionaryLookupClient) private var dictionary
+    @ObservationIgnored @Dependency(\.collectionStore) private var collectionStore
 
     var dictionaries: [AppDictionaryInfo] {
         switch selectedKind {
@@ -51,6 +53,7 @@ final class ReaderDictionarySettingsModel {
             // host-side security-scoped resource access is its concern,
             // mirroring how DreamAfar's importer drives FileManager.
             libraryState = try await dictionary.importArchives(urls, selectedKind)
+            collectionStore.markLocalMutation()
         } catch {
             actionError = "Import failed: \(error.localizedDescription)"
         }
@@ -61,6 +64,7 @@ final class ReaderDictionarySettingsModel {
         defer { isBusy = false }
         do {
             libraryState = try await dictionary.setEnabled(selectedKind, info.id, !info.isEnabled)
+            collectionStore.markLocalMutation()
         } catch {
             actionError = "Failed to update: \(error.localizedDescription)"
         }
@@ -71,6 +75,7 @@ final class ReaderDictionarySettingsModel {
         defer { isBusy = false }
         do {
             libraryState = try await dictionary.delete(selectedKind, info.id)
+            collectionStore.markLocalMutation()
         } catch {
             actionError = "Failed to delete: \(error.localizedDescription)"
         }
@@ -83,6 +88,7 @@ final class ReaderDictionarySettingsModel {
         defer { isBusy = false }
         do {
             libraryState = try await dictionary.reorder(selectedKind, ids)
+            collectionStore.markLocalMutation()
         } catch {
             actionError = "Failed to reorder: \(error.localizedDescription)"
         }

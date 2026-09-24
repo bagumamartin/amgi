@@ -8,10 +8,14 @@ import AmgiAppCore
 struct LargeWidgetView: View {
     @Environment(\.palette) private var palette
     let snapshot: WidgetSnapshot
+    let date: Date
+
+    init(snapshot: WidgetSnapshot, date: Date = .now) {
+        self.snapshot = snapshot
+        self.date = date
+    }
 
     private var totalDue: Int { snapshot.totalDue }
-
-    private var progressFraction: Double { snapshot.todayProgressFraction }
 
     private var chartMax: Int {
         snapshot.lastSevenDays.max() ?? 1
@@ -35,32 +39,25 @@ struct LargeWidgetView: View {
             }
             .padding(.bottom, 6)
 
-            // Hero due count
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("\(totalDue)")
-                    .font(.system(size: 52, weight: .bold))
-                    .foregroundStyle(palette.textPrimary)
-                    .kerning(-2.5)
-                Text("cards due")
-                    .font(.system(size: 14))
-                    .foregroundStyle(palette.textSecondary)
-            }
-            .padding(.bottom, 4)
-
-            // Multisegment progress bar (collection-wide, mirrors the reviewer)
-            VStack(alignment: .leading, spacing: 4) {
-                GeometryReader { geo in
-                    let width = geo.size.width
-                    ZStack(alignment: .leading) {
-                        remainingComposition(width: width)
-                        completedComposition(width: width)
-                    }
+            // Hero due count and the same three category rings used by the
+            // Study desk. The center keeps the aggregate completion visible
+            // while each ring communicates the remaining mix.
+            HStack(alignment: .center, spacing: 16) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(totalDue)")
+                        .font(.system(size: 52, weight: .bold))
+                        .foregroundStyle(palette.textPrimary)
+                        .kerning(-2.5)
+                    Text("cards due")
+                        .font(.system(size: 14))
+                        .foregroundStyle(palette.textSecondary)
+                    Text("\(snapshot.completedToday) done today")
+                        .font(.system(size: 11))
+                        .foregroundStyle(palette.textTertiary)
+                        .padding(.top, 3)
                 }
-                .frame(height: 10)
-
-                Text("\(snapshot.completedToday) done · \(totalDue) remaining today")
-                    .font(.system(size: 11))
-                    .foregroundStyle(palette.textTertiary)
+                Spacer(minLength: 0)
+                WidgetConcentricRings(snapshot: snapshot, size: 94, showsCaption: false)
             }
             .padding(.bottom, 12)
 
@@ -112,7 +109,19 @@ struct LargeWidgetView: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 9)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .widgetURL(URL(string: "amgi://study"))
+        .widgetURL(studyURL)
+    }
+
+    private var studyURL: URL {
+        var components = URLComponents()
+        components.scheme = "amgi"
+        components.host = "study"
+        var items = [URLQueryItem(name: "deckId", value: String(snapshot.deckId))]
+        if let profileID = snapshot.profileID {
+            items.append(URLQueryItem(name: "profileID", value: profileID))
+        }
+        components.queryItems = items
+        return components.url!
     }
 
     private var streakPill: some View {
@@ -132,53 +141,6 @@ struct LargeWidgetView: View {
 }
 
 private extension LargeWidgetView {
-    /// Dim segmented backdrop — the live remaining new/learning/review mix.
-    /// Stays subtle so the full-strength completion fill reads as progress.
-    @ViewBuilder
-    func remainingComposition(width: CGFloat) -> some View {
-        let total = snapshot.newCount + snapshot.learnCount + snapshot.reviewCount
-        if total <= 0 {
-            Capsule().fill(palette.separator).opacity(0.35)
-        } else {
-            compositionStack(width: width)
-                .opacity(0.35)
-                .clipShape(Capsule())
-        }
-    }
-
-    /// The fill: the same composition at full strength, revealed up to the
-    /// progress point — each category lights up in place and hue flips land
-    /// exactly on the dim backdrop's boundaries. With no mix left (day done)
-    /// it falls back to the solid positive capsule.
-    @ViewBuilder
-    func completedComposition(width: CGFloat) -> some View {
-        let filledWidth = max(0, min(width, width * progressFraction))
-        if snapshot.newCount + snapshot.learnCount + snapshot.reviewCount <= 0 {
-            Capsule()
-                .fill(palette.positive)
-                .frame(width: filledWidth, height: 10)
-        } else {
-            compositionStack(width: width)
-                .clipShape(Capsule())
-                .mask(alignment: .leading) {
-                    Capsule().frame(width: filledWidth)
-                }
-        }
-    }
-
-    private func compositionStack(width: CGFloat) -> some View {
-        let total = snapshot.newCount + snapshot.learnCount + snapshot.reviewCount
-        return HStack(spacing: 1.5) {
-            segment(color: palette.cardStateNew, count: snapshot.newCount, denominator: total, width: width)
-            segment(color: palette.cardStateLearning, count: snapshot.learnCount, denominator: total, width: width)
-            segment(color: palette.cardStateReview, count: snapshot.reviewCount, denominator: total, width: width)
-        }
-    }
-
-    func segment(color: Color, count: Int, denominator: Int, width: CGFloat) -> some View {
-        color.frame(width: width * Double(max(count, 0)) / Double(max(denominator, 1)))
-    }
-
     func breakdownColumn(color: Color, label: String, count: Int) -> some View {
         VStack(spacing: 3) {
             Text("\(count)")
@@ -198,7 +160,7 @@ private extension LargeWidgetView {
     }
 
     func dayLabel(_ index: Int) -> String {
-        let today = Calendar.current.component(.weekday, from: snapshot.snapshotDate)
+        let today = Calendar.current.component(.weekday, from: date)
         // weekday: 1=Sun, 2=Mon, ..., 7=Sat — map to 0=Mon..6=Sun
         let todayIndex = (today + 5) % 7
         let dayIndex = (todayIndex - (6 - index) + 7) % 7

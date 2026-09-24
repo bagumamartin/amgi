@@ -5,6 +5,8 @@ import Observation
 /// One Anki profile. Each profile owns an isolated collection
 /// (`<appSupport>/AnkiCollection/<id>/collection.anki2`) and per-profile
 /// sync prefs (already scoped via `SyncPreferences.currentProfileID()`).
+/// The slug remains the filesystem anchor; `AccountStore.scopeID(for:)`
+/// adds a generation for system-facing persisted records.
 public struct AmgiAccount: Identifiable, Hashable, Codable, Sendable {
     /// Filesystem-safe slug used for the per-profile directory and as
     /// the value of `amgi.selectedUser` (the existing scoping anchor).
@@ -31,8 +33,8 @@ public struct AmgiAccount: Identifiable, Hashable, Codable, Sendable {
 ///
 /// Switching is in-app: `switchProfile(to:)` (AmgiAppApp.swift) swaps the
 /// open collection on the shared backend, calls `select(_:)` to flip the
-/// scoping anchor, and the root view re-ids on `selectedID` so the whole
-/// UI rebuilds against the new collection.
+/// scoping anchor, and the root view re-ids on `selectionID` so the whole
+/// UI rebuilds against the new collection activation.
 @MainActor
 @Observable
 public final class AccountStore {
@@ -40,9 +42,22 @@ public final class AccountStore {
 
     private static let accountsKey = "amgi.accounts"
     private static let selectedKey = ProfileScope.anchorKey
+    private static let scopeGenerationsKey = "amgi.profile.scopeGenerations"
 
     public private(set) var accounts: [AmgiAccount]
     public private(set) var selectedID: String
+
+    /// Changes whenever the active collection changes. This is deliberately
+    /// runtime-only: persisted system entities are scoped by the stable
+    /// profile ID, while in-flight intents and routes use this value to detect
+    /// a profile switch before reading or writing the wrong collection.
+    public private(set) var selectionID = UUID()
+
+    /// Monotonic generation per filesystem slug. The slug remains the
+    /// collection/keychain anchor, while system-facing scope IDs include this
+    /// generation so deleting and recreating a profile cannot revive old
+    /// Shortcuts, Spotlight records, or navigation requests.
+    private var scopeGenerations: [String: Int]
 
     /// Set when a profile switch could not reopen *any* collection, leaving
     /// the app with nothing open. Surfaced by the root view so the state is
@@ -62,6 +77,7 @@ public final class AccountStore {
 
     private init() {
         let defaults = UserDefaults.standard
+        scopeGenerations = defaults.dictionary(forKey: Self.scopeGenerationsKey) as? [String: Int] ?? [:]
         if let data = defaults.data(forKey: Self.accountsKey),
            let decoded = try? JSONDecoder().decode([AmgiAccount].self, from: data),
            !decoded.isEmpty {
@@ -82,6 +98,15 @@ public final class AccountStore {
 
     public var current: AmgiAccount {
         accounts.first(where: { $0.id == selectedID }) ?? accounts[0]
+    }
+
+    /// Opaque, stable identity used by system-facing persisted records. The
+    /// first generation keeps the historical slug form for migration safety;
+    /// later generations use `~`, which cannot occur in a profile slug and
+    /// therefore cannot collide with a separately named profile.
+    public func scopeID(for account: AmgiAccount) -> String {
+        let generation = scopeGenerations[account.id, default: 0]
+        return generation == 0 ? account.id : "\(account.id)~g\(generation)"
     }
 
     /// Adds a new profile. Returns the canonical id used (slug derived
@@ -109,6 +134,8 @@ public final class AccountStore {
     public func remove(_ account: AmgiAccount, deleteFiles: Bool) throws {
         guard accounts.count > 1 else { throw AccountStoreError.cannotDeleteLast }
         guard account.id != selectedID else { throw AccountStoreError.cannotDeleteActive }
+        scopeGenerations[account.id, default: 0] += 1
+        persistScopeGenerations()
         accounts.removeAll { $0.id == account.id }
         persistAccounts()
         if deleteFiles {
@@ -122,6 +149,9 @@ public final class AccountStore {
     /// Collection close/reopen is the caller's job (`switchProfile(to:)`).
     public func select(_ account: AmgiAccount) {
         guard accounts.contains(where: { $0.id == account.id }) else { return }
+        if selectedID != account.id {
+            selectionID = UUID()
+        }
         selectedID = account.id
         persistSelection()
     }
@@ -207,5 +237,15 @@ private extension AccountStore {
 
     func persistSelection() {
         UserDefaults.standard.set(selectedID, forKey: Self.selectedKey)
+        // The widget extension has a separate defaults domain, so mirror both
+        // anchors for profile-safe snapshot reads.
+        AppGroup.defaults.set(selectedID, forKey: Self.selectedKey)
+        let scopeID = self.scopeID(for: current)
+        UserDefaults.standard.set(scopeID, forKey: AppGroup.selectedProfileScopeKey)
+        AppGroup.defaults.set(scopeID, forKey: AppGroup.selectedProfileScopeKey)
+    }
+
+    func persistScopeGenerations() {
+        UserDefaults.standard.set(scopeGenerations, forKey: Self.scopeGenerationsKey)
     }
 }

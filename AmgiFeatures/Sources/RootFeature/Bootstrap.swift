@@ -96,9 +96,36 @@ public enum AmgiRoot {
             return
         }
 
+        let syncCoordinator = SyncCoordinator()
         prepareDependencies {
             $0.ankiBackend = launchBackend
-            $0.syncCoordinator = SyncCoordinator()
+            $0.syncCoordinator = syncCoordinator
+            // CollectionStore is deliberately ignorant of SyncFeature. The
+            // composition root injects this small activity rail instead, so
+            // every confirmed local mutation gets one debounced widget
+            // refresh and one debounced collection sync.
+            $0.collectionStore.onCollectionChange = { origin in
+                if origin != .refresh {
+                    Task { await SystemSpotlightIndexer.shared.scheduleDeckRefresh() }
+                }
+                let reason: String
+                switch origin {
+                case .localUser:
+                    reason = "Local collection change"
+                case .helperMutation:
+                    reason = "Agent (MCP) collection change"
+                case .remoteSync:
+                    // SyncCoordinator owns the post-sync widget write; this
+                    // invalidation is only for the shared UI cache.
+                    return
+                case .refresh:
+                    return
+                }
+                WidgetRefreshCoordinator.shared.request(reason: reason)
+                if origin == .localUser || origin == .helperMutation {
+                    syncCoordinator.requestAutomaticSync(reason: reason)
+                }
+            }
             // Wire the Anki-backed concrete realization of the dictionary
             // engine's abstract config store. Keeps the engine package
             // (AmgiReaderDictionary) free of Anki imports.
@@ -110,6 +137,9 @@ public enum AmgiRoot {
             profileID: activeProfile.id,
             error: openError
         )
+        if openError == nil {
+            Task { await SystemSpotlightIndexer.shared.scheduleDeckRefresh() }
+        }
 
         #if os(macOS)
         // Started *after* `prepareDependencies` so the loop's task inherits

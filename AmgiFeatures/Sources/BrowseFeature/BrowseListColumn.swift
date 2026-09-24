@@ -1,6 +1,8 @@
 // AmgiApp/Sources/Browse/BrowseListColumn.swift
 import SwiftUI
+import AmgiAppCore
 import AmgiAppShared
+import AppIntents
 import AmgiUI
 import AnkiKit
 import AnkiClients
@@ -292,6 +294,7 @@ struct BrowseListColumn: View {
         case .notes:
             if let note = model.note(at: idRaw) {
                 noteRow(note, index: index)
+                    .appEntityIdentifierIfAvailable(noteEntityIdentifier(for: note))
             } else {
                 hydratingRow(index: index)
             }
@@ -379,6 +382,13 @@ struct BrowseListColumn: View {
                 }
             }
         }
+    }
+
+    private func noteEntityIdentifier(for note: NoteRecord) -> EntityIdentifier? {
+        guard AutomationPreferences.exposesNoteTitles else { return nil }
+        let context = AccountStore.shared.selectedContext
+        guard let entity = NoteEntity(context: context, note: note) else { return nil }
+        return EntityIdentifier(for: entity)
     }
 
     private func hydratingRow(index: Int) -> some View {

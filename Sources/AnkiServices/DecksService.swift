@@ -66,8 +66,13 @@ extension DecksService: DependencyKey {
                 try backend.invoke(.deckTree())
             },
             countsForDeck: { deckId in
-                let counts = try? backend.invoke(.deckCounts(for: deckId))
-                return counts.flatMap { $0 } ?? .zero
+                guard let counts = try backend.invoke(.deckCounts(for: deckId)) else {
+                    throw BackendError(
+                        kind: .notFoundError,
+                        message: "Due counts for deck \(deckId.rawValue) are unavailable."
+                    )
+                }
+                return counts
             },
             setCurrentDeck: { deckId in
                 try backend.invoke(.setCurrentDeck(deckId: deckId))

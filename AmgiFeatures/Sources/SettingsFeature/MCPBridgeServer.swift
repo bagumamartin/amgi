@@ -233,9 +233,9 @@ package enum MCPBridgeServer {
 
                 if MCPCallPolicy.isMutating(service: frame.service, method: frame.method) {
                     Task { @MainActor in
+                        // The app-level CollectionStore activity rail owns
+                        // the debounced widget refresh and automatic sync.
                         store.invalidateAll(origin: .helperMutation)
-                        @Dependency(\.syncCoordinator) var syncCoordinator
-                        syncCoordinator.requestAutomaticSync(reason: "Agent (MCP) collection change")
                     }
                 }
             } catch {

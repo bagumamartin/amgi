@@ -20,7 +20,6 @@ enum DeckDetailSheet: Identifiable, Equatable {
     case stats
     case browse
     case showDeckOptions
-    case exportFile(URL)
 
     var id: String {
         switch self {
@@ -30,7 +29,6 @@ enum DeckDetailSheet: Identifiable, Equatable {
         case .stats: "stats"
         case .browse: "browse"
         case .showDeckOptions: "showDeckOptions"
-        case .exportFile(let url): "exportFile-\(url.absoluteString)"
         }
     }
 }

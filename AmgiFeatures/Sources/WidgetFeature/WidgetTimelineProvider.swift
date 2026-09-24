@@ -20,7 +20,7 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
         if context.isPreview {
             return WidgetEntry(date: Date(), snapshot: .placeholder)
         }
-        return WidgetEntry(date: Date(), snapshot: read(configuration) ?? .placeholder)
+        return WidgetEntry(date: Date(), snapshot: read(configuration) ?? .empty)
     }
 
     func timeline(for configuration: AmgiWidgetIntent, in context: Context) async -> Timeline<WidgetEntry> {
@@ -29,7 +29,7 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
             // No snapshot at all — the app has never written one, so nothing
             // to poll for. Retry occasionally in case it launches.
             return Timeline(
-                entries: [WidgetEntry(date: now, snapshot: .placeholder)],
+                entries: [WidgetEntry(date: now, snapshot: .empty)],
                 policy: .after(now.addingTimeInterval(3600))
             )
         }
@@ -52,7 +52,21 @@ private extension WidgetTimelineProvider {
     /// Configured deck's snapshot; falls back to the All Decks aggregate when
     /// that deck no longer exists (deleted, or a profile switch).
     func read(_ configuration: AmgiWidgetIntent) -> WidgetSnapshot? {
-        let deckId = Int64(configuration.deck?.id ?? "0") ?? 0
-        return WidgetSnapshotStore.read(deckId: deckId) ?? WidgetSnapshotStore.read(deckId: 0)
+        // WidgetFeature intentionally has no AnkiKit dependency; this is the
+        // generation-qualified scope key mirrored by AmgiAppCore.
+        let currentProfileID = AppGroup.defaults.string(forKey: AppGroup.selectedProfileScopeKey)
+        if let deck = configuration.deck,
+           let currentProfileID,
+           !deck.id.hasPrefix("\(currentProfileID)|") {
+            return nil
+        }
+        let deckId = configuration.deck?.deckID ?? 0
+        let candidate = WidgetSnapshotStore.read(deckId: deckId)
+            ?? WidgetSnapshotStore.read(deckId: 0)
+        guard let candidate,
+              let currentProfileID,
+              candidate.profileID == currentProfileID
+        else { return nil }
+        return candidate
     }
 }

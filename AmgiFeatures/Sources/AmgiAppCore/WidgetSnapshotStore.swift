@@ -31,6 +31,20 @@ public enum WidgetSnapshotStore {
         return try? decoder.decode(WidgetSnapshot.self, from: data)
     }
 
+    /// Removes every snapshot file. Used only at a collection/profile
+    /// boundary, before the first snapshot for the new collection is written.
+    public static func removeAllSnapshots() {
+        guard let container = container() else { return }
+        let files = (try? FileManager.default.contentsOfDirectory(
+            at: container,
+            includingPropertiesForKeys: nil
+        )) ?? []
+        for url in files
+        where url.lastPathComponent.hasPrefix("widget-snapshot-") && url.pathExtension == "json" {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
     /// Deletes every snapshot file whose deckId is not in `keep`.
     public static func removeSnapshots(notIn keep: Set<Int64>) {
         guard let container = container() else { return }

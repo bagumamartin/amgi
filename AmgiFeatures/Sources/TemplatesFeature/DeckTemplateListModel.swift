@@ -1,3 +1,4 @@
+import AmgiAppShared
 import AnkiClients
 import AnkiKit
 import Dependencies
@@ -17,6 +18,7 @@ final class DeckTemplateListModel {
     var showActionError = false
 
     @ObservationIgnored @Dependency(\.notetypesClient) private var notetypesClient
+    @ObservationIgnored @Dependency(\.collectionStore) private var collectionStore
 
     func loadTemplates() async {
         isLoading = true
@@ -40,6 +42,7 @@ final class DeckTemplateListModel {
             var notetype: Notetype = try await notetypesClient.get(target.id)
             notetype.name = trimmed
             try await notetypesClient.update(notetype)
+            collectionStore.markLocalMutation()
             await loadTemplates()
         } catch {
             actionError = "Rename failed: \(error.localizedDescription)"
@@ -50,6 +53,7 @@ final class DeckTemplateListModel {
     func delete(_ target: NotetypeNameId) async {
         do {
             try await notetypesClient.remove(target.id)
+            collectionStore.markLocalMutation()
             await loadTemplates()
         } catch {
             actionError = "Delete failed: \(error.localizedDescription)"

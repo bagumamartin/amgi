@@ -1,6 +1,6 @@
 import OSLog
 public import SwiftUI
-import AmgiAppCore
+public import AmgiAppCore
 #if canImport(UIKit)
 import UIKit
 #elseif canImport(AppKit)
@@ -41,6 +41,12 @@ private enum ReviewUndoError: Error {
 @Observable @MainActor
 public final class ReviewSession {
     public let deckId: DeckID
+    /// Runtime profile fence for this review window. A long-lived macOS
+    /// review must never submit an old card ID after the collection changes.
+    public let profile: ProfileContext
+    public var isProfileCurrent: Bool {
+        profile.isCurrent(AccountStore.shared.selectedContext)
+    }
     /// When set before `start()`, the learn-ahead window is widened for this
     /// session so cooling cards are in the queue immediately.
     public var pullCoolingOnStart = false
@@ -112,6 +118,10 @@ public final class ReviewSession {
     /// haptic trigger. `lastRating` can't serve: it lands after the round-trip
     /// and doesn't change when the same rating is tapped twice in a row.
     public private(set) var answerTapCount: Int = 0
+    /// Increments only after the engine has successfully committed an answer
+    /// or undo. The review view uses this to mark the collection dirty without
+    /// turning a failed tap into a needless sync/widget refresh.
+    public private(set) var successfulMutationCount: Int = 0
     /// Rating of the most recent tap, paired with `answerTapCount` so the
     /// haptic can be firmer for `.again`.
     public private(set) var tappedRating: Rating = .good
@@ -233,6 +243,7 @@ public final class ReviewSession {
 
     public init(deckId: DeckID) {
         self.deckId = deckId
+        self.profile = AccountStore.shared.selectedContext
     }
 
     deinit {
@@ -240,7 +251,12 @@ public final class ReviewSession {
         // see a stale "current card". Lock-based registry, safe off-actor.
         ReviewSessionContext.shared.clear()
         if let orig = originalLearnAheadSecs.withLock({ $0 }) {
-            Task {
+            let profile = self.profile
+            Task { @MainActor in
+                guard profile.isCurrent(AccountStore.shared.selectedContext),
+                      ReviewSessionActivity.shared.beginMutation()
+                else { return }
+                defer { ReviewSessionActivity.shared.endMutation() }
                 @Dependency(\.schedulerService) var scheduler
                 try? scheduler.setLearnAheadSecs(orig)
             }
@@ -254,6 +270,7 @@ public final class ReviewSession {
     /// publish point in `advanceToNextCard` covers start/answer/undo, since
     /// those mutate their bookkeeping before advancing.
     private func publishContext() {
+        guard isProfileCurrent else { return }
         let ratingName: (Rating) -> String = {
             switch $0 {
             case .again: return "again"
@@ -285,7 +302,9 @@ public final class ReviewSession {
                     rating: ratingName(record.rating),
                     atMs: Int64(record.at.timeIntervalSince1970 * 1000)
                 )
-            }
+            },
+            profileID: profile.id,
+            profileSelectionID: profile.selectionID
         )
         ReviewSessionContext.shared.publish(snapshot)
     }
@@ -293,7 +312,15 @@ public final class ReviewSession {
     // MARK: - Public interface
 
     public func start() {
-        guard !isAdvancing else { return }
+        guard !isAdvancing, isProfileCurrent else {
+            isFinished = true
+            return
+        }
+        guard ReviewSessionActivity.shared.beginMutation() else {
+            isAdvancing = false
+            isFinished = true
+            return
+        }
         isAdvancing = true
         startError = nil
         // Resolve the Sendable service facades here, in the caller's
@@ -309,7 +336,10 @@ public final class ReviewSession {
         let deckId = self.deckId
         let allDeckScope = self.isAllDecksScope
         Task {
-            defer { isAdvancing = false }
+            defer {
+                ReviewSessionActivity.shared.endMutation()
+                isAdvancing = false
+            }
             do {
                 if pullCoolingOnStart {
                     if originalLearnAheadSecs.withLock({ $0 }) == nil {
@@ -476,14 +506,21 @@ public final class ReviewSession {
                 )
             }.value
             // The card can advance while the diff is in flight; don't paste a
-            // stale answer over the new card.
-            guard cardId == currentCardId, showAnswer else { return }
+            // stale answer over the new card or into a switched profile.
+            guard cardId == currentCardId, showAnswer, isProfileCurrent else { return }
             backHTML = html
         }
     }
 
     public func answer(rating: Rating) {
-        guard !isAdvancing, let queued = currentQueuedCard else { return }
+        guard isProfileCurrent, !isAdvancing, let queued = currentQueuedCard else {
+            if !isProfileCurrent { isFinished = true }
+            return
+        }
+        guard ReviewSessionActivity.shared.beginMutation() else {
+            isFinished = true
+            return
+        }
         isAdvancing = true
 
         // ContinuousClock, not Date: a backwards wall-clock adjustment
@@ -513,13 +550,17 @@ public final class ReviewSession {
         // synchronous prologue above: the scheduler round-trip and the
         // advance are what the user actually waits on.
         Task {
-            defer { isAdvancing = false }
+            defer {
+                ReviewSessionActivity.shared.endMutation()
+                isAdvancing = false
+            }
             await AppSignpost.measure("AnswerCard") {
                 do {
                     var queue = try await Task.detached {
                         try scheduler.answerReviewCard(cardId, rating, timeSpent, states)
                         return try scheduler.getQueuedCards(200)
                     }.value
+                    guard isProfileCurrent else { return }
 
                     // An all-decks session keeps Anki's scheduler on one real
                     // deck at a time. Once that deck's queue is empty, cycle
@@ -564,6 +605,7 @@ public final class ReviewSession {
                     }
 
                     answerError = nil
+                    successfulMutationCount += 1
                     sessionStats.reviewed += 1
                     if rating != .again { sessionStats.correct += 1 }
                     sessionStats.totalTimeMs += Int(timeSpent)
@@ -613,12 +655,19 @@ public final class ReviewSession {
     /// to Again. No-op unless the answer is showing and no transition is
     /// in flight.
     public func answerWithLastRating() {
-        guard showAnswer, !isAdvancing else { return }
+        guard isProfileCurrent, showAnswer, !isAdvancing else { return }
         answer(rating: currentCardLastRating ?? .again)
     }
 
     public func undo() {
-        guard canUndo, !isAdvancing, let record = answerStack.last else { return }
+        guard isProfileCurrent, canUndo, !isAdvancing, let record = answerStack.last else {
+            if !isProfileCurrent { isFinished = true }
+            return
+        }
+        guard ReviewSessionActivity.shared.beginMutation() else {
+            isFinished = true
+            return
+        }
         isAdvancing = true
 
         let cardClient = self.cardClient
@@ -635,7 +684,10 @@ public final class ReviewSession {
         let undoneCardID = target.card.id
 
         Task {
-            defer { isAdvancing = false }
+            defer {
+                ReviewSessionActivity.shared.endMutation()
+                isAdvancing = false
+            }
             do {
                 // One user undo must revert exactly this answer. Deck switches
                 // after the answer leave `SetCurrentDeck` entries on top of
@@ -669,6 +721,7 @@ public final class ReviewSession {
                 answerStack.removeLast()
                 canUndo = !answerStack.isEmpty
                 undoneCount += 1
+                successfulMutationCount += 1
 
                 // Roll back session stats only if the operation we just
                 // undid was actually an answer.

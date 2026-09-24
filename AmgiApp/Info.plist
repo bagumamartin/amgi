@@ -9,10 +9,103 @@
 	</array>
 	<key>CFBundleDisplayName</key>
 	<string>Ijuka</string>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>apkg</string>
+				<string>colpkg</string>
+			</array>
+			<key>CFBundleTypeIconName</key>
+			<string>AppIcon</string>
+			<key>CFBundleTypeName</key>
+			<string>Anki Package</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.bagumamartin.ijuka.anki-package</string>
+				<string>com.bagumamartin.ijuka.anki-collection-package</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>zip</string>
+			</array>
+			<key>CFBundleTypeName</key>
+			<string>Anki ZIP Package</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.zip-archive</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>csv</string>
+				<string>tsv</string>
+				<string>txt</string>
+			</array>
+			<key>CFBundleTypeName</key>
+			<string>Anki Text Import</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.comma-separated-values-text</string>
+				<string>public.tab-separated-values-text</string>
+				<string>public.plain-text</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>anki-json</string>
+			</array>
+			<key>CFBundleTypeIconName</key>
+			<string>AppIcon</string>
+			<key>CFBundleTypeName</key>
+			<string>Anki JSON</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.bagumamartin.ijuka.anki-json</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>db</string>
+			</array>
+			<key>CFBundleTypeName</key>
+			<string>Mnemosyne Database</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.database</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIconName</key>
-	<string>Acorn</string>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleName</key>
@@ -36,6 +129,8 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Ijuka uses the camera to add pictures to your cards.</string>
 	<key>NSMicrophoneUsageDescription</key>
@@ -64,6 +159,68 @@
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.zip-archive</string>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Anki Deck Package</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.bagumamartin.ijuka.anki-package</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>apkg</string>
+				</array>
+				<key>public.mime-type</key>
+				<string>application/vnd.anki.deck-package</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.zip-archive</string>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Anki Collection Package</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.bagumamartin.ijuka.anki-collection-package</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>colpkg</string>
+				</array>
+				<key>public.mime-type</key>
+				<string>application/vnd.anki.collection-package</string>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.json</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Anki JSON Interchange Data</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.bagumamartin.ijuka.anki-json</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>anki-json</string>
+				</array>
+				<key>public.mime-type</key>
+				<string>application/vnd.anki+json</string>
+			</dict>
+		</dict>
 	</array>
 </dict>
 </plist>

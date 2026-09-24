@@ -27,7 +27,7 @@ struct MediumWidgetView: View {
 
                 Spacer(minLength: 6)
 
-                SmallDueRing(snapshot: snapshot)
+                WidgetConcentricRings(snapshot: snapshot, size: 110)
 
                 Spacer(minLength: 4)
             }
@@ -38,8 +38,14 @@ struct MediumWidgetView: View {
                 .fill(.separator)
                 .frame(width: 1)
 
-            // Right: category breakdown + done today
+            // Right: configured deck context, category breakdown, and done today
             VStack(alignment: .leading, spacing: 9) {
+                Text(snapshot.deckName)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(palette.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
                 // Category dots ride the theme's card-state hues so the
                 // widget matches the in-app badges, rings, and rating row.
                 countRow(dot: palette.cardStateNew, label: "New", count: snapshot.newCount)
@@ -65,7 +71,19 @@ struct MediumWidgetView: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 7)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .widgetURL(URL(string: "amgi://study"))
+        .widgetURL(studyURL)
+    }
+
+    private var studyURL: URL {
+        var components = URLComponents()
+        components.scheme = "amgi"
+        components.host = "study"
+        var items = [URLQueryItem(name: "deckId", value: String(snapshot.deckId))]
+        if let profileID = snapshot.profileID {
+            items.append(URLQueryItem(name: "profileID", value: profileID))
+        }
+        components.queryItems = items
+        return components.url!
     }
 
 }

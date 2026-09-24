@@ -1,7 +1,9 @@
 #if os(iOS)
 import AmgiAppShared
 import BackgroundTasks
+import Dependencies
 import Foundation
+import SyncFeature
 
 /// Background task identifiers, derived from the app's bundle identifier
 /// rather than hardcoded. Keeps registration + scheduling in sync with
@@ -17,7 +19,34 @@ enum BackgroundTaskID {
     }
 }
 
-private struct UncheckedSendableBox<T>: @unchecked Sendable { let value: T }
+private final class BackgroundTaskHandle: @unchecked Sendable {
+    let task: BGTask
+
+    init(_ task: BGTask) {
+        self.task = task
+    }
+}
+
+private final class BackgroundTaskCompletionGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var completed = false
+
+    /// Returns true only for the caller that completed the BGTask. The
+    /// expiration handler and the work continuation can race at the end of a
+    /// refresh; BGTask must receive exactly one completion call.
+    @discardableResult
+    func finish(_ handle: BackgroundTaskHandle, success: Bool) -> Bool {
+        lock.lock()
+        guard !completed else {
+            lock.unlock()
+            return false
+        }
+        completed = true
+        lock.unlock()
+        handle.task.setTaskCompleted(success: success)
+        return true
+    }
+}
 
 /// Widget snapshot refresh via BGTaskScheduler is iOS-only: the
 /// BackgroundTasks framework doesn't exist on macOS. macOS gets its own
@@ -41,41 +70,63 @@ func registerBackgroundTasks() {
 }
 
 private func handleWidgetRefreshTask(_ task: BGTask) {
-    let box = UncheckedSendableBox(value: task)
-    let work = Task {
-        await writeWidgetSnapshot()
-        box.value.setTaskCompleted(success: true)
-        scheduleWidgetRefreshTask()
+    let handle = BackgroundTaskHandle(task)
+    let gate = BackgroundTaskCompletionGate()
+    let work = Task { @MainActor in
+        let success = await WidgetRefreshCoordinator.shared.refreshNow()
+        guard !Task.isCancelled else { return }
+        if gate.finish(handle, success: success) {
+            scheduleWidgetRefreshTask()
+        }
     }
     task.expirationHandler = {
         work.cancel()
-        box.value.setTaskCompleted(success: false)
+        let didFinish = gate.finish(handle, success: false)
+        Task { @MainActor in
+            WidgetRefreshCoordinator.shared.cancelPendingWork(preserveQueuedRefresh: true)
+            if didFinish {
+                scheduleWidgetRefreshTask()
+            }
+        }
     }
 }
 
 private func handleAutomaticSyncTask(_ task: BGTask) {
-    let box = UncheckedSendableBox(value: task)
+    let handle = BackgroundTaskHandle(task)
+    let gate = BackgroundTaskCompletionGate()
     let work = Task { @MainActor in
-        NotificationCenter.default.post(name: .amgiPerformBackgroundSync, object: nil)
-        try? await Task.sleep(for: .seconds(20))
-        box.value.setTaskCompleted(success: !Task.isCancelled)
-        scheduleAutomaticSyncTask()
+        @Dependency(\.syncCoordinator) var coordinator
+        let result = await coordinator.runScheduledCollectionSync()
+        guard !Task.isCancelled else { return }
+        let success: Bool
+        if case .success = result {
+            success = true
+        } else {
+            success = false
+        }
+        if gate.finish(handle, success: success) {
+            scheduleAutomaticSyncTask()
+        }
     }
     task.expirationHandler = {
         work.cancel()
-        box.value.setTaskCompleted(success: false)
+        if gate.finish(handle, success: false) {
+            scheduleAutomaticSyncTask()
+        }
     }
 }
 
-/// Schedules a BGAppRefreshTask to fire shortly after the next midnight.
-/// The task writes a fresh widget snapshot so the widget shows today's counts
-/// even if the user hasn't opened the app yet.
+/// Schedules a BGAppRefreshTask shortly after Anki's default 4 AM day
+/// rollover. The system may defer it, but asking for the correct boundary
+/// avoids a stale midnight snapshot.
 private func scheduleWidgetRefreshTask() {
     let request = BGAppRefreshTaskRequest(identifier: BackgroundTaskID.widgetRefresh)
-    let cal = Calendar.current
-    let tomorrow = cal.startOfDay(for: cal.date(byAdding: .day, value: 1, to: Date()) ?? Date())
-    // Fire 5 minutes after midnight so Anki's day rollover has settled.
-    request.earliestBeginDate = cal.date(byAdding: .minute, value: 5, to: tomorrow) ?? tomorrow
+    let calendar = Calendar.current
+    let now = Date()
+    let today = calendar.date(bySettingHour: 4, minute: 5, second: 0, of: now) ?? now
+    request.earliestBeginDate = today > now
+        ? today
+        : calendar.date(byAdding: .day, value: 1, to: today) ?? now
     try? BGTaskScheduler.shared.submit(request)
 }
 

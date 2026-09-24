@@ -12,6 +12,7 @@ public struct NotesService: Sendable {
     public var deleteNote: @Sendable (_ noteId: NoteID) throws -> Void
     public var newNote: @Sendable (_ notetypeId: NotetypeID) throws -> NewNoteTemplate
     public var addNote: @Sendable (_ template: NewNoteTemplate, _ deckId: DeckID) throws -> Void
+    public var createNote: @Sendable (_ template: NewNoteTemplate, _ deckId: DeckID) throws -> NoteCreation
 }
 
 extension NotesService: DependencyKey {
@@ -35,6 +36,9 @@ extension NotesService: DependencyKey {
             },
             addNote: { template, deckId in
                 try backend.invoke(.addNote(template: template, deckId: deckId))
+            },
+            createNote: { template, deckId in
+                try backend.invoke(.addNoteWithResult(template: template, deckId: deckId))
             }
         )
     }()

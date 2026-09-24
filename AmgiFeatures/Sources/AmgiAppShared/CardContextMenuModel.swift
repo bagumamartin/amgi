@@ -25,6 +25,7 @@ public final class CardContextMenuModel {
     @ObservationIgnored @Dependency(\.cardClient) private var cardClient
     @ObservationIgnored @Dependency(\.noteClient) private var noteClient
     @ObservationIgnored @Dependency(\.tagClient) private var tagClient
+    @ObservationIgnored @Dependency(\.collectionStore) private var collectionStore
 
     public init() {}
 
@@ -80,6 +81,7 @@ public final class CardContextMenuModel {
         defer { isUndoing = false }
         do {
             try await cardClient.undoLast()
+            collectionStore.markLocalMutation()
             return true
         } catch {
             setError("Undo failed: \(error.localizedDescription)")
@@ -102,7 +104,9 @@ public final class CardContextMenuModel {
 
     private func run(_ prefix: String, _ body: () async throws -> Bool) async -> Bool? {
         do {
-            return try await body()
+            let result = try await body()
+            collectionStore.markLocalMutation()
+            return result
         } catch {
             setError("\(prefix): \(error.localizedDescription)")
             return nil

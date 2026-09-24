@@ -1,23 +1,21 @@
 import SwiftUI
+import Combine
 import AmgiTheme
 import AmgiAppCore
-import AnkiBackend
-import AnkiServices
-import Dependencies
+import AmgiAppShared
 import CasePaths
 import SwiftNavigation
 import SwiftUINavigation
 import AmgiUI
+import AnkiKit
 
 /// Local `.colpkg` backups of the active profile's collection. Each backup
 /// is a timestamped copy stored under `Documents/Backups for <profile>/`.
 /// The user can create, share (AirDrop / Files / Mail) and delete them.
 struct BackupView: View {
-    @Dependency(\.importExportService) private var importExportService
     let username: String
 
     @State private var backups: [BackupEntry] = []
-    @State private var isCreating = false
     @State private var destination: Destination?
 
     /// One axis for all three alerts. As three flag+payload pairs these could
@@ -31,6 +29,9 @@ struct BackupView: View {
     }
 
     @Environment(\.palette) private var palette
+    #if os(macOS)
+    @Environment(\.openWindow) private var openWindow
+    #endif
 
     struct BackupEntry: Identifiable {
         let id = UUID()
@@ -57,27 +58,39 @@ struct BackupView: View {
         .navigationTitle("Backups")
         .navigationBarTitleDisplayMode(.inline)
         .modifier(BackupAlerts(destination: $destination, onDelete: deleteBackup))
+        .onReceive(NotificationCenter.default.publisher(for: .amgiExportDidSave)) { _ in
+            loadBackups()
+        }
         .task { loadBackups() }
     }
 
     private var createSection: some View {
         Section {
             Button {
-                Task { await createBackup() }
+                #if os(macOS)
+                openWindow(id: "main")
+                #endif
+                ExportRequestRouter.shared.request(
+                    scope: .collection,
+                    allowedFormats: [.collectionPackage],
+                    sourceName: "Backups"
+                )
             } label: {
                 HStack(spacing: AmgiSpacing.md) {
                     SettingsIconTile(systemImage: "externaldrive.badge.plus", tone: .accent)
-                    Text(isCreating ? "Creating backup…" : "Create backup now")
+                    Text("Create backup now")
                         .amgiFont(.body)
                         .foregroundStyle(palette.textPrimary)
                     Spacer(minLength: AmgiSpacing.sm)
-                    if isCreating { ProgressView() }
+                    Image(systemName: "chevron.right")
+                        .amgiFont(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(palette.textSecondary)
                 }
             }
-            .disabled(isCreating)
             .listRowBackground(palette.surfaceElevated)
         } footer: {
-            Text("Backups live in this device's Documents folder for the current profile. Use Share to copy a backup to Files, iCloud Drive, or another device.")
+            Text("Create a collection package, then choose Files, iCloud Drive, or another Apple destination in the system Save panel.")
                 .amgiFont(.caption)
                 .foregroundStyle(palette.textSecondary)
         }
@@ -116,25 +129,41 @@ struct BackupView: View {
 }
 
 private extension BackupView {
-    func backupsDirectory() -> URL? {
+    func backupDirectories() -> [URL] {
         guard let docs = FileManager.default.urls(
             for: .documentDirectory, in: .userDomainMask
-        ).first else { return nil }
-        let folderName = "Backups for \(username)"
-        let dir = docs.appendingPathComponent(folderName, isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
+        ).first else { return [] }
+        let names = [
+            "Backups for \(AccountStore.shared.selectedID)",
+            // Read the pre-profile-ID directory as well so upgrading the app
+            // never strands backups created by an earlier build.
+            "Backups for \(username)",
+        ]
+        var directories = names.map { name in
+            let directory = docs.appendingPathComponent(name, isDirectory: true)
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            return directory
+        }
+        let recovery = AccountStore.profileDirectory(
+            for: AccountStore.shared.selectedID
+        ).appendingPathComponent("Recovery", isDirectory: true)
+        try? FileManager.default.createDirectory(at: recovery, withIntermediateDirectories: true)
+        directories.append(recovery)
+        return directories
     }
 
     func loadBackups() {
-        guard let dir = backupsDirectory() else { return }
-        let files = (try? FileManager.default.contentsOfDirectory(
-            at: dir,
-            includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey],
-            options: .skipsHiddenFiles
-        )) ?? []
+        let files = backupDirectories().flatMap { directory in
+            (try? FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey],
+                options: .skipsHiddenFiles
+            )) ?? []
+        }
+        var seen = Set<String>()
         backups = files
-            .filter { $0.pathExtension == "colpkg" || $0.pathExtension == "anki2" }
+            .filter { $0.pathExtension.lowercased() == "colpkg" }
+            .filter { seen.insert($0.standardizedFileURL.path).inserted }
             .map { url in
                 let values = try? url.resourceValues(
                     forKeys: [.contentModificationDateKey, .fileSizeKey]
@@ -149,39 +178,6 @@ private extension BackupView {
                 )
             }
             .sorted { $0.date > $1.date }
-    }
-
-    func createBackup() async {
-        isCreating = true
-        defer { isCreating = false }
-        do {
-            guard let dir = backupsDirectory() else {
-                throw NSError(
-                    domain: "BackupView",
-                    code: -1,
-                    userInfo: [NSLocalizedDescriptionKey: "Cannot access backup directory."]
-                )
-            }
-            let formatter = DateFormatter()
-            formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
-            let timestamp = formatter.string(from: .now)
-            let destURL = dir.appendingPathComponent("\(timestamp).colpkg")
-            // Export through the engine rather than copying collection.anki2.
-            // The collection is open in WAL mode, so a raw file copy captured
-            // neither the -wal sidecar nor a checkpoint — the backup could be
-            // a torn or stale snapshot that fails to open, discovered exactly
-            // when the user needs it. .colpkg is also what Anki itself uses,
-            // so these restore by import on desktop too.
-            let outPath = destURL.path
-            let service = importExportService
-            try await backendOffload {
-                try service.exportCollectionPackage(outPath, true)
-            }
-            loadBackups()
-            destination = .success("Saved \(destURL.lastPathComponent).")
-        } catch {
-            destination = .failure(error.localizedDescription)
-        }
     }
 
     func deleteBackup(_ entry: BackupEntry) {
@@ -213,6 +209,16 @@ private struct BackupRow: View {
                     .foregroundStyle(accent)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Share backup")
+            Button {
+                ImportRequestRouter.shared.request(entry.url)
+            } label: {
+                Image(systemName: "arrow.down.doc")
+                    .foregroundStyle(accent)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Restore backup")
+            .help("Restore this collection backup")
         }
     }
 }

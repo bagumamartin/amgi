@@ -1,4 +1,5 @@
 import AmgiAppCore
+import AmgiAppShared
 import OSLog
 import AmgiReader
 import AnkiClients
@@ -59,6 +60,7 @@ struct ReaderProgressCoordinator: Sendable {
             do {
                 _ = try await sync.pushBookProgress(bookID, payload)
                 store.clearPendingPush(bookID: bookID)
+                markCollectionMutation()
             } catch {
                 // Fire-and-forget with `try?` meant that backgrounding or
                 // force-quitting right after closing a chapter dropped the
@@ -83,9 +85,17 @@ struct ReaderProgressCoordinator: Sendable {
             do {
                 _ = try await sync.pushBookProgress(bookID, payload)
                 store.clearPendingPush(bookID: bookID)
+                markCollectionMutation()
             } catch {
                 Log.reader.error("Deferred progress push still failing for \(bookID, privacy: .public): \(error)")
             }
+        }
+    }
+
+    private func markCollectionMutation() {
+        Task { @MainActor in
+            @Dependency(\.collectionStore) var store
+            store.markLocalMutation()
         }
     }
 }

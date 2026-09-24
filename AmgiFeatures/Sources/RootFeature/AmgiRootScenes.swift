@@ -2,6 +2,7 @@ public import SwiftUI
 import AmgiAppCore
 import AmgiAppShared
 import AmgiTheme
+import AppIntentsFeature
 import ReviewFeature
 import SettingsFeature
 import Sharing
@@ -13,7 +14,7 @@ extension AmgiRoot {
     @SceneBuilder
     public static var scenes: some Scene {
 #if os(macOS)
-        WindowGroup {
+        WindowGroup("Library", id: "main") {
             // Widget clicks deliver `amgi://study`. SwiftUI's default on
             // macOS is to spawn a NEW WindowGroup window for every external
             // event before onOpenURL runs. `preferring` makes an existing
@@ -116,6 +117,11 @@ private struct AmgiCommands: Commands {
                 .keyboardShortcut("5", modifiers: .command)
         }
         CommandGroup(after: .toolbar) {
+            Button("Study Assistant…") {
+                AppNavigationCoordinator.shared.submit(.studyAssistant(prompt: ""))
+            }
+            .keyboardShortcut("a", modifiers: [.command, .shift])
+            Divider()
             Button("Sync Now") {
                 // The sync flow presents the sheet, which performs the
                 // endpoint/credential preflight and can show Login.

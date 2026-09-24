@@ -1,3 +1,4 @@
+import AmgiAppShared
 import AmgiIcons
 import AmgiUI
 import AnkiBackend
@@ -103,6 +104,8 @@ package enum DeckIconOverrides {
         }
         do {
             try backend.setConfigJSONValue(updated, for: configKey)
+            @Dependency(\.collectionStore) var store
+            store.markLocalMutation()
             mirror = updated
         } catch {
             print("[DeckIconOverrides] Failed to persist icons: \(error)")
@@ -124,6 +127,8 @@ package enum DeckIconOverrides {
         updated[deckId] = AutoEntry(icon: icon, name: name)
         do {
             try backend.setConfigJSONValue(updated, for: autoConfigKey)
+            @Dependency(\.collectionStore) var store
+            store.markLocalMutation()
             autoMirror = updated
         } catch {
             print("[DeckIconOverrides] Failed to record auto pick: \(error)")

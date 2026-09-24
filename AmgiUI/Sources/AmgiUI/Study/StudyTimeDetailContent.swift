@@ -16,6 +16,7 @@ public struct StudyTimeDetailContent: View {
     let message: String?
     let onScopeChange: () -> Void
     let onStudy: () -> Void
+    let onBrowse: (() -> Void)?
 
     @Environment(\.palette) private var palette
 
@@ -30,7 +31,8 @@ public struct StudyTimeDetailContent: View {
         isBusy: Bool,
         message: String?,
         onScopeChange: @escaping () -> Void,
-        onStudy: @escaping () -> Void
+        onStudy: @escaping () -> Void,
+        onBrowse: (() -> Void)? = nil
     ) {
         self.row = row
         self.matchCount = matchCount
@@ -43,29 +45,61 @@ public struct StudyTimeDetailContent: View {
         self.message = message
         self.onScopeChange = onScopeChange
         self.onStudy = onStudy
+        self.onBrowse = onBrowse
     }
 
     public var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
+                if let subtitle = row.subtitle {
+                    Label(subtitle, systemImage: "info.circle")
+                        .amgiFont(.caption)
+                        .foregroundStyle(palette.textSecondary)
+                }
                 deckBlock
                 if matchCount == 0 {
+                    if let message {
+                        Label(message, systemImage: "exclamationmark.triangle")
+                            .amgiFont(.caption)
+                            .foregroundStyle(palette.warning)
+                    }
                     ContentUnavailableView(
                         row.emptyMessage,
                         systemImage: "calendar",
                         description: Text(row.detailTitle)
                     )
                 } else {
-                    countBlock
-                    limitBlock
-                    Toggle("Answering reschedules these cards", isOn: $reschedules)
-                        .amgiFont(.body)
-                        .tint(palette.accent)
-                    studyButton
-                    if let message {
-                        Text(message)
-                            .amgiFont(.caption)
-                            .foregroundStyle(palette.warning)
+                    AmgiCard(
+                        background: .surface,
+                        shadow: palette.shadows.sm,
+                        cornerRadius: AmgiRadius.inset
+                    ) {
+                        VStack(alignment: .leading, spacing: AmgiSpacing.lg) {
+                            countBlock
+                            limitBlock
+                            Toggle("Answering reschedules these cards", isOn: $reschedules)
+                                .amgiFont(.body)
+                                .tint(palette.accent)
+                            if reschedules {
+                                Label(
+                                    "These cards will move to a new schedule.",
+                                    systemImage: "arrow.triangle.2.circlepath"
+                                )
+                                .amgiFont(.caption)
+                                .foregroundStyle(palette.warning)
+                            }
+                            studyButton
+                            if let onBrowse {
+                                Button("Browse matching cards", action: onBrowse)
+                                    .buttonStyle(AmgiSecondaryButtonStyle())
+                                    .frame(maxWidth: .infinity)
+                            }
+                            if let message {
+                                Text(message)
+                                    .amgiFont(.caption)
+                                    .foregroundStyle(palette.warning)
+                            }
+                        }
                     }
                 }
             }
@@ -121,7 +155,7 @@ public struct StudyTimeDetailContent: View {
 
     private var studyButton: some View {
         Button(action: onStudy) {
-            HStack(spacing: 8) {
+            HStack(spacing: AmgiSpacing.sm) {
                 if isBusy {
                     ProgressView()
                         .tint(.white)
@@ -130,16 +164,12 @@ public struct StudyTimeDetailContent: View {
                         .font(.system(size: 14, weight: .bold))
                 }
                 Text("Study · \(limit)")
-                    .amgiFont(.body)
                     .bold()
             }
-            .foregroundStyle(.white)
-            .padding(.horizontal, 28)
-            .padding(.vertical, 14)
             .frame(maxWidth: .infinity)
-            .background(palette.accent, in: Capsule())
+            .frame(minHeight: 44)
         }
-        .buttonStyle(.pressScale)
+        .buttonStyle(AmgiPrimaryButtonStyle())
         .disabled(isBusy || limit < 1)
     }
 }

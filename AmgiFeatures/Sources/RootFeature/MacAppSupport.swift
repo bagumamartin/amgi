@@ -2,27 +2,32 @@
 import AmgiAppShared
 import Dependencies
 import Foundation
+import SyncFeature
 
-/// Refreshes the widget snapshot every 15 minutes for as long as the app
-/// process is alive, independent of window focus. Skipped under XCTest via
-/// the same guard `writeWidgetSnapshot()` uses internally.
+/// Runs the macOS fallback loop while the app process is alive. Local
+/// mutations still refresh immediately through CollectionStore; this loop is
+/// only a recovery path for remote changes and elapsed-time forecast data.
 ///
-/// macOS has no BGTaskScheduler, but it also doesn't suspend a running
-/// app the way iOS does when it's not frontmost — the process keeps
-/// running until the user quits it. A simple in-process polling loop
-/// is the native-feeling equivalent of iOS's BGAppRefreshTask: it keeps
-/// the desktop widget fresh (new due counts, midnight rollover, streak)
-/// without requiring the app window to be active.
+/// macOS has no BGTaskScheduler, so this cannot run after the user quits the
+/// app. It deliberately uses a quiet 15-minute period rather than hammering
+/// WidgetKit with reload requests.
+@MainActor
 func startMacWidgetRefreshLoop() {
     // An inheriting `Task` (not `Task.detached`) so the loop carries the
     // dependency context set up by `prepareDependencies` — i.e. the opened
     // `AnkiBackend`. `Task.detached` would start a fresh task tree with
     // default dependencies (a fresh, unopened backend), making every
-    // `writeWidgetSnapshot()` fail at runtime.
+    // snapshot query fail at runtime.
+    @Dependency(\.syncCoordinator) var coordinator
     Task(priority: .background) {
         while !Task.isCancelled {
-            try? await Task.sleep(for: .seconds(15 * 60))
-            await writeWidgetSnapshot()
+            do {
+                try await Task.sleep(for: .seconds(15 * 60))
+            } catch {
+                return
+            }
+            await WidgetRefreshCoordinator.shared.refreshNow()
+            _ = await coordinator.runScheduledCollectionSync()
         }
     }
 }

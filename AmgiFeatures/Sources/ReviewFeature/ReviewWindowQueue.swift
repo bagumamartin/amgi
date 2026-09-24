@@ -1,5 +1,6 @@
 #if os(macOS)
 package import SwiftUI
+import AmgiAppCore
 import AmgiTheme
 import Foundation
 package import AnkiKit
@@ -16,16 +17,26 @@ package import AnkiKit
 package final class ReviewWindowQueue {
     package static let shared = ReviewWindowQueue()
 
-    private var pending: [DeckID] = []
+    private struct PendingDeck {
+        let deckID: DeckID
+        let profile: ProfileContext
+    }
+
+    private var pending: [PendingDeck] = []
     private init() {}
 
     package func enqueue(_ deckID: DeckID) {
-        pending.append(deckID)
+        pending.append(PendingDeck(deckID: deckID, profile: AccountStore.shared.selectedContext))
     }
 
     package func dequeue() -> DeckID? {
-        guard !pending.isEmpty else { return nil }
-        return pending.removeFirst()
+        let current = AccountStore.shared.selectedContext
+        while let first = pending.first {
+            pending.removeFirst()
+            guard first.profile.isCurrent(current) else { continue }
+            return first.deckID
+        }
+        return nil
     }
 }
 

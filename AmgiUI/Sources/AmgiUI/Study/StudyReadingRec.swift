@@ -31,6 +31,8 @@ public struct StudyReadingRec: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.pressScale)
+        .accessibilityLabel("Continue reading \(data.title)")
+        .accessibilityHint("Opens the book at your last reading position")
     }
 
     // MARK: - Tile
@@ -97,15 +99,29 @@ public struct StudyReadingRec: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(data.title)
                 .font(.system(size: 14, weight: .regular, design: .serif))
-                .foregroundStyle(.white)
+                .foregroundStyle(data.coverImagePath == nil ? palette.textPrimary : .white)
                 .lineLimit(2)
-                .shadow(color: .black.opacity(0.4), radius: 2, x: 0, y: 1)
+                .shadow(
+                    color: data.coverImagePath == nil ? .clear : .black.opacity(0.4),
+                    radius: 2,
+                    x: 0,
+                    y: 1
+                )
             if !data.authorLabel.isEmpty {
                 Text(data.authorLabel.uppercased())
                     .amgiFont(.micro)
-                    .foregroundStyle(.white.opacity(0.85))
+                    .foregroundStyle(
+                        data.coverImagePath == nil
+                            ? palette.textSecondary
+                            : .white.opacity(0.85)
+                    )
                     .lineLimit(1)
-                    .shadow(color: .black.opacity(0.4), radius: 2, x: 0, y: 1)
+                    .shadow(
+                        color: data.coverImagePath == nil ? .clear : .black.opacity(0.4),
+                        radius: 2,
+                        x: 0,
+                        y: 1
+                    )
             }
         }
         .padding(10)

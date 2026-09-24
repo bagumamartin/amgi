@@ -50,6 +50,7 @@ package struct ReviewView: View {
 
     @Dependency(\.deckClient) private var deckClient
     @Dependency(\.collectionStore) private var store
+    @Dependency(\.liveReviewCounts) private var liveCounts
 
     package init(deckId: DeckID, pullCooling: Bool = false, onDismiss: @escaping () -> Void) {
         self.deckId = deckId
@@ -89,10 +90,16 @@ package struct ReviewView: View {
         .onChange(of: playAudioInSilentMode) { _, newValue in
             ReviewAudioSession.apply(playInSilent: newValue)
         }
+        .onChange(of: session.successfulMutationCount) { _, _ in
+            // The review engine commits answers outside CollectionStore, so
+            // explicitly publish the mutation to the app-level activity rail.
+            store.markLocalMutation()
+        }
         .onDisappear {
+            liveCounts.clear()
             Task {
                 await tearDownCompletedSession()
-                await writeWidgetSnapshot()
+                await WidgetRefreshCoordinator.shared.refreshNow()
             }
         }
     }
@@ -108,9 +115,17 @@ package struct ReviewView: View {
     }
 
     private func tearDownCompletedSession() async {
-        guard session.isFinished, !toreDownSession, deckId.rawValue != 0 else { return }
+        let profile = session.profile
+        guard profile.isCurrent(AccountStore.shared.selectedContext),
+              session.isFinished,
+              !toreDownSession,
+              deckId.rawValue != 0
+        else { return }
+        guard ReviewSessionActivity.shared.beginMutation() else { return }
+        defer { ReviewSessionActivity.shared.endMutation() }
         toreDownSession = true
-        guard let decks = try? await deckClient.fetchAll(),
+        guard let decks = try? await deckClient.fetchAll() else { return }
+        guard profile.isCurrent(AccountStore.shared.selectedContext),
               let deck = decks.first(where: { $0.id == deckId }),
               deck.isFiltered,
               Self.isTemporarySession(deck.name) else { return }
@@ -119,6 +134,8 @@ package struct ReviewView: View {
     }
 
     private static func isTemporarySession(_ name: String) -> Bool {
-        name == "Custom Study Session" || name.hasPrefix("Study · ")
+        name == "Custom Study Session"
+            || name == "Study · Selection"
+            || name.hasPrefix("Study · Session · ")
     }
 }

@@ -3,6 +3,7 @@ import AmgiAppCore
 import AmgiTheme
 import AmgiUI
 import Sharing
+import WidgetKit
 
 struct AppearanceSettingsView: View {
     @Bindable var manager: ThemeManager
@@ -45,11 +46,17 @@ struct AppearanceSettingsView: View {
         }
         .navigationTitle("Appearance")
         .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: manager.themeID) { _, _ in reloadWidget() }
+        .onChange(of: manager.appearance) { _, _ in reloadWidget() }
     }
 
     /// Theme cards draw their own selected/unselected frame, so they sit
     /// directly on the page — nesting them in a `SettingsGroup` would put a
     /// second border around every card.
+    private func reloadWidget() {
+        WidgetCenter.shared.reloadTimelines(ofKind: "AmgiWidget")
+    }
+
     @ViewBuilder
     private var themePickerRow: some View {
         let themes = ThemeRegistry.shared.allThemes()

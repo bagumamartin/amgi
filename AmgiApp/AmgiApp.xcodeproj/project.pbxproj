@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		02B9242FBED375E80D047D9F /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 20B1543BD569468BABE06195 /* AppIcon.icon */; };
 		040099E9D27E1630298A87A3 /* AnkiKit in Frameworks */ = {isa = PBXBuildFile; productRef = 11C6E86420569ED4FCA304A3 /* AnkiKit */; };
 		05B3C09F3B96E96D972F0424 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CAE0DE68DC7E04F773A57E14 /* SwiftUI.framework */; };
 		06EBCC1C9A0AE2892697F36D /* ReviewContextTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FD2F4C9803F239FBB711F38 /* ReviewContextTools.swift */; };
@@ -30,8 +31,9 @@
 		5F5B77D77DD4749D9539DE34 /* AmgiReviewCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8A765015A79B5CB13C813D22 /* AmgiReviewCore */; };
 		652134A3080AAB2E8524794F /* WidgetFeature in Frameworks */ = {isa = PBXBuildFile; productRef = DDECB4DC220C7664DB15D012 /* WidgetFeature */; };
 		67A2ED31F59B08EBD06A4FED /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A12D2167226A912462BF60EA /* Assets.xcassets */; };
-		6932C86281AB9089FDCF9C6B /* WidgetFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 15D6B29D8F8E89420C74F4C5 /* WidgetFeature */; };
+		6932C86281AB9089FDCF9C6B /* AppIntentsFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 23338B2913A5299DB9307553 /* AppIntentsFeature */; };
 		6CF26B3108E38F231B7113AC /* WatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86204AF7D14861EEF82FF7E2 /* WatchApp.swift */; };
+		71A1B053966773D1157AA618 /* WidgetFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 15D6B29D8F8E89420C74F4C5 /* WidgetFeature */; };
 		78B30CF18C3971D6284FAAA0 /* AnkiRustLib in Frameworks */ = {isa = PBXBuildFile; productRef = 8CB3CF640B0825B2CE45BD23 /* AnkiRustLib */; };
 		7C5435C3604F35F0FE80E319 /* ConfigMediaTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C4176C8ACB2773678D5905C /* ConfigMediaTools.swift */; };
 		8037088122D7F4739E1D412A /* RootFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 7FCF06FE5B51661CB6F41B7F /* RootFeature */; };
@@ -40,7 +42,6 @@
 		8A8171D4241893A29E5A4FD9 /* Resolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69732ABBA700D0E8F1D4C877 /* Resolver.swift */; };
 		8AD06D30608491B042880E1E /* AmgiWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A837EB0A30B6E90B20D5C1CD /* AmgiWidget.appex */; platformFilters = (ios, macos, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		8AE5F2F0A719B566CC316F35 /* Review in Resources */ = {isa = PBXBuildFile; fileRef = 1B84A2ADB8D6A599253D2E78 /* Review */; };
-		8DF801CF14222EA77396D261 /* Acorn.icon in Resources */ = {isa = PBXBuildFile; fileRef = A1719C65C05A8AFE59FB6371 /* Acorn.icon */; };
 		8F888B18043AFB901AA52598 /* AnkiBackend in Frameworks */ = {isa = PBXBuildFile; productRef = 35974FDD258EB94D5852A939 /* AnkiBackend */; };
 		9063E7D11DDAA9D8A7A0CF5D /* Fonts in Resources */ = {isa = PBXBuildFile; fileRef = 32D10E5F584CDD7816F8408A /* Fonts */; };
 		91249FA41B190D64009456F4 /* ToolDispatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72699F2AEA76B14830B32F04 /* ToolDispatcher.swift */; };
@@ -79,6 +80,13 @@
 			remoteGlobalIDString = 355EA53755D1BF2DEDF97E58;
 			remoteInfo = IjukaMCPHelper;
 		};
+		67A69D1E1E8E8D51F6572308 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = CCE55545D9F1ABEDD48DB366 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 95284AD6E89B9B84191749DE;
+			remoteInfo = AmgiApp;
+		};
 		EE34BEA2D08D4B4B3CE4BF7A /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = CCE55545D9F1ABEDD48DB366 /* Project object */;
@@ -107,6 +115,7 @@
 		06F4556D1D24AD60E31C6EAE /* AmgiEmbeddings */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AmgiEmbeddings; path = ../AmgiEmbeddings; sourceTree = SOURCE_ROOT; };
 		196DD326CA05E30DCDB7B13A /* IjukaMCPMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IjukaMCPMain.swift; sourceTree = "<group>"; };
 		1B84A2ADB8D6A599253D2E78 /* Review */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Review; path = Resources/Review; sourceTree = SOURCE_ROOT; };
+		20B1543BD569468BABE06195 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		2B60A11C277A30E8180CB0F1 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		308AC2057FB8232A7A730D15 /* mathjax */ = {isa = PBXFileReference; lastKnownFileType = folder; name = mathjax; path = Resources/mathjax; sourceTree = SOURCE_ROOT; };
 		32D10E5F584CDD7816F8408A /* Fonts */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Fonts; path = Resources/Fonts; sourceTree = SOURCE_ROOT; };
@@ -132,9 +141,9 @@
 		98C4A1BE226DE11015C01ECE /* SearchTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchTools.swift; sourceTree = "<group>"; };
 		A1260ECF4FE2678C38F6F6FA /* IjukaMCPHelper */ = {isa = PBXFileReference; includeInIndex = 0; path = IjukaMCPHelper; sourceTree = BUILT_PRODUCTS_DIR; };
 		A12D2167226A912462BF60EA /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		A1719C65C05A8AFE59FB6371 /* Acorn.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = Acorn.icon; sourceTree = "<group>"; };
 		A837EB0A30B6E90B20D5C1CD /* AmgiWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = AmgiWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		BE8DDAC853DEF5B6112EB833 /* AmgiFeatures */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AmgiFeatures; path = ../AmgiFeatures; sourceTree = SOURCE_ROOT; };
+		C4E1BF55165FBA317A5B42C7 /* AmgiAppIntentsUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AmgiAppIntentsUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C57E0A30A0C5B7FE232BF0C3 /* amgi */ = {isa = PBXFileReference; lastKnownFileType = folder; name = amgi; path = ..; sourceTree = SOURCE_ROOT; };
 		CAE0DE68DC7E04F773A57E14 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		CD26BCBEDE891D0BEB7EA8A5 /* NoteTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteTools.swift; sourceTree = "<group>"; };
@@ -179,6 +188,16 @@
 			path = AmgiAppTests;
 			sourceTree = "<group>";
 		};
+		866AB3935E4B832E1E446D8E /* AmgiAppIntentsUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			name = AmgiAppIntentsUITests;
+			path = AmgiAppIntentsUITests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -197,7 +216,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				8037088122D7F4739E1D412A /* RootFeature in Frameworks */,
-				6932C86281AB9089FDCF9C6B /* WidgetFeature in Frameworks */,
+				6932C86281AB9089FDCF9C6B /* AppIntentsFeature in Frameworks */,
+				71A1B053966773D1157AA618 /* WidgetFeature in Frameworks */,
 				2F6CCEA4FF8B775FCA9299DA /* WidgetKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -312,6 +332,7 @@
 		C2DEE343E176258185B95328 /* Tests */ = {
 			isa = PBXGroup;
 			children = (
+				866AB3935E4B832E1E446D8E /* AmgiAppIntentsUITests */,
 				70BB06347ADF26FA0276AD23 /* AmgiAppTests */,
 			);
 			path = Tests;
@@ -345,6 +366,7 @@
 			isa = PBXGroup;
 			children = (
 				DE61E854280804F08BB1DD31 /* AmgiApp.app */,
+				C4E1BF55165FBA317A5B42C7 /* AmgiAppIntentsUITests.xctest */,
 				FEF6D1A33091968455963805 /* AmgiAppTests.xctest */,
 				E52A1F699FA8746826E4EAB0 /* AmgiWatchApp.app */,
 				A837EB0A30B6E90B20D5C1CD /* AmgiWidget.appex */,
@@ -364,7 +386,7 @@
 		F90D9C10E2CEF0656D9B04B5 = {
 			isa = PBXGroup;
 			children = (
-				A1719C65C05A8AFE59FB6371 /* Acorn.icon */,
+				20B1543BD569468BABE06195 /* AppIcon.icon */,
 				4885F9B8D778EF6F864BC74F /* PrivacyInfo.xcprivacy */,
 				34B25F9D324E0B703F834DC4 /* WatchAssets.xcassets */,
 				9E8676797DB5CFAC1112664F /* amgi */,
@@ -424,6 +446,7 @@
 			name = AmgiApp;
 			packageProductDependencies = (
 				7FCF06FE5B51661CB6F41B7F /* RootFeature */,
+				23338B2913A5299DB9307553 /* AppIntentsFeature */,
 				15D6B29D8F8E89420C74F4C5 /* WidgetFeature */,
 			);
 			productName = AmgiApp;
@@ -452,6 +475,28 @@
 			productName = AmgiWidget;
 			productReference = A837EB0A30B6E90B20D5C1CD /* AmgiWidget.appex */;
 			productType = "com.apple.product-type.app-extension";
+		};
+		D2AE43B206388AEEED1DF7A4 /* AmgiAppIntentsUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7592CCC9CFC0A9A6C25499F8 /* Build configuration list for PBXNativeTarget "AmgiAppIntentsUITests" */;
+			buildPhases = (
+				EAF7694720BD303041E68C18 /* Sources */,
+				4FF7524449CDD0CD2FA7CF3A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				CBE72A2FC9443D7575B4394A /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				866AB3935E4B832E1E446D8E /* AmgiAppIntentsUITests */,
+			);
+			name = AmgiAppIntentsUITests;
+			packageProductDependencies = (
+			);
+			productName = AmgiAppIntentsUITests;
+			productReference = C4E1BF55165FBA317A5B42C7 /* AmgiAppIntentsUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 		D799962EF4F5CA4D32203063 /* AmgiWatchApp */ = {
 			isa = PBXNativeTarget;
@@ -529,6 +574,11 @@
 						DevelopmentTeam = 39557WW39R;
 						ProvisioningStyle = Automatic;
 					};
+					D2AE43B206388AEEED1DF7A4 = {
+						DevelopmentTeam = 39557WW39R;
+						ProvisioningStyle = Automatic;
+						TestTargetID = 95284AD6E89B9B84191749DE;
+					};
 					D799962EF4F5CA4D32203063 = {
 						DevelopmentTeam = 39557WW39R;
 						ProvisioningStyle = Automatic;
@@ -570,17 +620,25 @@
 				355EA53755D1BF2DEDF97E58 /* IjukaMCPHelper */,
 				9B3B324834735D7AA9620491 /* AmgiWidget */,
 				D799962EF4F5CA4D32203063 /* AmgiWatchApp */,
+				D2AE43B206388AEEED1DF7A4 /* AmgiAppIntentsUITests */,
 				EE6CF1FAA191BC2F0404B752 /* AmgiAppTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		4FF7524449CDD0CD2FA7CF3A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		507BEFC74A9D1D4C5981265B /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				8DF801CF14222EA77396D261 /* Acorn.icon in Resources */,
+				02B9242FBED375E80D047D9F /* AppIcon.icon in Resources */,
 				67A2ED31F59B08EBD06A4FED /* Assets.xcassets in Resources */,
 				914745C4D1A6A52334194F09 /* EPUBReader in Resources */,
 				9063E7D11DDAA9D8A7A0CF5D /* Fonts in Resources */,
@@ -696,6 +754,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		EAF7694720BD303041E68C18 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -707,6 +772,11 @@
 			);
 			target = 9B3B324834735D7AA9620491 /* AmgiWidget */;
 			targetProxy = EE34BEA2D08D4B4B3CE4BF7A /* PBXContainerItemProxy */;
+		};
+		CBE72A2FC9443D7575B4394A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 95284AD6E89B9B84191749DE /* AmgiApp */;
+			targetProxy = 67A69D1E1E8E8D51F6572308 /* PBXContainerItemProxy */;
 		};
 		D242E50DB2ABF1D4A36603E4 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -878,7 +948,7 @@
 		48CAD2B8E5E76236A9CE3FF8 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = Acorn;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_CXX_LANGUAGE_STANDARD = "c++20";
 				CLANG_CXX_LIBRARY = "libc++";
 				CODE_SIGN_ENTITLEMENTS = AmgiApp.entitlements;
@@ -912,7 +982,7 @@
 		50D2E3D69F1AC5A7F66FE08C /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = Acorn;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Ijuka;
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.bagumamartin.ijuka;
@@ -920,6 +990,30 @@
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = 4;
+			};
+			name = Release;
+		};
+		54F383A5D8EB9F690EA68B28 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMPILATION_CACHE_ENABLE_CACHING = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.bagumamartin.ijuka.AppIntentsUITests;
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
+				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = AmgiApp;
 			};
 			name = Release;
 		};
@@ -959,7 +1053,7 @@
 		B2FEE2CDEFFBD12DCDE488BA /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = Acorn;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Ijuka;
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.bagumamartin.ijuka;
@@ -1058,7 +1152,7 @@
 		BCA1A313BD0827666D6635B3 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = Acorn;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_CXX_LANGUAGE_STANDARD = "c++20";
 				CLANG_CXX_LIBRARY = "libc++";
 				CODE_SIGN_ENTITLEMENTS = AmgiApp.entitlements;
@@ -1129,6 +1223,30 @@
 			};
 			name = Release;
 		};
+		E6A214239415B43416FADDC1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMPILATION_CACHE_ENABLE_CACHING = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.bagumamartin.ijuka.AppIntentsUITests;
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
+				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = AmgiApp;
+			};
+			name = Debug;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -1146,6 +1264,15 @@
 			buildConfigurations = (
 				1D180DB342CB1285F3F30774 /* Debug */,
 				5987A44A773D53DA29C4E928 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		7592CCC9CFC0A9A6C25499F8 /* Build configuration list for PBXNativeTarget "AmgiAppIntentsUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E6A214239415B43416FADDC1 /* Debug */,
+				54F383A5D8EB9F690EA68B28 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
@@ -1282,6 +1409,10 @@
 		22DC7EB8B98A3ED9E71AC3D1 /* AmgiAppCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = AmgiAppCore;
+		};
+		23338B2913A5299DB9307553 /* AppIntentsFeature */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = AppIntentsFeature;
 		};
 		266EDB28F3269C3FAAD43479 /* Logging */ = {
 			isa = XCSwiftPackageProductDependency;

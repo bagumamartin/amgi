@@ -1,9 +1,11 @@
 import AmgiAppCore
+import AmgiAppShared
 import AnkiBackend
 import AnkiServices
 import AnkiSync
 import Dependencies
 import Foundation
+import SyncFeature
 
 /// Collection-maintenance I/O for the settings screen. Owns the backend and
 /// collection-service dependencies plus the status message so the view
@@ -16,6 +18,7 @@ final class MaintenanceModel {
 
     @ObservationIgnored @Dependency(\.ankiBackend) private var backend
     @ObservationIgnored @Dependency(\.collectionService) private var collectionService
+    @ObservationIgnored @Dependency(\.syncCoordinator) private var syncCoordinator
 
     private(set) var isChecking = false
 
@@ -50,7 +53,15 @@ final class MaintenanceModel {
         let profileID = AccountStore.shared.current.id
         let profileDirectory = AccountStore.profileDirectory(for: profileID)
         let backend = self.backend
+        guard syncCoordinator.beginCollectionLifecycle() else {
+            statusMessage = "Another collection lifecycle operation is already in progress."
+            return
+        }
+        defer { syncCoordinator.endCollectionLifecycle() }
+        await syncCoordinator.cancelAndWait()
+        await WidgetRefreshCoordinator.shared.cancelAndWait()
         do {
+            WidgetSnapshotStore.removeAllSnapshots()
             try await backendOffload { try backend.closeCollection() }
         } catch {
             // Already closed, or never opened — deletion is still correct.

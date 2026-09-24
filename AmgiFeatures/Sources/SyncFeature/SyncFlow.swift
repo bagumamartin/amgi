@@ -43,14 +43,18 @@ private struct SyncFlowModifier: ViewModifier {
                 SyncAction(toast: toast)()
             }
             .onReceive(NotificationCenter.default.publisher(for: .amgiPerformBackgroundSync)) { _ in
-                // iOS automatic-sync background task: sync quietly, no sheet.
-                Task { await coordinator.startSync() }
+                // Kept as a compatibility hook for older integrations. The
+                // registered BGTask now invokes the coordinator directly.
+                Task { _ = await coordinator.runScheduledCollectionSync() }
             }
             .task {
                 modelDownloads.onAppear()
             }
-            .onChange(of: NetworkMonitor.shared.isSatisfied) { _, _ in
+            .onChange(of: NetworkMonitor.shared.isSatisfied) { _, isSatisfied in
                 modelDownloads.retryIfAllowed()
+                if isSatisfied {
+                    coordinator.resumeAutomaticSyncIfNeeded(reason: "Network became available")
+                }
             }
             .onChange(of: NetworkMonitor.shared.usesWiFi) { _, _ in
                 modelDownloads.retryIfAllowed()

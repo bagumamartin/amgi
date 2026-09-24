@@ -1,3 +1,4 @@
+import Dependencies
 import SwiftUI
 import AmgiUI
 import AmgiTheme
@@ -14,6 +15,7 @@ struct SyncSettingsView: View {
     @State private var showServerSetup = false
     @State private var showDisableConfirm = false
 
+    @Dependency(\.syncCoordinator) private var coordinator
     @Environment(\.palette) private var palette
 
     var body: some View {
@@ -31,6 +33,8 @@ struct SyncSettingsView: View {
                 endpoint = KeychainHelper.loadEndpoint()
                 username = KeychainHelper.loadUsername()
                 isLoggedIn = KeychainHelper.loadHostKey() != nil
+                coordinator.cancel()
+                coordinator.resumeAutomaticSyncIfNeeded(reason: "Sync server configured")
             }
         }
         .confirmationDialog(
@@ -38,7 +42,7 @@ struct SyncSettingsView: View {
             isPresented: $showDisableConfirm,
             titleVisibility: .visible
         ) {
-            Button("Disable", role: .destructive) { disableSync() }
+            Button("Disable", role: .destructive) { Task { await disableSync() } }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Removes the server, credentials, and switches the app to local-only mode.")
@@ -101,7 +105,7 @@ struct SyncSettingsView: View {
                 tone: .danger,
                 isDestructive: true
             ) {
-                logout()
+                Task { await logout() }
             }
             .disabled(!isLoggedIn)
         }
@@ -146,17 +150,16 @@ struct SyncSettingsView: View {
 }
 
 private extension SyncSettingsView {
-    func logout() {
-        KeychainHelper.deleteHostKey()
-        KeychainHelper.deleteUsername()
+    func logout() async {
+        await coordinator.cancelAndWait()
+        await coordinator.signOut()
         username = nil
         isLoggedIn = false
     }
 
-    func disableSync() {
-        KeychainHelper.deleteHostKey()
-        KeychainHelper.deleteUsername()
-        KeychainHelper.deleteEndpoint()
+    func disableSync() async {
+        await coordinator.cancelAndWait()
+        await coordinator.signOut()
         $syncMode.withLock { $0 = .local }
         endpoint = nil
         username = nil

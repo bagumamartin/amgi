@@ -148,8 +148,13 @@ dependencies = [
  "anki",
  "anki_proto",
  "prost",
+ "regex",
+ "rusqlite",
  "serde",
  "serde_json",
+ "tempfile",
+ "zip 4.6.1",
+ "zstd",
 ]
 
 [[package]]

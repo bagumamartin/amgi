@@ -1,3 +1,4 @@
+import AmgiAppShared
 import AnkiClients
 import AnkiKit
 import Dependencies
@@ -20,6 +21,7 @@ final class TemplateEditorModel {
 
     @ObservationIgnored @Dependency(\.notetypesClient) private var notetypesClient
     @ObservationIgnored @Dependency(\.noteClient) private var noteClient
+    @ObservationIgnored @Dependency(\.collectionStore) private var collectionStore
 
     var hasUnsavedChanges: Bool {
         guard let originalNotetype else { return false }
@@ -49,6 +51,7 @@ final class TemplateEditorModel {
 
         do {
             try await notetypesClient.update(notetype)
+            collectionStore.markLocalMutation()
             if let onSaved {
                 await onSaved()
             }

@@ -142,6 +142,15 @@ schemes:
       testPlans:
         - path: AmgiApp.xctestplan
           defaultPlan: true
+  AmgiAppMac:
+    build:
+      targets:
+        AmgiApp: all
+    run:
+      config: Debug
+    archive:
+      config: Release
+
   AmgiWatchApp:
     build:
       targets:
@@ -159,7 +168,7 @@ targets:
           - "Widgets"
           - "Watch"
       - path: Resources/Assets.xcassets
-      - path: Acorn.icon
+      - path: AppIcon.icon
       - path: Resources/mathjax
         type: folder
       - path: Resources/Review
@@ -172,6 +181,8 @@ targets:
     dependencies:
       - package: AmgiFeatures
         product: RootFeature
+      - package: AmgiFeatures
+        product: AppIntentsFeature
       - package: AmgiFeatures
         product: WidgetFeature
       - sdk: WidgetKit.framework
@@ -236,7 +247,7 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: Ijuka
         CODE_SIGN_ENTITLEMENTS: AmgiApp.entitlements
         "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": AmgiApp-macOS.entitlements
-        ASSETCATALOG_COMPILER_APPICON_NAME: Acorn
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # Cxx interop chain. Xcode + SPM under Swift 6 needs an explicit
         # Clang C++ standard alongside SWIFT_CXX_INTEROPERABILITY_MODE —
         # without the language-standard hint Clang's dependency scanner
@@ -370,10 +381,26 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.bagumamartin.ijuka.watch
-        ASSETCATALOG_COMPILER_APPICON_NAME: Acorn
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_WKCompanionAppBundleIdentifier: com.bagumamartin.ijuka
         INFOPLIST_KEY_CFBundleDisplayName: Ijuka
+
+  AmgiAppIntentsUITests:
+    type: bundle.ui-testing
+    supportedDestinations: [iOS]
+    sources:
+      - path: Tests/AmgiAppIntentsUITests
+    dependencies:
+      - target: AmgiApp
+    settings:
+      base:
+        IPHONEOS_DEPLOYMENT_TARGET: "27.0"
+        PRODUCT_BUNDLE_IDENTIFIER: com.bagumamartin.ijuka.AppIntentsUITests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: AmgiApp
+        SWIFT_ENABLE_EXPLICIT_MODULES: NO
+        COMPILATION_CACHE_ENABLE_CACHING: NO
 
   AmgiAppTests:
     type: bundle.unit-test

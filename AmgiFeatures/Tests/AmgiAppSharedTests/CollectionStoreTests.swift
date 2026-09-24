@@ -47,9 +47,8 @@ struct CollectionStoreTests {
     @Test @MainActor
     func cachedTreeIsReusedUntilInvalidated() async throws {
         let counter = CallCounter()
-        // apply() with a localUser origin used to queue automatic sync via
-        // SyncCoordinator; that lives in SyncFeature and cannot be reached
-        // from this sink. Cache invalidation is the only effect here.
+        // The app composition root installs the activity callback; this
+        // isolated store has no sink, so cache behavior remains unchanged.
         try await withDependencies {
             $0.deckClient.fetchTree = {
                 counter.bump()
@@ -89,6 +88,36 @@ struct CollectionStoreTests {
             let before = store.generation
             store.invalidateAll()
             #expect(store.generation == before + 1)
+        }
+    }
+
+    @Test @MainActor
+    func activityRailNotifiesConfirmedMutations() async throws {
+        var origins: [CollectionChangeOrigin] = []
+        let store = CollectionStore()
+        store.onCollectionChange = { origin in origins.append(origin) }
+
+        store.apply(CollectionChanges(tag: true), origin: .localUser)
+        store.invalidateAll(origin: .remoteSync)
+        store.invalidateAll(origin: .refresh)
+        store.markLocalMutation()
+
+        #expect(origins == [.localUser, .remoteSync, .localUser])
+    }
+
+    @Test @MainActor
+    func freshTreeBypassesTheReadCache() async throws {
+        let counter = CallCounter()
+        try await withDependencies {
+            $0.deckClient.fetchTree = {
+                counter.bump()
+                return sampleTree
+            }
+        } operation: {
+            let store = CollectionStore()
+            _ = try await store.tree()
+            _ = try await store.freshTree()
+            #expect(counter.count == 2)
         }
     }
 }

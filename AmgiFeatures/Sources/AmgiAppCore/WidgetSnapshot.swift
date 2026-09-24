@@ -2,6 +2,9 @@ public import Foundation
 
 public struct WidgetSnapshot: Codable, Sendable {
     public var deckId: Int64
+    /// Stable profile that produced the snapshot. Optional for decoding
+    /// pre-profile widget files; new writes always populate it.
+    public var profileID: String?
     public var deckName: String
     public var newCount: Int
     public var learnCount: Int
@@ -19,6 +22,7 @@ public struct WidgetSnapshot: Codable, Sendable {
 
     public init(
         deckId: Int64,
+        profileID: String? = nil,
         deckName: String,
         newCount: Int,
         learnCount: Int,
@@ -31,6 +35,7 @@ public struct WidgetSnapshot: Codable, Sendable {
         forecast: Forecast? = nil
     ) {
         self.deckId = deckId
+        self.profileID = profileID
         self.deckName = deckName
         self.newCount = newCount
         self.learnCount = learnCount
@@ -46,6 +51,7 @@ public struct WidgetSnapshot: Codable, Sendable {
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         deckId = try container.decode(Int64.self, forKey: .deckId)
+        profileID = try container.decodeIfPresent(String.self, forKey: .profileID)
         deckName = try container.decode(String.self, forKey: .deckName)
         newCount = try container.decode(Int.self, forKey: .newCount)
         learnCount = try container.decode(Int.self, forKey: .learnCount)
@@ -121,6 +127,24 @@ public struct WidgetSnapshot: Codable, Sendable {
             completedToday: 18,
             streak: 7,
             lastSevenDays: [20, 15, 22, 18, 25, 12, 8],
+            snapshotDate: Date()
+        )
+    }
+
+    /// Runtime fallback used before the app has published its first snapshot.
+    /// It deliberately contains no fabricated study numbers; the placeholder
+    /// above is only for WidgetKit's gallery/preview context.
+    public static var empty: WidgetSnapshot {
+        WidgetSnapshot(
+            deckId: 0,
+            deckName: "All Decks",
+            newCount: 0,
+            learnCount: 0,
+            reviewCount: 0,
+            reviewedToday: 0,
+            completedToday: 0,
+            streak: 0,
+            lastSevenDays: Array(repeating: 0, count: 7),
             snapshotDate: Date()
         )
     }

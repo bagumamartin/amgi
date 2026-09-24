@@ -112,6 +112,7 @@ public enum SyncPreferences {
         public static let mediaLastSyncedAtBase = "sync_pref_media_last_synced_at"
         public static let lastCollectionSyncedAtBase = "sync_pref_collection_last_synced_at"
         public static let needsFullSyncBase = "sync_pref_needs_full_sync"
+        public static let dirtyGenerationBase = "sync_pref_dirty_generation"
 
         public static func modeForCurrentUser() -> String {
             scoped(modeBase)
@@ -139,6 +140,10 @@ public enum SyncPreferences {
 
         public static func needsFullSyncForCurrentUser() -> String {
             scoped(needsFullSyncBase)
+        }
+
+        public static func dirtyGenerationForCurrentUser() -> String {
+            scoped(dirtyGenerationBase)
         }
     }
 

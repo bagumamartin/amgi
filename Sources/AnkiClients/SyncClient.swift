@@ -6,6 +6,9 @@ import Foundation
 @DependencyClient
 public struct SyncClient: Sendable {
     public var sync: @Sendable () async throws -> SyncSummary
+    /// Collection-only sync used by short background refreshes. It avoids
+    /// starting the engine's asynchronous media task.
+    public var syncCollection: @Sendable () async throws -> SyncSummary
     public var fullSync: @Sendable (_ direction: SyncDirection) async throws -> Void
     public var mediaSyncStatus: @Sendable () async throws -> MediaSyncStatus
     public var abortMediaSync: @Sendable () async throws -> Void

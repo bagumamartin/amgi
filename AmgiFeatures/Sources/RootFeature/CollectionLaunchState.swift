@@ -1,4 +1,5 @@
 import AmgiAppCore
+import AmgiAppShared
 import AnkiBackend
 import AnkiKit
 import Foundation
@@ -98,6 +99,9 @@ final class CollectionLaunchState {
             openAttemptInFlight = false
             // Loop condition re-checks: a nil result clears the error.
             openError = result
+            if result == nil {
+                await WidgetRefreshCoordinator.shared.refreshNow()
+            }
             // Fast takeover for the normal MCP hand-off, with a modest cap
             // so a genuinely damaged/busy collection does not hot-loop.
             delay = delay == .zero ? .milliseconds(250) : min(delay * 2, .seconds(1))

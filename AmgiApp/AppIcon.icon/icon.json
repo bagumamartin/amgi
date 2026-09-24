@@ -749,7 +749,7 @@
         }
       ],
       "lighting" : "combined",
-      "name" : "Acorn",
+      "name" : "AppIcon",
       "position" : {
         "scale" : 0.7,
         "translation-in-points" : [

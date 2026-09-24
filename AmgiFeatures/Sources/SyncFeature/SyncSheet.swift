@@ -3,7 +3,6 @@ import SwiftUI
 import AmgiTheme
 import AmgiAppCore
 import AnkiKit
-import AnkiClients
 import AnkiSync
 import Dependencies
 import Sharing
@@ -49,7 +48,6 @@ enum SyncSheetState {
 struct SyncSheet: View {
     @Binding var isPresented: Bool
 
-    @Dependency(\.syncClient) var syncClient
     @Dependency(\.syncCoordinator) private var coordinator
 
     @State private var syncState: SyncSheetState = .idle
@@ -77,12 +75,12 @@ struct SyncSheet: View {
             footerError: footerError,
             onDone: { isPresented = false },
             onChangeServer: { showServerSetup = true },
-            onLogout: { logout() },
+            onLogout: { Task { await logout() } },
             onSetUpServer: { showServerSetup = true },
             onRetryFooter: { Task { await coordinator.startSync() } },
             onStartSync: { Task { await startSync() } },
             onFullSync: { direction in Task { await fullSync(direction) } },
-            onMerge: { Task { await mergeFullSync() } }
+            onMerge: { Task { mergeFullSync() } }
         )
         .sheet(isPresented: $showLogin) {
             LoginSheet(isPresented: $showLogin) {
@@ -134,28 +132,17 @@ private extension SyncSheet {
         await coordinator.startSync()
     }
 
-    func logout() {
-        KeychainHelper.deleteHostKey()
-        KeychainHelper.deleteUsername()
-        KeychainHelper.deleteCurrentEndpoint()
-        syncState = .idle
+    func logout() async {
+        await coordinator.cancelAndWait()
+        await coordinator.signOut()
+        syncState = .noServer
     }
 
     func fullSync(_ direction: SyncDirection) async {
         await coordinator.confirmFullSync(direction: direction)
     }
 
-    func mergeFullSync() async {
-        syncState = .syncing("Preparing merge...")
-        do {
-            try await syncClient.merge { message in
-                Task { @MainActor in
-                    syncState = .syncing(message)
-                }
-            }
-            syncState = .success(SyncSummary())
-        } catch {
-            syncState = .error(error.localizedDescription)
-        }
+    func mergeFullSync() {
+        coordinator.mergeFullSync()
     }
 }

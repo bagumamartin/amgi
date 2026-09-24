@@ -2,6 +2,7 @@ package import SwiftUI
 import AmgiTheme
 import AmgiUI
 package import AmgiAppCore
+import AssistantFeature
 import BrowseFeature
 import TemplatesFeature
 import ReaderFeature
@@ -33,6 +34,7 @@ package struct SettingsView: View {
                 appearanceSection
                 accountSection
                 studySection
+                intelligenceSection
                 readerSection
                 maintenanceSection
                 aboutSection
@@ -140,6 +142,22 @@ package struct SettingsView: View {
                     tone: .link
                 ) {
                     CodeEditorSettingsView()
+                }
+            }
+        }
+    }
+
+    private var intelligenceSection: some View {
+        Group {
+            SettingsSectionHeader(title: "Apple Intelligence")
+            SettingsGroup {
+                SettingsRowLink(
+                    title: "Study Assistant & System Search",
+                    systemImage: "sparkles",
+                    tone: .accent,
+                    detail: FoundationModelService.availability.title
+                ) {
+                    AssistantSettingsView()
                 }
             }
         }

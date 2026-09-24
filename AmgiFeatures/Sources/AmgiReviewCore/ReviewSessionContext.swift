@@ -27,6 +27,14 @@ package final class ReviewSessionContext: @unchecked Sendable {
         lock.unlock()
     }
 
+    /// Current in-process review context. This is intentionally ephemeral and
+    /// must never be persisted or exposed outside the active app session.
+    package func currentSnapshot() -> ReviewSessionSnapshot? {
+        lock.lock()
+        defer { lock.unlock() }
+        return snapshot
+    }
+
     /// Encoded JSON for the bridge reply, or nil when no session is live.
     package func encodedSnapshot() -> Data? {
         lock.lock()

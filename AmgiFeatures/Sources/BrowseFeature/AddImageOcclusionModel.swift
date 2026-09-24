@@ -1,3 +1,4 @@
+import AmgiAppShared
 import AnkiBackend
 import AnkiKit
 import AnkiClients
@@ -32,6 +33,7 @@ final class AddImageOcclusionModel {
     @ObservationIgnored @Dependency(\.deckClient) private var deckClient
     @ObservationIgnored @Dependency(\.decksService) private var decksService
     @ObservationIgnored @Dependency(\.imageOcclusionClient) private var client
+    @ObservationIgnored @Dependency(\.collectionStore) private var collectionStore
     @ObservationIgnored private let preselectedDeckId: DeckID?
 
     init(preselectedDeckId: DeckID? = nil) {
@@ -154,6 +156,7 @@ final class AddImageOcclusionModel {
 
         do {
             try await client.addNote(url, occlusions, header, backExtra, tags, selectedDeckId, NotetypeID(0))
+            collectionStore.markLocalMutation()
             return true
         } catch {
             errorMessage = error.localizedDescription

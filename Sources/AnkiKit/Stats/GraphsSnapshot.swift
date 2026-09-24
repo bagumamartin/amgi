@@ -115,6 +115,16 @@ public struct FutureDueSeries: Sendable, Hashable {
         self.haveBacklog = haveBacklog
         self.dailyLoad = dailyLoad
     }
+
+    /// Cards that are already past due. `haveBacklog` is an engine hint and
+    /// can be true even when the current graph has no negative buckets, so
+    /// callers that need an actionable count should use this derived value.
+    public var backlogCount: Int {
+        futureDue.reduce(into: 0) { total, entry in
+            guard entry.key < 0 else { return }
+            total += max(entry.value, 0)
+        }
+    }
 }
 
 // MARK: - Today

@@ -1,4 +1,5 @@
 public import Foundation
+import AnkiKit
 
 /// The App Group container shared by the app, the widget extension, and the
 /// watch.
@@ -11,6 +12,8 @@ public import Foundation
 /// store — looks nothing like a typo.
 public enum AppGroup: Sendable {
     public static let identifier = "group.com.bagumamartin.ijuka"
+    /// Generation-qualified active profile scope mirrored for widget reads.
+    public static let selectedProfileScopeKey = ProfileScope.scopeAnchorKey
 
     /// Shared defaults, falling back to `.standard` when the entitlement is
     /// missing, which is the case in previews and unit tests.

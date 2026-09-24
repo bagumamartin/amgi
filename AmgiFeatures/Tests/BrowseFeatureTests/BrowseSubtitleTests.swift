@@ -22,7 +22,7 @@ struct BrowseSubtitleTests {
     }
 
     @Test func tagsOnlyWhenNoNotetype() {
-        #expect(composeNoteSubtitle(notetypeName: nil, tags: "math science") == "math science")
+        #expect(composeNoteSubtitle(notetypeName: nil, tags: "math science") == "math · science")
     }
 
     @Test func nilWhenBothEmpty() {

@@ -365,7 +365,7 @@ struct CardPreviewPane: View {
     ) -> some View {
         let label = Text(title)
             .amgiFont(.bodyEmphasis)
-            .foregroundStyle(prominent ? Color.white : palette.textPrimary)
+            .foregroundStyle(prominent ? palette.surfaceElevated : palette.textPrimary)
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             .contentShape(Capsule())

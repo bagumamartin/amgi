@@ -144,7 +144,19 @@ PLIST
         ln -s Versions/Current/Resources "$fw/Resources"
     fi
 
-    echo "==> $slice: $(du -h "$bin_dir/AnkiRustLib" | cut -f1)"
+    # Capture symbols before slimming the shipped framework. Xcode needs the
+    # matching dSYM in the XCFramework to include it in an app archive.
+    local dsym="$STAGE_DIR/$slice/AnkiRustLib.framework.dSYM"
+    xcrun dsymutil "$bin_dir/AnkiRustLib" -o "$dsym"
+    local binary_uuid dsym_uuid
+    binary_uuid="$(xcrun dwarfdump --uuid "$bin_dir/AnkiRustLib" | awk '{print $2}')"
+    dsym_uuid="$(xcrun dwarfdump --uuid "$dsym" | awk '{print $2}')"
+    [ -n "$binary_uuid" ] && [ "$binary_uuid" = "$dsym_uuid" ] || {
+        echo "ERROR: $slice dSYM UUID does not match its framework" >&2
+        exit 1
+    }
+    xcrun strip -S "$bin_dir/AnkiRustLib"
+    echo "==> $slice: $(du -h "$bin_dir/AnkiRustLib" | cut -f1), dSYM $binary_uuid"
 }
 
 echo "==> Staging frameworks..."
@@ -158,10 +170,16 @@ echo "==> Packaging XCFramework..."
 rm -rf "$OUTPUT_DIR"
 FRAMEWORK_ARGS=(
     -framework "$STAGE_DIR/ios-device/AnkiRustLib.framework"
+    -debug-symbols "$STAGE_DIR/ios-device/AnkiRustLib.framework.dSYM"
     -framework "$STAGE_DIR/ios-sim/AnkiRustLib.framework"
+    -debug-symbols "$STAGE_DIR/ios-sim/AnkiRustLib.framework.dSYM"
     -framework "$STAGE_DIR/macos/AnkiRustLib.framework"
+    -debug-symbols "$STAGE_DIR/macos/AnkiRustLib.framework.dSYM"
 )
-FRAMEWORK_ARGS+=(-framework "$STAGE_DIR/watchos-sim/AnkiRustLib.framework")
+FRAMEWORK_ARGS+=(
+    -framework "$STAGE_DIR/watchos-sim/AnkiRustLib.framework"
+    -debug-symbols "$STAGE_DIR/watchos-sim/AnkiRustLib.framework.dSYM"
+)
 
 xcodebuild -create-xcframework \
     "${FRAMEWORK_ARGS[@]}" \

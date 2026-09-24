@@ -13,6 +13,8 @@ extension FutureDueSeries {
         for day in 0...30 {
             due[day] = max(2, 44 - day + (day * 7) % 9)
         }
+        due[-1] = 18
+        due[-2] = 11
         return FutureDueSeries(futureDue: due, haveBacklog: true, dailyLoad: 34)
     }()
 }

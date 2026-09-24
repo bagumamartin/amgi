@@ -202,6 +202,7 @@ private struct NativeMediaImageView: View {
 
     @State private var cgImage: CGImage?
     @State private var imageUnavailable = false
+    @Environment(\.palette) private var palette
 
     private var mediaPath: String? {
         mediaFolder?.appendingPathComponent(filename).path
@@ -216,8 +217,8 @@ private struct NativeMediaImageView: View {
                     .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.small, style: .continuous))
             } else if imageUnavailable {
                 Label("Image unavailable", systemImage: "photo")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .amgiFont(.caption)
+                    .foregroundStyle(palette.textSecondary)
             }
         }
         .task(id: mediaPath) { await load() }

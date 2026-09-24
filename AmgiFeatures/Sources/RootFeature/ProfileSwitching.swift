@@ -1,6 +1,8 @@
 import AmgiAppCore
 import AmgiAppShared
+import AmgiReviewCore
 import AnkiBackend
+import BrowseFeature
 import Dependencies
 import Foundation
 import SyncFeature
@@ -26,24 +28,35 @@ func openCollection(for profileID: String, backend: AnkiBackend) throws {
 /// In-app profile switch: cancels any running sync, swaps the open collection
 /// on the shared backend, flips the scoping anchor (sync prefs + keychain
 /// identity), resets sync state, and refreshes widgets. The root view re-ids
-/// on `selectedID`, so the whole UI rebuilds against the new collection.
+/// on the runtime selection epoch, so the whole UI rebuilds against the new collection.
+@MainActor
+private var profileSwitchInProgress = false
+
 @MainActor
 func switchProfile(to account: AmgiAccount) async {
-    let store = AccountStore.shared
-    guard account.id != store.selectedID else { return }
-    let previous = store.current
+    let accountStore = AccountStore.shared
+    guard account.id != accountStore.selectedID, !profileSwitchInProgress else { return }
+    profileSwitchInProgress = true
+    defer { profileSwitchInProgress = false }
+    let previous = accountStore.current
 
     @Dependency(\.ankiBackend) var backend
+    @Dependency(\.collectionStore) var store
     @Dependency(\.syncCoordinator) var syncCoordinator
 
-    syncCoordinator.cancel()
+    guard syncCoordinator.beginCollectionLifecycle() else { return }
+    await ReviewSessionActivity.shared.drain()
+    defer { ReviewSessionActivity.shared.endDrain() }
+    await syncCoordinator.cancelAndWait()
+    await WidgetRefreshCoordinator.shared.cancelAndWait()
+    ReviewSessionContext.shared.clear()
     try? backend.closeCollection()
-    store.select(account)
+    accountStore.select(account)
     do {
         try openCollection(for: account.id, backend: backend)
     } catch {
         // Roll back rather than leave the app with no open collection.
-        store.select(previous)
+        accountStore.select(previous)
         do {
             try openCollection(for: previous.id, backend: backend)
         } catch let rollbackError {
@@ -51,14 +64,21 @@ func switchProfile(to account: AmgiAccount) async {
             // Discarding this left every screen failing its fetch with no
             // explanation — the app looked empty rather than broken.
             Log.decks.error("Profile switch and rollback both failed: \(rollbackError)")
-            store.switchFailure = """
+            accountStore.switchFailure = """
                 Couldn't open either profile's collection. Quit and reopen \
                 Amgi. If that doesn't help, reset the collection from \
                 Settings > Maintenance.
                 """
         }
+        syncCoordinator.endCollectionLifecycle()
         return
     }
     syncCoordinator.resetForProfileSwitch()
-    await writeWidgetSnapshot()
+    SemanticNoteIndex.shared.resetForProfileSwitch()
+    store.invalidateAll(origin: .refresh)
+    WidgetSnapshotStore.removeAllSnapshots()
+    await WidgetRefreshCoordinator.shared.refreshNow()
+    await SystemSpotlightIndexer.shared.scheduleDeckRefresh()
+    syncCoordinator.endCollectionLifecycle()
+    syncCoordinator.resumeAutomaticSyncIfNeeded(reason: "Profile became active")
 }

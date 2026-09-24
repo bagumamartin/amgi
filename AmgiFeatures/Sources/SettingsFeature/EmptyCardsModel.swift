@@ -1,3 +1,4 @@
+import AmgiAppShared
 import AnkiKit
 import AnkiClients
 import AnkiServices
@@ -20,6 +21,7 @@ final class EmptyCardsModel {
     @ObservationIgnored @Dependency(\.cardClient) private var cardClient
     @ObservationIgnored @Dependency(\.deckClient) private var deckClient
     @ObservationIgnored @Dependency(\.noteClient) private var noteClient
+    @ObservationIgnored @Dependency(\.collectionStore) private var collectionStore
 
     struct NoteEntry: Identifiable {
         let id: NoteID
@@ -78,6 +80,7 @@ final class EmptyCardsModel {
         try await Task.detached {
             try await cardClientCapture.removeCards(allCardIds)
         }.value
+        collectionStore.markLocalMutation()
     }
 
     /// Fetch the full note record for the editor; nil if the note is gone.

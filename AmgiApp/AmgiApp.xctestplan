@@ -25,6 +25,14 @@
     },
     {
       "target" : {
+        "containerPath" : "container:AmgiApp.xcodeproj",
+        "identifier" : "D2AE43B206388AEEED1DF7A4",
+        "name" : "AmgiAppIntentsUITests"
+      },
+      "parallelizable" : false
+    },
+    {
+      "target" : {
         "containerPath" : "container:..",
         "identifier" : "AnkiKitTests",
         "name" : "AnkiKitTests"
@@ -70,6 +78,20 @@
         "containerPath" : "container:../AmgiFeatures",
         "identifier" : "AmgiAppSharedTests",
         "name" : "AmgiAppSharedTests"
+      }
+    },
+    {
+      "target" : {
+        "containerPath" : "container:../AmgiFeatures",
+        "identifier" : "AppIntentsFeatureTests",
+        "name" : "AppIntentsFeatureTests"
+      }
+    },
+    {
+      "target" : {
+        "containerPath" : "container:../AmgiFeatures",
+        "identifier" : "AssistantFeatureTests",
+        "name" : "AssistantFeatureTests"
       }
     },
     {
