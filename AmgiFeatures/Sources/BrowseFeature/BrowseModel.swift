@@ -112,6 +112,10 @@ final class BrowseModel {
     var searchText = ""
     /// Engine-ordered raw item ids (cards or notes per mode). Cheap; never capped.
     private(set) var ids: [Int64] = []
+    /// Changes whenever the engine publishes a new result set. Views use this
+    /// as a hard selection boundary; `searchIdentity` alone cannot notice a
+    /// mutation/refresh that returns the same query with different ids.
+    private(set) var resultIdentity = UUID()
     /// Hydrated records so far, keyed by id for O(1) row updates.
     private(set) var noteRecords: [Int64: NoteRecord] = [:]
     private(set) var cardRecords: [Int64: CardRecord] = [:]
@@ -180,6 +184,15 @@ final class BrowseModel {
     private(set) var browserRows: [Int64: BrowserRowData] = [:]
     /// Catalog of engine columns (`AllBrowserColumns`) for the column picker.
     private(set) var browserColumns: [BrowserColumnSpec] = []
+    /// The active, ordered column specs for the current mode. Keeping this
+    /// projection beside the catalog prevents row rendering from inventing
+    /// labels or accidentally showing a column the user disabled.
+    var activeBrowserColumns: [BrowserColumnSpec] {
+        let keys = mode == .notes ? viewPrefs.notesColumns : viewPrefs.cardsColumns
+        return keys.compactMap { key in
+            browserColumns.first { $0.key == key }
+        }
+    }
     /// Persisted per-mode columns/sort (profile-scoped). Nil until loaded.
     var viewPrefs = BrowseViewPrefs()
     /// Hierarchical tag tree for the sidebar (desktop parity).
@@ -359,6 +372,7 @@ final class BrowseModel {
                 self.windowEnd = 0
                 self.hasMorePages = false
                 self.resultDeckIDs = []
+                self.resultIdentity = UUID()
             }
             return
         }
@@ -379,6 +393,10 @@ final class BrowseModel {
             cardRecords.removeAll()
             browserRows.removeAll()
             ids = newIDs
+            // Publish the boundary before hydration. A row can appear as soon
+            // as the first window is written, and selection must never survive
+            // into that new domain.
+            resultIdentity = UUID()
             if windowEnd == 0 || windowEnd > ids.count {
                 windowEnd = min(ids.count, windowSize)
             } else {
@@ -396,6 +414,7 @@ final class BrowseModel {
             windowEnd = 0
             hasMorePages = false
             resultDeckIDs = []
+            resultIdentity = UUID()
             searchError = error.localizedDescription
         }
     }
@@ -474,6 +493,7 @@ final class BrowseModel {
         // search field offered no suggestions on a fresh launch.
         loadHistory()
         await loadBrowserColumns()
+        await activateConfiguredColumns()
         Task { await loadNotetypeChildren() }
         let notetypes = notetypesService
         if let pairs = try? await backendOffload({ try notetypes.getNotetypeNames() }) {
@@ -1090,6 +1110,7 @@ final class BrowseModel {
         // here, so the fallback used to re-hydrate the previous (empty) result
         // window and silently show nothing.
         ids = matches
+        resultIdentity = UUID()
         windowEnd = min(ids.count, windowSize)
         hasMorePages = false
         semanticNotice = "Meaning-based matches for “\(trimmed)”"
@@ -1226,14 +1247,90 @@ final class BrowseModel {
 
     @ObservationIgnored @Dependency(\.ankiBackend) private var ankiBackend
 
-    /// Exact groups straight from the rslib aux service.
+    /// Exact groups straight from the rslib aux service. The unscoped
+    /// overload is retained for callers that only want the current query.
     func exactDuplicateGroups(field: String, searchText text: String) async -> FindDuplicatesResult? {
-        try? await ankiBackend.invoke(.findDuplicatesExact(search: text, fieldName: field))
+        try? await ankiBackend.invoke(
+            .findDuplicatesExact(search: text, fieldName: field)
+        )
     }
 
-    /// Fuzzy clusters over currently loaded notes (scope-limited O(n²)).
+    /// Exact groups constrained to the same effective scope as the Browse
+    /// screen. The engine call still performs the expensive scan, but the
+    /// returned groups are filtered before they reach the UI/tag action so a
+    /// selected subset can never tag a note outside that subset.
+    func exactDuplicateGroups(
+        field: String,
+        searchText text: String,
+        scopeNoteIDs: Set<NoteID>,
+        scopeCardIDs: Set<CardID>
+    ) async -> FindDuplicatesResult? {
+        var restrictions = [buildQuery()]
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { restrictions.append(trimmed) }
+
+        let explicitScope = !scopeNoteIDs.isEmpty || !scopeCardIDs.isEmpty
+        let scope: Set<NoteID>? = explicitScope
+            ? await duplicateScopeNoteIDs(noteIDs: scopeNoteIDs, cardIDs: scopeCardIDs)
+            : nil
+        if let scope, !scope.isEmpty,
+           let fragment = BrowseSearchGrammar.noteIDs(Array(scope)) {
+            restrictions.append(fragment)
+        }
+
+        let query = restrictions
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .map { "( \($0) )" }
+            .joined(separator: " ")
+        guard !query.isEmpty else { return nil }
+
+        guard let result = try? await ankiBackend.invoke(
+            .findDuplicatesExact(search: query, fieldName: field)
+        ) else { return nil }
+        guard explicitScope, let scope, !scope.isEmpty else { return result }
+
+        let groups = result.groups.compactMap { group -> FindDuplicatesResult.Group? in
+            let filtered = group.noteIds.filter { scope.contains(NoteID($0)) }
+            guard filtered.count >= 2 else { return nil }
+            return FindDuplicatesResult.Group(value: group.value, noteIds: filtered)
+        }
+        return FindDuplicatesResult(groups: groups, notesScanned: result.notesScanned)
+    }
+
+    /// Fuzzy clusters over the complete current result set, not just the
+    /// hydrated window. The old window-only implementation made the button
+    /// appear to work while silently missing most of a long result page.
     func nearDuplicateGroupsInScope() -> [[Int64]] {
-        SemanticNoteIndex.shared.nearDuplicateGroups(scope: Array(ids.prefix(windowEnd)))
+        let scope: [Int64]
+        switch mode {
+        case .notes:
+            scope = ids
+        case .cards:
+            scope = cardRecords.values.map(\.nid.rawValue)
+        }
+        return SemanticNoteIndex.shared.nearDuplicateGroups(scope: scope)
+    }
+
+    /// Scoped fuzzy scan used by Find Duplicates. With no explicit selection,
+    /// the current Browse results are the scope; a card selection resolves to
+    /// its backing notes before grouping.
+    func nearDuplicateGroups(
+        scopeNoteIDs: Set<NoteID> = [],
+        scopeCardIDs: Set<CardID> = []
+    ) async -> [[Int64]] {
+        let explicitScope = !scopeNoteIDs.isEmpty || !scopeCardIDs.isEmpty
+        let scope: [Int64]
+        if explicitScope {
+            let notes = await duplicateScopeNoteIDs(noteIDs: scopeNoteIDs, cardIDs: scopeCardIDs)
+            scope = notes.map(\.rawValue)
+        } else if mode == .notes {
+            scope = ids
+        } else {
+            // Semantic entries are keyed by note id, never by the card id
+            // shown in Cards mode.
+            scope = await noteIDsOfCards(ids.map { CardID($0) }).map(\.rawValue)
+        }
+        return SemanticNoteIndex.shared.nearDuplicateGroups(scope: scope)
     }
 
     /// True when the user's text is pure free-text (no pinned grammar
@@ -1521,6 +1618,21 @@ final class BrowseModel {
         }
     }
 
+    /// Reconcile the engine's per-mode browser column set with the persisted
+    /// profile preference at launch and after a Notes/Cards switch. Without
+    /// this, labels came from the new mode while row cells still came from
+    /// the previous mode's active set.
+    func activateConfiguredColumns() async {
+        let keys = mode == .notes ? viewPrefs.notesColumns : viewPrefs.cardsColumns
+        guard !keys.isEmpty else { return }
+        do {
+            try await ankiBackend.invoke(.setActiveBrowserColumns(keys))
+            browserRows.removeAll()
+        } catch {
+            return
+        }
+    }
+
     func browserRow(for id: Int64) async -> BrowserRowData? {
         if let cached = browserRows[id] { return cached }
         guard let row = try? await ankiBackend.invoke(.browserRowForId(id: id)) else { return nil }
@@ -1529,6 +1641,10 @@ final class BrowseModel {
     }
 
     func setActiveColumns(_ keys: [String]) async {
+        guard !keys.isEmpty else {
+            errorMessage = "Keep at least one browser column visible."
+            return
+        }
         do {
             try await ankiBackend.invoke(.setActiveBrowserColumns(keys))
             collectionStore.markLocalMutation()
@@ -1665,12 +1781,55 @@ final class BrowseModel {
         return template
     }
 
-    /// Tag every duplicate group (desktop Find Duplicates "Tag Duplicates").
-    func tagDuplicateGroups(_ groups: [[NoteID]], tag: String = "duplicate") async {
-        for group in groups where !group.isEmpty {
-            try? await tagClient.addTagToNotes(tag, group)
+    /// Resolves the effective duplicate scope. An explicit note/card
+    /// selection wins; with no selection the current result set is used so
+    /// the action remains a Browse action rather than an accidental
+    /// collection-wide tag operation.
+    private func duplicateScopeNoteIDs(
+        noteIDs: Set<NoteID>,
+        cardIDs: Set<CardID>
+    ) async -> Set<NoteID> {
+        if !noteIDs.isEmpty || !cardIDs.isEmpty {
+            return Set(await resolveTargetNotes(
+                cardIDs: Array(cardIDs),
+                noteIDs: Array(noteIDs)
+            ))
         }
-        await refreshAfterMutation()
+        if mode == .notes {
+            return Set(ids.map { NoteID($0) })
+        }
+        return Set(await noteIDsOfCards(ids.map { CardID($0) }))
+    }
+
+    /// Tag every duplicate group (desktop Find Duplicates "Tag Duplicates").
+    /// Only notes in the effective Browse/selection scope are tagged, and a
+    /// single engine transaction keeps the operation undo-friendly.
+    @discardableResult
+    func tagDuplicateGroups(
+        _ groups: [[NoteID]],
+        tag: String = "duplicate",
+        scopeNoteIDs: Set<NoteID> = [],
+        scopeCardIDs: Set<CardID> = []
+    ) async -> Int {
+        let scope = await duplicateScopeNoteIDs(
+            noteIDs: scopeNoteIDs,
+            cardIDs: scopeCardIDs
+        )
+        let unique = Set(groups.flatMap { $0 }).intersection(scope)
+        guard !unique.isEmpty else {
+            errorMessage = "There are no duplicate notes in the current Browse scope."
+            return 0
+        }
+        do {
+            try await tagClient.addTagToNotes(tag, Array(unique))
+            collectionStore.markLocalMutation()
+            await refreshAfterMutation()
+            return unique.count
+        } catch {
+            errorMessage = "Couldn't tag duplicates: \(error.localizedDescription)"
+            Log.browse.error("Browse tag duplicates failed: \(error)")
+            return 0
+        }
     }
 
     // MARK: - Due formatting (P1D interim, scheduler-aware)

@@ -1,5 +1,6 @@
 import AmgiAppCore
 import AmgiAppShared
+import AmgiReviewCore
 import AnkiBackend
 import AnkiServices
 import Dependencies
@@ -10,13 +11,20 @@ import SyncFeature
 /// at the composition root because the engine requires its collection lock to
 /// be closed while files are replaced, unlike every merge-style importer.
 @MainActor
-func replaceCurrentCollection(with stagedPackageURL: URL) async throws {
+func replaceCurrentCollection(
+    with stagedPackageURL: URL,
+    profileID expectedProfileID: String,
+    lifecycleAlreadyHeld: Bool = false
+) async throws {
     @Dependency(\.ankiBackend) var backend
     @Dependency(\.collectionStore) var collectionStore
     @Dependency(\.syncCoordinator) var syncCoordinator
     @Dependency(\.importExportService) var importExport
 
-    let profileID = AccountStore.shared.selectedID
+    guard AccountStore.shared.selectedID == expectedProfileID else {
+        throw ImportReviewFailure.profileChanged
+    }
+    let profileID = expectedProfileID
     let profileDirectory = AccountStore.profileDirectory(for: profileID)
     let collectionPath = profileDirectory.appendingPathComponent("collection.anki2").path
     let mediaFolderPath = profileDirectory.appendingPathComponent("media", isDirectory: true).path
@@ -33,10 +41,24 @@ func replaceCurrentCollection(with stagedPackageURL: URL) async throws {
         }
     }
 
-    guard syncCoordinator.beginCollectionLifecycle() else {
-        throw CancellationError()
+    if !lifecycleAlreadyHeld {
+        guard syncCoordinator.beginCollectionLifecycle() else {
+            throw CancellationError()
+        }
     }
-    defer { syncCoordinator.endCollectionLifecycle() }
+    defer { if !lifecycleAlreadyHeld { syncCoordinator.endCollectionLifecycle() } }
+    let drainsReviewActivity = !lifecycleAlreadyHeld
+    if drainsReviewActivity {
+        await ReviewSessionActivity.shared.drain()
+    }
+    defer {
+        if drainsReviewActivity {
+            ReviewSessionActivity.shared.endDrain()
+        }
+    }
+    guard AccountStore.shared.selectedID == profileID else {
+        throw ImportReviewFailure.profileChanged
+    }
     await syncCoordinator.cancelAndWait()
     await WidgetRefreshCoordinator.shared.cancelAndWait()
 
@@ -62,6 +84,18 @@ func replaceCurrentCollection(with stagedPackageURL: URL) async throws {
             mediaDatabasePath: mediaDatabasePath
         )
         throw error
+    }
+
+    guard AccountStore.shared.selectedID == profileID else {
+        try? await backendOffload { try backend.closeCollection() }
+        try? await reopenAfterReplacement(
+            backend: backend,
+            profileID: profileID,
+            collectionPath: collectionPath,
+            mediaFolderPath: mediaFolderPath,
+            mediaDatabasePath: mediaDatabasePath
+        )
+        throw ImportReviewFailure.profileChanged
     }
 
     do {

@@ -1,7 +1,9 @@
 public import SwiftUI
+import UniformTypeIdentifiers
 import AmgiUI
 import AmgiAppCore
 import AmgiAppShared
+import AmgiReviewCore
 import AmgiTheme
 import AnkiKit
 import AnkiBackend
@@ -27,6 +29,7 @@ public struct RootView: View {
 
     @Shared(.onboardingCompleted) private var onboardingCompleted
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openWindow) private var openWindow
     @Shared(.appStorage(AppearancePreferences.Keys.appFont))
     private var appFontRaw: String = AppFont.system.rawValue
 
@@ -43,14 +46,20 @@ public struct RootView: View {
     @State private var launchState = CollectionLaunchState.shared
     @State private var importRequestRouter = ImportRequestRouter.shared
     @State private var pendingImport: ImportRequest?
+    @State private var readerImportRouter = ReaderImportRequestRouter.shared
     @State private var exportRequestRouter = ExportRequestRouter.shared
     @State private var pendingExport: ExportRequest?
     @State private var appNavigation = AppNavigationCoordinator.shared
     @State private var assistantSheet: AssistantSheetRequest?
+    @State private var sceneActions = RootSceneActions()
+    @State private var syncRequest = 0
+    @State private var isUITesting = ProcessInfo.processInfo.arguments.contains("--ui-testing")
+    @State private var isImportPresented = false
+    @State private var sceneID = UUID()
 
     /// Mirrors MainTabView's persisted selection so URL handlers, intents,
     /// and menu commands can switch sections through one source of truth.
-    @Shared(.appStorage(NavigationPreferences.rootSection)) private var sectionRaw: String = MainSection.study.rawValue
+    @SceneStorage(NavigationPreferences.rootSection) private var sectionRaw: String = MainSection.study.rawValue
 
     @Shared(.appStorage(ReaderPreferences.Keys.showTab))
     private var showReaderTab: Bool = true
@@ -72,23 +81,12 @@ public struct RootView: View {
                 studyTodayRequest = 0
                 assistantSheet = nil
                 BrowseLauncher.shared.discardPending()
+                readerImportRouter.discardPending()
                 exportRequestRouter.discardPending()
                 appNavigation.discardPending()
             }
             .onChange(of: scenePhase) { _, newPhase in
-                if newPhase == .active {
-                    Task {
-                        await WidgetRefreshCoordinator.shared.refreshNow()
-                        syncCoordinator.resumeAutomaticSyncIfNeeded(reason: "App became active")
-                        syncCoordinator.runScheduledCollectionSyncIfNeeded()
-                    }
-                    presentNavigationRequestIfPossible()
-                } else if newPhase == .background {
-                    Task {
-                        await WidgetRefreshCoordinator.shared.refreshNow()
-                        syncCoordinator.resumeAutomaticSyncIfNeeded(reason: "App entered background")
-                    }
-                }
+                handleScenePhaseChange(newPhase)
             }
             .onChange(of: appNavigation.requestID) {
                 presentNavigationRequestIfPossible()
@@ -99,74 +97,55 @@ public struct RootView: View {
             .onChange(of: launchState.openError) {
                 presentNavigationRequestIfPossible()
             }
-            .onOpenURL { url in
-                if url.isFileURL {
-                    importRequestRouter.request(url)
-                    return
+            .onAppear {
+                if isUITesting {
+                    $showReaderTab.withLock { $0 = true }
+                    sectionRaw = MainSection.study.rawValue
                 }
-                guard url.scheme == "amgi" else { return }
-                switch url.host {
-                case "study":
-                    // `amgi://study` is the widget route. Increment before
-                    // switching so an already-mounted Study tab receives a
-                    // fresh request and returns from any historical period.
-                    // A configured widget may also carry its deck ID; 0 means
-                    // the collection-wide Today desk. New widget files carry
-                    // their profile; legacy deck-specific files are rejected
-                    // rather than allowed to target a same-numbered deck in
-                    // the current profile.
-                    let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-                    let requestedDeckID = components?.queryItems?
-                        .first(where: { $0.name == "deckId" })?
-                        .value
-                        .flatMap { Int64($0) }
-                    let requestedProfileID = components?.queryItems?
-                        .first(where: { $0.name == "profileID" })?
-                        .value
-                    let currentProfileID = AccountStore.shared.selectedContext.id
-                    if let requestedProfileID, requestedProfileID != currentProfileID {
-                        return
-                    }
-                    if requestedDeckID != nil, requestedProfileID == nil {
-                        return
-                    }
-                    studyTodayDeckID = requestedDeckID == 0 ? nil : requestedDeckID
-                    studyTodayRequest &+= 1
-                    $sectionRaw.withLock { $0 = MainSection.study.rawValue }
-                case "browse":
-                    // amgi://browse?deck=<name> drill-ins; URLComponents
-                    // restores percent-encoding and DeckSearch escapes the
-                    // Anki query metacharacters.
-                    if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-                       let value = components.queryItems?.first(where: { $0.name == "deck" })?.value,
-                       !value.isEmpty {
-                        let requestedProfileID = components.queryItems?
-                            .first(where: { $0.name == "profileID" })?.value
-                        guard requestedProfileID == AccountStore.shared.selectedContext.id else { return }
-                        BrowseLauncher.shared.launch(query: DeckSearch.term(value))
-                    } else {
-                        BrowseLauncher.shared.launch()
-                    }
-                    $sectionRaw.withLock { $0 = MainSection.browse.rawValue }
-                case "review":
-                    let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-                    guard let deckIdStr = components?.queryItems?
-                        .first(where: { $0.name == "deckId" })?.value,
-                        let deckId = Int64(deckIdStr)
-                    else { return }
-                    let requestedProfileID = components?.queryItems?
-                        .first(where: { $0.name == "profileID" })?.value
-                    if let requestedProfileID,
-                       requestedProfileID != AccountStore.shared.selectedContext.id {
-                        return
-                    }
-                    if requestedProfileID == nil { return }
-                    pendingReviewDeckId = DeckID(deckId)
-                    $sectionRaw.withLock { $0 = MainSection.study.rawValue }
-                default:
-                    break
+                sceneActions.selectSection = { section in
+                    sectionRaw = section.rawValue
                 }
+                sceneActions.presentSync = {
+                    syncRequest &+= 1
+                }
+                sceneActions.presentImport = {
+                    isImportPresented = true
+                }
+                sceneActions.presentExport = {
+                    exportRequestRouter.request(
+                        scope: .collection,
+                        allowsScopeChange: true,
+                        sourceName: AccountStore.shared.current.displayName
+                    )
+                }
+                sceneActions.presentStudyAssistant = {
+                    assistantSheet = AssistantSheetRequest(prompt: "")
+                }
+                sceneActions.isReaderEnabled = showReaderTab
             }
+            .onChange(of: showReaderTab) { _, enabled in
+                sceneActions.isReaderEnabled = enabled
+            }
+            .onDisappear {
+                sceneActions.invalidate()
+            }
+            .onOpenURL { url in
+                handleIncomingURL(url)
+            }
+            #if os(macOS)
+            .onReceive(
+                DistributedNotificationCenter.default().publisher(
+                    for: Notification.Name("com.ijuka.app.forwarded-url")
+                )
+            ) { notification in
+                guard let value = notification.userInfo?["url"] as? String,
+                      let url = URL(string: value),
+                      ForwardedURLClaim.shared.claim(for: sceneID)
+                else { return }
+                handleIncomingURL(url)
+                ForwardedURLClaim.shared.release(sceneID)
+            }
+            #endif
             // Idle-time WebView prewarm: after launch settles, spawn WebKit's
             // card-rendering processes so the first HTML review card never
             // waits on a cold-start (logs: 1.8–3.7s). DeckDetailView re-checks
@@ -183,6 +162,105 @@ public struct RootView: View {
             }
             .themedRoot()
             .environment(\.appFont, AppFont(rawValue: appFontRaw) ?? .system)
+            .focusedSceneValue(\.rootSceneActions, sceneActions)
+    }
+
+    private func handleScenePhaseChange(_ phase: ScenePhase) {
+        switch phase {
+        case .active:
+            handleSceneBecameActive()
+        case .background:
+            handleSceneEnteredBackground()
+        default:
+            break
+        }
+    }
+
+    private func handleSceneBecameActive() {
+        presentNavigationRequestIfPossible()
+        Task {
+            await WidgetRefreshCoordinator.shared.refreshNow()
+            syncCoordinator.resumeAutomaticSyncIfNeeded(reason: "App became active")
+            syncCoordinator.runScheduledCollectionSyncIfNeeded()
+        }
+    }
+
+    private func handleSceneEnteredBackground() {
+        Task {
+            await WidgetRefreshCoordinator.shared.refreshNow()
+            syncCoordinator.resumeAutomaticSyncIfNeeded(reason: "App entered background")
+        }
+    }
+
+    private func presentReview(deckId: DeckID, pullCooling: Bool = false) {
+        #if os(macOS)
+        ReviewWindowQueue.shared.enqueue(deckId, pullCooling: pullCooling)
+        openWindow(id: "review")
+        #else
+        self.pullCooling = pullCooling
+        pendingReviewDeckId = deckId
+        #endif
+    }
+
+    private func handleIncomingURL(_ url: URL) {
+        if url.isFileURL {
+            if url.pathExtension.lowercased() == "epub" {
+                readerImportRouter.request(
+                    url,
+                    profileID: AccountStore.shared.selectedID
+                )
+                $showReaderTab.withLock { $0 = true }
+                sectionRaw = MainSection.read.rawValue
+            } else {
+                importRequestRouter.request(url)
+            }
+            return
+        }
+        guard url.scheme == "amgi" else { return }
+        switch url.host {
+        case "study":
+            let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            let requestedDeckID = components?.queryItems?
+                .first(where: { $0.name == "deckId" })?
+                .value
+                .flatMap { Int64($0) }
+            let requestedProfileID = components?.queryItems?
+                .first(where: { $0.name == "profileID" })?
+                .value
+            let currentProfileID = AccountStore.shared.selectedContext.id
+            guard requestedProfileID == nil || requestedProfileID == currentProfileID else { return }
+            guard requestedDeckID == nil || requestedProfileID != nil else { return }
+            studyTodayDeckID = requestedDeckID == 0 ? nil : requestedDeckID
+            studyTodayRequest &+= 1
+            sectionRaw = MainSection.study.rawValue
+        case "browse":
+            if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+               let value = components.queryItems?.first(where: { $0.name == "deck" })?.value,
+               !value.isEmpty {
+                let requestedProfileID = components.queryItems?
+                    .first(where: { $0.name == "profileID" })?.value
+                guard requestedProfileID == AccountStore.shared.selectedContext.id else { return }
+                BrowseLauncher.shared.launch(query: DeckSearch.term(value))
+            } else {
+                BrowseLauncher.shared.launch()
+            }
+            sectionRaw = MainSection.browse.rawValue
+        case "review":
+            let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            guard let deckIDValue = components?.queryItems?
+                .first(where: { $0.name == "deckId" })?.value,
+                let deckID = Int64(deckIDValue)
+            else { return }
+            let requestedProfileID = components?.queryItems?
+                .first(where: { $0.name == "profileID" })?.value
+            guard let requestedProfileID,
+                  requestedProfileID == AccountStore.shared.selectedContext.id
+            else { return }
+            presentReview(deckId: DeckID(deckID))
+            sectionRaw = MainSection.study.rawValue
+        default:
+            break
+        }
     }
 
     /// Consumes the oldest durable system-navigation request. Requests remain
@@ -191,7 +269,7 @@ public struct RootView: View {
     private func presentNavigationRequestIfPossible() {
         guard launchState.openError == nil,
               AmgiRoot.startupError == nil,
-              onboardingCompleted,
+              onboardingCompleted || isUITesting,
               pendingImport == nil,
               pendingExport == nil,
               pendingReviewDeckId == nil,
@@ -201,21 +279,21 @@ public struct RootView: View {
         guard let request = appNavigation.consume() else { return }
         switch request.route {
         case .review(let deckID):
-            pendingReviewDeckId = DeckID(deckID)
-            $sectionRaw.withLock { $0 = MainSection.study.rawValue }
+            presentReview(deckId: DeckID(deckID))
+            sectionRaw = MainSection.study.rawValue
         case .browse(let query):
             BrowseLauncher.shared.launch(query: query)
-            $sectionRaw.withLock { $0 = MainSection.browse.rawValue }
+            sectionRaw = MainSection.browse.rawValue
         case .browseDeck(let deckID):
             BrowseLauncher.shared.launch(deckID: deckID)
-            $sectionRaw.withLock { $0 = MainSection.browse.rawValue }
+            sectionRaw = MainSection.browse.rawValue
         case .openNote(let noteID):
             BrowseLauncher.shared.launch(query: "nid:\(noteID)")
-            $sectionRaw.withLock { $0 = MainSection.browse.rawValue }
+            sectionRaw = MainSection.browse.rawValue
         case .studyAssistant(let prompt):
             assistantSheet = AssistantSheetRequest(prompt: prompt)
         case .presentSync:
-            NotificationCenter.default.post(name: .amgiPresentSync, object: nil)
+            syncRequest &+= 1
         }
     }
 
@@ -244,7 +322,7 @@ public struct RootView: View {
             CollectionBusyView()
         } else if let startupError = AmgiRoot.startupError {
             StartupErrorView(message: startupError)
-        } else if onboardingCompleted {
+        } else if onboardingCompleted || isUITesting {
             main
         } else {
             OnboardingView()
@@ -257,13 +335,13 @@ public struct RootView: View {
             showReaderTab: showReaderTab,
             studyTodayRequest: studyTodayRequest,
             studyTodayDeckID: studyTodayDeckID,
-            onSelectStudyDeck: {
+            onSelectStudyDeck: { deckID in
                 pullCooling = false
-                pendingReviewDeckId = $0
+                presentReview(deckId: deckID)
             },
             onPullCooling: {
                 pullCooling = true
-                pendingReviewDeckId = DeckID(0)
+                presentReview(deckId: DeckID(0), pullCooling: true)
             },
             onOpenAssistant: {
                 assistantSheet = AssistantSheetRequest(prompt: nil)
@@ -278,7 +356,7 @@ public struct RootView: View {
             Text(accountStore.switchFailure ?? "")
         }
         // still drives the tabs not yet on CollectionStore
-        .syncFlow { refreshID = UUID() }
+        .syncFlow(requestID: syncRequest) { refreshID = UUID() }
         .onChange(of: importRequestRouter.requestID) {
             presentPendingImportIfPossible()
         }
@@ -292,6 +370,22 @@ public struct RootView: View {
             presentPendingImportIfPossible()
             presentPendingExportIfPossible()
         }
+        .fileImporter(
+            isPresented: $isImportPresented,
+            allowedContentTypes: AnkiImportFormat.supportedContentTypes + [
+                UTType(filenameExtension: "epub") ?? .data
+            ]
+        ) { result in
+            if case .success(let url) = result {
+                if url.pathExtension.lowercased() == "epub" {
+                    readerImportRouter.request(url, profileID: AccountStore.shared.selectedID)
+                    $showReaderTab.withLock { $0 = true }
+                    sectionRaw = MainSection.read.rawValue
+                } else {
+                    importRequestRouter.request(url)
+                }
+            }
+        }
         .sheet(item: $pendingImport, onDismiss: {
             presentPendingImportIfPossible()
             presentPendingExportIfPossible()
@@ -299,7 +393,26 @@ public struct RootView: View {
         }) { request in
             ImportReviewView(
                 sourceURL: request.url,
-                replaceCollection: replaceCurrentCollection,
+                profileID: request.profileID,
+                replaceCollection: { stagedURL in
+                    try await replaceCurrentCollection(
+                        with: stagedURL,
+                        profileID: request.profileID,
+                        lifecycleAlreadyHeld: true
+                    )
+                },
+                beforeImport: {
+                    guard syncCoordinator.beginCollectionLifecycle() else {
+                        throw CancellationError()
+                    }
+                    await ReviewSessionActivity.shared.drain()
+                    await syncCoordinator.cancelAndWait()
+                    await WidgetRefreshCoordinator.shared.cancelAndWait()
+                },
+                afterImport: {
+                    ReviewSessionActivity.shared.endDrain()
+                    syncCoordinator.endCollectionLifecycle()
+                },
                 onComplete: {
                     store.invalidateAll(origin: .localUser)
                     refreshID = UUID()

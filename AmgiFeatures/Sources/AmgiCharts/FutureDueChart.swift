@@ -15,6 +15,7 @@ public struct FutureDueChart: View {
 
     @Environment(\.palette) private var palette
     @State private var includeBacklog = false
+    @State private var selectedDay: Int?
 
     private var filteredData: [(day: Int, count: Int)] {
         let maxDay = period.days
@@ -43,6 +44,15 @@ public struct FutureDueChart: View {
         return Double(positiveDays.reduce(0) { $0 + $1.count }) / Double(max(maxOffset, 1))
     }
 
+    private func nearestDay(proxy: ChartProxy, plotX: CGFloat, values: [Int]) -> Int? {
+        guard let value: Double = proxy.value(atX: plotX) else { return nil }
+        return values.min { abs(Double($0) - value) < abs(Double($1) - value) }
+    }
+
+    private func selectedCount(for day: Int, in data: [(day: Int, count: Int)]) -> Int {
+        data.first(where: { $0.day == day })?.count ?? 0
+    }
+
     public var body: some View {
         // Built once per pass and threaded through — reading the computed
         // `filteredData` from each call site re-ran the compactMap + sort five
@@ -60,12 +70,29 @@ public struct FutureDueChart: View {
                 if filteredData.isEmpty {
                     Text("No cards due").foregroundStyle(palette.textSecondary).frame(height: 180)
                 } else {
-                    Chart(filteredData, id: \.day) { item in
-                        BarMark(
-                            x: .value("Day", item.day),
-                            y: .value("Cards", item.count)
-                        )
-                        .foregroundStyle(item.day < 0 ? palette.danger.gradient : palette.accent.gradient)
+                    Chart {
+                        ForEach(filteredData, id: \.day) { item in
+                            BarMark(
+                                x: .value("Day", item.day),
+                                y: .value("Cards", item.count)
+                            )
+                            .foregroundStyle(item.day < 0 ? palette.danger.gradient : palette.accent.gradient)
+                        }
+
+                        if let selectedDay, filteredData.contains(where: { $0.day == selectedDay }) {
+                            RuleMark(x: .value("Selected Day", selectedDay))
+                                .foregroundStyle(palette.textSecondary.opacity(0.55))
+                                .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                                .annotation(position: .top, spacing: 0) {
+                                    StatsChartTooltip(
+                                        title: statsChartDayTitle(selectedDay),
+                                        lines: [
+                                            "Cards due: \(selectedCount(for: selectedDay, in: filteredData))",
+                                            "Backlog: \(selectedDay < 0 ? "Yes" : "No")",
+                                        ]
+                                    )
+                                }
+                        }
                     }
                     .chartXAxis {
                         AxisMarks(values: .automatic(desiredCount: 5)) { _ in
@@ -73,12 +100,29 @@ public struct FutureDueChart: View {
                             AxisValueLabel()
                         }
                     }
+                    .statsChartXInspection(
+                        values: filteredData.map(\.day),
+                        selection: $selectedDay,
+                        valueAtX: { proxy, x in
+                            nearestDay(proxy: proxy, plotX: x, values: filteredData.map(\.day))
+                        },
+                        xPosition: { Double($0) },
+                        accessibilityText: { day in
+                            "\(statsChartDayTitle(day)), Cards due: \(selectedCount(for: day, in: filteredData))"
+                        }
+                    )
                     .frame(height: 180)
                 }
 
                 if futureDue.haveBacklog {
-                    Toggle("Include Backlog", isOn: $includeBacklog)
-                        .amgiFont(.caption)
+                    Toggle("Include Backlog", isOn: Binding(
+                        get: { includeBacklog },
+                        set: { newValue in
+                            includeBacklog = newValue
+                            if !newValue { selectedDay = nil }
+                        }
+                    ))
+                    .amgiFont(.caption)
                 }
 
                 HStack(spacing: 16) {

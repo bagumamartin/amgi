@@ -266,6 +266,33 @@ private extension TagsView {
             .contentShape(Rectangle())
         }
         .buttonStyle(.pressScale)
+        .contextMenu {
+            if isNoteMode {
+                Button {
+                    Task { await applyTag(tag) }
+                } label: {
+                    Label("Apply to selected notes", systemImage: "tag")
+                }
+                Button {
+                    Task { await removeTagFromSelectedNotes(tag) }
+                } label: {
+                    Label("Remove from selected notes", systemImage: "tag.slash")
+                }
+            } else {
+                Button {
+                    destination = .renameTag(TagRename(original: tag))
+                } label: {
+                    Label("Rename", systemImage: "pencil")
+                }
+                Button(role: .destructive) {
+                    destination = .deleteTag(tag)
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+            }
+        }
+        .accessibilityAction(named: "Rename") { destination = .renameTag(TagRename(original: tag)) }
+        .accessibilityAction(named: "Delete") { destination = .deleteTag(tag) }
         .swipeActions(edge: .trailing) {
             if isNoteMode {
                 Button {

@@ -47,7 +47,9 @@ package struct ReviewView: View {
     @State private var session: ReviewSession
     @State private var destination: ReviewDestination?
     @State private var toreDownSession = false
+    @State private var endedSession = false
 
+    private let accountStore = AccountStore.shared
     @Dependency(\.deckClient) private var deckClient
     @Dependency(\.collectionStore) private var store
     @Dependency(\.liveReviewCounts) private var liveCounts
@@ -90,18 +92,37 @@ package struct ReviewView: View {
         .onChange(of: playAudioInSilentMode) { _, newValue in
             ReviewAudioSession.apply(playInSilent: newValue)
         }
+        .onChange(of: accountStore.selectionID) { _, _ in
+            // Profile switching drains and revokes the lease in Root before the
+            // selection flips. End immediately from the feature side as well so
+            // owner-scoped live counts/context cannot leak into the new profile.
+            session.end()
+        }
         .onChange(of: session.successfulMutationCount) { _, _ in
             // The review engine commits answers outside CollectionStore, so
             // explicitly publish the mutation to the app-level activity rail.
             store.markLocalMutation()
         }
         .onDisappear {
-            liveCounts.clear()
             Task {
+                // Keep the session's lease through temporary-deck cleanup so a
+                // newly opened review cannot interleave with that engine work.
                 await tearDownCompletedSession()
+                endReview()
                 await WidgetRefreshCoordinator.shared.refreshNow()
             }
         }
+    }
+
+    private func endReview() {
+        guard !endedSession else { return }
+        endedSession = true
+        session.end()
+        liveCounts.clear(sessionID: session.sessionID)
+        // Answer commits happen outside CollectionStore. End-of-review is the
+        // durable hand-off point: invalidate deck/count caches exactly once so
+        // every consumer reloads the scheduler's final state.
+        store.invalidateAll(origin: .localUser)
     }
 
     /// A filtered deck built for one sitting ("Study · …", Custom Study)

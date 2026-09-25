@@ -30,7 +30,7 @@ package struct StatsDashboardView: View {
             state: model.state,
             period: period,
             selectedDeck: selectedDeck,
-            topLevelDecks: model.topLevelDecks,
+            decks: model.decks,
             onSelectDeck: { selectedDeck = $0 },
             onSelectPeriod: { period = $0 },
             isRefreshing: model.isRefreshing,

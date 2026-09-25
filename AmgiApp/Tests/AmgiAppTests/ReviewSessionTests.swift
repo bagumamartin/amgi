@@ -1,6 +1,10 @@
 import Testing
 import SwiftUI
+#if canImport(UIKit)
 import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 import Dependencies
 import Foundation
 import AnkiClients
@@ -179,11 +183,19 @@ import AnkiServices
         let session = ReviewSession(deckId: DeckID(1))
         #expect(session.cardChromeColor == .clear)
         #expect(!session.cardChromeIsDark)
+        #if canImport(UIKit)
         session.updateCardChrome(color: UIColor.red, isDark: false)
         #expect(session.cardChromeColor == Color(uiColor: UIColor.red))
         #expect(!session.cardChromeIsDark)
         session.updateCardChrome(color: UIColor.black, isDark: true)
         #expect(session.cardChromeColor == Color(uiColor: UIColor.black))
+        #elseif canImport(AppKit)
+        session.updateCardChrome(color: NSColor.red, isDark: false)
+        #expect(session.cardChromeColor == Color(nsColor: NSColor.red))
+        #expect(!session.cardChromeIsDark)
+        session.updateCardChrome(color: NSColor.black, isDark: true)
+        #expect(session.cardChromeColor == Color(nsColor: NSColor.black))
+        #endif
         #expect(session.cardChromeIsDark)
     }
 
@@ -320,8 +332,13 @@ import AnkiServices
             #expect(session.replayRequestID == 1)
 
             // JS reports a card-bg color
+            #if canImport(UIKit)
             session.updateCardChrome(color: UIColor.systemBlue, isDark: false)
             #expect(session.cardChromeColor == Color(uiColor: UIColor.systemBlue))
+            #elseif canImport(AppKit)
+            session.updateCardChrome(color: NSColor.systemBlue, isDark: false)
+            #expect(session.cardChromeColor == Color(nsColor: NSColor.systemBlue))
+            #endif
         }
     }
 

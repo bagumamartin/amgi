@@ -20,9 +20,14 @@ struct EPUBChapterReaderView: View {
     /// Index into `book.chapters` of the chapter currently displayed.
     @State var chapterIndex: Int
     let progressCoordinator: ReaderProgressCoordinator
+    /// Regular-width book detail supplies this to return from a chapter to
+    /// the book summary while keeping its chapter sidebar mounted. Standalone
+    /// chapter presentations leave it nil and dismiss normally.
+    var onClose: (() -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.palette) private var palette
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @State private var model = EPUBChapterReaderModel()
 
@@ -31,6 +36,8 @@ struct EPUBChapterReaderView: View {
     @State private var progressFraction: Double = 0
     @State private var pendingRestoreFraction: Double?
     @State private var lookupRequest: LookupRequest?
+    @State private var selectionRequestID = 0
+    @State private var pageTurnRequest: ReaderPageTurnRequest?
     @State private var didRequestInitialRestore = false
     @State private var chromeVisible: Bool = true
     @State private var endOfBookToastVisible: Bool = false
@@ -40,6 +47,9 @@ struct EPUBChapterReaderView: View {
     /// UserDefaults and fire a detached write into the Anki collection;
     /// swiping through a chapter issued one of each per page.
     @State private var progressSaveDebounce: Task<Void, Never>?
+    #if os(iOS)
+    @FocusState private var keyboardFocused: Bool
+    #endif
 
     @Shared(.appStorage(ReaderPreferences.Keys.verticalLayout))
     private var verticalLayout: Bool = false
@@ -62,6 +72,8 @@ struct EPUBChapterReaderView: View {
     private var typoThemeRaw: String = ReaderTypographyPreferences.Theme.default.rawValue
     @Shared(.appStorage(ReaderTypographyPreferences.Keys.justify))
     private var typoJustify: Bool = true
+    @Shared(.appStorage(ReaderTypographyPreferences.Keys.twoPageLayout))
+    private var twoPageLayout: Bool = false
 
     @State private var typographySheetVisible: Bool = false
 
@@ -82,7 +94,7 @@ struct EPUBChapterReaderView: View {
         ReaderTypographyPreferences.PageMargin(rawValue: typoPageMarginRaw) ?? .defaultMargin
     }
 
-    private var styleTokens: EPUBReaderStyleTokens {
+    private func styleTokens(pageColumns: Int) -> EPUBReaderStyleTokens {
         let theme = typoTheme
         return EPUBReaderStyleTokens(
             foreground: theme.foregroundHex,
@@ -94,7 +106,8 @@ struct EPUBChapterReaderView: View {
             fontFamilyCSS: typoFontFamily.cssStack,
             pageMarginPx: typoPageMargin.pixels,
             textAlign: typoJustify ? "justify" : "left",
-            tokenUnderlineCSS: theme.tokenUnderlineHex
+            tokenUnderlineCSS: theme.tokenUnderlineHex,
+            pageColumns: pageColumns
         )
     }
 
@@ -117,18 +130,46 @@ struct EPUBChapterReaderView: View {
         .sheet(isPresented: $typographySheetVisible) {
             ReaderTypographySettingsView()
         }
-        .sheet(item: $lookupRequest) { request in
-            LookupPopupView(
-                initialQuery: request.token,
-                languageHint: book.language,
-                extraTags: sourceTags(),
-                onAddedNote: { handleCardAdded() },
-                onDismiss: { lookupRequest = nil }
-            )
-            .presentationDetents([.fraction(0.45), .large])
+        .sheet(isPresented: lookupSheetPresented) {
+            lookupPopupContent
         }
+        .popover(isPresented: lookupPopoverPresented, arrowEdge: .top) {
+            lookupPopupContent
+                .frame(minWidth: 380, idealWidth: 420, maxWidth: 460, minHeight: 420, idealHeight: 560)
+        }
+        #if os(iOS)
+        .focusable()
+        .focused($keyboardFocused)
+        .focusEffectDisabled()
+        .onKeyPress(.leftArrow, phases: .down) { press in
+            handlePageKey(.backward, press: press)
+        }
+        .onKeyPress(.upArrow, phases: .down) { press in
+            handlePageKey(.backward, press: press)
+        }
+        .onKeyPress(.pageUp, phases: .down) { press in
+            handlePageKey(.backward, press: press)
+        }
+        .onKeyPress(.rightArrow, phases: .down) { press in
+            handlePageKey(.forward, press: press)
+        }
+        .onKeyPress(.downArrow, phases: .down) { press in
+            handlePageKey(.forward, press: press)
+        }
+        .onKeyPress(.pageDown, phases: .down) { press in
+            handlePageKey(.forward, press: press)
+        }
+        .onKeyPress(.space, phases: .down) { press in
+            handlePageKey(.forward, press: press)
+        }
+        #endif
         .sensoryFeedback(trigger: endOfBookToastVisible) { _, visible in
             visible ? .success : nil
+        }
+        .onAppear {
+            #if os(iOS)
+            keyboardFocused = true
+            #endif
         }
         .onDisappear {
             endOfBookToastDismiss?.cancel()
@@ -146,30 +187,42 @@ struct EPUBChapterReaderView: View {
     @ViewBuilder
     private var pagerLayer: some View {
         if !model.chapterContents.isEmpty {
-            EPUBPageViewControllerHost(
-                book: book,
-                chapterContents: model.chapterContents,
-                chapterIndex: $chapterIndex,
-                styleTokens: styleTokens,
-                pendingRestoreFraction: pendingRestoreFraction,
-                pagingEnabled: lookupRequest == nil,
-                onPageInfo: { idx, count in
-                    pageIndex = idx
-                    pageCount = max(count, 1)
-                    pendingRestoreFraction = nil
-                },
-                onProgress: { fraction, idx in
-                    pageIndex = idx
-                    progressFraction = fraction
-                    saveProgress()
-                },
-                onWordTap: { token, sentence in
-                    lookupRequest = LookupRequest(token: token, sentence: sentence)
-                },
-                onTapEmpty: { _ in toggleChrome() },
-                onReachedEnd: { showEndOfBookToast() }
-            )
-//            .ignoresSafeArea(.all, edges: [.top, .bottom])
+            GeometryReader { proxy in
+                let layout = ReaderPageLayout.resolve(
+                    availableSize: proxy.size,
+                    allowsTwoPageLayout: twoPageLayout && !verticalLayout
+                )
+                EPUBPageViewControllerHost(
+                    book: book,
+                    chapterContents: model.chapterContents,
+                    chapterIndex: $chapterIndex,
+                    styleTokens: styleTokens(pageColumns: layout.columnCount),
+                    pendingRestoreFraction: pendingRestoreFraction,
+                    pageTurnRequest: pageTurnRequest,
+                    selectionRequestID: selectionRequestID,
+                    pagingEnabled: lookupRequest == nil,
+                    onPageInfo: { idx, count in
+                        pageIndex = idx
+                        pageCount = max(count, 1)
+                        pendingRestoreFraction = nil
+                    },
+                    onProgress: { fraction, idx in
+                        pageIndex = idx
+                        progressFraction = fraction
+                        saveProgress()
+                    },
+                    onWordTap: { token, sentence in
+                        lookupRequest = LookupRequest(token: token, sentence: sentence)
+                    },
+                    onSelectionForNote: { text in
+                        lookupRequest = LookupRequest(token: text, sentence: text)
+                    },
+                    onTapEmpty: { _ in toggleChrome() },
+                    onReachedEnd: { showEndOfBookToast() }
+                )
+                .frame(width: layout.contentWidth)
+                .frame(maxWidth: .infinity)
+            }
         } else {
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -199,7 +252,7 @@ struct EPUBChapterReaderView: View {
     private var closeCapsule: some View {
         if chromeVisible {
             Button {
-                dismiss()
+                closeReader()
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 17, weight: .semibold))
@@ -285,9 +338,21 @@ struct EPUBChapterReaderView: View {
     @ViewBuilder
     private var bottomChromePills: some View {
         HStack(alignment: .center) {
-            // Leading spacer keeps the page-counter visually centred even
-            // though the trailing menuCapsule is wider than nothing.
-            Color.clear.frame(width: 44, height: 44)
+            // The matching leading action keeps the page counter centred and
+            // gives EPUB the same selection-to-note affordance as note books.
+            Button {
+                selectionRequestID += 1
+            } label: {
+                Image(systemName: "text.badge.plus")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(palette.textPrimary)
+                    .frame(width: 44, height: 44)
+                    .amgiMaterial(.regular, in: Circle(), interactive: true)
+                    .amgiMaterialElevation(Circle())
+            }
+            .accessibilityLabel("Make note from selection")
+            .opacity(chromeVisible ? 1 : 0)
+            .allowsHitTesting(chromeVisible)
             Spacer(minLength: 0)
             pageNumberCapsule
             Spacer(minLength: 0)
@@ -317,6 +382,59 @@ struct EPUBChapterReaderView: View {
 }
 
 private extension EPUBChapterReaderView {
+    // MARK: - Presentation and input
+
+    private var usesLookupInspector: Bool {
+        horizontalSizeClass != .compact
+    }
+
+    private var lookupSheetPresented: Binding<Bool> {
+        Binding(
+            get: { !usesLookupInspector && lookupRequest != nil },
+            set: { if !$0 { lookupRequest = nil } }
+        )
+    }
+
+    private var lookupPopoverPresented: Binding<Bool> {
+        Binding(
+            get: { usesLookupInspector && lookupRequest != nil },
+            set: { if !$0 { lookupRequest = nil } }
+        )
+    }
+
+    @ViewBuilder
+    private var lookupPopupContent: some View {
+        if let request = lookupRequest {
+            LookupPopupView(
+                initialQuery: request.token,
+                languageHint: book.language,
+                extraTags: sourceTags(),
+                onAddedNote: handleCardAdded,
+                onDismiss: { lookupRequest = nil }
+            )
+        }
+    }
+
+    private func closeReader() {
+        if let onClose {
+            onClose()
+        } else {
+            dismiss()
+        }
+    }
+
+    #if os(iOS)
+    private func handlePageKey(
+        _ direction: ReaderPageDirection,
+        press: KeyPress
+    ) -> KeyPress.Result {
+        guard lookupRequest == nil, press.modifiers.isEmpty else { return .ignored }
+        let nextSequence = (pageTurnRequest?.sequence ?? 0) + 1
+        pageTurnRequest = ReaderPageTurnRequest(sequence: nextSequence, direction: direction)
+        return .handled
+    }
+    #endif
+
     // MARK: - Actions
 
     func toggleChrome() {

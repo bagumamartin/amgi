@@ -14,6 +14,7 @@ public struct HourlyChart: View {
     }
 
     @Environment(\.palette) private var palette
+    @State private var selectedHour: Int?
 
     private var hourData: [HoursBuckets.Hour] {
         switch period {
@@ -41,6 +42,17 @@ public struct HourlyChart: View {
         }
     }
 
+    private var selectableHours: [Int] { Array(0..<24) }
+
+    private func nearestHour(proxy: ChartProxy, plotX: CGFloat) -> Int? {
+        guard let value: Double = proxy.value(atX: plotX) else { return nil }
+        return min(23, max(0, Int(value.rounded())))
+    }
+
+    private func selectedEntry(for hour: Int) -> HourEntry? {
+        entries.first(where: { $0.hour == hour })
+    }
+
     public var body: some View {
         AmgiCard(
             background: .surface,
@@ -54,12 +66,29 @@ public struct HourlyChart: View {
                 if entries.allSatisfy({ $0.total == 0 }) {
                     Text("No review data").foregroundStyle(palette.textSecondary).frame(height: 180)
                 } else {
-                    Chart(entries) { entry in
-                        BarMark(
-                            x: .value("Hour", entry.hour),
-                            y: .value("Reviews", entry.total)
-                        )
-                        .foregroundStyle(palette.accent.gradient)
+                    Chart {
+                        ForEach(entries) { entry in
+                            BarMark(
+                                x: .value("Hour", entry.hour),
+                                y: .value("Reviews", entry.total)
+                            )
+                            .foregroundStyle(palette.accent.gradient)
+                        }
+
+                        if let selectedHour, let selected = selectedEntry(for: selectedHour) {
+                            RuleMark(x: .value("Selected Hour", selectedHour))
+                                .foregroundStyle(palette.textSecondary.opacity(0.55))
+                                .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                                .annotation(position: .top, spacing: 0) {
+                                    StatsChartTooltip(
+                                        title: formatHour(selected.hour),
+                                        lines: [
+                                            "Reviews: \(selected.total)",
+                                            String(format: "Correct: %.0f%%", selected.correctPct),
+                                        ]
+                                    )
+                                }
+                        }
                     }
                     .chartXAxis {
                         AxisMarks(values: [0, 4, 8, 12, 16, 20]) { value in
@@ -70,22 +99,40 @@ public struct HourlyChart: View {
                         }
                     }
                     .chartXScale(domain: 0...23)
+                    .statsChartXInspection(
+                        values: selectableHours,
+                        selection: $selectedHour,
+                        valueAtX: nearestHour,
+                        xPosition: { Double($0) },
+                        accessibilityText: { hour in
+                            guard let selected = selectedEntry(for: hour) else { return formatHour(hour) }
+                            return "\(formatHour(hour)), Reviews: \(selected.total), Correct: \(Int(selected.correctPct.rounded()))%"
+                        }
+                    )
                     .frame(height: 150)
 
-                    Chart(entries) { entry in
-                        LineMark(
-                            x: .value("Hour", entry.hour),
-                            y: .value("Correct %", entry.correctPct)
-                        )
-                        .foregroundStyle(palette.positive)
-                        .interpolationMethod(.catmullRom)
+                    Chart {
+                        ForEach(entries) { entry in
+                            LineMark(
+                                x: .value("Hour", entry.hour),
+                                y: .value("Correct %", entry.correctPct)
+                            )
+                            .foregroundStyle(palette.positive)
+                            .interpolationMethod(.catmullRom)
 
-                        AreaMark(
-                            x: .value("Hour", entry.hour),
-                            y: .value("Correct %", entry.correctPct)
-                        )
-                        .foregroundStyle(palette.positive.opacity(0.1))
-                        .interpolationMethod(.catmullRom)
+                            AreaMark(
+                                x: .value("Hour", entry.hour),
+                                y: .value("Correct %", entry.correctPct)
+                            )
+                            .foregroundStyle(palette.positive.opacity(0.1))
+                            .interpolationMethod(.catmullRom)
+                        }
+
+                        if let selectedHour {
+                            RuleMark(x: .value("Selected Hour", selectedHour))
+                                .foregroundStyle(palette.textSecondary.opacity(0.55))
+                                .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                        }
                     }
                     .chartXAxis {
                         AxisMarks(values: [0, 4, 8, 12, 16, 20]) { value in

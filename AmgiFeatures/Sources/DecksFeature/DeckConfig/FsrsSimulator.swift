@@ -44,6 +44,9 @@ struct FsrsSimulatorView: View {
                 .navigationTitle("FSRS Simulator")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar { toolbarContent }
+                #if os(macOS)
+                .onExitCommand { onDismiss() }
+                #endif
         }
     }
 
@@ -51,6 +54,7 @@ struct FsrsSimulatorView: View {
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .confirmationAction) {
             Button("Done") { onDismiss() }
+                .keyboardShortcut(.cancelAction)
         }
     }
 
@@ -150,6 +154,7 @@ struct FsrsSimulatorRunSection: View {
                     Text(isRunning ? "Running…" : "Run Simulation")
                 }
             }
+            .keyboardShortcut(.defaultAction)
             .disabled(isRunning)
         }
     }
@@ -161,8 +166,27 @@ struct FsrsSimulatorResultsSections: View {
     let errorMessage: String?
 
     @Environment(\.palette) private var palette
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
+    private var usesRegularWidth: Bool {
+        #if os(macOS)
+        true
+        #else
+        horizontalSizeClass == .regular
+        #endif
+    }
+
+    @ViewBuilder
     var body: some View {
+        if usesRegularWidth {
+            regularSections
+        } else {
+            compactSections
+        }
+    }
+
+    @ViewBuilder
+    private var compactSections: some View {
         if !summary.isEmpty {
             Section("Summary") {
                 ForEach(summary, id: \.label) { item in
@@ -180,6 +204,58 @@ struct FsrsSimulatorResultsSections: View {
         if let errorMessage {
             Section {
                 Text(errorMessage).foregroundStyle(palette.danger)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var regularSections: some View {
+        if !summary.isEmpty || !workloadRows.isEmpty {
+            Section("Results") {
+                VStack(alignment: .leading, spacing: AmgiSpacing.lg) {
+                    if !summary.isEmpty {
+                        resultGroup(title: "Summary", rows: summary)
+                    }
+                    if !workloadRows.isEmpty {
+                        resultGroup(title: "Retention vs cost", rows: workloadRows)
+                    }
+                }
+                .padding(.vertical, AmgiSpacing.xs)
+            }
+        }
+        if let errorMessage {
+            Section {
+                Text(errorMessage).foregroundStyle(palette.danger)
+            }
+        }
+    }
+
+    private func resultGroup(title: String, rows: [(label: String, value: String)]) -> some View {
+        VStack(alignment: .leading, spacing: AmgiSpacing.sm) {
+            Text(title)
+                .amgiFont(.bodyEmphasis)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 160, maximum: 260), spacing: AmgiSpacing.md)],
+                alignment: .leading,
+                spacing: AmgiSpacing.sm
+            ) {
+                ForEach(rows, id: \.label) { row in
+                    VStack(alignment: .leading, spacing: AmgiSpacing.xxs) {
+                        Text(row.label)
+                            .amgiFont(.caption)
+                            .foregroundStyle(palette.textSecondary)
+                        Text(row.value)
+                            .amgiFont(.bodyEmphasis, .monospacedDigits)
+                            .foregroundStyle(palette.textPrimary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                    }
+                    .padding(AmgiSpacing.sm)
+                    .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
+                    .background(palette.surfaceElevated, in: RoundedRectangle(cornerRadius: AmgiRadius.control))
+                    .accessibilityElement(children: .combine)
+                }
             }
         }
     }

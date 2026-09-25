@@ -168,7 +168,8 @@ struct ReviewCardArea: View {
                 isAnswerSide: isBack,
                 answerStartIndex: resolvedBack?.answerStart,
                 mediaFolder: mediaFolder,
-                onQuestionCanvasTap: questionCanvasReveal
+                onQuestionCanvasTap: questionCanvasReveal,
+                onTextLookup: nativeTextLookup
             )
             .equatable()
         case .html:
@@ -180,7 +181,7 @@ struct ReviewCardArea: View {
                 replayRequestID: session.replayRequestID,
                 stopAudioRequestID: session.stopAudioRequestID,
                 openLinksExternally: openLinksExternally,
-                lookupPopupEnabled: tapLookup && !session.requiresTypedAnswerInput,
+                lookupPopupEnabled: tapLookup && !isBack && !session.requiresTypedAnswerInput,
                 contentAlignment: CardWebViewContentAlignment(rawValue: cardContentAlignment) ?? .center,
                 onAudioStateChange: { playing in session.updateAudioPlaying(playing) },
                 onCardBackgroundColorChange: { color, isDark in
@@ -188,7 +189,7 @@ struct ReviewCardArea: View {
                 },
                 // No tap-lookup while the typed-answer input is up — the
                 // dictionary would hand over the answer to be typed.
-                onLookupRequested: tapLookup && !session.requiresTypedAnswerInput ? { text, _, _ in
+                onLookupRequested: tapLookup && !isBack && !session.requiresTypedAnswerInput ? { text, _, _ in
                     if let text, !text.isEmpty { lookupQuery = text }
                 } : nil,
                 onQuestionCanvasTap: questionCanvasReveal
@@ -197,7 +198,7 @@ struct ReviewCardArea: View {
     }
 
     private var questionCanvasReveal: (() -> Void)? {
-        #if os(iOS)
+        #if os(iOS) || os(macOS)
         guard !session.showAnswer,
               !session.isAdvancing,
               !session.requiresTypedAnswerInput
@@ -206,6 +207,15 @@ struct ReviewCardArea: View {
         #else
         return nil
         #endif
+    }
+
+    private var nativeTextLookup: ((String) -> Void)? {
+        guard tapLookup, !session.showAnswer, !session.requiresTypedAnswerInput else { return nil }
+        return { text in
+            let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !query.isEmpty else { return }
+            lookupQuery = query
+        }
     }
 
     private func playNativeAudio() {

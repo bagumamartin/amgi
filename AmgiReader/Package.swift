@@ -130,6 +130,11 @@ let package = Package(
             ],
             swiftSettings: sharedSwiftSettings
         ),
+        .testTarget(
+            name: "AmgiReaderEPUBTests",
+            dependencies: ["AmgiReaderEPUB"],
+            path: "Tests/AmgiReaderEPUBTests"
+        ),
     ],
     swiftLanguageModes: [.v6]
 )

@@ -340,9 +340,17 @@ struct FindDuplicatesView: View {
     let notetypeFields: [String]
 
     /// Exact grouping via the rslib aux service.
-    let runExactScan: (_ fieldName: String, _ searchText: String) async -> FindDuplicatesResult?
+    let runExactScan: (
+        _ fieldName: String,
+        _ searchText: String,
+        _ scopeNoteIDs: Set<NoteID>,
+        _ scopeCardIDs: Set<CardID>
+    ) async -> FindDuplicatesResult?
     /// Fuzzy groups computed from the embedding corpus.
-    let runNearScan: () -> [[Int64]]
+    let runNearScan: (_ scopeNoteIDs: Set<NoteID>, _ scopeCardIDs: Set<CardID>) async -> [[Int64]]
+    /// Effective selection scope. Empty means the current Browse result set.
+    let scopeNoteIDs: Set<NoteID>
+    let scopeCardIDs: Set<CardID>
     /// Opens a nid:(…) search for a group.
     let openGroup: ([Int64]) -> Void
 
@@ -379,7 +387,7 @@ struct FindDuplicatesView: View {
                     }
                 }
                 if searchText.isEmpty { searchText = rememberedSearch }
-                nearGroups = runNearScan()
+                nearGroups = await runNearScan(scopeNoteIDs, scopeCardIDs)
             }
         }
         .presentationDetents([.medium, .large])
@@ -462,7 +470,12 @@ struct FindDuplicatesView: View {
                             ? notetypeFields[selectedFieldIndex] : "Front"
                         rememberedField = field
                         rememberedSearch = searchText
-                        let result = await runExactScan(field, searchText)
+                        let result = await runExactScan(
+                            field,
+                            searchText,
+                            scopeNoteIDs,
+                            scopeCardIDs
+                        )
                         exactGroups = result?.groups ?? []
                         exactSummary = result.map {
                             "\($0.groups.count) group\($0.groups.count == 1 ? "" : "s") across \($0.notesScanned) notes scanned"
@@ -474,11 +487,17 @@ struct FindDuplicatesView: View {
                 .buttonStyle(.borderedProminent)
                 .disabled(notetypeFields.isEmpty)
             }
-            if !exactGroups.isEmpty {
+            if !duplicateGroups.isEmpty {
                 Button {
                     Task {
-                        let all = exactGroups.flatMap { $0.noteIds.map { NoteID($0) } }
-                        await onTagDuplicates(all)
+                        let count = await onTagDuplicates(
+                            duplicateGroups,
+                            scopeNoteIDs,
+                            scopeCardIDs
+                        )
+                        tagMessage = count > 0
+                            ? "Tagged \(count) note\(count == 1 ? "" : "s")."
+                            : "No duplicates in this scope."
                     }
                 } label: {
                     Label(
@@ -487,14 +506,32 @@ struct FindDuplicatesView: View {
                     )
                 }
                 .buttonStyle(.bordered)
+                .accessibilityLabel("Tag duplicate notes")
+                .accessibilityHint("Adds the duplicate tag within the current Browse scope")
             }
         }
         .padding()
         .background(.bar)
     }
 
-    /// Injected by the caller (BrowseView) for the Tag Duplicates action.
-    var onTagDuplicates: ([NoteID]) async -> Void = { _ in }
+    /// Injected by the caller (BrowseView) for the scoped Tag Duplicates
+    /// action. Returning the number of affected notes lets the sheet confirm
+    /// exactly what was changed instead of silently swallowing failures.
+    var onTagDuplicates: (
+        _ groups: [[NoteID]],
+        _ scopeNoteIDs: Set<NoteID>,
+        _ scopeCardIDs: Set<CardID>
+    ) async -> Int = { _, _, _ in 0 }
+
+    private var duplicateGroups: [[NoteID]] {
+        var seenGroups = Set<Set<Int64>>()
+        return (exactGroups.map { group in
+            group.noteIds.map { NoteID($0) }
+        } + nearGroups.map { ids in ids.map { NoteID($0) } })
+            .filter { ids in
+                ids.count >= 2 && seenGroups.insert(Set(ids.map(\.rawValue))).inserted
+            }
+    }
 
     private func idRanges(_ ids: [Int64]) -> String {
         guard let first = ids.first, let last = ids.last else { return "" }

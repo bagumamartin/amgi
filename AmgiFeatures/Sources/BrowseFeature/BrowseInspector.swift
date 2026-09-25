@@ -51,6 +51,8 @@ struct BrowseDetailTabs: View {
     /// Optional result navigation (wired on split layouts; compact pushes
     /// one detail at a time and leaves this nil).
     var previewNav: BrowsePreviewNav?
+    /// Reveals duplicate matches in the surrounding Browse result list.
+    var onShowDuplicates: (([NoteID]) -> Void)? = nil
 
     enum Tab: String, CaseIterable {
         case edit = "Edit"
@@ -152,6 +154,7 @@ struct BrowseDetailTabs: View {
         .buttonStyle(.plain)
         .help("Close")
         .accessibilityLabel("Close details")
+        .keyboardShortcut("w", modifiers: [.command, .option])
     }
 
     private var markState: Bool {
@@ -170,6 +173,7 @@ struct BrowseDetailTabs: View {
                     principalTitle: "Details",
                     onCancel: { tab = .preview },
                     onClose: onClose,
+                    onShowDuplicates: onShowDuplicates,
                     onSave: {
                         onSaved()
                         previewEpoch += 1

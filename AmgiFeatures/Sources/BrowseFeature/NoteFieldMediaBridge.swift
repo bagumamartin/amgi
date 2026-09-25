@@ -18,6 +18,7 @@ struct NoteFieldMediaBridge: ViewModifier {
     @State private var showLibrary = false
     @State private var showCamera = false
     @State private var showFiles = false
+    @State private var fileImportImagesOnly = false
     @State private var showRecorder = false
     #if os(iOS)
     @State private var showComposer = false
@@ -70,11 +71,22 @@ struct NoteFieldMediaBridge: ViewModifier {
             }
             .fileImporter(
                 isPresented: $showFiles,
-                allowedContentTypes: [.image, .audio, .movie, .pdf],
+                allowedContentTypes: fileImportContentTypes,
                 allowsMultipleSelection: false
             ) { result in
                 guard case .success(let urls) = result, let url = urls.first else { return }
                 Task { await importFile(url) }
+            }
+            // Finder/Files drops land directly in the focused field. The
+            // editor already owns media insertion, so no separate destination
+            // or handoff is needed; unsupported Anki packages are rejected
+            // rather than being inserted as a bogus sound attachment.
+            .dropDestination(for: URL.self) { urls, _ in
+                guard let url = urls.first(where: Self.isSupportedMediaURL) else {
+                    return false
+                }
+                Task { await importFile(url) }
+                return true
             }
             #if os(iOS)
             .sheet(isPresented: $showComposer) {
@@ -106,9 +118,14 @@ struct NoteFieldMediaBridge: ViewModifier {
             #endif
     }
 
+    private var fileImportContentTypes: [UTType] {
+        fileImportImagesOnly ? [.image] : [.image, .audio, .movie, .pdf]
+    }
+
     private func handle(_ source: NoteFieldMediaSource) {
         switch source {
         case .files:
+            fileImportImagesOnly = false
             showFiles = true
         case .library:
             #if os(iOS)
@@ -128,7 +145,12 @@ struct NoteFieldMediaBridge: ViewModifier {
                 showCamera = true
             }
             #else
-            showLibrary = true
+            // AppKit has no UIImagePickerController camera surface in this
+            // feature. The Mac toolbar labels this action "Choose image";
+            // route it to the image-only file importer instead of opening a
+            // photo-library picker that cannot capture a still image.
+            fileImportImagesOnly = true
+            showFiles = true
             #endif
         }
     }
@@ -185,7 +207,10 @@ struct NoteFieldMediaBridge: ViewModifier {
     private func importFile(_ url: URL) async {
         let accessed = url.startAccessingSecurityScopedResource()
         defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-        guard let data = try? Data(contentsOf: url) else { return }
+        let data = await Task.detached(priority: .userInitiated) {
+            try? Data(contentsOf: url)
+        }.value
+        guard let data else { return }
         let ext = url.pathExtension.isEmpty
             ? Self.inferredExtension(from: data, fallback: "bin")
             : url.pathExtension.lowercased()
@@ -222,7 +247,10 @@ struct NoteFieldMediaBridge: ViewModifier {
     #endif
 
     private func importAudio(_ url: URL) async {
-        guard let data = try? Data(contentsOf: url) else { return }
+        let data = await Task.detached(priority: .userInitiated) {
+            try? Data(contentsOf: url)
+        }.value
+        guard let data else { return }
         try? FileManager.default.removeItem(at: url)
         await addMedia(data: data, ext: "m4a")
     }
@@ -246,6 +274,20 @@ struct NoteFieldMediaBridge: ViewModifier {
                 return
             }
         }
+    }
+
+    nonisolated private static func isSupportedMediaURL(_ url: URL) -> Bool {
+        guard !url.hasDirectoryPath else { return false }
+        let ext = url.pathExtension.lowercased()
+        guard !ext.isEmpty else { return true }
+        let supported: Set<String> = [
+            "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "heic", "tif", "tiff",
+            "mp3", "m4a", "wav", "aac", "ogg", "flac", "mp4", "mov", "m4v", "pdf",
+        ]
+        if supported.contains(ext) { return true }
+        // Keep Anki interchange files and arbitrary documents on their
+        // dedicated import paths rather than inserting them as sound files.
+        return false
     }
 
     private static func inferredExtension(from data: Data, fallback: String) -> String {

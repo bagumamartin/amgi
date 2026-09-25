@@ -8,6 +8,7 @@ struct MaintenanceView: View {
     @State private var model = MaintenanceModel()
     @State private var showResetConfirm = false
     @State private var showModelDeleteConfirm = false
+    @State private var isDeletingModel = false
     /// Bumps body evaluation on install-state transitions so the Delete row
     /// tracks reality (driven by `.amgiModelAssetChanged` below).
     @State private var modelStoreGeneration = 0
@@ -24,12 +25,15 @@ struct MaintenanceView: View {
                 SettingsButtonRow(
                     title: "Check Database",
                     systemImage: "stethoscope",
-                    tone: .info
+                    tone: .info,
+                    isBusy: model.isChecking
                 ) {
+                    guard !model.isChecking else { return }
                     Task { await model.checkDatabase() }
                 }
+                .disabled(model.isChecking)
             }
-            SettingsFootnote("Verifies the integrity of your local Anki collection.")
+            SettingsFootnote("Verifies the integrity of your local Anki collection. The check can take a while on a large collection.")
 
             SettingsSectionHeader(title: "AI Model")
             SettingsGroup {
@@ -51,12 +55,14 @@ struct MaintenanceView: View {
                     title: "Delete AI Model",
                     systemImage: "trash",
                     tone: .danger,
-                    isDestructive: true
+                    isDestructive: true,
+                    isBusy: isDeletingModel
                 ) {
                     showModelDeleteConfirm = true
                 }
-                .disabled(!ModelAssetManager.isModelInstalled)
+                .disabled(!ModelAssetManager.isModelInstalled || model.isChecking || isDeletingModel)
             }
+            .disabled(model.isChecking)
             SettingsFootnote("Powers smarter deck icons and meaning-based search. Updates download automatically within this network setting.")
             // Read so the Delete row re-evaluates on install transitions.
             .id(modelStoreGeneration)
@@ -67,19 +73,39 @@ struct MaintenanceView: View {
                     title: "Reset Everything",
                     systemImage: "trash",
                     tone: .danger,
-                    isDestructive: true
+                    isDestructive: true,
+                    isBusy: model.isChecking || isDeletingModel
                 ) {
+                    guard !model.isChecking, !isDeletingModel else { return }
                     showResetConfirm = true
                 }
+                .disabled(model.isChecking || isDeletingModel)
             }
             SettingsFootnote("Deletes this profile's collection and credentials. You will need to sync or re-import after.")
 
-            if !model.statusMessage.isEmpty {
+            if model.isChecking {
+                SettingsSectionHeader(title: "Status")
+                SettingsGroup {
+                    HStack(spacing: AmgiSpacing.sm) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Checking database…")
+                            .amgiFont(.caption)
+                            .foregroundStyle(palette.textSecondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, AmgiSpacing.lg)
+                    .padding(.vertical, AmgiSpacing.md)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Checking database")
+                }
+            } else if !model.statusMessage.isEmpty {
                 SettingsSectionHeader(title: "Status")
                 SettingsGroup {
                     Text(model.statusMessage)
                         .amgiFont(.caption)
                         .foregroundStyle(palette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, AmgiSpacing.lg)
                         .padding(.vertical, AmgiSpacing.md)
@@ -104,8 +130,13 @@ struct MaintenanceView: View {
             titleVisibility: .visible
         ) {
             Button("Delete", role: .destructive) {
-                Task { try? await ModelAssetManager.shared.removeInstalledModel() }
+                isDeletingModel = true
+                Task {
+                    defer { isDeletingModel = false }
+                    try? await ModelAssetManager.shared.removeInstalledModel()
+                }
             }
+            .disabled(model.isChecking || isDeletingModel)
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Frees the on-device storage. The app keeps working with basic icon matching, and you can re-download anytime.")

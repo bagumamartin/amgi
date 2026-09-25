@@ -12,6 +12,10 @@ struct ChapterWebView: UIViewRepresentable {
     /// per appearance — set to nil after the initial restore.
     let initialProgress: Double?
     @Binding var progress: Double
+    let isPaginated: Bool
+    let pageTurnRequest: ReaderPageTurnRequest?
+    let onPageInfo: (Int, Int) -> Void
+    let onPageBoundary: (ReaderPageDirection) -> Void
     /// Called with a tapped phrase (the engine does its own deinflection
     /// and word-segmentation, so we forward a generous chunk starting at
     /// the tap point rather than a pre-extracted word — handles CJK,
@@ -26,6 +30,9 @@ struct ChapterWebView: UIViewRepresentable {
     func makeCoordinator() -> Coordinator {
         Coordinator(
             progress: $progress,
+            isPaginated: isPaginated,
+            onPageInfo: onPageInfo,
+            onPageBoundary: onPageBoundary,
             onTapLookup: onTapLookup,
             onSelectionForNote: onSelectionForNote
         )
@@ -54,6 +61,9 @@ struct ChapterWebView: UIViewRepresentable {
 
     func updateUIView(_ webView: WKWebView, context: Context) {
         context.coordinator.pendingInitialProgress = initialProgress
+        context.coordinator.pageTurnRequest = pageTurnRequest
+        context.coordinator.updatePagination(isPaginated)
+        context.coordinator.consumePageTurnRequestIfNeeded()
         // The host builds the HTML in a `.task`, so the very first update
         // arrives empty. Loading it would flash a blank document before the
         // real one lands one runloop later.
@@ -62,6 +72,7 @@ struct ChapterWebView: UIViewRepresentable {
             context.coordinator.loadedHTML = html
             context.coordinator.didFinishLoad = false
             context.coordinator.didApplyInitialProgress = false
+            context.coordinator.lastReportedPageIndex = -1
             webView.loadHTMLString(html, baseURL: nil)
         } else {
             // The saved progress now resolves asynchronously, so it can
@@ -145,7 +156,13 @@ struct ChapterWebView: UIViewRepresentable {
         var loadedHTML: String?
         var didFinishLoad = false
         var didApplyInitialProgress = false
+        var isPaginated: Bool
+        var pageTurnRequest: ReaderPageTurnRequest?
+        var handledPageTurnSequence = 0
+        fileprivate var lastReportedPageIndex = -1
         @Binding var progress: Double
+        let onPageInfo: (Int, Int) -> Void
+        let onPageBoundary: (ReaderPageDirection) -> Void
         let onTapLookup: ((String) -> Void)?
         let onSelectionForNote: ((String) -> Void)?
         private weak var webView: WKWebView?
@@ -155,16 +172,23 @@ struct ChapterWebView: UIViewRepresentable {
 
         init(
             progress: Binding<Double>,
+            isPaginated: Bool,
+            onPageInfo: @escaping (Int, Int) -> Void,
+            onPageBoundary: @escaping (ReaderPageDirection) -> Void,
             onTapLookup: ((String) -> Void)?,
             onSelectionForNote: ((String) -> Void)?
         ) {
             self._progress = progress
+            self.isPaginated = isPaginated
+            self.onPageInfo = onPageInfo
+            self.onPageBoundary = onPageBoundary
             self.onTapLookup = onTapLookup
             self.onSelectionForNote = onSelectionForNote
         }
 
         func attach(webView: WKWebView) {
             self.webView = webView
+            configureScrollView(webView.scrollView)
             selectionObserver = NotificationCenter.default.addObserver(
                 forName: .amgiReaderRequestSelection,
                 object: nil,
@@ -185,9 +209,105 @@ struct ChapterWebView: UIViewRepresentable {
             webView = nil
         }
 
+        func updatePagination(_ enabled: Bool) {
+            guard isPaginated != enabled else { return }
+            isPaginated = enabled
+            guard let scrollView = webView?.scrollView else { return }
+            configureScrollView(scrollView)
+            if didFinishLoad { applyPaginationStyle() }
+        }
+
+        func consumePageTurnRequestIfNeeded() {
+            guard isPaginated,
+                  didFinishLoad,
+                  let request = pageTurnRequest,
+                  request.sequence > handledPageTurnSequence,
+                  let scrollView = webView?.scrollView else { return }
+            handledPageTurnSequence = request.sequence
+            paginate(scrollView, direction: request.direction)
+        }
+
+        private func configureScrollView(_ scrollView: UIScrollView) {
+            scrollView.isPagingEnabled = isPaginated
+            scrollView.alwaysBounceHorizontal = isPaginated
+            scrollView.alwaysBounceVertical = !isPaginated
+            scrollView.showsHorizontalScrollIndicator = isPaginated
+        }
+
+        private func hasScrollableContent(_ scrollView: UIScrollView) -> Bool {
+            if isPaginated {
+                return scrollView.contentSize.width > scrollView.bounds.width + 1
+            }
+            return scrollView.contentSize.height > scrollView.bounds.height + 1
+        }
+
+        private func applyPaginationStyle() {
+            guard let webView else { return }
+            configureScrollView(webView.scrollView)
+            let enabled = isPaginated ? "true" : "false"
+            let script = """
+            (function() {
+              var root = document.documentElement;
+              root.setAttribute('data-amgi-note-pagination', '\(enabled)');
+              var style = document.getElementById('__amgi_note_pagination_style');
+              if (!style) {
+                style = document.createElement('style');
+                style.id = '__amgi_note_pagination_style';
+                (document.head || root).appendChild(style);
+              }
+              style.textContent = `
+                html[data-amgi-note-pagination="true"] {
+                  height: 100vh !important;
+                  column-width: 50vw !important;
+                  -webkit-column-width: 50vw !important;
+                  column-fill: auto !important;
+                  column-gap: 0 !important;
+                  overflow-x: auto !important;
+                  overflow-y: hidden !important;
+                  scroll-snap-type: x mandatory !important;
+                }
+                html[data-amgi-note-pagination="true"] body { max-width: none !important; }
+              `;
+              if (typeof window.__amgiRelayout === 'function') window.__amgiRelayout();
+            })();
+            """
+            webView.evaluateJavaScript(script)
+        }
+
+        private func paginate(_ scrollView: UIScrollView, direction: ReaderPageDirection) {
+            let viewport = max(1, scrollView.bounds.width)
+            let current = Int(round(scrollView.contentOffset.x / viewport))
+            let count = max(1, Int(ceil(scrollView.contentSize.width / viewport)))
+            let requested = current + (direction == .forward ? 1 : -1)
+            let target = max(0, min(requested, count - 1))
+            if target == current {
+                onPageBoundary(direction)
+                return
+            }
+            scrollView.setContentOffset(
+                CGPoint(x: CGFloat(target) * viewport, y: 0),
+                animated: true
+            )
+            lastReportedPageIndex = target
+            onPageInfo(target, count)
+            let fraction = count > 1 ? Double(target) / Double(count - 1) : 1
+            progress = fraction
+        }
+
+        private func emitPageInfo(_ scrollView: UIScrollView) {
+            let viewport = max(1, scrollView.bounds.width)
+            let index = Int(round(scrollView.contentOffset.x / viewport))
+            guard index != lastReportedPageIndex else { return }
+            lastReportedPageIndex = index
+            let count = max(1, Int(ceil(scrollView.contentSize.width / viewport)))
+            onPageInfo(index, count)
+        }
+
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             didFinishLoad = true
+            applyPaginationStyle()
             applyPendingInitialProgressIfLoaded()
+            consumePageTurnRequestIfNeeded()
         }
 
         /// Restore prior scroll position once the page reports a real
@@ -206,8 +326,8 @@ struct ChapterWebView: UIViewRepresentable {
             // slow device or a long chapter the old delay fired while
             // contentSize was still the initial frame height, so the offset
             // clamped to ~0 and the reader silently reopened at the top.
-            if scrollView.contentSize.height > scrollView.bounds.height {
-                Self.applyProgress(target, to: scrollView)
+            if hasScrollableContent(scrollView) {
+                Self.applyProgress(target, to: scrollView, isPaginated: isPaginated)
                 return
             }
             // `change.newValue` is a CGSize, so nothing main-actor-isolated
@@ -217,29 +337,42 @@ struct ChapterWebView: UIViewRepresentable {
             contentSizeObservation = scrollView.observe(
                 \.contentSize, options: [.new]
             ) { [weak self] _, change in
-                guard let newSize = change.newValue else { return }
+                guard change.newValue != nil else { return }
                 MainActor.assumeIsolated {
                     guard let self, let scrollView = self.webView?.scrollView,
-                          newSize.height > scrollView.bounds.height else { return }
-                    Self.applyProgress(target, to: scrollView)
+                          self.hasScrollableContent(scrollView) else { return }
+                    Self.applyProgress(target, to: scrollView, isPaginated: self.isPaginated)
                     self.contentSizeObservation = nil
                 }
             }
         }
 
-        private static func applyProgress(_ target: Double, to scrollView: UIScrollView) {
-            let maxOffset = max(0, scrollView.contentSize.height - scrollView.bounds.height)
-            scrollView.contentOffset.y = maxOffset * CGFloat(target)
+        private static func applyProgress(
+            _ target: Double,
+            to scrollView: UIScrollView,
+            isPaginated: Bool
+        ) {
+            if isPaginated {
+                let maxOffset = max(0, scrollView.contentSize.width - scrollView.bounds.width)
+                scrollView.contentOffset.x = maxOffset * CGFloat(target)
+            } else {
+                let maxOffset = max(0, scrollView.contentSize.height - scrollView.bounds.height)
+                scrollView.contentOffset.y = maxOffset * CGFloat(target)
+            }
         }
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
-            let usable = scrollView.contentSize.height - scrollView.bounds.height
+            let usable = isPaginated
+                ? scrollView.contentSize.width - scrollView.bounds.width
+                : scrollView.contentSize.height - scrollView.bounds.height
             guard usable > 1 else {
-                progress = 0
+                progress = isPaginated ? 1 : 0
                 return
             }
-            let fraction = min(max(scrollView.contentOffset.y / usable, 0), 1)
+            let offset = isPaginated ? scrollView.contentOffset.x : scrollView.contentOffset.y
+            let fraction = min(max(offset / usable, 0), 1)
             progress = Double(fraction)
+            if isPaginated { emitPageInfo(scrollView) }
         }
 
         func userContentController(
@@ -281,12 +414,19 @@ struct ChapterWebView: NSViewRepresentable {
     let html: String
     let initialProgress: Double?
     @Binding var progress: Double
+    let isPaginated: Bool
+    let pageTurnRequest: ReaderPageTurnRequest?
+    let onPageInfo: (Int, Int) -> Void
+    let onPageBoundary: (ReaderPageDirection) -> Void
     let onTapLookup: ((String) -> Void)?
     let onSelectionForNote: ((String) -> Void)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
             progress: $progress,
+            isPaginated: isPaginated,
+            onPageInfo: onPageInfo,
+            onPageBoundary: onPageBoundary,
             onTapLookup: onTapLookup,
             onSelectionForNote: onSelectionForNote
         )
@@ -320,11 +460,15 @@ struct ChapterWebView: NSViewRepresentable {
 
     func updateNSView(_ webView: WKWebView, context: Context) {
         context.coordinator.pendingInitialProgress = initialProgress
+        context.coordinator.pageTurnRequest = pageTurnRequest
+        context.coordinator.updatePagination(isPaginated)
+        context.coordinator.consumePageTurnRequestIfNeeded()
         guard !html.isEmpty else { return }
         if context.coordinator.loadedHTML != html {
             context.coordinator.loadedHTML = html
             context.coordinator.didFinishLoad = false
             context.coordinator.didApplyInitialProgress = false
+            context.coordinator.lastReportedPageIndex = -1
             webView.loadHTMLString(html, baseURL: nil)
         } else {
             context.coordinator.applyPendingInitialProgressIfLoaded()
@@ -337,8 +481,13 @@ struct ChapterWebView: NSViewRepresentable {
 
     private static let scrollScript = """
         window.addEventListener('scroll', function() {
-          const usable = document.documentElement.scrollHeight - window.innerHeight;
-          const fraction = usable > 1 ? Math.min(Math.max(window.scrollY / usable, 0), 1) : 0;
+          const root = document.documentElement;
+          const paged = root.getAttribute('data-amgi-note-pagination') === 'true';
+          const usable = paged
+            ? root.scrollWidth - window.innerWidth
+            : root.scrollHeight - window.innerHeight;
+          const offset = paged ? root.scrollLeft : window.scrollY;
+          const fraction = usable > 1 ? Math.min(Math.max(offset / usable, 0), 1) : (paged ? 1 : 0);
           window.webkit.messageHandlers.amgiScroll.postMessage(fraction);
         }, {passive: true});
         """
@@ -387,7 +536,13 @@ struct ChapterWebView: NSViewRepresentable {
         var loadedHTML: String?
         var didFinishLoad = false
         var didApplyInitialProgress = false
+        var isPaginated: Bool
+        var pageTurnRequest: ReaderPageTurnRequest?
+        var handledPageTurnSequence = 0
+        fileprivate var lastReportedPageIndex = -1
         @Binding var progress: Double
+        let onPageInfo: (Int, Int) -> Void
+        let onPageBoundary: (ReaderPageDirection) -> Void
         let onTapLookup: ((String) -> Void)?
         let onSelectionForNote: ((String) -> Void)?
         private weak var webView: WKWebView?
@@ -395,16 +550,23 @@ struct ChapterWebView: NSViewRepresentable {
 
         init(
             progress: Binding<Double>,
+            isPaginated: Bool,
+            onPageInfo: @escaping (Int, Int) -> Void,
+            onPageBoundary: @escaping (ReaderPageDirection) -> Void,
             onTapLookup: ((String) -> Void)?,
             onSelectionForNote: ((String) -> Void)?
         ) {
             self._progress = progress
+            self.isPaginated = isPaginated
+            self.onPageInfo = onPageInfo
+            self.onPageBoundary = onPageBoundary
             self.onTapLookup = onTapLookup
             self.onSelectionForNote = onSelectionForNote
         }
 
         func attach(webView: WKWebView) {
             self.webView = webView
+            configureScrollView(webView)
             selectionObserver = NotificationCenter.default.addObserver(
                 forName: .amgiReaderRequestSelection,
                 object: nil,
@@ -422,9 +584,101 @@ struct ChapterWebView: NSViewRepresentable {
             webView = nil
         }
 
+        func updatePagination(_ enabled: Bool) {
+            guard isPaginated != enabled else { return }
+            isPaginated = enabled
+            if let webView { configureScrollView(webView) }
+            if didFinishLoad { applyPaginationStyle() }
+        }
+
+        func consumePageTurnRequestIfNeeded() {
+            guard isPaginated,
+                  didFinishLoad,
+                  let request = pageTurnRequest,
+                  request.sequence > handledPageTurnSequence else { return }
+            handledPageTurnSequence = request.sequence
+            paginate(request.direction)
+        }
+
+        private func configureScrollView(_ webView: WKWebView) {
+            // macOS WKWebView does not expose its NSScrollView. The injected
+            // CSS owns the spread container; keep this hook as a no-op so the
+            // platform coordinators share the same lifecycle.
+        }
+
+        private func applyPaginationStyle() {
+            guard let webView else { return }
+            configureScrollView(webView)
+            let enabled = isPaginated ? "true" : "false"
+            let script = """
+            (function() {
+              var root = document.documentElement;
+              root.setAttribute('data-amgi-note-pagination', '\(enabled)');
+              var style = document.getElementById('__amgi_note_pagination_style');
+              if (!style) {
+                style = document.createElement('style');
+                style.id = '__amgi_note_pagination_style';
+                (document.head || root).appendChild(style);
+              }
+              style.textContent = `
+                html[data-amgi-note-pagination="true"] {
+                  height: 100vh !important;
+                  column-width: 50vw !important;
+                  -webkit-column-width: 50vw !important;
+                  column-fill: auto !important;
+                  column-gap: 0 !important;
+                  overflow-x: auto !important;
+                  overflow-y: hidden !important;
+                  scroll-snap-type: x mandatory !important;
+                }
+                html[data-amgi-note-pagination="true"] body { max-width: none !important; }
+              `;
+              if (!\(isPaginated ? "true" : "false")) {
+                root.scrollLeft = 0;
+                window.scrollTo(0, 0);
+              }
+            })();
+            """
+            webView.evaluateJavaScript(script)
+        }
+
+        private func paginate(_ direction: ReaderPageDirection) {
+            guard let webView else { return }
+            let directionOffset = direction == .forward ? 1 : -1
+            let script = """
+            (function() {
+              var root = document.documentElement;
+              var width = window.innerWidth || root.clientWidth || 1;
+              var count = Math.max(1, Math.ceil((root.scrollWidth || width) / width));
+              var current = Math.round(root.scrollLeft / width);
+              var target = Math.max(0, Math.min(count - 1, current + \(directionOffset)));
+              root.scrollLeft = target * width;
+              var fraction = count > 1 ? target / (count - 1) : 1;
+              return [current, target, count, fraction].join('|');
+            })();
+            """
+            webView.evaluateJavaScript(script) { [weak self] result, _ in
+                guard let self,
+                      let payload = result as? String else { return }
+                let values = payload.split(separator: "|").compactMap { Double($0) }
+                guard values.count == 4 else { return }
+                let current = Int(values[0])
+                let target = Int(values[1])
+                let count = Int(values[2])
+                if current == target {
+                    self.onPageBoundary(direction)
+                } else {
+                    self.onPageInfo(target, count)
+                    self.progress = min(max(values[3], 0), 1)
+                }
+            }
+        }
+
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             didFinishLoad = true
+            applyPaginationStyle()
             applyPendingInitialProgressIfLoaded()
+            consumePageTurnRequestIfNeeded()
         }
 
         func applyPendingInitialProgressIfLoaded() {
@@ -432,10 +686,16 @@ struct ChapterWebView: NSViewRepresentable {
                   let target = pendingInitialProgress else { return }
             didApplyInitialProgress = true
             pendingInitialProgress = nil
-            guard target > 0 else { return }
-            webView?.evaluateJavaScript(
-                "window.scrollTo(0, (document.documentElement.scrollHeight - window.innerHeight) * \(target));"
-            )
+            guard target > 0, let webView else { return }
+            if isPaginated {
+                webView.evaluateJavaScript(
+                    "document.documentElement.scrollLeft = (document.documentElement.scrollWidth - window.innerWidth) * \(target);"
+                )
+            } else {
+                webView.evaluateJavaScript(
+                    "window.scrollTo(0, (document.documentElement.scrollHeight - window.innerHeight) * \(target));"
+                )
+            }
         }
 
         func userContentController(

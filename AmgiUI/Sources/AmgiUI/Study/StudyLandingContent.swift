@@ -17,6 +17,72 @@ public enum StudyLandingState: Equatable, Sendable {
     )
 }
 
+enum StudyContentLayout: Equatable {
+    case compact
+    case regular
+    case wide
+
+    static let minimumRegularWidth: CGFloat = 700
+    static let minimumWideWidth: CGFloat = 720
+
+    static func resolve(
+        availableWidth: CGFloat,
+        isAccessibilitySize: Bool
+    ) -> StudyContentLayout {
+        if isAccessibilitySize { return .compact }
+        if availableWidth >= minimumWideWidth { return .wide }
+        if availableWidth >= minimumRegularWidth { return .regular }
+        return .compact
+    }
+
+    var presentation: StudyDashboardPresentation {
+        switch self {
+        case .compact: .compact
+        case .regular: .regular
+        case .wide: .wide
+        }
+    }
+
+    var maximumContentWidth: CGFloat {
+        switch self {
+        case .compact: 640
+        case .regular: 920
+        case .wide: 1_280
+        }
+    }
+
+    var horizontalPadding: CGFloat {
+        switch self {
+        case .compact: AmgiSpacing.lg
+        case .regular: AmgiSpacing.xl
+        case .wide: 20
+        }
+    }
+
+    var columnSpacing: CGFloat {
+        switch self {
+        case .compact, .regular: AmgiSpacing.xl
+        case .wide: 14
+        }
+    }
+}
+
+enum StudyDashboardPresentation: Sendable {
+    case compact
+    case medium
+    case regular
+    case wide
+
+    /// The root iPad detail can be wide enough for two columns while still
+    /// being too narrow for the roomy desktop card metrics. Keep that as a
+    /// named policy instead of burying the breakpoint in the view body.
+    static let mediumWideMaximumWidth: CGFloat = 820
+
+    static func resolveWideLayout(availableWidth: CGFloat) -> StudyDashboardPresentation {
+        availableWidth < mediumWideMaximumWidth ? .medium : .wide
+    }
+}
+
 public struct StudyLandingContent: View {
     /// Back-compat spelling of ``StudyLandingState``.
     public typealias State = StudyLandingState
@@ -60,16 +126,8 @@ public struct StudyLandingContent: View {
     let workloadError: String?
 
     @Environment(\.palette) private var palette
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var choseToWait = false
-
-    private var prefersWideLayout: Bool {
-        #if os(macOS)
-        true
-        #else
-        horizontalSizeClass == .regular
-        #endif
-    }
 
     public init(
         state: State,
@@ -188,24 +246,32 @@ public struct StudyLandingContent: View {
         decks: [StudyDeckRowData],
         continueReading: StudyReadingRecData?
     ) -> some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: AmgiSpacing.xl) {
-                if showsTodayDesk {
-                    todayLayout(
-                        summary: summary,
-                        decks: decks,
-                        continueReading: continueReading
-                    )
-                } else {
-                    historyLayout
+        GeometryReader { proxy in
+            let layout = StudyContentLayout.resolve(
+                availableWidth: proxy.size.width,
+                isAccessibilitySize: dynamicTypeSize.isAccessibilitySize
+            )
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: layout.columnSpacing) {
+                    if showsTodayDesk {
+                        todayLayout(
+                            summary: summary,
+                            decks: decks,
+                            continueReading: continueReading,
+                            layout: layout,
+                            availableWidth: proxy.size.width
+                        )
+                    } else {
+                        historyLayout(layout: layout)
+                    }
                 }
+                .frame(maxWidth: layout.maximumContentWidth)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, layout.horizontalPadding)
+                .padding(.bottom, 96)
             }
-            .frame(maxWidth: StudyColumn.maxWidth)
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, AmgiSpacing.lg)
-            .padding(.bottom, AmgiSpacing.xxl)
+            .refreshable { await onRefresh() }
         }
-        .refreshable { await onRefresh() }
         .onChange(of: summary.totalDue) { _, _ in
             choseToWait = false
         }
@@ -214,63 +280,179 @@ public struct StudyLandingContent: View {
         }
     }
 
+    @ViewBuilder
     private func todayLayout(
         summary: StudySummaryData,
         decks: [StudyDeckRowData],
-        continueReading: StudyReadingRecData?
+        continueReading: StudyReadingRecData?,
+        layout: StudyContentLayout,
+        availableWidth: CGFloat
     ) -> some View {
-        VStack(alignment: .leading, spacing: AmgiSpacing.xl) {
-            todayHero(summary)
-            if let forecast {
-                StudyForecastCard(data: forecast, onSelectDay: onSelectOffset)
+        switch layout {
+        case .compact, .regular:
+            VStack(alignment: .leading, spacing: layout.columnSpacing) {
+                todayHero(summary, presentation: layout.presentation)
+                forecastCard(presentation: layout.presentation)
+                supplementaryTodayContent
+                todayQueue(
+                    summary: summary,
+                    decks: decks,
+                    continueReading: continueReading
+                )
+                activityCard(presentation: layout.presentation)
             }
-            if !prefersWideLayout {
-                legend(summary, includeMix: false)
-            }
-            if !todayAttentionRows.isEmpty {
-                attentionSection(title: "Needs attention", rows: todayAttentionRows)
-            }
-            if let workloadError {
-                inlineError(workloadError)
-            }
-            if prefersWideLayout {
-                regularTodayColumns(summary: summary, decks: decks, continueReading: continueReading)
-            } else {
-                compactTodayColumns(summary: summary, decks: decks, continueReading: continueReading)
-            }
-            activityCard
+        case .wide:
+            wideTodayLayout(
+                summary: summary,
+                decks: decks,
+                continueReading: continueReading,
+                availableWidth: availableWidth
+            )
         }
     }
 
-    private var historyLayout: some View {
-        VStack(alignment: .leading, spacing: AmgiSpacing.xl) {
+    private func wideTodayLayout(
+        summary: StudySummaryData,
+        decks: [StudyDeckRowData],
+        continueReading: StudyReadingRecData?,
+        availableWidth: CGFloat
+    ) -> some View {
+        let presentation = StudyDashboardPresentation.resolveWideLayout(
+            availableWidth: availableWidth
+        )
+        return VStack(alignment: .leading, spacing: 24) {
+            HStack(alignment: .top, spacing: 14) {
+                todayHero(summary, presentation: presentation)
+                    .frame(minWidth: 360, maxWidth: .infinity)
+                forecastCard(presentation: presentation)
+                    .frame(minWidth: 240, idealWidth: 300, maxWidth: 340)
+            }
+
+            if hasTodayQueueContent(
+                summary: summary,
+                decks: decks,
+                continueReading: continueReading
+            ) {
+                HStack(alignment: .top, spacing: 14) {
+                    todayQueue(
+                        summary: summary,
+                        decks: decks,
+                        continueReading: continueReading
+                    )
+                    .frame(minWidth: 360, maxWidth: .infinity)
+
+                    VStack(alignment: .leading, spacing: 24) {
+                        supplementaryTodayContent
+                        activityCard(presentation: presentation)
+                    }
+                    .frame(minWidth: 260, idealWidth: 320, maxWidth: 360)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 24) {
+                    supplementaryTodayContent
+                    activityCard(presentation: presentation)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var supplementaryTodayContent: some View {
+        if !todayAttentionRows.isEmpty {
+            attentionSection(title: "Needs attention", rows: todayAttentionRows)
+        }
+        if let workloadError {
+            inlineError(workloadError)
+        }
+    }
+
+    @ViewBuilder
+    private func forecastCard(presentation: StudyDashboardPresentation) -> some View {
+        if let forecast {
+            StudyForecastCard(
+                data: forecast,
+                onSelectDay: onSelectOffset,
+                presentation: presentation
+            )
+        }
+    }
+
+    private func hasTodayQueueContent(
+        summary: StudySummaryData,
+        decks: [StudyDeckRowData],
+        continueReading: StudyReadingRecData?
+    ) -> Bool {
+        if summary.phase != .caughtUp {
+            return !decks.isEmpty
+        }
+        if summary.learningReturning > 0, !choseToWait {
+            return true
+        }
+        return showsContinueReading && continueReading != nil
+    }
+
+    private func historyLayout(layout: StudyContentLayout) -> some View {
+        VStack(alignment: .leading, spacing: layout.columnSpacing) {
             spanControls
             if !spanHeadline.isEmpty {
                 Text(spanHeadline)
                     .amgiFont(.sectionHeading)
                     .foregroundStyle(palette.textPrimary)
             }
-            activityCard
-            if spanRowsLoading && spanRows.isEmpty {
-                loadingCard(message: "Loading this period…")
-            } else if !spanRows.isEmpty {
-                VStack(alignment: .leading, spacing: AmgiSpacing.sm) {
-                    Text("Study cuts")
-                        .amgiFont(.sectionHeading)
-                        .foregroundStyle(palette.textPrimary)
-                    timeRowsSection
+
+            if layout == .wide {
+                HStack(alignment: .top, spacing: 24) {
+                    activityCard(presentation: .wide)
+                        .frame(minWidth: 620, maxWidth: .infinity)
+                    studyCutsContent
+                        .frame(minWidth: 340, idealWidth: 400, maxWidth: 440)
                 }
-            }
-            if let spanRowsError {
-                inlineError(spanRowsError)
-            }
-            if showsRelevantDecks {
-                relevantDecksSection
+                if let spanRowsError {
+                    inlineError(spanRowsError)
+                }
+                if showsRelevantDecks {
+                    relevantDecksSection
+                }
+            } else {
+                activityCard(presentation: layout.presentation)
+                studyCutsContent
+                if let spanRowsError {
+                    inlineError(spanRowsError)
+                }
+                if showsRelevantDecks {
+                    relevantDecksSection
+                }
             }
         }
     }
 
-    private var activityCard: some View {
+    @ViewBuilder
+    private var studyCutsContent: some View {
+        if spanRowsLoading && spanRows.isEmpty {
+            loadingCard(message: "Loading this period…")
+        } else if !spanRows.isEmpty {
+            VStack(alignment: .leading, spacing: AmgiSpacing.sm) {
+                Text("Study cuts")
+                    .amgiFont(.sectionHeading)
+                    .foregroundStyle(palette.textPrimary)
+                timeRowsSection
+            }
+        } else {
+            VStack(alignment: .leading, spacing: AmgiSpacing.sm) {
+                Text("Study cuts")
+                    .amgiFont(.sectionHeading)
+                    .foregroundStyle(palette.textPrimary)
+                Text("No study cuts in this period.")
+                    .amgiFont(.caption)
+                    .foregroundStyle(palette.textTertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(AmgiSpacing.lg)
+                    .background(palette.surfaceElevated, in: RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous))
+            }
+        }
+    }
+
+    private func activityCard(presentation: StudyDashboardPresentation) -> some View {
         AmgiCard(
             background: .surface,
             shadow: palette.shadows.sm,
@@ -285,14 +467,22 @@ public struct StudyLandingContent: View {
             VStack(alignment: .leading, spacing: AmgiSpacing.md) {
                 HStack {
                     Text(showsTodayDesk ? "Your activity" : "Review activity")
-                        .amgiFont(.cardTitle)
+                        .font(.title3)
+                        .fontWeight(.semibold)
                         .foregroundStyle(palette.textPrimary)
                     Spacer()
                     if showsTodayDesk {
-                        Button("Explore history", action: onExploreHistory)
-                            .amgiFont(.caption)
-                            .foregroundStyle(palette.accent)
-                            .accessibilityHint("Opens yesterday's review history")
+                        Button(action: onExploreHistory) {
+                            Text("Explore history")
+                                .font(.caption)
+                                .foregroundStyle(palette.textPrimary)
+                        }
+                        .buttonStyle(.plain)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .background(palette.surface)
+                        .contentShape(Rectangle())
+                        .accessibilityLabel("Explore history")
+                        .accessibilityHint("Opens yesterday's review history")
                     } else {
                         Text("Recorded answers")
                             .amgiFont(.caption)
@@ -302,7 +492,8 @@ public struct StudyLandingContent: View {
                 StudySpanChart(
                     model: chart,
                     onSelectOffset: onSelectOffset,
-                    onSelectMonth: onSelectMonth
+                    onSelectMonth: onSelectMonth,
+                    presentation: presentation
                 )
                 .contentShape(Rectangle())
                 .simultaneousGesture(periodSwipe)
@@ -316,59 +507,85 @@ public struct StudyLandingContent: View {
         }
     }
 
-    private func todayHero(_ summary: StudySummaryData) -> some View {
+    private func todayHero(
+        _ summary: StudySummaryData,
+        presentation: StudyDashboardPresentation
+    ) -> some View {
         AmgiCard(
             background: .surfaceElevated,
             shadow: palette.shadows.md,
             cornerRadius: AmgiRadius.hero
         ) {
             Group {
-                if prefersWideLayout {
-                    HStack(alignment: .center, spacing: AmgiSpacing.xl) {
-                        todayHeroCopy(summary)
-                        StudyDueRing(summary: summary, diameter: 188)
-                    }
-                } else {
+                if presentation == .compact {
                     VStack(alignment: .leading, spacing: AmgiSpacing.lg) {
-                        todayHeroCopy(summary)
+                        todayHeroCopy(summary, includesPrimary: false)
                         StudyDueRing(summary: summary, diameter: 156)
                             .frame(maxWidth: .infinity)
                         primary(summary)
+                    }
+                } else if presentation == .medium {
+                    HStack(alignment: .center, spacing: AmgiSpacing.md) {
+                        todayHeroCopy(
+                            summary,
+                            includesPrimary: true,
+                            titleFont: .title
+                        )
+                        StudyDueRing(summary: summary, diameter: 120)
+                    }
+                } else {
+                    HStack(alignment: .center, spacing: AmgiSpacing.xl) {
+                        todayHeroCopy(summary, includesPrimary: true)
+                        StudyDueRing(
+                            summary: summary,
+                            diameter: presentation == .wide ? 160 : 184
+                        )
                     }
                 }
             }
         }
     }
 
-    private func todayHeroCopy(_ summary: StudySummaryData) -> some View {
+    private func todayHeroCopy(
+        _ summary: StudySummaryData,
+        includesPrimary: Bool,
+        titleFont: Font = .largeTitle
+    ) -> some View {
         VStack(alignment: .leading, spacing: AmgiSpacing.sm) {
             HStack(spacing: AmgiSpacing.sm) {
                 Text(scopeLabel.map { "TODAY · \($0)" } ?? "TODAY")
-                    .amgiFont(size: 13, weight: .semibold, tracking: 0.4, relativeTo: .footnote)
-                    .foregroundStyle(palette.textTertiary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
+                    .font(.footnote)
+                    .fontWeight(.semibold)
+                    .tracking(0.4)
+                    .foregroundStyle(palette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 4)
                 if scopeLabel != nil {
                     Button("All decks", action: onShowAllDecks)
-                        .amgiFont(.caption)
+                        .font(.caption)
                         .foregroundStyle(palette.accent)
                 }
             }
             Text(summary.phase == .caughtUp ? summary.caughtUpTitle : "\(summary.totalDue) cards left")
-                .amgiFont(.displayHero)
+                .font(titleFont)
+                .fontWeight(.bold)
                 .foregroundStyle(palette.textPrimary)
+            if !summary.subtitleLabel.isEmpty {
+                Text(summary.subtitleLabel)
+                    .font(.subheadline)
+                    .foregroundStyle(palette.textPrimary)
+            }
             if let estimate = summary.estimateLabel {
                 Text(estimate)
-                    .amgiFont(.body)
+                    .font(.body)
                     .foregroundStyle(palette.textSecondary)
             } else if summary.phase == .caughtUp {
                 Text("Your next review is scheduled by the deck limits.")
-                    .amgiFont(.body)
+                    .font(.body)
                     .foregroundStyle(palette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if prefersWideLayout {
+            if includesPrimary {
                 primary(summary)
             }
             categoryLegend(summary)
@@ -379,15 +596,39 @@ public struct StudyLandingContent: View {
     private func categoryLegend(_ summary: StudySummaryData) -> some View {
         VStack(alignment: .leading, spacing: AmgiSpacing.xs) {
             Text("Remaining mix")
-                .amgiFont(.micro)
-                .foregroundStyle(palette.textTertiary)
-            HStack(spacing: AmgiSpacing.md) {
-                legendItem("New", count: summary.newCount, color: palette.cardStateNew)
-                legendItem("Learn", count: summary.learnCount, color: palette.cardStateLearning)
-                legendItem("Review", count: summary.reviewCount, color: palette.cardStateReview)
+                .font(.caption)
+                .foregroundStyle(palette.textSecondary)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: AmgiSpacing.lg) {
+                    categoryLegendItem("New", count: summary.newCount, color: palette.cardStateNew)
+                    categoryLegendItem("Learn", count: summary.learnCount, color: palette.cardStateLearning)
+                    categoryLegendItem("Review", count: summary.reviewCount, color: palette.cardStateReview)
+                }
+                VStack(alignment: .leading, spacing: AmgiSpacing.xs) {
+                    categoryLegendItem("New", count: summary.newCount, color: palette.cardStateNew)
+                    categoryLegendItem("Learn", count: summary.learnCount, color: palette.cardStateLearning)
+                    categoryLegendItem("Review", count: summary.reviewCount, color: palette.cardStateReview)
+                }
             }
         }
-        .padding(.top, AmgiSpacing.xs)
+    }
+
+    private func categoryLegendItem(_ title: String, count: Int, color: Color) -> some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(color)
+                .frame(width: 7, height: 7)
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(palette.textSecondary)
+            Text("\(count)")
+                .font(.caption)
+                .monospacedDigit()
+                .foregroundStyle(palette.textPrimary)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(title), \(count)")
+        .accessibilityValue("\(count) cards")
     }
 
     private func legendKey(title: String, color: Color) -> some View {
@@ -396,47 +637,8 @@ public struct StudyLandingContent: View {
                 .fill(color)
                 .frame(width: 6, height: 6)
             Text(title)
-                .amgiFont(.micro)
-                .foregroundStyle(palette.textTertiary)
-        }
-    }
-
-    private func legendItem(_ title: String, count: Int, color: Color) -> some View {
-        HStack(spacing: AmgiSpacing.xs) {
-            Circle()
-                .fill(color)
-                .frame(width: 7, height: 7)
-            Text(title)
-                .amgiFont(.micro)
+                .font(.caption2)
                 .foregroundStyle(palette.textSecondary)
-            Text("\(count)")
-                .amgiFont(.micro, .monospacedDigits)
-                .foregroundStyle(palette.textPrimary)
-        }
-    }
-
-    private func compactTodayColumns(
-        summary: StudySummaryData,
-        decks: [StudyDeckRowData],
-        continueReading: StudyReadingRecData?
-    ) -> some View {
-        VStack(alignment: .leading, spacing: AmgiSpacing.xl) {
-            todayQueue(summary: summary, decks: decks, continueReading: continueReading)
-        }
-    }
-
-    private func regularTodayColumns(
-        summary: StudySummaryData,
-        decks: [StudyDeckRowData],
-        continueReading: StudyReadingRecData?
-    ) -> some View {
-        HStack(alignment: .top, spacing: AmgiSpacing.xl) {
-            VStack(alignment: .leading, spacing: AmgiSpacing.lg) {
-                legend(summary, includeMix: false)
-            }
-            .frame(maxWidth: 280)
-            todayQueue(summary: summary, decks: decks, continueReading: continueReading)
-                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -655,84 +857,6 @@ public struct StudyLandingContent: View {
         }
     }
 
-    // MARK: - Legend
-
-    private func legend(_ summary: StudySummaryData, includeMix: Bool = true) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if includeMix {
-                if summary.phase == .caughtUp {
-                    Text(summary.caughtUpTitle)
-                        .amgiFont(.sectionHeading)
-                        .foregroundStyle(palette.textPrimary)
-                } else {
-                    mixLine("New", count: summary.newCount, color: palette.cardStateNew)
-                    mixLine("Learn", count: summary.learnCount, color: palette.cardStateLearning)
-                    mixLine("Review", count: summary.reviewCount, color: palette.cardStateReview)
-                }
-            }
-            streakLine(summary)
-            if summary.learningReturning == 0 || choseToWait {
-                note(summary.returningNote)
-            }
-            if summary.phase != .caughtUp, summary.cardsRemainingToClose > 0 {
-                note("\(summary.cardsRemainingToClose) to close the ring")
-            }
-            if summary.phase == .caughtUp {
-                note(summary.timeStudiedLabel)
-                note(summary.tomorrowLabel)
-            }
-            note(summary.rolloverNote)
-            if (forecast?.backlogCount ?? 0) == 0 {
-                note(summary.backlogNote)
-            }
-            if summary.deckCount > 0, summary.phase != .caughtUp {
-                let n = summary.deckCount
-                note("across \(n) deck\(n == 1 ? "" : "s")")
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func mixLine(_ name: String, count: Int, color: Color) -> some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(color)
-                .frame(width: 8, height: 8)
-            Text(name)
-                .amgiFont(.caption)
-                .foregroundStyle(palette.textSecondary)
-            Spacer(minLength: 8)
-            Text("\(count)")
-                .amgiFont(.caption)
-                .monospacedDigit()
-                .foregroundStyle(palette.textPrimary)
-        }
-    }
-
-    @ViewBuilder
-    private func streakLine(_ summary: StudySummaryData) -> some View {
-        if summary.streakPending {
-            Text("36-day streak")
-                .amgiFont(.caption)
-                .foregroundStyle(palette.textSecondary)
-                .redacted(reason: .placeholder)
-        } else if let label = summary.streakLabel {
-            Text(label)
-                .amgiFont(.caption)
-                .foregroundStyle(palette.textSecondary)
-        }
-    }
-
-    @ViewBuilder
-    private func note(_ text: String?) -> some View {
-        if let text {
-            Text(text)
-                .amgiFont(.caption)
-                .foregroundStyle(palette.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
     // MARK: - Primary
 
     @ViewBuilder
@@ -834,10 +958,6 @@ public struct StudyLandingContent: View {
             .foregroundStyle(palette.textPrimary)
             .padding(.bottom, 8)
     }
-}
-
-private enum StudyColumn {
-    static let maxWidth: CGFloat = 880
 }
 
 // MARK: - Previews

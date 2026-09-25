@@ -1,4 +1,5 @@
 import AmgiReader
+import AmgiTheme
 import SwiftUI
 #if os(iOS)
 import UIKit
@@ -22,6 +23,8 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
     /// 0..1 fraction to scroll to on the first chapter load only.
     /// Consumed by the inner VC; cleared by the host once handed off.
     let pendingRestoreFraction: Double?
+    let pageTurnRequest: ReaderPageTurnRequest?
+    let selectionRequestID: Int
     /// Suppresses the page controller's dataSource so dictionary sheets
     /// can absorb horizontal gestures (UX spec edge case).
     let pagingEnabled: Bool
@@ -29,6 +32,7 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
     let onPageInfo: (Int, Int) -> Void
     let onProgress: (Double, Int) -> Void
     let onWordTap: (String, String) -> Void
+    let onSelectionForNote: (String) -> Void
     let onTapEmpty: (CGFloat) -> Void
     let onReachedEnd: () -> Void
 
@@ -59,6 +63,10 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: UIPageViewController, context: Context) {
         context.coordinator.host = self
         context.coordinator.applyStyleTokensToVisibleChapters(in: uiViewController)
+        context.coordinator.consumeSelectionRequestIfNeeded(in: uiViewController)
+        if context.coordinator.consumePageTurnRequestIfNeeded(in: uiViewController) {
+            return
+        }
         // If the host's chapterIndex Binding diverged from what the page
         // controller currently shows (programmatic jump), re-seed.
         if let current = uiViewController.viewControllers?.first as? EPUBChapterPageController,
@@ -66,7 +74,11 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
             if let next = context.coordinator.makeChapterVC(at: chapterIndex, restoreFraction: pendingRestoreFraction) {
                 let direction: UIPageViewController.NavigationDirection =
                     chapterIndex > current.chapterIndex ? .forward : .reverse
-                uiViewController.setViewControllers([next], direction: direction, animated: true)
+                uiViewController.setViewControllers(
+                    [next],
+                    direction: direction,
+                    animated: !AmgiMotion.prefersReducedMotion
+                )
             }
         }
     }
@@ -78,6 +90,8 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
                              UIPageViewControllerDelegate, EPUBChapterPageControllerDelegate {
         var host: EPUBPageViewControllerHost
         var didInstallInitial = false
+        private var handledPageTurnSequence = 0
+        private var handledSelectionRequestID = 0
 
         init(host: EPUBPageViewControllerHost) {
             self.host = host
@@ -102,6 +116,62 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
                     chapter.update(styleTokens: host.styleTokens)
                 }
             }
+        }
+
+        @discardableResult
+        func navigate(
+            _ direction: EPUBChapterPageController.PageDirection,
+            from controller: EPUBChapterPageController,
+            in pageVC: UIPageViewController
+        ) -> Bool {
+            guard host.pagingEnabled, controller.isReadyForPaging else { return false }
+            if direction == .forward, !controller.isAtLastPage {
+                controller.paginate(direction: .forward)
+                return true
+            }
+            if direction == .backward, !controller.isAtFirstPage {
+                controller.paginate(direction: .backward)
+                return true
+            }
+
+            let targetIndex = controller.chapterIndex + (direction == .forward ? 1 : -1)
+            guard targetIndex >= 0, targetIndex < host.book.chapters.count,
+                  let next = makeChapterVC(
+                    at: targetIndex,
+                    restoreFraction: direction == .backward ? 1 : 0
+                  ) else {
+                if direction == .forward { host.onReachedEnd() }
+                return false
+            }
+            pageVC.setViewControllers(
+                [next],
+                direction: direction == .forward ? .forward : .reverse,
+                animated: !AmgiMotion.prefersReducedMotion
+            ) { [weak self] _ in
+                self?.host.chapterIndex = targetIndex
+            }
+            return true
+        }
+
+        @discardableResult
+        func consumePageTurnRequestIfNeeded(in pageVC: UIPageViewController) -> Bool {
+            guard let request = host.pageTurnRequest,
+                  request.sequence > handledPageTurnSequence,
+                  let current = pageVC.viewControllers?.first as? EPUBChapterPageController,
+                  current.isReadyForPaging else { return false }
+            handledPageTurnSequence = request.sequence
+            return navigate(
+                request.direction == .forward ? .forward : .backward,
+                from: current,
+                in: pageVC
+            )
+        }
+
+        func consumeSelectionRequestIfNeeded(in pageVC: UIPageViewController) {
+            guard host.selectionRequestID > handledSelectionRequestID else { return }
+            handledSelectionRequestID = host.selectionRequestID
+            (pageVC.viewControllers?.first as? EPUBChapterPageController)?
+                .requestSelectionForNote()
         }
 
         // MARK: UIPageViewControllerDataSource
@@ -151,6 +221,9 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
             // background prefetched VCs don't clobber the page strip.
             guard controller.chapterIndex == host.chapterIndex else { return }
             host.onPageInfo(pageIndex, pageCount)
+            if let pageVC = controller.parent as? UIPageViewController {
+                _ = consumePageTurnRequestIfNeeded(in: pageVC)
+            }
         }
 
         func epubChapter(
@@ -170,48 +243,29 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
             host.onWordTap(token, sentence)
         }
 
+        func epubChapter(
+            _ controller: EPUBChapterPageController,
+            didSelectTextForNote text: String
+        ) {
+            host.onSelectionForNote(text)
+        }
+
         func epubChapterDidTapEmptySpace(
             _ controller: EPUBChapterPageController,
             atRelativeX relativeX: CGFloat
         ) {
-            // Edge-tap zones: left/right 15% drive intra-chapter paging
-            // directly without waiting for a swipe. Outside that, toggle
-            // chrome via the SwiftUI callback.
+            // Edge-tap zones: left/right 15% page and cross chapter without
+            // waiting for a swipe. Outside that, toggle chrome. There is no
+            // competing native tap recognizer: empty and token taps are
+            // dispatched mutually exclusively by the injected document script.
             let leftEdge: CGFloat = 0.15
             let rightEdge: CGFloat = 0.85
             if relativeX <= leftEdge {
-                // At first page of first chapter — no-op (bounce isn't
-                // available from a tap; UX spec says no toast either).
-                if controller.isAtFirstPage && controller.chapterIndex == 0 {
-                    host.onTapEmpty(relativeX)
-                    return
-                }
-                if controller.isAtFirstPage {
-                    // Hop to previous chapter's last page.
-                    if let pageVC = controller.parent as? UIPageViewController,
-                       let prev = makeChapterVC(at: controller.chapterIndex - 1, restoreFraction: nil) {
-                        pageVC.setViewControllers([prev], direction: .reverse, animated: true) { _ in
-                            self.host.chapterIndex = prev.chapterIndex
-                        }
-                    }
-                } else {
-                    controller.paginate(direction: .backward)
-                }
+                guard let pageVC = controller.parent as? UIPageViewController else { return }
+                navigate(.backward, from: controller, in: pageVC)
             } else if relativeX >= rightEdge {
-                if controller.isAtLastPage && controller.chapterIndex == host.book.chapters.count - 1 {
-                    host.onReachedEnd()
-                    return
-                }
-                if controller.isAtLastPage {
-                    if let pageVC = controller.parent as? UIPageViewController,
-                       let next = makeChapterVC(at: controller.chapterIndex + 1, restoreFraction: nil) {
-                        pageVC.setViewControllers([next], direction: .forward, animated: true) { _ in
-                            self.host.chapterIndex = next.chapterIndex
-                        }
-                    }
-                } else {
-                    controller.paginate(direction: .forward)
-                }
+                guard let pageVC = controller.parent as? UIPageViewController else { return }
+                navigate(.forward, from: controller, in: pageVC)
             } else {
                 host.onTapEmpty(relativeX)
             }

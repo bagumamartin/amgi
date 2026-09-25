@@ -1,7 +1,7 @@
 public import Foundation
 
 public extension UserDefaults {
-    /// App Group store shared across the iOS app, widget extension, and watch app.
+    /// App Group store shared across the iOS/iPadOS app, Mac app, widgets, and watch.
     /// Falls back to `.standard` if the App Group entitlement is missing
     /// (e.g. running unit tests outside the app sandbox), so callers can always
     /// read/write something. Tests should pass in their own `UserDefaults` instance.
@@ -15,10 +15,17 @@ public extension UserDefaults {
         // import the canonical constant — `AppGroup.identifier` is the
         // local copy.
         let defaults = UserDefaults(suiteName: AppGroup.identifier) ?? .standard
-        // One-time migration: copy values the previous suites still hold
-        // (selected theme, etc.) so preferences survive an ID rename.
-        // Older builds used `group.com.amgiapp`.
-        migrateLegacySuite("group.com.amgiapp", into: defaults)
+        // One-time migration: copy values previous suites still hold so
+        // preferences survive both the original app-group rename and the
+        // later Amgi -> Ijuka rebrand. Missing values never overwrite newer
+        // state, and each suite is consulted oldest-first.
+        for legacyID in [
+            "group.com.amgiapp",
+            "group.com.bagumamartin.AmgiApp",
+            "39557WW39R.group.com.bagumamartin.AmgiApp",
+        ] {
+            migrateLegacySuite(legacyID, into: defaults)
+        }
         return defaults
     }()
 

@@ -2,6 +2,9 @@ import SwiftUI
 import AmgiUI
 import AmgiTheme
 import AmgiCardWeb
+#if os(macOS)
+import AppKit
+#endif
 
 /// Native SwiftUI renderer for allowlist-simple cards (R11). Renders the
 /// side's parsed blocks on a radius-24 `AmgiCard` surface with UNIFORM
@@ -19,8 +22,9 @@ import AmgiCardWeb
 ///
 /// Conforms to `Equatable` so `.equatable()` at the call site can skip body
 /// evaluation when unrelated session fields invalidate the parent — closure
-/// properties are excluded from the comparison because they are recreated
-/// every render but always wrap identical behaviour.
+/// identities are excluded because they are recreated every render. Whether
+/// an interaction is available is still compared, so preference/answer-state
+/// changes cannot leave a stale gesture installed.
 struct NativeCardView: View, Equatable {
     let content: NativeCardContent
     let isAnswerSide: Bool
@@ -30,6 +34,8 @@ struct NativeCardView: View, Equatable {
     let mediaFolder: URL?
     let onQuestionCanvasTap: (() -> Void)?
     let onTextLookup: ((String) -> Void)?
+    private let hasQuestionCanvasTap: Bool
+    private let hasTextLookup: Bool
 
     // Nonisolated: only reads immutable Sendable stored properties, so the
     // comparison is safe off the main actor.
@@ -38,6 +44,8 @@ struct NativeCardView: View, Equatable {
             && lhs.isAnswerSide == rhs.isAnswerSide
             && lhs.answerStartIndex == rhs.answerStartIndex
             && lhs.mediaFolder == rhs.mediaFolder
+            && lhs.hasQuestionCanvasTap == rhs.hasQuestionCanvasTap
+            && lhs.hasTextLookup == rhs.hasTextLookup
     }
 
     @Environment(\.palette) private var palette
@@ -57,6 +65,8 @@ struct NativeCardView: View, Equatable {
         self.mediaFolder = mediaFolder
         self.onQuestionCanvasTap = onQuestionCanvasTap
         self.onTextLookup = onTextLookup
+        self.hasQuestionCanvasTap = onQuestionCanvasTap != nil
+        self.hasTextLookup = onTextLookup != nil
     }
 
     var body: some View {
@@ -66,9 +76,20 @@ struct NativeCardView: View, Equatable {
                 cornerRadius: AmgiRadius.card,
                 contentInsets: EdgeInsets(top: 40, leading: 24, bottom: 40, trailing: 24)
             ) {
-                VStack(spacing: AmgiSpacing.lg) {
-                    ForEach(Array(content.blocks.enumerated()), id: \.offset) { index, block in
-                        blockView(block, index: index)
+                ZStack {
+                    #if os(macOS)
+                    // Bottom-most hit target: text and images consume clicks
+                    // for selection / reveal respectively, while padding and
+                    // empty card space reveal the answer on click.
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture { onQuestionCanvasTap?() }
+                    #endif
+
+                    VStack(spacing: AmgiSpacing.lg) {
+                        ForEach(Array(content.blocks.enumerated()), id: \.offset) { index, block in
+                            blockView(block, index: index)
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity)
@@ -147,31 +168,61 @@ struct NativeCardView: View, Equatable {
             #if os(iOS)
                 .contentShape(Rectangle())
                 .highPriorityGesture(textLookupGesture(for: String(attributed.characters)))
+            #elseif os(macOS)
+                // macOS deliberately separates selection from card actions:
+                // text is selectable/copyable, right-click offers app lookup,
+                // and only non-text card space/images click-to-reveal.
+                .textSelection(.enabled)
+                .contextMenu {
+                    if !isAnswerSide, onTextLookup != nil {
+                        Button("Look Up “\(macLookupPreview(for: String(attributed.characters)))”") {
+                            onTextLookup?(String(attributed.characters))
+                        }
+                        Divider()
+                    }
+                    Button("Copy") {
+                        copyToPasteboard(String(attributed.characters))
+                    }
+                }
             #endif
         case .image(let filename):
             let url = mediaFolder?.appendingPathComponent(NativeCardContent.mediaFilename(from: filename))
             #if os(iOS)
-            DownsampledImage(
-                url: url,
-                maxPixelSize: AmgiImagePixelSize.card
-            ) { image in
-                image
-                    .resizable()
-                    .scaledToFit()
-                    .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous))
-            } placeholder: {
-                RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous)
-                    .fill(palette.surface)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous)
-                            .strokeBorder(palette.separator, lineWidth: 1)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .aspectRatio(4 / 3, contentMode: .fit)
+            Group {
+                DownsampledImage(
+                    url: url,
+                    maxPixelSize: AmgiImagePixelSize.card
+                ) { image in
+                    image
+                        .resizable()
+                        .scaledToFit()
+                        .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous))
+                } placeholder: {
+                    RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous)
+                        .fill(palette.surface)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous)
+                                .strokeBorder(palette.separator, lineWidth: 1)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .aspectRatio(4 / 3, contentMode: .fit)
+                }
+                .frame(maxWidth: .infinity)
             }
-            .frame(maxWidth: .infinity)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(imageAccessibilityLabel(for: filename))
             #else
-            NativeMediaImageView(filename: NativeCardContent.mediaFilename(from: filename), mediaFolder: mediaFolder)
+            Group {
+                NativeMediaImageView(
+                    filename: NativeCardContent.mediaFilename(from: filename),
+                    mediaFolder: mediaFolder,
+                    accessibilityLabel: imageAccessibilityLabel(for: filename)
+                )
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(imageAccessibilityLabel(for: filename))
+            .contentShape(Rectangle())
+            .onTapGesture { onQuestionCanvasTap?() }
             #endif
         case .divider:
             Rectangle()
@@ -180,6 +231,40 @@ struct NativeCardView: View, Equatable {
                 .padding(.horizontal, 24)
         }
     }
+
+    /// Native parsing retains the media filename rather than HTML `alt`.
+    /// Turn that stable, authored clue into an honest accessibility label
+    /// instead of publishing a decorative image with no description at all.
+    static func imageAccessibilityLabel(for filename: String, isAnswerSide: Bool = false) -> String {
+        let role = isAnswerSide ? "Answer card image" : "Question card image"
+        let filename = filename.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !filename.isEmpty else { return role }
+        var stem = URL(fileURLWithPath: filename).deletingPathExtension().lastPathComponent
+        while stem.hasPrefix(".") { stem.removeFirst() }
+        let description = stem
+            .replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "-", with: " ")
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+        return description.isEmpty ? role : "\(role): \(description)"
+    }
+
+    private func imageAccessibilityLabel(for filename: String) -> String {
+        Self.imageAccessibilityLabel(for: filename, isAnswerSide: isAnswerSide)
+    }
+
+    #if os(macOS)
+    private func macLookupPreview(for text: String) -> String {
+        let compact = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        if compact.count <= 28 { return compact }
+        return String(compact.prefix(28)) + "…"
+    }
+
+    private func copyToPasteboard(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+    #endif
 
     #if os(iOS)
     private func textLookupGesture(for text: String) -> some Gesture {
@@ -199,6 +284,7 @@ struct NativeCardView: View, Equatable {
 private struct NativeMediaImageView: View {
     let filename: String
     let mediaFolder: URL?
+    let accessibilityLabel: String
 
     @State private var cgImage: CGImage?
     @State private var imageUnavailable = false
@@ -221,6 +307,8 @@ private struct NativeMediaImageView: View {
                     .foregroundStyle(palette.textSecondary)
             }
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityLabel)
         .task(id: mediaPath) { await load() }
     }
 

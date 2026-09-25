@@ -1,58 +1,80 @@
 #if os(macOS)
 package import SwiftUI
-import AmgiAppCore
+package import AmgiAppCore
 import AmgiTheme
 import Foundation
 package import AnkiKit
 
-/// One-shot queue of deck requests for the macOS review windows.
-///
-/// This SDK's `WindowGroup` scene has no value-carrying initializer, so a
-/// requested deck can't be passed straight through `openWindow`. Instead the
-/// caller enqueues the deck, then opens a new review window; each window's
-/// content claims the next deck on appear and holds it in its own `@State`.
-/// This is what lets several decks be reviewed concurrently — one window per
-/// request, unlike the previous single-instance `Window` scene.
+/// One-shot routing for the single Mac study window. The engine exposes one
+/// mutable current-deck/undo context, so the host deliberately serializes
+/// requests: a newer request replaces an unclaimed one and an already-open
+/// window is retargeted in place instead of spawning a second owner.
 @MainActor
 package final class ReviewWindowQueue {
     package static let shared = ReviewWindowQueue()
 
-    private struct PendingDeck {
-        let deckID: DeckID
-        let profile: ProfileContext
+    package struct Request: Sendable {
+        package let deckID: DeckID
+        package let profile: ProfileContext
+        package let pullCooling: Bool
+
+        package init(deckID: DeckID, profile: ProfileContext, pullCooling: Bool) {
+            self.deckID = deckID
+            self.profile = profile
+            self.pullCooling = pullCooling
+        }
     }
 
-    private var pending: [PendingDeck] = []
+    private var pending: Request?
     private init() {}
 
-    package func enqueue(_ deckID: DeckID) {
-        pending.append(PendingDeck(deckID: deckID, profile: AccountStore.shared.selectedContext))
+    package func enqueue(_ deckID: DeckID, pullCooling: Bool = false) {
+        pending = Request(
+            deckID: deckID,
+            profile: AccountStore.shared.selectedContext,
+            pullCooling: pullCooling
+        )
+        NotificationCenter.default.post(name: .amgiReviewWindowRequest, object: nil)
     }
 
-    package func dequeue() -> DeckID? {
+    package func dequeue() -> Request? {
         let current = AccountStore.shared.selectedContext
-        while let first = pending.first {
-            pending.removeFirst()
-            guard first.profile.isCurrent(current) else { continue }
-            return first.deckID
+        guard let pending, pending.profile.isCurrent(current) else {
+            self.pending = nil
+            return nil
         }
-        return nil
+        self.pending = nil
+        return pending
+    }
+
+    package func discardPending() {
+        pending = nil
     }
 }
 
-/// Root content of a single review window. Each window claims its deck from
-/// `ReviewWindowQueue` on appear and holds it in its own `@State`, so several
-/// decks can be reviewed concurrently in separate windows.
+extension Notification.Name {
+    fileprivate static let amgiReviewWindowRequest = Notification.Name("com.ijuka.review-window-request")
+}
+
+/// Root content of the single review window. It can consume a request that
+/// arrives before the first render or while an older review is already open.
 package struct ReviewWindowHost: View {
-    @State private var deckID: DeckID?
+    @State private var request: ReviewWindowQueue.Request?
+    @Bindable private var accountStore = AccountStore.shared
     @Environment(\.palette) private var palette
+    @Environment(\.dismiss) private var dismiss
 
     package init() {}
 
     package var body: some View {
         Group {
-            if let deckID {
-                ReviewView(deckId: deckID) { }
+            if let request {
+                ReviewView(
+                    deckId: request.deckID,
+                    pullCooling: request.pullCooling,
+                    onDismiss: { dismiss() }
+                )
+                .id(request.deckID.rawValue)
             } else {
                 VStack(spacing: AmgiSpacing.md) {
                     Image(systemName: "graduationcap")
@@ -65,9 +87,16 @@ package struct ReviewWindowHost: View {
             }
         }
         .onAppear {
-            if deckID == nil {
-                deckID = ReviewWindowQueue.shared.dequeue()
+            if request == nil {
+                request = ReviewWindowQueue.shared.dequeue()
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .amgiReviewWindowRequest)) { _ in
+            request = ReviewWindowQueue.shared.dequeue()
+        }
+        .onChange(of: accountStore.selectionID) { _, _ in
+            ReviewWindowQueue.shared.discardPending()
+            dismiss()
         }
     }
 }

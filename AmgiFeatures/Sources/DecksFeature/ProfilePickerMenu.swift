@@ -88,8 +88,11 @@ package struct ProfilePickerMenu: View {
             } header: {
                 Text("Switch profile")
             }
-            if includesSettings {
-                Section {
+            Section {
+                Button("Manage Profiles…", systemImage: "person.2") {
+                    open = .manageProfiles
+                }
+                if includesSettings {
                     Button("Settings…", systemImage: "gearshape") {
                         open = .settings
                     }
@@ -100,6 +103,7 @@ package struct ProfilePickerMenu: View {
         }
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel("Profile: \(store.current.displayName)")
         .task { await iconStore.refresh() }
     }
@@ -150,10 +154,17 @@ package struct ProfilePickerMenu: View {
                     .amgiFont(chrome == .sidebar ? .cardTitle : .body)
             }
             if showsNameInLabel {
-                Text(store.current.displayName)
-                    .amgiFont(.bodyEmphasis)
-                    .foregroundStyle(palette.textPrimary)
-                    .lineLimit(1)
+                Canvas { context, size in
+                    let name = context.resolve(
+                        Text(store.current.displayName)
+                            .font(.body)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(palette.textPrimary)
+                    )
+                    context.draw(name, at: CGPoint(x: 0, y: size.height / 2), anchor: .leading)
+                }
+                .frame(maxWidth: .infinity, minHeight: 20)
+                .accessibilityHidden(true)
             }
         }
         .contentShape(Rectangle())

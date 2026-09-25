@@ -17,7 +17,7 @@ struct CollectionBusyView: View {
                 .amgiFont(.sectionHeading)
             Text(
                 "An AI assistant is using your collection right now. "
-                    + "Amgi will open automatically when it's free — no action needed. "
+                    + "Ijuka will open automatically when it's free — no action needed. "
                     + "You can also quit the assistant to free it immediately."
             )
             .amgiFont(.body)
@@ -42,5 +42,6 @@ struct CollectionBusyView: View {
         }
         .padding(AmgiSpacing.xl)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .amgiScreenCanvas()
     }
 }

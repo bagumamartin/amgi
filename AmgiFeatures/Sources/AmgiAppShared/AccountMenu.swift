@@ -47,6 +47,16 @@ struct AccountMenuModifier: ViewModifier {
                 if let provider {
                     ToolbarItem(placement: placement) {
                         provider.menu(open: $destination)
+                            .contextMenu {
+                                Button {
+                                    destination = .manageProfiles
+                                } label: {
+                                    Label("Manage Profiles", systemImage: "person.2")
+                                }
+                            }
+                            .accessibilityAction(named: "Manage Profiles") {
+                                destination = .manageProfiles
+                            }
                     }
                 }
             }
@@ -73,6 +83,16 @@ private struct AccountMenuControlModifier: ViewModifier {
                 ToolbarItem(placement: placement) {
                     provider.menu(open: $open)
                         .environment(\.accountMenuShowsName, showsName)
+                        .contextMenu {
+                            Button {
+                                open = .manageProfiles
+                            } label: {
+                                Label("Manage Profiles", systemImage: "person.2")
+                            }
+                        }
+                        .accessibilityAction(named: "Manage Profiles") {
+                            open = .manageProfiles
+                        }
                 }
             }
         }
@@ -97,12 +117,32 @@ private struct AccountSidebarFooterModifier: ViewModifier {
                 content
                     .scrollContentBackground(.hidden)
                 provider.sidebarFooter(open: $open)
+                    .contextMenu {
+                        Button {
+                            open = .manageProfiles
+                        } label: {
+                            Label("Manage Profiles", systemImage: "person.2")
+                        }
+                    }
+                    .accessibilityAction(named: "Manage Profiles") {
+                        open = .manageProfiles
+                    }
             }
             .background { MacSidebarMaterial() }
             .appSidebarWidth()
             #else
             content.safeAreaInset(edge: .bottom, spacing: 0) {
                 provider.sidebarFooter(open: $open)
+                    .contextMenu {
+                        Button {
+                            open = .manageProfiles
+                        } label: {
+                            Label("Manage Profiles", systemImage: "person.2")
+                        }
+                    }
+                    .accessibilityAction(named: "Manage Profiles") {
+                        open = .manageProfiles
+                    }
             }
             #endif
         } else {

@@ -57,6 +57,17 @@ public enum CollectionLayout {
             .appendingPathComponent("Library/Application Support/AnkiCollection",
                                     isDirectory: true)
         if fm.fileExists(atPath: ownContainer.path) { roots.append(ownContainer) }
+        for groupID in legacyMacGroupIDs {
+            let groupRoot = fm.containerURL(
+                forSecurityApplicationGroupIdentifier: groupID
+            ) ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent("Library/Group Containers", isDirectory: true)
+                .appendingPathComponent(groupID, isDirectory: true)
+            let collectionRoot = groupRoot.appendingPathComponent("AnkiCollection", isDirectory: true)
+            if fm.fileExists(atPath: collectionRoot.path) {
+                roots.append(collectionRoot)
+            }
+        }
         roots.append(legacyApplicationSupportRoot(environment: environment))
         return roots
         #else
@@ -111,6 +122,11 @@ public enum CollectionLayout {
 
 
     private static let macGroupID = "group.com.bagumamartin.ijuka"
+    private static let legacyMacGroupIDs = [
+        "group.com.bagumamartin.AmgiApp",
+        "39557WW39R.group.com.bagumamartin.AmgiApp",
+        "group.com.amgiapp",
+    ]
 
     /// Canonical Mac root: <group container>/AnkiCollection.
     ///
@@ -129,7 +145,9 @@ public enum CollectionLayout {
             .appendingPathComponent("Library/Group Containers", isDirectory: true)
         let candidates = [
             groupContainers.appendingPathComponent(macGroupID, isDirectory: true),
-        ]
+        ] + legacyMacGroupIDs.map {
+            groupContainers.appendingPathComponent($0, isDirectory: true)
+        }
         for candidate in candidates {
             let root = candidate.appendingPathComponent("AnkiCollection", isDirectory: true)
             if fm.fileExists(atPath: root.appendingPathComponent("default").path) {

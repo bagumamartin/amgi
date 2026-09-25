@@ -453,7 +453,7 @@ package final class SyncCoordinator {
                 // failure after this point as potentially partially committed
                 // so the shared cache and widget are refreshed conservatively.
                 collectionCommitted = true
-                try await client.merge { message in
+                try await client.merge { [weak self] message in
                     Task { @MainActor [weak self] in
                         guard let self, self.mergeProgressID == progressID else { return }
                         self.state = .syncing(message: message)

@@ -71,21 +71,32 @@ cargo "+$NIGHTLY" build \
     --release
 
 echo "==> Building for macOS (aarch64-apple-darwin)..."
-# Native macOS app (personal/main). Arm64-only: this machine and every
-# Mac this product ships to is Apple silicon. Add x86_64-apple-darwin
-# and lipo if an Intel slice is actually needed.
 cargo build \
     --manifest-path "$BRIDGE_DIR/Cargo.toml" \
     --target aarch64-apple-darwin \
     --release
 
+echo "==> Building for macOS (x86_64-apple-darwin)..."
+cargo build \
+    --manifest-path "$BRIDGE_DIR/Cargo.toml" \
+    --target x86_64-apple-darwin \
+    --release
+
+MACOS_UNIVERSAL_DIR="$BRIDGE_DIR/target/macos-universal"
+mkdir -p "$MACOS_UNIVERSAL_DIR"
+lipo -create \
+    "$BRIDGE_DIR/target/aarch64-apple-darwin/release/libanki_bridge_ios.dylib" \
+    "$BRIDGE_DIR/target/x86_64-apple-darwin/release/libanki_bridge_ios.dylib" \
+    -output "$MACOS_UNIVERSAL_DIR/libanki_bridge_ios.dylib"
+
 # Wrap one cdylib into AnkiRustLib.framework. $1 = rust triple, $2 = slice name,
 # $3 = CFBundleSupportedPlatforms entry, $4 = MinimumOSVersion,
 # $5 = "versioned" for macOS (Versions/A) or omit for iOS/watchOS shallow bundles.
+# $6 = optional prebuilt binary path (used for the universal macOS slice).
 make_framework() {
     local triple="$1" slice="$2" platform="$3" minos="$4"
     local versioned="${5:-}"
-    local dylib="$BRIDGE_DIR/target/$triple/release/libanki_bridge_ios.dylib"
+    local dylib="${6:-$BRIDGE_DIR/target/$triple/release/libanki_bridge_ios.dylib}"
     [ -f "$dylib" ] || { echo "ERROR: dylib not found at $dylib"; exit 1; }
 
     local fw="$STAGE_DIR/$slice/AnkiRustLib.framework"
@@ -149,12 +160,14 @@ PLIST
     local dsym="$STAGE_DIR/$slice/AnkiRustLib.framework.dSYM"
     xcrun dsymutil "$bin_dir/AnkiRustLib" -o "$dsym"
     local binary_uuid dsym_uuid
-    binary_uuid="$(xcrun dwarfdump --uuid "$bin_dir/AnkiRustLib" | awk '{print $2}')"
-    dsym_uuid="$(xcrun dwarfdump --uuid "$dsym" | awk '{print $2}')"
-    [ -n "$binary_uuid" ] && [ "$binary_uuid" = "$dsym_uuid" ] || {
-        echo "ERROR: $slice dSYM UUID does not match its framework" >&2
-        exit 1
-    }
+    while read -r _ binary_uuid _; do
+        [ -z "$binary_uuid" ] && continue
+        dsym_uuid="$(xcrun dwarfdump --uuid "$dsym" | awk '{print $2}' | grep -F "$binary_uuid" || true)"
+        [ -n "$dsym_uuid" ] || {
+            echo "ERROR: $slice dSYM does not contain architecture UUID $binary_uuid" >&2
+            exit 1
+        }
+    done < <(xcrun dwarfdump --uuid "$bin_dir/AnkiRustLib")
     xcrun strip -S "$bin_dir/AnkiRustLib"
     echo "==> $slice: $(du -h "$bin_dir/AnkiRustLib" | cut -f1), dSYM $binary_uuid"
 }
@@ -164,7 +177,7 @@ rm -rf "$STAGE_DIR"
 make_framework aarch64-apple-ios            ios-device  iPhoneOS        "$IPHONEOS_DEPLOYMENT_TARGET"
 make_framework aarch64-apple-ios-sim        ios-sim     iPhoneSimulator "$IPHONEOS_DEPLOYMENT_TARGET"
 make_framework aarch64-apple-watchos-sim watchos-sim WatchSimulator "$WATCHOS_DEPLOYMENT_TARGET"
-make_framework aarch64-apple-darwin         macos       MacOSX          "$MACOSX_DEPLOYMENT_TARGET" versioned
+make_framework universal-macos             macos       MacOSX          "$MACOSX_DEPLOYMENT_TARGET" versioned "$MACOS_UNIVERSAL_DIR/libanki_bridge_ios.dylib"
 
 echo "==> Packaging XCFramework..."
 rm -rf "$OUTPUT_DIR"

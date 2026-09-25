@@ -1,4 +1,5 @@
 package import Foundation
+import AmgiAppCore
 import AnkiServices
 package import AnkiKit
 import Dependencies
@@ -57,11 +58,16 @@ package final class ImportReviewModel {
     package var jsonSummary: AnkiJSONImportSummary?
 
     @ObservationIgnored private let sourceURL: URL
+    @ObservationIgnored private let profileID: String
     @ObservationIgnored private let replaceCollection: @MainActor @Sendable (URL) async throws -> Void
+    @ObservationIgnored private let beforeImport: @MainActor @Sendable () async throws -> Void
+    @ObservationIgnored private let afterImport: @MainActor @Sendable () async -> Void
     @ObservationIgnored private let onComplete: @MainActor @Sendable () -> Void
     @ObservationIgnored private var stagedURL: URL?
     @ObservationIgnored private var stagingDirectory: URL?
     @ObservationIgnored private var hasPrepared = false
+    @ObservationIgnored private var importTask: Task<Void, Never>?
+    @ObservationIgnored private var cleanupRequested = false
 
     @ObservationIgnored @Dependency(\.importExportService) private var importExportService
     @ObservationIgnored @Dependency(\.decksService) private var decksService
@@ -69,12 +75,18 @@ package final class ImportReviewModel {
 
     package init(
         sourceURL: URL,
+        profileID: String,
         replaceCollection: @escaping @MainActor @Sendable (URL) async throws -> Void,
+        beforeImport: @escaping @MainActor @Sendable () async throws -> Void = {},
+        afterImport: @escaping @MainActor @Sendable () async -> Void = {},
         onComplete: @escaping @MainActor @Sendable () -> Void
     ) {
         self.sourceURL = sourceURL
+        self.profileID = profileID
         self.sourceName = sourceURL.lastPathComponent
         self.replaceCollection = replaceCollection
+        self.beforeImport = beforeImport
+        self.afterImport = afterImport
         self.onComplete = onComplete
     }
 
@@ -119,7 +131,10 @@ package final class ImportReviewModel {
         completionSummary = nil
 
         do {
+            try requireCurrentProfile()
             let staged = try await Self.stage(sourceURL: sourceURL)
+            try Task.checkCancellation()
+            try requireCurrentProfile()
             stagedURL = staged.url
             stagingDirectory = staged.directory
             sourceName = staged.url.lastPathComponent
@@ -129,7 +144,13 @@ package final class ImportReviewModel {
             }
             self.format = format
             try await loadReview(for: format, path: staged.url.path)
+            try Task.checkCancellation()
+            try requireCurrentProfile()
             phase = .review
+        } catch is CancellationError {
+            phase = .failed
+            failureMessage = "The import was cancelled."
+            cleanupStagingDirectory()
         } catch {
             phase = .failed
             failureMessage = Self.message(for: error, format: format)
@@ -137,33 +158,80 @@ package final class ImportReviewModel {
     }
 
     package func retry() async {
-        cleanup()
+        importTask?.cancel()
+        importTask = nil
+        cleanupStagingDirectory()
+        cleanupRequested = false
         hasPrepared = false
+        phase = .preparing
         await prepare()
     }
 
-    package func cleanup() {
-        if let stagingDirectory {
-            try? FileManager.default.removeItem(at: stagingDirectory)
+    /// Requests cleanup without deleting a package while an asynchronous
+    /// import still has the staged URL open. The operation removes it after
+    /// its final suspension point.
+    package func cancelAndCleanup() {
+        cleanupRequested = true
+        importTask?.cancel()
+        if importTask == nil {
+            cleanupStagingDirectory()
         }
-        stagingDirectory = nil
-        stagedURL = nil
+    }
+
+    package func startImport() {
+        guard importTask == nil, canImport else { return }
+        importTask = Task { [weak self] in
+            await self?.importNow()
+            self?.importTask = nil
+        }
     }
 
     package func importNow() async {
         guard canImport, let format, let stagedURL else { return }
         phase = .importing
         failureMessage = nil
+        var lifecycleStarted = false
 
         do {
+            try requireCurrentProfile()
+            try await beforeImport()
+            lifecycleStarted = true
+            try requireCurrentProfile()
             let summary = try await executeImport(format: format, path: stagedURL.path)
+            try Task.checkCancellation()
+            try requireCurrentProfile()
             completionSummary = summary
             phase = .completed
             onComplete()
+        } catch is CancellationError {
+            phase = .failed
+            failureMessage = "The import was cancelled."
         } catch {
             phase = .failed
             failureMessage = Self.message(for: error, format: format)
         }
+
+        if lifecycleStarted {
+            await afterImport()
+        }
+        if cleanupRequested || phase != .review {
+            cleanupStagingDirectory()
+        }
+    }
+
+    private func requireCurrentProfile() throws {
+        guard AccountStore.shared.selectedID == profileID else {
+            throw ImportReviewFailure.profileChanged
+        }
+    }
+
+    private func cleanupStagingDirectory() {
+        if let stagingDirectory {
+            try? FileManager.default.removeItem(at: stagingDirectory)
+        }
+        stagingDirectory = nil
+        stagedURL = nil
+        cleanupRequested = false
     }
 
     // MARK: - Package options
@@ -309,8 +377,12 @@ package final class ImportReviewModel {
         case .deckPackage, .zippedPackage:
             async let inspection = importExportService.inspectPackage(path)
             async let presets = importExportService.ankiPackageImportPresets()
-            packageInspection = try await inspection
+            let resolvedInspection = try await inspection
+            packageInspection = resolvedInspection
             packageOptions = try await presets
+            if resolvedInspection.isCollectionBackup {
+                self.format = .collectionPackage
+            }
         case .collectionPackage:
             packageInspection = try await importExportService.inspectPackage(path)
         case .text:
@@ -495,6 +567,7 @@ package enum ImportReviewFailure: Error, Equatable {
     case unsupported(String)
     case missingStagedFile
     case missingReview
+    case profileChanged
     case invalidJSON(String)
 
     package var errorDescription: String {
@@ -506,6 +579,8 @@ package enum ImportReviewFailure: Error, Equatable {
             return "The selected file is no longer available. Choose it again and retry."
         case .missingReview:
             return "The import details could not be prepared. Choose the file again and retry."
+        case .profileChanged:
+            return "The active profile changed while this file was being imported. No changes were made. Choose the file again from the new profile."
         case .invalidJSON(let detail):
             return "This Anki JSON file is invalid. \(detail)"
         }

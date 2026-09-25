@@ -12,6 +12,11 @@ import AnkiKit
 /// store — looks nothing like a typo.
 public enum AppGroup: Sendable {
     public static let identifier = "group.com.bagumamartin.ijuka"
+    public static let legacyIdentifiers = [
+        "group.com.bagumamartin.AmgiApp",
+        "39557WW39R.group.com.bagumamartin.AmgiApp",
+        "group.com.amgiapp",
+    ]
     /// Generation-qualified active profile scope mirrored for widget reads.
     public static let selectedProfileScopeKey = ProfileScope.scopeAnchorKey
 

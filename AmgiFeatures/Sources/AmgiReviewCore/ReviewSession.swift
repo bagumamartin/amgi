@@ -31,6 +31,16 @@ private struct AnswerRecord {
     let graduated: Bool
     let streakBefore: Int
     let extraEngineOpsAfter: Int
+    let remainingCountsBefore: DeckCounts
+    let activeDeckPoolBefore: [DeckID]
+    let remainingAllDeckCountsBefore: [DeckID: DeckCounts]
+    /// Scheduler deck state after this answer. All-decks sessions can switch
+    /// the shared current deck while advancing; redo must reconstruct that
+    /// state without consuming an unrelated global redo-stack entry.
+    let deckIDAfter: DeckID?
+    let deckNameAfter: String
+    let activeDeckPoolAfter: [DeckID]
+    let remainingAllDeckCountsAfter: [DeckID: DeckCounts]
     let at: Date
 }
 
@@ -65,9 +75,10 @@ public final class ReviewSession {
     @ObservationIgnored @Dependency(\.statsClient) var statsClient
     @ObservationIgnored @Dependency(\.liveReviewCounts) var liveCounts
 
-    /// Stable identity for this session's live-count publications, so the
-    /// Study ring can re-anchor its collection snapshot once per session.
-    private let liveSessionID = UUID()
+    /// Stable identity for this session's scheduler lease and live-count
+    /// publications. It is also the owner token used to clear the agent
+    /// context, so a rejected/background review cannot erase the active one.
+    public let sessionID = UUID()
 
     /// Active pool of deck IDs in this session. In all-decks mode, decks with
     /// ungraduated learning cards cooling down are retained so they can be
@@ -104,6 +115,7 @@ public final class ReviewSession {
     public private(set) var isWaitingForLearning: Bool = false
     public private(set) var waitingLearningCount: Int = 0
     public private(set) var canUndo: Bool = false
+    public private(set) var canRedo: Bool = false
     public private(set) var nextIntervals: [Rating: String] = [:]
     public private(set) var replayRequestID: Int = 0       // plumbed; consumer is PR 1b
     public private(set) var stopAudioRequestID: Int = 0    // plumbed; consumer is PR 1b
@@ -118,8 +130,8 @@ public final class ReviewSession {
     /// haptic trigger. `lastRating` can't serve: it lands after the round-trip
     /// and doesn't change when the same rating is tapped twice in a row.
     public private(set) var answerTapCount: Int = 0
-    /// Increments only after the engine has successfully committed an answer
-    /// or undo. The review view uses this to mark the collection dirty without
+    /// Increments only after the engine has successfully committed an answer,
+    /// undo, or redo. The review view uses this to mark the collection dirty without
     /// turning a failed tap into a needless sync/widget refresh.
     public private(set) var successfulMutationCount: Int = 0
     /// Rating of the most recent tap, paired with `answerTapCount` so the
@@ -142,6 +154,16 @@ public final class ReviewSession {
     public private(set) var graduationPulse: Int = 0
     /// LIFO history of answers this session for undo and snapshot publishing.
     private var answerStack: [AnswerRecord] = []
+    /// Answers removed by this session's undo, available for a session-local
+    /// redo. A new answer clears this branch just like a conventional editor
+    /// history. Redo re-applies the recorded rating/states instead of blindly
+    /// consuming the engine's process-wide redo stack, which may contain an
+    /// unrelated note/deck action.
+    private var redoStack: [AnswerRecord] = []
+    /// Exclusive capability for the shared scheduler/current-deck/undo state.
+    @ObservationIgnored private var activityLease: ReviewSessionLease?
+    @ObservationIgnored private var isEnding = false
+    @ObservationIgnored private var releaseLeaseAfterMutation = false
     /// Card IDs graduated past today this session (next review ≥ tomorrow).
     /// Re-answers (Again, mid-step learning) never land here, so the daily
     /// bar completes exactly when today's cards are actually done.
@@ -246,19 +268,118 @@ public final class ReviewSession {
         self.profile = AccountStore.shared.selectedContext
     }
 
+    // MARK: - Scheduler lease lifecycle
+
+    private func acquireActivityLease() -> Bool {
+        do {
+            activityLease = try ReviewSessionCoordinator.shared.acquireSession(
+                sessionID: sessionID,
+                profile: profile
+            )
+            return true
+        } catch {
+            startError = error.localizedDescription
+            isFinished = false
+            return false
+        }
+    }
+
+    private func beginActivityMutation() -> Bool {
+        guard let activityLease,
+              ReviewSessionCoordinator.shared.beginMutation(for: activityLease)
+        else { return false }
+        return true
+    }
+
+    /// Completes one serialized engine transaction. A start failure or an
+    /// explicit end may request lease release here so the next queued window
+    /// can proceed only after all backend work has stopped.
+    private func finishActivityMutation() {
+        ReviewSessionCoordinator.shared.endMutation()
+        isAdvancing = false
+        if isEnding || releaseLeaseAfterMutation {
+            releaseLeaseAfterMutation = false
+            restoreLearnAheadThenRelease()
+        }
+    }
+
+    /// Restores a widened intraday learn-ahead window while the same scheduler
+    /// lease is still held, then releases. Taking the value makes this
+    /// idempotent across explicit end + deinit.
+    private func restoreLearnAheadThenRelease() {
+        let original = originalLearnAheadSecs.withLock { value in
+            defer { value = nil }
+            return value
+        }
+        guard let original else {
+            releaseActivityLease()
+            return
+        }
+        guard let activityLease,
+              ReviewSessionCoordinator.shared.beginMutation(for: activityLease) else {
+            releaseActivityLease()
+            return
+        }
+
+        let profile = self.profile
+        let scheduler = self.scheduler
+        Task {
+            defer {
+                ReviewSessionCoordinator.shared.endMutation()
+                releaseActivityLease()
+            }
+            guard profile.isCurrent(AccountStore.shared.selectedContext) else { return }
+            await Task.detached { try? scheduler.setLearnAheadSecs(original) }.value
+        }
+    }
+
+    private func releaseActivityLease() {
+        guard !isAdvancing, let activityLease else { return }
+        let released = ReviewSessionCoordinator.shared.releaseSession(activityLease)
+        // A failed release during our own final restoration means a mutation is
+        // still active; keep the token for that defer. A different/absent owner
+        // means a profile drain already revoked this stale token.
+        guard released || ReviewSessionCoordinator.shared.activeSession != activityLease.identity else { return }
+        self.activityLease = nil
+        liveCounts.clear(sessionID: sessionID)
+        ReviewSessionContext.shared.clear(ownerID: sessionID)
+    }
+
+    /// Ends the review's ownership of all process-wide review state. This is
+    /// idempotent and safe while a transition is in flight: the lease is held
+    /// until that transaction's defer reaches `finishActivityMutation`.
+    public func end() {
+        isEnding = true
+        invalidatePrefetch()
+        guard !isAdvancing else { return }
+        restoreLearnAheadThenRelease()
+    }
+
     deinit {
-        // Session gone (user backed out / view torn down) — agents must not
-        // see a stale "current card". Lock-based registry, safe off-actor.
-        ReviewSessionContext.shared.clear()
+        // Owner-aware cleanup prevents a rejected review window from clearing
+        // the context/lease of the session that actually owns the scheduler.
+        ReviewSessionContext.shared.clear(ownerID: sessionID)
+        let lease = activityLease
         if let orig = originalLearnAheadSecs.withLock({ $0 }) {
             let profile = self.profile
             Task { @MainActor in
-                guard profile.isCurrent(AccountStore.shared.selectedContext),
-                      ReviewSessionActivity.shared.beginMutation()
-                else { return }
-                defer { ReviewSessionActivity.shared.endMutation() }
-                @Dependency(\.schedulerService) var scheduler
-                try? scheduler.setLearnAheadSecs(orig)
+                let coordinator = ReviewSessionCoordinator.shared
+                if let lease,
+                   coordinator.beginMutation(for: lease) {
+                    defer {
+                        coordinator.endMutation()
+                        coordinator.releaseSession(lease)
+                    }
+                    guard profile.isCurrent(AccountStore.shared.selectedContext) else { return }
+                    @Dependency(\.schedulerService) var scheduler
+                    try? scheduler.setLearnAheadSecs(orig)
+                }
+                // If the profile drain already revoked the lease, there is
+                // nothing left for this deinit to restore or release.
+            }
+        } else if let lease {
+            Task { @MainActor in
+                ReviewSessionCoordinator.shared.releaseSession(lease)
             }
         }
     }
@@ -306,23 +427,26 @@ public final class ReviewSession {
             profileID: profile.id,
             profileSelectionID: profile.selectionID
         )
-        ReviewSessionContext.shared.publish(snapshot)
+        ReviewSessionContext.shared.publish(snapshot, ownerID: sessionID)
     }
 
     // MARK: - Public interface
 
     public func start() {
-        guard !isAdvancing, isProfileCurrent else {
+        guard !isAdvancing else { return }
+        guard isProfileCurrent else {
             isFinished = true
+            end()
             return
         }
-        guard ReviewSessionActivity.shared.beginMutation() else {
-            isAdvancing = false
-            isFinished = true
+        startError = nil
+        guard acquireActivityLease() else { return }
+        guard beginActivityMutation() else {
+            startError = "The collection is busy with another operation. Try the review again."
+            releaseActivityLease()
             return
         }
         isAdvancing = true
-        startError = nil
         // Resolve the Sendable service facades here, in the caller's
         // dependency scope, then hand them to the off-actor work.
         let decks = self.decks
@@ -336,10 +460,7 @@ public final class ReviewSession {
         let deckId = self.deckId
         let allDeckScope = self.isAllDecksScope
         Task {
-            defer {
-                ReviewSessionActivity.shared.endMutation()
-                isAdvancing = false
-            }
+            defer { finishActivityMutation() }
             do {
                 if pullCoolingOnStart {
                     if originalLearnAheadSecs.withLock({ $0 }) == nil {
@@ -455,8 +576,11 @@ public final class ReviewSession {
                 // the congratulations surface plus a success haptic. A start
                 // failure gets its own state and a retry.
                 Log.review.error("Start failed: \(error)")
-                liveCounts.clear()
+                liveCounts.clear(sessionID: sessionID)
                 startError = error.localizedDescription
+                // Make Try Again safe: a partially executed start must not
+                // leave this rejected session owning the shared scheduler.
+                releaseLeaseAfterMutation = true
             }
         }
     }
@@ -513,12 +637,15 @@ public final class ReviewSession {
     }
 
     public func answer(rating: Rating) {
-        guard isProfileCurrent, !isAdvancing, let queued = currentQueuedCard else {
-            if !isProfileCurrent { isFinished = true }
+        guard !isEnding, isProfileCurrent, !isAdvancing, let queued = currentQueuedCard else {
+            if !isProfileCurrent {
+                isFinished = true
+                end()
+            }
             return
         }
-        guard ReviewSessionActivity.shared.beginMutation() else {
-            isFinished = true
+        guard beginActivityMutation() else {
+            answerError = "This review no longer owns the collection scheduler. Close it and start again."
             return
         }
         isAdvancing = true
@@ -539,8 +666,14 @@ public final class ReviewSession {
         let notetypesClient = self.notetypesClient
         let cardRendering = self.cardRendering
         let statsClient = self.statsClient
+        let cardClient = self.cardClient
         let decks = self.decks
         let allDeckScope = self.isAllDecksScope
+        let remainingCountsBefore = remainingCounts
+        let activeDeckPoolBefore = activeDeckPool
+        let remainingAllDeckCountsBefore = remainingAllDeckCounts
+        let currentDeckIDBefore = currentDeckID
+        let activeDeckNameBefore = activeDeckName
 
         answerTapCount += 1
         tappedRating = rating
@@ -550,12 +683,12 @@ public final class ReviewSession {
         // synchronous prologue above: the scheduler round-trip and the
         // advance are what the user actually waits on.
         Task {
-            defer {
-                ReviewSessionActivity.shared.endMutation()
-                isAdvancing = false
-            }
+            defer { finishActivityMutation() }
+            var answerMutationStarted = false
+            var extraEngineOpsAfter = 0
             await AppSignpost.measure("AnswerCard") {
                 do {
+                    answerMutationStarted = true
                     var queue = try await Task.detached {
                         try scheduler.answerReviewCard(cardId, rating, timeSpent, states)
                         return try scheduler.getQueuedCards(200)
@@ -566,7 +699,6 @@ public final class ReviewSession {
                     // deck at a time. Once that deck's queue is empty, cycle
                     // through other decks in the active pool instead of ending
                     // the aggregate session or discarding cooling decks.
-                    var extraEngineOpsAfter = 0
                     if allDeckScope, queue.cards.isEmpty {
                         let currentTerm = DeckSearch.term(activeDeckName)
                         let currentRemainingLearn = (try? await statsClient.learningDueToday(search: currentTerm)) ?? 0
@@ -626,8 +758,18 @@ public final class ReviewSession {
                         graduated: graduated,
                         streakBefore: streakBeforeAnswer,
                         extraEngineOpsAfter: extraEngineOpsAfter,
+                        remainingCountsBefore: remainingCountsBefore,
+                        activeDeckPoolBefore: activeDeckPoolBefore,
+                        remainingAllDeckCountsBefore: remainingAllDeckCountsBefore,
+                        deckIDAfter: currentDeckID,
+                        deckNameAfter: activeDeckName,
+                        activeDeckPoolAfter: activeDeckPool,
+                        remainingAllDeckCountsAfter: remainingAllDeckCounts,
                         at: .now
                     ))
+                    // Committing a new answer starts a fresh history branch.
+                    redoStack.removeAll()
+                    canRedo = false
                     lastRating = rating
                     correctStreak = rating != .again ? correctStreak + 1 : 0
                     canUndo = true
@@ -638,6 +780,17 @@ public final class ReviewSession {
                     publishLiveCounts()
                     await advanceToNextCard(notes: notes, notetypes: notetypes, notetypesClient: notetypesClient, cardRendering: cardRendering, statsClient: statsClient)
                 } catch {
+                    if answerMutationStarted {
+                        await rollbackAnswerMutation(
+                            cardClient: cardClient,
+                            originalCard: queued.card,
+                            operationBudget: extraEngineOpsAfter + 3
+                        )
+                    }
+                    activeDeckPool = activeDeckPoolBefore
+                    remainingAllDeckCounts = remainingAllDeckCountsBefore
+                    currentDeckID = currentDeckIDBefore
+                    activeDeckName = activeDeckNameBefore
                     // Do NOT drop the card. Silently removing it from the queue
                     // and advancing meant the review was never recorded, the
                     // card was skipped for the session, remainingCounts drifted
@@ -660,12 +813,15 @@ public final class ReviewSession {
     }
 
     public func undo() {
-        guard isProfileCurrent, canUndo, !isAdvancing, let record = answerStack.last else {
-            if !isProfileCurrent { isFinished = true }
+        guard !isEnding, isProfileCurrent, canUndo, !isAdvancing, let record = answerStack.last else {
+            if !isProfileCurrent {
+                isFinished = true
+                end()
+            }
             return
         }
-        guard ReviewSessionActivity.shared.beginMutation() else {
-            isFinished = true
+        guard beginActivityMutation() else {
+            answerError = "This review no longer owns the collection scheduler. Close it and start again."
             return
         }
         isAdvancing = true
@@ -684,10 +840,7 @@ public final class ReviewSession {
         let undoneCardID = target.card.id
 
         Task {
-            defer {
-                ReviewSessionActivity.shared.endMutation()
-                isAdvancing = false
-            }
+            defer { finishActivityMutation() }
             do {
                 // One user undo must revert exactly this answer. Deck switches
                 // after the answer leave `SetCurrentDeck` entries on top of
@@ -719,7 +872,9 @@ public final class ReviewSession {
                 }.value
 
                 answerStack.removeLast()
+                redoStack.append(record)
                 canUndo = !answerStack.isEmpty
+                canRedo = true
                 undoneCount += 1
                 successfulMutationCount += 1
 
@@ -740,21 +895,156 @@ public final class ReviewSession {
                 cardQueue = [target] + queue.cards.filter { $0.card.id != undoneCardID }
                 isWaitingForLearning = false
                 isFinished = false
-                if allDeckScope, !currentName.isEmpty {
-                    activeDeckName = currentName
+                if allDeckScope {
+                    currentDeckID = originalCard.did
+                    activeDeckName = currentName.isEmpty ? record.deckNameAfter : currentName
+                    activeDeckPool = record.activeDeckPoolBefore
+                    remainingAllDeckCounts = record.remainingAllDeckCountsBefore
                 }
-                remainingCounts = countsIncludingUnselectedDecks(queue)
+                remainingCounts = record.remainingCountsBefore
                 await refineRemainingLearning(statsClient: statsClient)
                 publishLiveCounts()
                 await advanceToNextCard(notes: notes, notetypes: notetypes, notetypesClient: notetypesClient, cardRendering: cardRendering, statsClient: statsClient)
             } catch {
                 Log.review.error("Undo failed: \(error)")
+                answerError = "Couldn't undo that answer: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// Re-applies the most recently undone answer as a new, explicitly owned
+    /// engine transaction. It intentionally does not call `redoLast`: another
+    /// feature may have placed a note/deck operation on the collection's global
+    /// redo stack after this review's undo.
+    public func redo() {
+        guard !isEnding, isProfileCurrent, canRedo, !isAdvancing,
+              let record = redoStack.last else {
+            if !isProfileCurrent {
+                isFinished = true
+                end()
+            }
+            return
+        }
+        guard beginActivityMutation() else {
+            answerError = "This review no longer owns the collection scheduler. Close it and start again."
+            return
+        }
+        isAdvancing = true
+
+        let scheduler = self.scheduler
+        let decks = self.decks
+        let statsClient = self.statsClient
+        let notes = self.notes
+        let notetypes = self.notetypes
+        let notetypesClient = self.notetypesClient
+        let cardRendering = self.cardRendering
+        let cardClient = self.cardClient
+        let allDeckScope = self.isAllDecksScope
+
+        Task {
+            defer { finishActivityMutation() }
+            var redoMutationStarted = false
+            do {
+                redoMutationStarted = true
+                var queue = try await Task.detached { () -> QueuedCardsResult in
+                    try scheduler.answerReviewCard(
+                        record.cardID,
+                        record.rating,
+                        UInt32(clamping: record.timeSpent),
+                        record.queued.states
+                    )
+                    return try scheduler.getQueuedCards(200)
+                }.value
+
+                if allDeckScope, let deckID = record.deckIDAfter {
+                    let result = try await Task.detached { () -> (QueuedCardsResult, String) in
+                        try decks.setCurrentDeck(deckID)
+                        let name = (try? decks.getCurrentDeck().name) ?? ""
+                        return (try scheduler.getQueuedCards(200), name)
+                    }.value
+                    queue = result.0
+                    currentDeckID = deckID
+                    activeDeckName = result.1.isEmpty ? record.deckNameAfter : result.1
+                } else {
+                    currentDeckID = record.deckIDAfter
+                    activeDeckName = record.deckNameAfter
+                }
+
+                redoStack.removeLast()
+                answerStack.append(record)
+                canRedo = !redoStack.isEmpty
+                canUndo = true
+
+                activeDeckPool = record.activeDeckPoolAfter
+                remainingAllDeckCounts = record.remainingAllDeckCountsAfter
+                remainingCounts = countsIncludingUnselectedDecks(queue)
+                sessionStats.reviewed += 1
+                if record.rating != .again { sessionStats.correct += 1 }
+                sessionStats.totalTimeMs += record.timeSpent
+                if record.graduated {
+                    graduatedCardIDs.insert(record.cardID)
+                    graduationPulse += 1
+                }
+                lastRating = record.rating
+                correctStreak = record.rating == .again
+                    ? 0
+                    : record.streakBefore + 1
+                successfulMutationCount += 1
+                answerError = nil
+
+                cardQueue = queue.cards
+                isWaitingForLearning = false
+                isFinished = false
+                await refineRemainingLearning(statsClient: statsClient)
+                publishLiveCounts()
+                await advanceToNextCard(
+                    notes: notes,
+                    notetypes: notetypes,
+                    notetypesClient: notetypesClient,
+                    cardRendering: cardRendering,
+                    statsClient: statsClient
+                )
+            } catch {
+                if redoMutationStarted {
+                    await rollbackAnswerMutation(
+                        cardClient: cardClient,
+                        originalCard: record.queued.card,
+                        operationBudget: record.extraEngineOpsAfter + 3
+                    )
+                }
+                Log.review.error("Redo failed: \(error)")
+                answerError = "Couldn't redo that answer: \(error.localizedDescription)"
             }
         }
     }
 
     public func updateAudioPlaying(_ playing: Bool) {
         isAudioPlaying = playing
+    }
+
+    /// Rolls back a partially committed answer/redo while this session still
+    /// owns the scheduler lease. Verification is card-based, so intervening
+    /// current-deck operations are popped only until the exact pre-answer
+    /// scheduling state is restored.
+    private func rollbackAnswerMutation(
+        cardClient: CardClient,
+        originalCard: CardRecord,
+        operationBudget: Int
+    ) async {
+        do {
+            var current = try await cardClient.getCard(originalCard.id)
+            var attempts = 0
+            while !cardIsRestored(current, to: originalCard), attempts < operationBudget {
+                try await cardClient.undoLast()
+                attempts += 1
+                current = try await cardClient.getCard(originalCard.id)
+            }
+            if !cardIsRestored(current, to: originalCard) {
+                Log.review.error("Partial answer rollback exhausted its budget for card \(originalCard.id.rawValue)")
+            }
+        } catch {
+            Log.review.error("Partial answer rollback failed for card \(originalCard.id.rawValue): \(error)")
+        }
     }
 
 #if canImport(UIKit)
@@ -773,7 +1063,7 @@ public final class ReviewSession {
     /// repaint its new/learning/review composition as cards are answered.
     private func publishLiveCounts() {
         liveCounts.publish(
-            sessionID: liveSessionID,
+            sessionID: sessionID,
             baseline: sessionInitialCounts,
             live: remainingCounts
         )
@@ -823,7 +1113,14 @@ public final class ReviewSession {
     /// learning cards into the queue immediately, allowing the user to finish
     /// today's remaining cards without waiting.
     public func reviewAhead() {
-        guard !isAdvancing else { return }
+        guard !isEnding, isProfileCurrent, !isAdvancing else {
+            if !isProfileCurrent { end() }
+            return
+        }
+        guard beginActivityMutation() else {
+            answerError = "This review no longer owns the collection scheduler. Close it and start again."
+            return
+        }
         isAdvancing = true
         let scheduler = self.scheduler
         let decks = self.decks
@@ -834,7 +1131,7 @@ public final class ReviewSession {
         let cardRendering = self.cardRendering
 
         Task {
-            defer { isAdvancing = false }
+            defer { finishActivityMutation() }
             do {
                 if originalLearnAheadSecs.withLock({ $0 }) == nil {
                     let original = try? scheduler.getLearnAheadSecs()
@@ -884,7 +1181,14 @@ public final class ReviewSession {
 
     /// Re-evaluates queues to see if any cooling learning cards have matured.
     public func checkWaitingQueue() {
-        guard isWaitingForLearning, !isAdvancing else { return }
+        guard isWaitingForLearning, !isEnding, isProfileCurrent, !isAdvancing else {
+            if !isProfileCurrent { end() }
+            return
+        }
+        guard beginActivityMutation() else {
+            answerError = "This review no longer owns the collection scheduler. Close it and start again."
+            return
+        }
         isAdvancing = true
         let scheduler = self.scheduler
         let decks = self.decks
@@ -895,7 +1199,7 @@ public final class ReviewSession {
         let cardRendering = self.cardRendering
 
         Task {
-            defer { isAdvancing = false }
+            defer { finishActivityMutation() }
             do {
                 var foundQueue: QueuedCardsResult? = nil
                 for deckID in activeDeckPool {

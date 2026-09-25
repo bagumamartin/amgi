@@ -106,6 +106,27 @@ struct CollectionStoreTests {
     }
 
     @Test @MainActor
+    func profileResetNeverPublishesPreviousProfileTree() async throws {
+        let counter = CallCounter()
+        try await withDependencies {
+            $0.deckClient.fetchTree = {
+                counter.bump()
+                return sampleTree
+            }
+        } operation: {
+            let store = CollectionStore()
+            _ = try await store.tree()
+            #expect(counter.count == 1)
+
+            // Simulate a missed lifecycle hook. `tree()` observes the actual
+            // selected profile and discards the cache before every read.
+            store.resetForProfileSwitch(to: "previous-profile")
+            _ = try await store.tree()
+            #expect(counter.count == 2)
+        }
+    }
+
+    @Test @MainActor
     func freshTreeBypassesTheReadCache() async throws {
         let counter = CallCounter()
         try await withDependencies {

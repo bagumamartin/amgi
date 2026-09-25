@@ -15,12 +15,18 @@ package struct ImportReviewView: View {
 
     package init(
         sourceURL: URL,
+        profileID: String,
         replaceCollection: @escaping @MainActor @Sendable (URL) async throws -> Void,
+        beforeImport: @escaping @MainActor @Sendable () async throws -> Void = {},
+        afterImport: @escaping @MainActor @Sendable () async -> Void = {},
         onComplete: @escaping @MainActor @Sendable () -> Void
     ) {
         _model = State(initialValue: ImportReviewModel(
             sourceURL: sourceURL,
+            profileID: profileID,
             replaceCollection: replaceCollection,
+            beforeImport: beforeImport,
+            afterImport: afterImport,
             onComplete: onComplete
         ))
     }
@@ -40,14 +46,14 @@ package struct ImportReviewView: View {
             titleVisibility: .visible
         ) {
             Button("Replace Collection", role: .destructive) {
-                Task { await model.importNow() }
+                model.startImport()
             }
             Button("Cancel", role: .cancel) { }
         } message: {
             Text("All current decks, notes, cards, media, and settings will be replaced. Ijuka creates a temporary recovery package first.")
         }
         .task { await model.prepare() }
-        .onDisappear { model.cleanup() }
+        .onDisappear { model.cancelAndCleanup() }
         #if os(macOS)
         .frame(minWidth: 560, idealWidth: 640, minHeight: 520)
         .presentationSizing(.fitted)
@@ -618,7 +624,7 @@ package struct ImportReviewView: View {
                     .disabled(!model.canImport)
                 } else {
                     Button("Import") {
-                        Task { await model.importNow() }
+                        model.startImport()
                     }
                     .keyboardShortcut(.defaultAction)
                     .disabled(!model.canImport)

@@ -32,8 +32,13 @@ struct RatingBar: View {
         // full-width HIG-friendly layout while iPad centers a comfortable row.
         .padding(.horizontal, AmgiSpacing.lg)
         .padding(.vertical, AmgiSpacing.md)
-        #if !os(macOS)
-        .frame(maxWidth: 720)
+        #if os(macOS)
+        // A four-button group should remain a compact cluster in a very wide
+        // window instead of drifting to opposite edges of the display.
+        .frame(maxWidth: ReviewLayoutMetrics.macRatingMaxWidth)
+        .frame(maxWidth: .infinity)
+        #else
+        .frame(maxWidth: ReviewLayoutMetrics.compactRatingMaxWidth)
         .frame(maxWidth: .infinity)
         #endif
     }

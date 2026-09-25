@@ -31,6 +31,26 @@ public enum WidgetSnapshotStore {
         return try? decoder.decode(WidgetSnapshot.self, from: data)
     }
 
+    /// Copies snapshots from historical app groups after the Ijuka rebrand.
+    /// Current files always win, so this is safe to run on every launch.
+    public static func migrateLegacySnapshotsIfNeeded() {
+        guard let destination = container() else { return }
+        let fm = FileManager.default
+        for groupID in AppGroup.legacyIdentifiers {
+            guard let source = container(groupID: groupID) else { continue }
+            let files = (try? fm.contentsOfDirectory(
+                at: source,
+                includingPropertiesForKeys: nil
+            )) ?? []
+            for file in files where file.lastPathComponent.hasPrefix("widget-snapshot-")
+                && file.pathExtension == "json" {
+                let target = destination.appendingPathComponent(file.lastPathComponent)
+                guard !fm.fileExists(atPath: target.path) else { continue }
+                try? fm.copyItem(at: file, to: target)
+            }
+        }
+    }
+
     /// Removes every snapshot file. Used only at a collection/profile
     /// boundary, before the first snapshot for the new collection is written.
     public static func removeAllSnapshots() {
@@ -77,8 +97,8 @@ public enum WidgetSnapshotStore {
 }
 
 private extension WidgetSnapshotStore {
-    static func container() -> URL? {
-        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: groupId)
+    static func container(groupID: String = groupId) -> URL? {
+        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: groupID)
     }
 
     static func fileURL(deckId: Int64) -> URL? {

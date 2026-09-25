@@ -1,5 +1,6 @@
 import AmgiTheme
 import AmgiUI
+import AssistantFeature
 import BrowseFeature
 import TemplatesFeature
 import ReaderFeature
@@ -15,7 +16,8 @@ package import AmgiAppCore
 /// `NavigationStack` within the detail.
 package struct SettingsWindowHost: View {
     package let onSwitchProfile: (AmgiAccount) async -> Void
-    @State private var selection: SettingsItem? = .appearance
+    @State private var selection: SettingsRoute? = .appearance
+    @Bindable private var accountStore = AccountStore.shared
     @Environment(\.palette) private var palette
 
     package init(onSwitchProfile: @escaping (AmgiAccount) async -> Void) {
@@ -25,11 +27,12 @@ package struct SettingsWindowHost: View {
     package var body: some View {
         NavigationSplitView {
             List(selection: $selection) {
-                ForEach(SettingsSidebarGroup.all) { group in
+                ForEach(SettingsRouteInventory.availableGroups) { group in
                     Section(group.title) {
-                        ForEach(group.items) { item in
-                            Label(item.title, systemImage: item.systemImage)
-                                .tag(item)
+                        ForEach(group.routes) { route in
+                            Label(route.title, systemImage: route.systemImage)
+                                .tag(route)
+                                .accessibilityLabel(route.title)
                         }
                     }
                 }
@@ -40,123 +43,70 @@ package struct SettingsWindowHost: View {
             NavigationStack {
                 if let selection {
                     detailView(for: selection)
+                        // A source list gives the detail column its own
+                        // breathing room; the cap also prevents long form
+                        // rows from becoming unreadable on a wide window.
+                        .settingsAdaptiveWidth()
                 } else {
                     Text("Choose a setting")
                         .foregroundStyle(palette.textSecondary)
+                        .settingsAdaptiveWidth()
                 }
             }
+        }
+        .alert(
+            "Couldn't switch profile",
+            isPresented: $accountStore.hasSwitchFailure
+        ) {
+            Button("OK", role: .cancel) { accountStore.switchFailure = nil }
+        } message: {
+            Text(accountStore.switchFailure ?? "")
         }
     }
 
     @ViewBuilder
-    private func detailView(for item: SettingsItem) -> some View {
-        switch item {
-        case .appearance: AppearanceSettingsView(manager: .shared)
-        case .profiles: AccountsSettingsView(onSwitchProfile: onSwitchProfile)
-        case .syncServer: SyncSettingsView()
-        case .reviewBehavior: ReviewSettingsView()
-        case .cardRendering: CardRenderingSettingsView()
-        case .shortcuts: ShortcutsSettingsView()
-        case .readerDisplay: ReaderSettingsView()
-        case .dictionaries: ReaderDictionarySettingsView()
-        case .tags: TagsView()
-        case .database: MaintenanceView()
-        case .backups: BackupView(username: AccountStore.shared.current.displayName)
-        case .emptyCards: EmptyCardsView()
-        case .mediaCheck: MediaCheckResultView()
-        case .manageTemplates: DeckTemplateListView()
-        case .codeEditor: CodeEditorSettingsView()
-        case .agentMCP: MCPServerSettingsView()
-        case .about: AboutView()
+    private func detailView(for route: SettingsRoute) -> some View {
+        switch route {
+        case .appearance:
+            AppearanceSettingsView(manager: .shared)
+        case .profiles:
+            AccountsSettingsView(onSwitchProfile: onSwitchProfile)
+        case .syncServer:
+            SyncSettingsView()
+        case .reviewBehavior:
+            ReviewSettingsView()
+        case .cardRendering:
+            CardRenderingSettingsView()
+        case .shortcuts:
+            ShortcutsSettingsView()
+        case .assistant:
+            AssistantSettingsView()
+        case .readerDisplay:
+            ReaderSettingsView()
+        case .dictionaries:
+            ReaderDictionarySettingsView()
+        case .tags:
+            TagsView()
+        case .database:
+            MaintenanceView()
+        case .backups:
+            BackupView(username: AccountStore.shared.current.displayName)
+        case .emptyCards:
+            EmptyCardsView()
+        case .mediaCheck:
+            MediaCheckResultView()
+        case .manageTemplates:
+            DeckTemplateListView()
+        case .templateOverrides:
+            TemplateOverridesView()
+        case .codeEditor:
+            CodeEditorSettingsView()
+        case .agentMCP:
+            MCPServerSettingsView()
+        case .about:
+            AboutView()
         }
     }
-}
-
-/// One entry in the Settings sidebar.
-private enum SettingsItem: String, CaseIterable, Identifiable {
-    case appearance
-    case profiles
-    case syncServer
-    case reviewBehavior
-    case cardRendering
-    case shortcuts
-    case readerDisplay
-    case dictionaries
-    case tags
-    case database
-    case backups
-    case emptyCards
-    case mediaCheck
-    case manageTemplates
-    case codeEditor
-    case agentMCP
-    case about
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .appearance: "Theme & Appearance"
-        case .profiles: "Profiles"
-        case .syncServer: "Sync Server"
-        case .reviewBehavior: "Review Behavior"
-        case .cardRendering: "Card Rendering"
-        case .shortcuts: "Shortcuts"
-        case .readerDisplay: "Reader Display"
-        case .dictionaries: "Dictionaries"
-        case .tags: "Manage Tags"
-        case .database: "Database"
-        case .backups: "Backups"
-        case .emptyCards: "Empty Cards"
-        case .mediaCheck: "Media Check"
-        case .manageTemplates: "Manage Templates"
-        case .codeEditor: "Code Editor"
-        case .agentMCP: "Agent (MCP)"
-        case .about: "About"
-        }
-    }
-
-    var systemImage: String {
-        switch self {
-        case .appearance: "paintpalette"
-        case .profiles: "person.crop.circle"
-        case .syncServer: "arrow.triangle.2.circlepath"
-        case .reviewBehavior: "graduationcap"
-        case .cardRendering: "square.on.square"
-        case .shortcuts: "keyboard"
-        case .readerDisplay: "book"
-        case .dictionaries: "character.book.closed"
-        case .tags: "tag"
-        case .database: "internaldrive"
-        case .backups: "externaldrive"
-        case .emptyCards: "tray"
-        case .mediaCheck: "photo.on.rectangle"
-        case .manageTemplates: "square.and.pencil"
-        case .codeEditor: "chevron.left.forwardslash.chevron.right"
-        case .agentMCP: "cpu"
-        case .about: "info.circle"
-        }
-    }
-}
-
-/// Sidebar grouping for the Settings source list.
-private struct SettingsSidebarGroup: Identifiable {
-    let title: String
-    let items: [SettingsItem]
-
-    var id: String { title }
-
-    static let all: [SettingsSidebarGroup] = [
-        SettingsSidebarGroup(title: "Appearance", items: [.appearance]),
-        SettingsSidebarGroup(title: "Account", items: [.profiles, .syncServer]),
-        SettingsSidebarGroup(title: "Review", items: [.reviewBehavior, .cardRendering, .shortcuts]),
-        SettingsSidebarGroup(title: "Reader", items: [.readerDisplay, .dictionaries]),
-        SettingsSidebarGroup(title: "Tags", items: [.tags]),
-        SettingsSidebarGroup(title: "Maintenance", items: [.database, .backups, .emptyCards, .mediaCheck]),
-        SettingsSidebarGroup(title: "Card Templates", items: [.manageTemplates, .codeEditor]),
-        SettingsSidebarGroup(title: "Agent", items: [.agentMCP]),
-        SettingsSidebarGroup(title: "About", items: [.about]),
-    ]
 }
 
 #endif

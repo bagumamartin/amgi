@@ -14,7 +14,7 @@ extension AmgiRoot {
     @SceneBuilder
     public static var scenes: some Scene {
 #if os(macOS)
-        WindowGroup("Library", id: "main") {
+        WindowGroup("Ijuka", id: "main") {
             // Widget clicks deliver `amgi://study`. SwiftUI's default on
             // macOS is to spawn a NEW WindowGroup window for every external
             // event before onOpenURL runs. `preferring` makes an existing
@@ -22,9 +22,11 @@ extension AmgiRoot {
             // place); the scene-level `matching` below only creates a window
             // when none exists.
             RootView()
+                .frame(minWidth: 960, minHeight: 600)
                 .handlesExternalEvents(preferring: ["study"], allowing: ["*"])
         }
         .defaultSize(width: 1180, height: 800)
+        .windowResizability(.contentMinSize)
         // Scene half of the widget-click reuse pair (see `preferring` on the
         // root view): only creates a main window when none exists.
         .handlesExternalEvents(matching: ["study"])
@@ -32,7 +34,10 @@ extension AmgiRoot {
             AmgiCommands()
         }
 
-        WindowGroup("Study", id: "review") {
+        // The engine's current-deck selection, learn-ahead override, and undo
+        // stack are collection-global. A single scene is therefore the safe Mac
+        // presentation until those services become genuinely session-scoped.
+        Window("Study", id: "review") {
             ReviewWindowHost()
                 .frame(minWidth: 640, minHeight: 480)
                 .themedRoot()
@@ -66,16 +71,23 @@ extension AmgiRoot {
 /// scene value and these menus drive whichever review is focused.
 private struct AmgiCommands: Commands {
     @FocusedValue(ReviewActions.self) private var reviewActions
+    @FocusedValue(RootSceneActions.self) private var rootSceneActions
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
-        CommandGroup(replacing: .undoRedo) {
+        CommandGroup(after: .undoRedo) {
             Button("Undo") { reviewActions?.undo() }
                 .keyboardShortcut(
                     AmgiCommands.shortcut(.undo).keyEquivalent,
                     modifiers: AmgiCommands.shortcut(.undo).modifiers
                 )
-                .disabled(reviewActions == nil)
+                .disabled(reviewActions?.canUndo != true)
+            Button("Redo") { reviewActions?.redo() }
+                .keyboardShortcut(
+                    AmgiCommands.shortcut(.redo).keyEquivalent,
+                    modifiers: AmgiCommands.shortcut(.redo).modifiers
+                )
+                .disabled(reviewActions?.canRedo != true)
         }
         CommandMenu("Card") {
             Button("Edit Note") { reviewActions?.editNote() }
@@ -98,36 +110,49 @@ private struct AmgiCommands: Commands {
                 )
                 .disabled(reviewActions == nil)
         }
+        CommandGroup(after: .newItem) {
+            Button("Import…") { rootSceneActions?.importFile() }
+                .keyboardShortcut("i", modifiers: [.command, .shift])
+                .disabled(rootSceneActions == nil)
+            Button("Export Collection…") { rootSceneActions?.exportCollection() }
+                .keyboardShortcut("e", modifiers: [.command, .shift])
+                .disabled(rootSceneActions == nil)
+        }
         CommandGroup(replacing: .appSettings) {
             Button("Settings…") { openWindow(id: "settings") }
                 .keyboardShortcut(",", modifiers: .command)
         }
         CommandMenu("Go") {
-            Button("Library") { AmgiCommands.setSection(.library) }
+            Button("Library") { rootSceneActions?.select(.library) }
                 .keyboardShortcut("1", modifiers: .command)
-            if AmgiCommands.showReaderTab {
-                Button("Read") { AmgiCommands.setSection(.read) }
+                .disabled(rootSceneActions == nil)
+            if rootSceneActions?.isReaderEnabled != false {
+                Button("Read") { rootSceneActions?.select(.read) }
                     .keyboardShortcut("2", modifiers: .command)
+                    .disabled(rootSceneActions == nil)
             }
-            Button("Study") { AmgiCommands.setSection(.study) }
+            Button("Study") { rootSceneActions?.select(.study) }
                 .keyboardShortcut("3", modifiers: .command)
-            Button("Stats") { AmgiCommands.setSection(.stats) }
+                .disabled(rootSceneActions == nil)
+            Button("Stats") { rootSceneActions?.select(.stats) }
                 .keyboardShortcut("4", modifiers: .command)
-            Button("Browse") { AmgiCommands.setSection(.browse) }
+                .disabled(rootSceneActions == nil)
+            Button("Browse") { rootSceneActions?.select(.browse) }
                 .keyboardShortcut("5", modifiers: .command)
+                .disabled(rootSceneActions == nil)
         }
         CommandGroup(after: .toolbar) {
             Button("Study Assistant…") {
-                AppNavigationCoordinator.shared.submit(.studyAssistant(prompt: ""))
+                rootSceneActions?.studyAssistant()
             }
             .keyboardShortcut("a", modifiers: [.command, .shift])
+            .disabled(rootSceneActions == nil)
             Divider()
             Button("Sync Now") {
-                // The sync flow presents the sheet, which performs the
-                // endpoint/credential preflight and can show Login.
-                NotificationCenter.default.post(name: .amgiPresentSync, object: nil)
+                rootSceneActions?.sync()
             }
             .keyboardShortcut("s", modifiers: [.command, .shift])
+            .disabled(rootSceneActions == nil)
         }
     }
 
@@ -136,15 +161,5 @@ private struct AmgiCommands: Commands {
         return bindings[action.rawValue] ?? action.defaultShortcut
     }
 
-    /// Writes MainTabView's persisted selection directly. `@Shared`
-    /// appStorage observes UserDefaults, so this propagates to the tab
-    /// binding without holding a property wrapper in static context.
-    private static func setSection(_ section: MainSection) {
-        UserDefaults.standard.set(section.rawValue, forKey: NavigationPreferences.rootSection)
-    }
-
-    private static var showReaderTab: Bool {
-        UserDefaults.standard.object(forKey: ReaderPreferences.Keys.showTab) as? Bool ?? true
-    }
 }
 #endif

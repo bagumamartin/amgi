@@ -12,13 +12,19 @@ import WidgetKit
 /// Safe to call from any async context.
 @discardableResult
 public func writeWidgetSnapshot() async -> Bool {
-    // Skip during XCTest runs — the lifecycle hooks that call this run inside
-    // the host app's scene phase / didFinishLaunching, which fire even when
-    // the app is hosting a test bundle. Calling unimplemented dependency stubs
-    // there registers as a test failure even though the caller catches the
-    // error. Tests that genuinely need widget-snapshot behavior can call this
-    // directly inside their own withDependencies overrides.
-    if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
+    // Skip during XCTest and Swift Testing runs — the lifecycle hooks that
+    // call this run inside the host app's scene phase / didFinishLaunching,
+    // which fire even when the app is hosting a test bundle. Calling
+    // unimplemented dependency stubs there registers as a test failure even
+    // though the caller catches the error. Tests that genuinely need
+    // widget-snapshot behavior can call this directly inside their own
+    // withDependencies overrides.
+    let environment = ProcessInfo.processInfo.environment
+    if environment["XCTestConfigurationFilePath"] != nil
+        || environment["AMGI_IN_MEMORY_KEYCHAIN"] == "1"
+        || Bundle.main.bundleURL.pathExtension == "xctest"
+        || NSClassFromString("XCTestCase") != nil
+    {
         return false
     }
 

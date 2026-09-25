@@ -12,6 +12,7 @@ public struct EaseChart: View {
     }
 
     @Environment(\.palette) private var palette
+    @State private var selectedEase: Int?
 
     private var chartData: [(ease: Int, count: Int)] {
         eases.eases
@@ -22,6 +23,17 @@ public struct EaseChart: View {
     private var averageEase: String {
         guard eases.average > 0 else { return "---" }
         return String(format: "%.0f%%", eases.average / 10)
+    }
+
+    private var selectableEases: [Int] { chartData.map(\.ease) }
+
+    private func nearestEase(proxy: ChartProxy, plotX: CGFloat) -> Int? {
+        guard let value: Double = proxy.value(atX: plotX) else { return nil }
+        return selectableEases.min { abs(Double($0) - value) < abs(Double($1) - value) }
+    }
+
+    private func selectedCount(for ease: Int) -> Int {
+        chartData.first(where: { $0.ease == ease })?.count ?? 0
     }
 
     public var body: some View {
@@ -43,12 +55,26 @@ public struct EaseChart: View {
                 if chartData.isEmpty {
                     Text("No ease data").foregroundStyle(palette.textSecondary).frame(height: 180)
                 } else {
-                    Chart(chartData, id: \.ease) { item in
-                        BarMark(
-                            x: .value("Ease", item.ease),
-                            y: .value("Cards", item.count)
-                        )
-                        .foregroundStyle(palette.accent.gradient)
+                    Chart {
+                        ForEach(chartData, id: \.ease) { item in
+                            BarMark(
+                                x: .value("Ease", item.ease),
+                                y: .value("Cards", item.count)
+                            )
+                            .foregroundStyle(palette.accent.gradient)
+                        }
+
+                        if let selectedEase, chartData.contains(where: { $0.ease == selectedEase }) {
+                            RuleMark(x: .value("Selected Ease", selectedEase))
+                                .foregroundStyle(palette.textSecondary.opacity(0.55))
+                                .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                                .annotation(position: .top, spacing: 0) {
+                                    StatsChartTooltip(
+                                        title: "Ease \(selectedEase / 10)%",
+                                        lines: ["Cards: \(selectedCount(for: selectedEase))"]
+                                    )
+                                }
+                        }
                     }
                     .chartXAxis {
                         AxisMarks(values: .automatic(desiredCount: 5)) { value in
@@ -58,6 +84,15 @@ public struct EaseChart: View {
                             }
                         }
                     }
+                    .statsChartXInspection(
+                        values: selectableEases,
+                        selection: $selectedEase,
+                        valueAtX: nearestEase,
+                        xPosition: { Double($0) },
+                        accessibilityText: { ease in
+                            "Ease \(ease / 10)%, Cards: \(selectedCount(for: ease))"
+                        }
+                    )
                     .frame(height: 180)
                 }
             }

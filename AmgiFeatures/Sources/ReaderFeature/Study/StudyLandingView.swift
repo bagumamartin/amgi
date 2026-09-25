@@ -103,7 +103,7 @@ package struct StudyLandingView: View {
         }
         .navigationTitle(model.spanTitle)
         .navigationBarTitleDisplayMode(.large)
-        .navigationSubtitleIfAvailable(navigationSubtitle)
+        .navigationSubtitleIfAvailable(showsNavigationSubtitle ? navigationSubtitle : "")
         .navigationDestination(item: $timeRow) { row in
             StudyTimeDetailScreen(row: row, model: model, onOpenDeck: onSelectDeck)
         }
@@ -155,6 +155,18 @@ package struct StudyLandingView: View {
                 model.clearLiveCounts()
             }
         }
+    }
+
+    private var showsNavigationSubtitle: Bool {
+        #if os(macOS)
+        return true
+        #else
+        // The iOS navigation subtitle is a system-rendered label whose
+        // contrast is inconsistent with the app's semantic palette in the
+        // iOS 27 audit runtime. The Study hero renders the same date with
+        // semantic Dynamic Type, so keep iOS chrome free of a duplicate.
+        return false
+        #endif
     }
 
     private var navigationSubtitle: String {

@@ -28,6 +28,7 @@ struct PackageInspection {
     deck_names: Vec<String>,
     media_count: usize,
     archive_entry_count: usize,
+    is_collection_backup: bool,
 }
 
 /// Inspect an Anki package without opening or modifying the user's file.
@@ -75,6 +76,11 @@ fn inspect_package(path: &Path) -> Result<PackageInspection, String> {
     })?;
 
     let archive_entry_count = archive.len();
+    // Legacy full-collection backups contain the original on-disk
+    // `collection.anki2`; deck exports contain only the normalized
+    // `collection.anki21[b]` import database. This lets the UI avoid
+    // trusting the user's filename to choose a destructive restore flow.
+    let is_collection_backup = contains_entry(&mut archive, "collection.anki2")?;
     let format_version = detect_format_version(&mut archive)?;
     let collection_name = collection_filename(format_version).to_string();
     let media_count = inspect_media_map(&mut archive, format_version)?;
@@ -90,6 +96,7 @@ fn inspect_package(path: &Path) -> Result<PackageInspection, String> {
         deck_names,
         media_count,
         archive_entry_count,
+        is_collection_backup,
     })
 }
 
@@ -409,6 +416,7 @@ mod tests {
                 deck_names: vec!["Parent::Child".to_string(), "Zulu".to_string()],
                 media_count: 1,
                 archive_entry_count: 3,
+                is_collection_backup: false,
             })
         );
     }
@@ -443,6 +451,32 @@ mod tests {
         assert_eq!(result.archive_entry_count, 2);
         assert_eq!(result.note_count, 1);
         assert_eq!(result.card_count, 1);
+    }
+
+    #[test]
+    fn identifies_legacy_full_collection_backup_by_contents() {
+        let directory = tempdir().expect("temp directory");
+        let collection_path = directory.path().join("collection.anki2");
+        make_collection(&collection_path);
+        let collection_bytes = fs::read(&collection_path).expect("read collection");
+        let media = serde_json::to_vec(&serde_json::json!({})).expect("encode media map");
+
+        // Filename intentionally does not use `collection.apkg`; classification
+        // must come from the archive contents rather than a naming convention.
+        let package_path = directory.path().join("renamed-backup.apkg");
+        let file = File::create(&package_path).expect("create package");
+        let mut zip = ZipWriter::new(file);
+        let options = SimpleFileOptions::default();
+        zip.start_file("collection.anki2", options)
+            .expect("start collection");
+        zip.write_all(&collection_bytes).expect("write collection");
+        zip.start_file("media", options).expect("start media");
+        zip.write_all(&media).expect("write media");
+        zip.finish().expect("finish package");
+
+        let inspection = inspect_path(package_path.to_str().expect("UTF-8 path"))
+            .expect("inspect collection backup");
+        assert!(inspection.is_collection_backup);
     }
 
     #[test]

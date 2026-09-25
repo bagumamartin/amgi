@@ -10,7 +10,7 @@ and called from Swift via C FFI + protobuf.
 ## Architecture (zoomed out)
 
 ```
-AmgiApp (iOS app target — AmgiApp/, xcodegen → AmgiApp.xcodeproj)
+AmgiApp (multiplatform iOS/iPadOS + macOS app target — AmgiApp/, xcodegen → AmgiApp.xcodeproj)
   └─ depends on → RootFeature product (sibling SPM, ./AmgiFeatures)
      (2026-08-29: collapsed from four direct dependencies — AnkiBridge,
      AmgiReader, AmgiUI, AmgiFeatures — to this one. `project.yml` lists
@@ -118,7 +118,7 @@ dictionary UI, widgets.
 | `AnkiClients` | `@DependencyClient` structs + `liveValue` implementations. The UI's preferred entry point into the Anki engine; where no client wrapper exists, feature code may use an `AnkiServices` facade directly (sanctioned second tier — don't add thin pass-through clients just to avoid it). Direct `AnkiBackend` use is reserved for the composition root and low-level asset/config plumbing. |
 | `AnkiSync` | KeychainHelper for sync credentials. |
 | `AmgiCardWeb` | WebKit-based card renderer host. |
-| `AnkiRustLib` | `binaryTarget` pointing at `AnkiRustLib.xcframework`. iOS-only. |
+| `AnkiRustLib` | Dynamic `binaryTarget` packaged for iOS/iPadOS, watchOS simulator, and universal macOS. |
 
 ### Sibling SPM packages (path-resolved)
 | Package / Module | Purpose |
@@ -130,7 +130,7 @@ dictionary UI, widgets.
 | `AmgiUI` (./AmgiUI) | Shared SwiftUI components built on `AmgiTheme`. |
 | `EPUBKit` (./Libraries/EPUBKit) | Vendored MIT-licensed EPUB parser; consumed only by `AmgiReaderEPUB`. |
 | `AmgiAppCore` (./AmgiFeatures) | The engine-free sink: preferences (`ReviewPreferences`, `ReaderPreferences`, `SyncPreferences`), `AccountStore`, app-group keys, `WidgetSnapshot(+Store)`, `StreakCalculator`, `CardFlag`. Deps: `AnkiKit`, `Sharing`. **Must never gain an `AnkiClients` dependency** — the widget and watch extensions link it, and that edge would drag the Rust engine into both. |
-| `AmgiAppShared` (./AmgiFeatures) | The engine-touching half of the sink, iOS-only: `CollectionStore`, `ImportHelper`, `ShareSheet`, `CardContextMenu(+Model)`, `writeWidgetSnapshot()`, the `deckImport` modifier. Exists so `AmgiAppCore` can stay engine-free. |
+| `AmgiAppShared` (./AmgiFeatures) | The engine-touching half of the sink for iOS/iPadOS and macOS: `CollectionStore`, import/export review, sharing, card context menus, widget writes, and deck import. It remains unavailable to watchOS so `AmgiAppCore` can stay engine-free. |
 | `AmgiCharts` (./AmgiFeatures) | Pure chart/heatmap views over `GraphsSnapshot` + palette. No `AnkiClients` path, so its previews render without linking the xcframework. **Compiled for watchOS in its entirety** — the watch links the product, so every file here must be watchOS-clean, not just the ones the watch renders. |
 | `TemplatesFeature` (./AmgiFeatures) | Card-template editor (`DeckTemplateListView`, `TemplateEditorView`, `TemplateSourceEditor`, …). Lifted out of `Decks/` to close the Decks↔Review cycle; consumed by Settings and Review. |
 | `StatsFeature` (./AmgiFeatures) | Stats dashboard — `StatsDashboardView` Container / `StatsDashboardContent` + `State` enum / `StatsDashboardModel`. Deps: `AmgiCharts`, `AnkiClients`. |
@@ -493,7 +493,7 @@ Two servers may be connected; pick the branch by what's available this session:
   "No result" — fall back to `xcodebuild test -only-testing:` to confirm.
 
 Either branch: SPM tests are compile-verified only under `swift test` because
-`AnkiRustLib` is iOS-only — run them on a simulator destination.
+`AnkiRustLib` now includes iOS/iPadOS, watchOS simulator, and macOS slices; use an explicit simulator or `platform=macOS` destination.
 
 Either branch: the iOS scheme does **not** build `AmgiWatchApp`. Changes to
 `Sources/Watch/`, to `AmgiReviewCore`/`AmgiCharts`/`AmgiAppCore` (the products
@@ -527,10 +527,9 @@ iOS test suite; those failures are the flag, not the code.
 cd AmgiApp && xcodegen generate
 ```
 
-macOS SPM builds are NOT a verification path: `AnkiProtoBridge` pulls in
-`AnkiBackend` (iOS-only `AnkiRustLib`) and `AmgiUI` uses UIKit types, so both
-fail on macOS. Only `swift build --target AnkiKit` works, and it proves little —
-use `BuildProject`.
+The root and sibling SPM packages support macOS, but the app target still needs an
+Xcode destination build because it composes UIKit/AppKit, widgets, extensions,
+and signing. Use the `AmgiApp` scheme for iOS/iPadOS and `AmgiAppMac` for macOS.
 
 ## Key Patterns
 
@@ -588,4 +587,4 @@ let response: Anki_Decks_DeckTreeNode = try backend.invoke(
 - **SyncCollection returns FULL_DOWNLOAD for empty local DB**: Must auto-download, not just return "complete"
 - **SourceKit false positives**: The IDE shows errors that don't exist in actual builds. Trust `swift build` / `xcodebuild`
 - **Apple Compression framework has no zstd**: Rust handles zstd internally, no need for Swift-side compression
-- **XCFramework is iOS-only**: `swift build` on macOS can't build AnkiBackend. Use `BuildProject` (Xcode MCP) or `xcodebuild` for full builds.
+- **The XCFramework is multiplatform**: it packages iOS/iPadOS, watchOS simulator, and universal macOS dylibs. App verification still uses an explicit Xcode destination.

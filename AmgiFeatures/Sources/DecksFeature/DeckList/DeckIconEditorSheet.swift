@@ -34,6 +34,9 @@ struct DeckIconEditorSheet: View {
         IconPickerView(selection: $selection) { picked in
             Task { await commit(picked) }
         }
+        #if os(macOS)
+        .onExitCommand { onDone() }
+        #endif
     }
 
     private func commit(_ picked: String?) async {

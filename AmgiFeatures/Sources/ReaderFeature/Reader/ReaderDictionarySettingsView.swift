@@ -92,6 +92,11 @@ package struct ReaderDictionarySettingsView: View {
                             onDelete: { Task { await model.delete(dict) } }
                         )
                     }
+                    .onDelete { offsets in
+                        guard let index = offsets.first, model.dictionaries.indices.contains(index) else { return }
+                        let info = model.dictionaries[index]
+                        Task { await model.delete(info) }
+                    }
                     .onMove { source, destination in
                         Task { await model.move(from: source, to: destination) }
                     }
@@ -113,7 +118,7 @@ package struct ReaderDictionarySettingsView: View {
             } header: {
                 Text("Library")
             } footer: {
-                Text("Import Yomitan-format dictionary ZIP archives. Reordering and update-on-version-change land when the lookup engine is fully wired.")
+                Text("Import Yomitan-format dictionary ZIP archives. Use Update to refresh a saved search from the current query; archive version metadata is retained for future incremental updates.")
             }
 
             if model.isBusy {
@@ -179,7 +184,33 @@ private struct DictionaryRow: View {
             Toggle("", isOn: Binding(get: { info.isEnabled }, set: { _ in onToggle() }))
                 .labelsHidden()
                 .disabled(isBusy)
+            #if os(macOS)
+            Button {
+                onDelete()
+            } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+            .disabled(isBusy)
+            .help("Delete dictionary")
+            .accessibilityLabel("Delete \(info.title)")
+            #endif
         }
+        .contextMenu {
+            Button {
+                onToggle()
+            } label: {
+                Label(info.isEnabled ? "Disable" : "Enable", systemImage: info.isEnabled ? "pause.circle" : "play.circle")
+            }
+            .disabled(isBusy)
+            Button(role: .destructive) {
+                onDelete()
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+            .disabled(isBusy)
+        }
+        .accessibilityAction(named: "Delete") { onDelete() }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button(role: .destructive) {
                 onDelete()

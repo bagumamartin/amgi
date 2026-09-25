@@ -51,7 +51,12 @@ struct OcclusionCanvasView: NSViewRepresentable {
 
     func updateNSView(_ nsView: OcclusionCanvasNSView, context: Context) {
         nsView.image = image
-        nsView.masks = masks
+        // The AppKit canvas buffers mask drags locally, just like the UIKit
+        // representable. Do not let an unrelated SwiftUI update restore the
+        // pre-drag array in the middle of a mouse gesture.
+        if !nsView.isDraggingMasks {
+            nsView.masks = masks
+        }
         nsView.selectedMaskIndex = selectedMaskIndex
         nsView.highlightedMaskIndices = highlightedMaskIndices
         nsView.activeSelectionIndices = activeSelectionIndices
@@ -124,17 +129,21 @@ struct OcclusionCanvasView: NSViewRepresentable {
             onSelectionChange?(selection)
         }
 
+        /// Commits the canvas-owned drag buffer once, matching the iOS
+        /// representable. Updating the binding on every mouse event made a
+        /// Mac drag round-trip through SwiftUI and could be overwritten by an
+        /// unrelated layout pass before the gesture ended.
+        func commitMasks(_ newMasks: [IOMask]) {
+            guard masks != newMasks else { return }
+            masks = newMasks
+        }
+
         func requestText(at point: CGPoint) {
             onRequestText?(point)
         }
 
         func requestTextEdit(at index: Int) {
             onRequestTextEdit?(index)
-        }
-
-        func updateMask(at index: Int, to mask: IOMask) {
-            guard masks.indices.contains(index) else { return }
-            masks[index] = mask
         }
 
         func beginTransform() {
@@ -200,6 +209,10 @@ final class OcclusionCanvasNSView: NSView {
     var maskOpacity: CGFloat = 0.72
     weak var coordinator: OcclusionCanvasView.Coordinator?
 
+    /// True while the AppKit view owns a drag buffer. SwiftUI must not write
+    /// its pre-drag `masks` value back into the view until the drag commits.
+    var isDraggingMasks: Bool { activeDrag != nil }
+
     // Mouse-event state machine (replaces the iOS pan/tap recognizers).
     private var downPoint: CGPoint?
     private var mouseDraggedSignificantly = false
@@ -228,6 +241,7 @@ final class OcclusionCanvasNSView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         let imgRect = imageRect(in: bounds)
+        guard imgRect.width > 0, imgRect.height > 0 else { return }
         image.draw(in: imgRect, from: .zero, operation: .sourceOver, fraction: 1)
 
         let inactiveFill = PlatformColor(red: 1, green: 0.92, blue: 0.64, alpha: maskOpacity).cgColor
@@ -295,18 +309,20 @@ final class OcclusionCanvasNSView: NSView {
         let location = convert(event.locationInWindow, from: nil)
         downPoint = location
         mouseDraggedSignificantly = false
+        pendingSingleTap?.cancel()
+        pendingSingleTap = nil
         let imgRect = imageRect(in: bounds)
+        guard imgRect.width > 0, imgRect.height > 0 else { return }
         // Prepare but don't activate: a stationary press must still land as
         // a tap, mirroring UIPanGestureRecognizer's movement threshold.
         preparedMaskDrag = beginMaskDrag(at: location, imgRect: imgRect)
         shapeDragStart = nil
-        pendingSingleTap?.cancel()
-        pendingSingleTap = nil
     }
 
     override func mouseDragged(with event: NSEvent) {
         let location = convert(event.locationInWindow, from: nil)
         let imgRect = imageRect(in: bounds)
+        guard imgRect.width > 0, imgRect.height > 0 else { return }
 
         if !mouseDraggedSignificantly {
             guard let down = downPoint,
@@ -335,6 +351,19 @@ final class OcclusionCanvasNSView: NSView {
     override func mouseUp(with event: NSEvent) {
         let location = convert(event.locationInWindow, from: nil)
         let imgRect = imageRect(in: bounds)
+        guard imgRect.width > 0, imgRect.height > 0 else {
+            pendingSingleTap?.cancel()
+            pendingSingleTap = nil
+            if activeDrag != nil {
+                coordinator?.commitMasks(masks)
+                activeDrag = nil
+                coordinator?.finishTransform()
+            }
+            preparedMaskDrag = nil
+            shapeDragStart = nil
+            downPoint = nil
+            return
+        }
         defer {
             preparedMaskDrag = nil
             shapeDragStart = nil
@@ -343,6 +372,9 @@ final class OcclusionCanvasNSView: NSView {
 
         if mouseDraggedSignificantly {
             if activeDrag != nil {
+                // Match the UIKit order: the buffer is committed before the
+                // model snapshots it for undo registration.
+                coordinator?.commitMasks(masks)
                 activeDrag = nil
                 coordinator?.finishTransform()
                 needsDisplay = true
@@ -518,12 +550,18 @@ private extension OcclusionCanvasNSView {
 
     func imageRect(in bounds: CGRect) -> CGRect {
         let s = image.size
+        guard s.width > 0, s.height > 0,
+              bounds.width > 0, bounds.height > 0 else { return .zero }
         let scale = min(bounds.width / s.width, bounds.height / s.height)
+        guard scale.isFinite, scale > 0 else { return .zero }
         let w = s.width * scale, h = s.height * scale
         return CGRect(x: (bounds.width - w) / 2, y: (bounds.height - h) / 2, width: w, height: h)
     }
 
     func normalizedMask(from r: CGRect, in imgRect: CGRect) -> IOMask {
+        guard imgRect.width > 0, imgRect.height > 0 else {
+            return .rect(left: 0, top: 0, width: 0, height: 0, extras: [:])
+        }
         let l = max(0, min(1, (r.minX - imgRect.minX) / imgRect.width))
         let t = max(0, min(1, (r.minY - imgRect.minY) / imgRect.height))
         let w = max(0, min(1 - l, r.width / imgRect.width))
@@ -632,6 +670,7 @@ private extension OcclusionCanvasNSView {
     }
 
     func maskContainsPoint(_ mask: IOMask, point: CGPoint, imgRect: CGRect) -> Bool {
+        guard imgRect.width > 0, imgRect.height > 0 else { return false }
         switch mask {
         case .rect, .text:
             guard let box = boxTransform(for: mask, imgRect: imgRect) else { return false }
@@ -736,7 +775,16 @@ private extension OcclusionCanvasNSView {
         return .move(maskIndices: [hitIndex], start: location, originals: [hitIndex: hitMask])
     }
 
+    /// Apply one frame of a drag to the AppKit view's local buffer. The
+    /// binding is intentionally touched only from `mouseUp`, avoiding a
+    /// SwiftUI state round-trip for every pointer event.
+    private func setMaskDuringDrag(at index: Int, to mask: IOMask) {
+        guard masks.indices.contains(index) else { return }
+        masks[index] = mask
+    }
+
     private func updateMaskDrag(_ drag: ActiveDrag, location: CGPoint, imgRect: CGRect) {
+        guard imgRect.width > 0, imgRect.height > 0 else { return }
         switch drag {
         case .move(let maskIndices, let start, let originals):
             let delta = CGPoint(x: location.x - start.x, y: location.y - start.y)
@@ -745,28 +793,31 @@ private extension OcclusionCanvasNSView {
                       let updated = movedMask(original, delta: delta, imgRect: imgRect) else {
                     continue
                 }
-                coordinator?.updateMask(at: maskIndex, to: updated)
+                setMaskDuringDrag(at: maskIndex, to: updated)
             }
         case .resize(let maskIndex, let handle, let original):
             guard let updated = resizedMask(original, handle: handle, location: location, imgRect: imgRect) else { return }
-            coordinator?.updateMask(at: maskIndex, to: updated)
+            setMaskDuringDrag(at: maskIndex, to: updated)
         case .rotate(let maskIndex, let pivot, let startAngle, let original):
             let currentAngle = atan2(location.y - pivot.y, location.x - pivot.x)
             guard let updated = rotatedMask(original, delta: currentAngle - startAngle, imgRect: imgRect) else { return }
-            coordinator?.updateMask(at: maskIndex, to: updated)
+            setMaskDuringDrag(at: maskIndex, to: updated)
         case .polygonVertex(let maskIndex, let vertexIndex):
-            guard case .polygon(let points, let extras) = masks[maskIndex] else { return }
+            guard imgRect.width > 0, imgRect.height > 0,
+                  case .polygon(let points, let extras) = masks[maskIndex],
+                  points.indices.contains(vertexIndex) else { return }
             var updatedPoints = points
             updatedPoints[vertexIndex] = CGPoint(
                 x: max(0, min(1, (location.x - imgRect.minX) / imgRect.width)),
                 y: max(0, min(1, (location.y - imgRect.minY) / imgRect.height))
             )
-            coordinator?.updateMask(at: maskIndex, to: .polygon(points: updatedPoints, extras: extras))
+            setMaskDuringDrag(at: maskIndex, to: .polygon(points: updatedPoints, extras: extras))
         }
         needsDisplay = true
     }
 
     func movedMask(_ mask: IOMask, delta: CGPoint, imgRect: CGRect) -> IOMask? {
+        guard imgRect.width > 0, imgRect.height > 0 else { return nil }
         let dx = delta.x / imgRect.width
         let dy = delta.y / imgRect.height
         switch mask {
@@ -813,6 +864,7 @@ private extension OcclusionCanvasNSView {
     }
 
     private func resizedMask(_ mask: IOMask, handle: SelectionHandle, location: CGPoint, imgRect: CGRect) -> IOMask? {
+        guard imgRect.width > 0, imgRect.height > 0 else { return nil }
         switch mask {
         case .polygon(let points, let extras):
             let originalBounds = maskBounds(for: mask, imgRect: imgRect)
@@ -943,6 +995,7 @@ private extension OcclusionCanvasNSView {
     }
 
     private func boxTransform(for mask: IOMask, imgRect: CGRect) -> BoxTransform? {
+        guard imgRect.width > 0, imgRect.height > 0 else { return nil }
         switch mask {
         case .rect(let left, let top, let width, let height, _):
             return BoxTransform(
@@ -1133,6 +1186,7 @@ private extension OcclusionCanvasNSView {
     }
 
     func rotatedMask(_ mask: IOMask, delta: CGFloat, imgRect: CGRect) -> IOMask? {
+        guard imgRect.width > 0, imgRect.height > 0 else { return nil }
         switch mask {
         case .polygon(let points, let extras):
             let pivot = rotationPivot(for: mask, imgRect: imgRect)
@@ -1152,6 +1206,7 @@ private extension OcclusionCanvasNSView {
     }
 
     func updatedBoxMask(_ mask: IOMask, origin: CGPoint, size: CGSize, angle: CGFloat, imgRect: CGRect) -> IOMask? {
+        guard imgRect.width > 0, imgRect.height > 0 else { return nil }
         switch mask {
         case .rect(_, _, _, _, let extras):
             let normalizedWidth = max(minimumNormalizedDimension, min(1, size.width / imgRect.width))
@@ -1233,7 +1288,8 @@ private extension OcclusionCanvasNSView {
     }
 
     func normalizedPoint(for point: CGPoint, imgRect: CGRect) -> CGPoint {
-        CGPoint(
+        guard imgRect.width > 0, imgRect.height > 0 else { return .zero }
+        return CGPoint(
             x: max(0, min(1, (point.x - imgRect.minX) / imgRect.width)),
             y: max(0, min(1, (point.y - imgRect.minY) / imgRect.height))
         )
@@ -1326,7 +1382,9 @@ struct ZoomableOcclusionCanvasView: NSViewRepresentable {
     func updateNSView(_ nsView: ZoomableOcclusionCanvasContainer, context: Context) {
         nsView.updateImage(image)
         nsView.canvasView.image = image
-        nsView.canvasView.masks = masks
+        if !nsView.canvasView.isDraggingMasks {
+            nsView.canvasView.masks = masks
+        }
         nsView.canvasView.selectedMaskIndex = selectedMaskIndex
         nsView.canvasView.activeSelectionIndices = selectedMaskIndices
         nsView.canvasView.highlightedMaskIndices = highlightedMaskIndices
@@ -1387,7 +1445,12 @@ final class ZoomableOcclusionCanvasContainer: NSScrollView {
     override func layout() {
         if bounds.size != lastBoundsSize {
             lastBoundsSize = bounds.size
-            relayoutCanvas(resetZoom: false)
+            // AppKit can lay out a split-view column at zero before the
+            // window reaches its final size. Avoid manufacturing a 1×1
+            // document and invalidating the scroll geometry on that pass.
+            if bounds.width > 0, bounds.height > 0 {
+                relayoutCanvas(resetZoom: false)
+            }
         }
         super.layout()
     }
@@ -1396,7 +1459,10 @@ final class ZoomableOcclusionCanvasContainer: NSScrollView {
         canvasView.image = image
         if image.size != imageSize {
             imageSize = image.size
-            relayoutCanvas(resetZoom: true)
+            if imageSize.width > 0, imageSize.height > 0,
+               bounds.width > 0, bounds.height > 0 {
+                relayoutCanvas(resetZoom: true)
+            }
         }
     }
 
@@ -1426,7 +1492,16 @@ private extension ZoomableOcclusionCanvasContainer {
     func fittedCanvasSize(for boundsSize: CGSize) -> CGSize {
         let availableWidth = max(boundsSize.width - 8, 1)
         let availableHeight = max(boundsSize.height - 8, 1)
-        let scale = min(availableWidth / max(imageSize.width, 1), availableHeight / max(imageSize.height, 1))
+        guard imageSize.width > 0, imageSize.height > 0 else {
+            return CGSize(width: availableWidth, height: availableHeight)
+        }
+        let scale = min(
+            availableWidth / imageSize.width,
+            availableHeight / imageSize.height
+        )
+        guard scale.isFinite, scale > 0 else {
+            return CGSize(width: availableWidth, height: availableHeight)
+        }
         return CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
     }
 }

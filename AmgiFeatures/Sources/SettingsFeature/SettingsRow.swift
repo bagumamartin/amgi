@@ -57,6 +57,7 @@ struct SettingsIconTile: View {
                 // rather than adding a ninth radius for a 1pt difference.
                 in: RoundedRectangle(cornerRadius: AmgiRadius.small, style: .continuous)
             )
+            .accessibilityHidden(true)
     }
 }
 
@@ -98,6 +99,9 @@ struct SettingsRowLink<Destination: View>: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.pressScale)
+        .accessibilityLabel(title)
+        .accessibilityValue(detail ?? "")
+        .accessibilityHint("Opens \(title)")
     }
 
     private var iconTile: some View {

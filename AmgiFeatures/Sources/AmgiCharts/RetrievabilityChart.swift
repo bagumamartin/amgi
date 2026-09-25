@@ -50,6 +50,14 @@ public struct RetrievabilityChart: View {
     }
 
     private var maxCount: Int { chartData.map(\.count).max() ?? 0 }
+
+    private func nearestBucketStart(proxy: ChartProxy, plotX: CGFloat) -> Int? {
+        guard let value: Double = proxy.value(atX: plotX) else { return nil }
+        return chartData.min {
+            abs($0.center - value) < abs($1.center - value)
+        }?.start
+    }
+
     private var yAxisMax: Double {
         StatsDualAxisSupport.niceUpperBound(Double(maxCount))
     }
@@ -111,6 +119,18 @@ public struct RetrievabilityChart: View {
             .chartOverlay { proxy in
                 retrievabilityChartOverlay(proxy: proxy)
             }
+            .statsChartXInspection(
+                values: chartData.map(\.start),
+                selection: $selectedBucketStart,
+                valueAtX: nearestBucketStart,
+                xPosition: { start in
+                    chartData.first(where: { $0.start == start })?.center ?? Double(start)
+                },
+                accessibilityText: { start in
+                    guard let bucket = selectedBucket, bucket.start == start else { return "Retrievability \(start)%" }
+                    return "\(bucket.label), Cards: \(bucket.count)"
+                }
+            )
             .chartXAxis {
                 retrievabilityChartXAxis()
             }

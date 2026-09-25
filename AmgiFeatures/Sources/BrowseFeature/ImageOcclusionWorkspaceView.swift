@@ -1,4 +1,5 @@
 import SwiftUI
+import Foundation
 #if canImport(UIKit)
 import UIKit
 #elseif canImport(AppKit)
@@ -42,6 +43,7 @@ struct ImageOcclusionWorkspaceView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.undoManager) private var undoManager
     @Environment(\.palette) private var palette
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     let title: String
     let onSave: ([IOMask]) -> Void
@@ -50,11 +52,17 @@ struct ImageOcclusionWorkspaceView: View {
     @State private var destination: ImageOcclusionDestination?
     @State private var zoomCommand: IOCanvasZoomCommand = .fit
     @State private var zoomCommandID = 0
+    @State private var showsInspector = true
 
     init(title: String, image: PlatformImage, initialMasks: [IOMask], onSave: @escaping ([IOMask]) -> Void) {
         self.title = title
         self.onSave = onSave
         _model = State(initialValue: ImageOcclusionWorkspaceModel(image: image, initialMasks: initialMasks))
+        #if os(macOS)
+        _showsInspector = State(initialValue: true)
+        #else
+        _showsInspector = State(initialValue: false)
+        #endif
     }
 
     var body: some View {
@@ -71,7 +79,7 @@ struct ImageOcclusionWorkspaceView: View {
             )
             .equatable()
 
-            canvas
+            editorCanvas
         }
         #if os(iOS)
         .toolbarVisibility(.hidden, for: .tabBar)
@@ -81,10 +89,81 @@ struct ImageOcclusionWorkspaceView: View {
         .toolbar { workspaceToolbar }
         .safeAreaInset(edge: .bottom) { bottomToolbars }
         .modifier(WorkspacePresentations(destination: $destination, model: model, onDiscard: { dismiss() }))
+        .sheet(
+            isPresented: Binding(
+                get: { showsInspector && !shouldShowInlineInspector },
+                set: { if !$0 { showsInspector = false } }
+            )
+        ) {
+            NavigationStack {
+                IOMaskInspector(
+                    masks: model.masks,
+                    selectedIndex: model.selectedMaskIndex,
+                    onEditText: editSelectedText,
+                    onDuplicate: { model.duplicateSelection() },
+                    onDelete: { model.deleteSelection() }
+                )
+                .navigationTitle("Mask Inspector")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Done") { showsInspector = false }
+                    }
+                }
+            }
+            .presentationDetents([.medium, .large])
+        }
         // The environment UndoManager isn't available at init, so hand it to
         // the model once the view is on screen.
-        .onAppear { model.undoManager = undoManager }
+        .onAppear {
+            model.undoManager = undoManager
+            if shouldShowInlineInspector { showsInspector = true }
+        }
         .onChange(of: undoManager) { _, manager in model.undoManager = manager }
+    }
+
+    private var editorCanvas: some View {
+        HStack(spacing: 0) {
+            canvas
+            if showsInspector, shouldShowInlineInspector {
+                Divider()
+                IOMaskInspector(
+                    masks: model.masks,
+                    selectedIndex: model.selectedMaskIndex,
+                    onEditText: editSelectedText,
+                    onDuplicate: { model.duplicateSelection() },
+                    onDelete: { model.deleteSelection() }
+                )
+                .frame(width: 248)
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contextMenu {
+            if !model.masks.isEmpty {
+                Button("Duplicate Selected Masks", systemImage: "plus.square.on.square") {
+                    model.duplicateSelection()
+                }
+                .disabled(model.activeSelectionIndices.isEmpty)
+                Button("Delete Selected Masks", systemImage: "trash", role: .destructive) {
+                    model.deleteSelection()
+                }
+                .disabled(model.activeSelectionIndices.isEmpty)
+                Divider()
+                Button("Select All Masks", systemImage: "checkmark.circle") {
+                    model.toggleSelectAll()
+                }
+                Button("Invert Selection", systemImage: "arrow.left.arrow.right") {
+                    model.invertSelection()
+                }
+            }
+            Button("Fit Image to Window", systemImage: "arrow.up.left.and.down.right.magnifyingglass") {
+                sendZoomCommand(.fit)
+            }
+        }
+        .background {
+            keyboardCommands
+        }
     }
 
     private var canvas: some View {
@@ -113,6 +192,45 @@ struct ImageOcclusionWorkspaceView: View {
         .background(palette.background)
     }
 
+    private var shouldShowInlineInspector: Bool {
+        #if os(macOS)
+        true
+        #else
+        horizontalSizeClass == .regular
+        #endif
+    }
+
+    @ViewBuilder
+    private var keyboardCommands: some View {
+        // Keep command targets in the accessibility tree-free command layer;
+        // the visible controls remain the discoverable path on touch.
+        Group {
+            Button("Duplicate Selected Masks") { model.duplicateSelection() }
+                .keyboardShortcut("d", modifiers: .command)
+            Button("Delete Selected Masks") { model.deleteSelection() }
+                .keyboardShortcut(.delete, modifiers: [])
+            Button("Select All Masks") { model.toggleSelectAll() }
+                .keyboardShortcut("a", modifiers: .command)
+            Button("Invert Selection") { model.invertSelection() }
+                .keyboardShortcut("a", modifiers: [.command, .shift])
+            Button("Undo") { undoManager?.undo() }
+                .keyboardShortcut("z", modifiers: .command)
+            Button("Redo") { undoManager?.redo() }
+                .keyboardShortcut("z", modifiers: [.command, .shift])
+        }
+        .opacity(0)
+        .frame(width: 0, height: 0)
+        .accessibilityHidden(true)
+    }
+
+    private func editSelectedText() {
+        guard let index = model.selectedMaskIndex,
+              model.masks.indices.contains(index),
+              case .text = model.masks[index],
+              let draft = model.textDraft(editing: index) else { return }
+        destination = .textEditor(draft)
+    }
+
     @State private var showsTranslucentMasks = true
 
     @ToolbarContentBuilder
@@ -121,7 +239,15 @@ struct ImageOcclusionWorkspaceView: View {
             Button("Cancel") { requestDismiss() }
                 .amgiToolbarTextButton(tone: .neutral)
         }
-        ToolbarItem(placement: .topBarTrailing) {
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            Button {
+                withAnimation(AmgiMotion.quick) { showsInspector.toggle() }
+            } label: {
+                Image(systemName: showsInspector ? "sidebar.trailing" : "sidebar.trailing")
+            }
+            .help(showsInspector ? "Hide mask inspector" : "Show mask inspector")
+            .accessibilityLabel(showsInspector ? "Hide mask inspector" : "Show mask inspector")
+            .keyboardShortcut("i", modifiers: [.command, .option])
             Button("Save") { saveWorkspace() }
                 .amgiToolbarTextButton()
         }
@@ -161,6 +287,152 @@ struct ImageOcclusionWorkspaceView: View {
         .overlay(alignment: .top) {
             Divider()
         }
+    }
+}
+
+// MARK: - Mask inspector
+
+private struct IOMaskInspector: View {
+    @Environment(\.palette) private var palette
+    let masks: [IOMask]
+    let selectedIndex: Int?
+    let onEditText: () -> Void
+    let onDuplicate: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Label("Mask Inspector", systemImage: "info.circle")
+                    .font(.headline)
+                    .foregroundStyle(palette.textPrimary)
+
+                if let selectedIndex, masks.indices.contains(selectedIndex) {
+                    let mask = masks[selectedIndex]
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text(maskTitle(mask))
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(palette.textPrimary)
+                            Spacer()
+                            Text("#\(mask.serializationOrdinal ?? (selectedIndex + 1))")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(palette.textSecondary)
+                        }
+                        Divider()
+                        valueRow("Shape", shapeName(mask))
+                        valueRow("Position", positionDescription(mask))
+                        valueRow("Size", sizeDescription(mask))
+                        valueRow("Fill", mask.extras["fill"] ?? "Default")
+                        valueRow("Occludes inactive", mask.occludesInactive ? "Yes" : "No")
+                        if case .text(_, _, let text, _, _, _) = mask {
+                            valueRow("Prompt", text.isEmpty ? "—" : text)
+                            Button("Edit Prompt…", systemImage: "pencil") {
+                                onEditText()
+                            }
+                            .buttonStyle(.bordered)
+                            .accessibilityLabel("Edit mask prompt")
+                        }
+                    }
+                    .padding(12)
+                    .background(palette.surfaceElevated, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                    HStack {
+                        Button("Duplicate", systemImage: "plus.square.on.square", action: onDuplicate)
+                            .buttonStyle(.bordered)
+                        Spacer()
+                        Button("Delete", systemImage: "trash", role: .destructive, action: onDelete)
+                            .buttonStyle(.bordered)
+                    }
+                } else {
+                    ContentUnavailableView(
+                        "No Mask Selected",
+                        systemImage: "square.dashed",
+                        description: Text("Select a mask on the image to inspect its geometry.")
+                    )
+                    .frame(maxWidth: .infinity, minHeight: 180)
+                }
+            }
+            .padding(16)
+        }
+        .background(palette.surface)
+        .contextMenu {
+            Button("Duplicate Selected Mask", systemImage: "plus.square.on.square", action: onDuplicate)
+                .disabled(selectedIndex == nil)
+            Button("Delete Selected Mask", systemImage: "trash", role: .destructive, action: onDelete)
+                .disabled(selectedIndex == nil)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Mask inspector")
+    }
+
+    private func valueRow(_ label: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(palette.textSecondary)
+            Spacer(minLength: 8)
+            Text(value)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(palette.textPrimary)
+                .multilineTextAlignment(.trailing)
+                .lineLimit(2)
+        }
+    }
+
+    private func maskTitle(_ mask: IOMask) -> String {
+        switch mask {
+        case .rect: "Rectangle"
+        case .ellipse: "Ellipse"
+        case .polygon: "Polygon"
+        case .text: "Text prompt"
+        }
+    }
+
+    private func shapeName(_ mask: IOMask) -> String {
+        switch mask {
+        case .rect: "Rectangle"
+        case .ellipse: "Ellipse"
+        case .polygon(let points, _): "Polygon (\(points.count) points)"
+        case .text: "Text"
+        }
+    }
+
+    private func positionDescription(_ mask: IOMask) -> String {
+        switch mask {
+        case .rect(let left, let top, _, _, _),
+             .ellipse(let left, let top, _, _, _),
+             .text(let left, let top, _, _, _, _):
+            return "\(percent(left)), \(percent(top))"
+        case .polygon(let points, _):
+            guard let first = points.first else { return "—" }
+            return "\(percent(first.x)), \(percent(first.y))"
+        }
+    }
+
+    private func sizeDescription(_ mask: IOMask) -> String {
+        switch mask {
+        case .rect(_, _, let width, let height, _):
+            return "\(percent(width)) × \(percent(height))"
+        case .ellipse(_, _, let rx, let ry, _):
+            return "\(percent(rx * 2)) × \(percent(ry * 2))"
+        case .polygon(let points, _):
+            let xs = points.map(\.x)
+            let ys = points.map(\.y)
+            guard let minX = xs.min(), let maxX = xs.max(),
+                  let minY = ys.min(), let maxY = ys.max() else { return "—" }
+            return "\(percent(maxX - minX)) × \(percent(maxY - minY))"
+        case .text(_, _, _, let scale, let fontSize, _):
+            return "Scale \(decimal(scale)), font \(decimal(fontSize))"
+        }
+    }
+
+    private func decimal(_ value: CGFloat) -> String {
+        String(format: "%.2f", Double(value))
+    }
+
+    private func percent(_ value: CGFloat) -> String {
+        "\(Int((value * 100).rounded()))%"
     }
 }
 
@@ -347,6 +619,8 @@ private struct IOToolPalette: View, Equatable {
                 }
                 .buttonStyle(.pressScale)
                 .frame(maxWidth: .infinity)
+                .accessibilityLabel(tool.label)
+                .help(tool.label)
             }
 
             Menu {
@@ -361,6 +635,8 @@ private struct IOToolPalette: View, Equatable {
             }
             .frame(maxWidth: .infinity)
             .disabled(!hasSelection)
+            .accessibilityLabel("Mask fill")
+            .help("Choose mask fill")
 
             Menu {
                 ForEach(IOOcclusionMode.allCases, id: \.self) { mode in
@@ -370,6 +646,8 @@ private struct IOToolPalette: View, Equatable {
                 IOPaletteChip(title: "Mode", systemImage: "square.stack.3d.up", isSelected: false)
             }
             .frame(maxWidth: .infinity)
+            .accessibilityLabel("Occlusion mode")
+            .help("Choose what inactive masks hide")
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 8)
@@ -473,6 +751,7 @@ private struct IOArrangeToolbar: View, Equatable {
                     IOToolbarIcon(systemImage: "align.horizontal.left")
                 }
                 .disabled(selectionCount == 0)
+                .accessibilityLabel("Align selected masks")
 
                 IOToolbarIconButton(systemImage: "plus.magnifyingglass") { onZoom(.zoomIn) }
                 IOToolbarIconButton(systemImage: "minus.magnifyingglass") { onZoom(.zoomOut) }
@@ -509,6 +788,8 @@ private struct IOPaletteChip: View {
             isSelected ? palette.accent : palette.surfaceElevated,
             in: RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous)
         )
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
@@ -522,6 +803,26 @@ private struct IOToolbarIconButton: View {
             IOToolbarIcon(systemImage: systemImage, fallbackSystemImage: fallbackSystemImage)
         }
         .buttonStyle(.pressScale)
+        .accessibilityLabel(accessibilityName)
+        .help(accessibilityName)
+    }
+
+    private var accessibilityName: String {
+        switch systemImage {
+        case "arrow.uturn.backward": "Undo"
+        case "arrow.uturn.forward": "Redo"
+        case "trash": "Delete selected masks"
+        case "plus.square.on.square": "Duplicate selected masks"
+        case "checkmark.circle", "checkmark.circle.fill": "Select all masks"
+        case "arrow.left.arrow.right": "Invert mask selection"
+        case "circle", "circle.lefthalf.filled": "Toggle mask translucency"
+        case "link": "Group selected masks"
+        case "link.slash", "scissors": "Ungroup selected masks"
+        case "plus.magnifyingglass": "Zoom in"
+        case "minus.magnifyingglass": "Zoom out"
+        case "arrow.up.left.and.down.right.magnifyingglass": "Fit image to window"
+        default: "Image occlusion action"
+        }
     }
 }
 

@@ -18,6 +18,10 @@ struct ReaderLibraryContent: View {
     let state: State
     let bookForId: (String) -> ReaderBook?
     let progress: ReaderProgressCoordinator
+    /// Regular-width layouts use a library/detail split and pass a selection
+    /// callback. Compact layouts leave this nil so existing NavigationLinks
+    /// continue to push onto their stack.
+    let onSelectBook: ((String) -> Void)?
     let onImport: () -> Void
     let onConfigure: () -> Void
     let onRetry: () -> Void
@@ -72,8 +76,18 @@ private extension ReaderLibraryContent {
     func loaded(_ data: ReaderLibraryViewData) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                ContinueReadingSection(items: data.continueReading, bookForId: bookForId, progress: progress)
-                AllBooksSection(items: data.allBooks, bookForId: bookForId, progress: progress)
+                ContinueReadingSection(
+                    items: data.continueReading,
+                    bookForId: bookForId,
+                    progress: progress,
+                    onSelectBook: onSelectBook
+                )
+                AllBooksSection(
+                    items: data.allBooks,
+                    bookForId: bookForId,
+                    progress: progress,
+                    onSelectBook: onSelectBook
+                )
                 ImportBookCTA(action: onImport)
                 Color.clear.frame(height: 8)
             }
@@ -88,7 +102,7 @@ private extension ReaderLibraryContent {
 /// Library/Study columns so the shelves stay readable on regular-width
 /// layouts instead of stretching full-width.
 private enum ReaderLibraryColumn {
-    static let maxWidth: CGFloat = 800
+    static let maxWidth: CGFloat = 1_200
 }
 
 // MARK: - Preview
@@ -114,6 +128,7 @@ private enum ReaderLibraryColumn {
             state: .loaded(data),
             bookForId: { id in books.first { $0.id == id } },
             progress: ReaderProgressCoordinator(),
+            onSelectBook: nil,
             onImport: {},
             onConfigure: {},
             onRetry: {}
@@ -128,6 +143,7 @@ private enum ReaderLibraryColumn {
             state: .empty(.noBooksAndNoConfig),
             bookForId: { _ in nil },
             progress: ReaderProgressCoordinator(),
+            onSelectBook: nil,
             onImport: {},
             onConfigure: {},
             onRetry: {}

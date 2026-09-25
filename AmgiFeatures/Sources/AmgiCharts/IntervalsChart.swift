@@ -12,6 +12,7 @@ public struct IntervalsChart: View {
     }
 
     @Environment(\.palette) private var palette
+    @State private var selectedLabel: String?
 
     private struct Bucket: Identifiable {
         let id: String
@@ -43,6 +44,19 @@ public struct IntervalsChart: View {
         .filter { $0.count > 0 }
     }
 
+    private var selectableLabels: [String] { buckets.map(\.label) }
+
+    private func nearestLabel(proxy: ChartProxy, plotX: CGFloat) -> String? {
+        guard let value: String = proxy.value(atX: plotX),
+              selectableLabels.contains(value)
+        else { return nil }
+        return value
+    }
+
+    private func selectedCount(for label: String) -> Int {
+        buckets.first(where: { $0.label == label })?.count ?? 0
+    }
+
     public var body: some View {
         AmgiCard(
             background: .surface,
@@ -56,18 +70,43 @@ public struct IntervalsChart: View {
                 if buckets.isEmpty {
                     Text("No interval data").foregroundStyle(palette.textSecondary).frame(height: 180)
                 } else {
-                    Chart(buckets) { bucket in
-                        BarMark(
-                            x: .value("Interval", bucket.label),
-                            y: .value("Cards", bucket.count)
-                        )
-                        .foregroundStyle(palette.accent.gradient)
+                    Chart {
+                        ForEach(buckets) { bucket in
+                            BarMark(
+                                x: .value("Interval", bucket.label),
+                                y: .value("Cards", bucket.count)
+                            )
+                            .foregroundStyle(palette.accent.gradient)
+                        }
+
+                        if let selectedLabel, buckets.contains(where: { $0.label == selectedLabel }) {
+                            RuleMark(x: .value("Selected Interval", selectedLabel))
+                                .foregroundStyle(palette.textSecondary.opacity(0.55))
+                                .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                                .annotation(position: .top, spacing: 0) {
+                                    StatsChartTooltip(
+                                        title: selectedLabel,
+                                        lines: ["Cards: \(selectedCount(for: selectedLabel))"]
+                                    )
+                                }
+                        }
                     }
                     .chartXAxis {
                         AxisMarks(values: .automatic) { _ in
                             AxisValueLabel()
                         }
                     }
+                    .statsChartXInspection(
+                        values: selectableLabels,
+                        selection: $selectedLabel,
+                        valueAtX: nearestLabel,
+                        xPosition: { label in
+                            Double(selectableLabels.firstIndex(of: label) ?? 0)
+                        },
+                        accessibilityText: { label in
+                            "\(label), Cards: \(selectedCount(for: label))"
+                        }
+                    )
                     .frame(height: 180)
                 }
             }

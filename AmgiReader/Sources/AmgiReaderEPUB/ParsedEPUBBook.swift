@@ -12,6 +12,11 @@ public import AmgiReader
 public struct ParsedEPUBBook: Sendable {
     public var book: ReaderBook
     public var chapterContentURLs: [Int64: URL]
+    /// Root of the extracted EPUB archive. Keeping this alongside the
+    /// content URLs lets a library move a successfully parsed publication
+    /// from staging into its managed directory without leaving absolute
+    /// URLs pointing at the staging path.
+    public var documentDirectory: URL
     /// Directory containing the OPF — the book's content root. WebViews get
     /// read access to this, so sibling `Styles/` and `Images/` folders
     /// referenced by a chapter in `Text/` actually resolve.
@@ -23,6 +28,7 @@ public struct ParsedEPUBBook: Sendable {
     public init(
         book: ReaderBook,
         chapterContentURLs: [Int64: URL],
+        documentDirectory: URL,
         contentDirectory: URL,
         coverImageURL: URL?,
         language: String?,
@@ -30,6 +36,7 @@ public struct ParsedEPUBBook: Sendable {
     ) {
         self.book = book
         self.chapterContentURLs = chapterContentURLs
+        self.documentDirectory = documentDirectory
         self.contentDirectory = contentDirectory
         self.coverImageURL = coverImageURL
         self.language = language

@@ -14,6 +14,7 @@ package struct TemplateEditorView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.palette) private var palette
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     let notetypeId: NotetypeID
     let previewNoteId: NoteID?
@@ -84,6 +85,11 @@ package struct TemplateEditorView: View {
                     preview: { previewSheet }
                 ))
                 .task { await model.loadNotetype(notetypeId: notetypeId, preferred: initialTemplateIndex) }
+                .onKeyPress { press in
+                    guard press.key == .escape else { return .ignored }
+                    attemptDismiss()
+                    return .handled
+                }
         }
     }
 
@@ -93,7 +99,10 @@ package struct TemplateEditorView: View {
                 notetypeId: notetypeId,
                 preferredName: model.notetype.name,
                 onSaved: {
-                    await model.loadNotetype(notetypeId: notetypeId)
+                    await model.loadNotetype(
+                        notetypeId: notetypeId,
+                        preferred: model.selectedTemplateIndex
+                    )
                     if let onSaved {
                         await onSaved()
                     }
@@ -123,6 +132,7 @@ package struct TemplateEditorView: View {
         ToolbarItem(placement: .topBarLeading) {
             Button("Cancel") { attemptDismiss() }
                 .amgiToolbarTextButton(tone: .neutral)
+                .keyboardShortcut(.cancelAction)
         }
         ToolbarItem(placement: .principal) {
             Text(mode.title)
@@ -133,7 +143,12 @@ package struct TemplateEditorView: View {
         ToolbarItem(placement: .topBarTrailing) {
             Button("Fields") { destination = .fieldManager }
                 .amgiToolbarTextButton(tone: .neutral)
-                .disabled(model.isLoading)
+                .disabled(model.isLoading || model.hasUnsavedChanges)
+                .accessibilityHint(
+                    model.hasUnsavedChanges
+                        ? "Save template changes before editing fields"
+                        : "Edit the fields in this notetype"
+                )
         }
         ToolbarItem(placement: .topBarTrailing) {
             if model.isSaving {
@@ -150,53 +165,37 @@ package struct TemplateEditorView: View {
                 }
                 .amgiToolbarTextButton()
                 .disabled(!canSaveTemplate)
+                .keyboardShortcut(.defaultAction)
             }
         }
     }
 
     private var editorContent: some View {
+        GeometryReader { proxy in
+            let layout = TemplateEditorLayout.resolve(
+                availableWidth: proxy.size.width,
+                isAccessibilitySize: dynamicTypeSize.isAccessibilitySize
+            )
+            Group {
+                switch layout {
+                case .compact:
+                    compactEditorLayout
+                case .stacked:
+                    stackedEditorLayout
+                case .wide:
+                    wideEditorLayout
+                }
+            }
+            .background(palette.background)
+        }
+    }
+
+    private var compactEditorLayout: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                TemplateEditorHeaderCard(
-                    currentTemplateName: currentTemplateName,
-                    allowsTemplateSelection: mode.allowsTemplateSelection,
-                    templates: model.notetype.templates,
-                    selectedTemplateIndex: $model.selectedTemplateIndex,
-                    editorTab: $editorTab,
-                    onPreviewTab: { previousTab in
-                        destination = .preview
-                        editorTab = previousTab
-                    },
-                    borderColor: separatorBorderColor
-                )
-
-                if let currentTemplateValidationMessage {
-                    AmgiStatusMessageView(
-                        title: "Template issue",
-                        message: currentTemplateValidationMessage,
-                        systemImage: "exclamationmark.triangle",
-                        tone: .warning
-                    )
-                }
-
-                TemplateSourceEditor(
-                    text: currentEditorBinding,
-                    fieldNames: currentFieldNames,
-                    insertableTokens: currentInsertableTokens,
-                    fieldButtonTitle: "Fields",
-                    doneButtonTitle: "Done",
-                    searchQuery: editorSearchText,
-                    fontSize: codeEditorFontSize,
-                    fontFamilyRaw: codeEditorFontFamilyRaw
-                )
-                .padding(16)
-                .frame(minHeight: 420)
-                .background(palette.surfaceElevated, in: RoundedRectangle(cornerRadius: 30, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 30, style: .continuous)
-                        .stroke(separatorBorderColor, lineWidth: 1)
-                }
-
+                editorHeader(allowsTemplateSelection: mode.allowsTemplateSelection)
+                templateValidationStatus
+                sourceEditor
                 InsertFieldSearchBox(
                     searchText: $editorSearchText,
                     borderColor: separatorBorderColor
@@ -204,7 +203,192 @@ package struct TemplateEditorView: View {
             }
             .padding(20)
         }
-        .background(palette.background)
+    }
+
+    private var stackedEditorLayout: some View {
+        ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: 18) {
+                templateTree
+                    .frame(maxWidth: .infinity)
+                editorHeader(allowsTemplateSelection: false)
+                templateValidationStatus
+                sourceEditor
+                    .frame(maxWidth: .infinity)
+                InsertFieldSearchBox(
+                    searchText: $editorSearchText,
+                    borderColor: separatorBorderColor
+                )
+                TemplateEditorLivePreview(
+                    notetype: model.notetype,
+                    templateIndex: model.selectedTemplateIndex,
+                    loadSampleFields: {
+                        try await model.loadSampleFields(
+                            notetypeId: notetypeId,
+                            previewNoteId: previewNoteId
+                        )
+                    }
+                )
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 420)
+            }
+            .frame(maxWidth: 900)
+            .frame(maxWidth: .infinity)
+            .padding(20)
+        }
+    }
+
+    /// A regular-width editor gets the same mental model as a native Mac
+    /// document window: templates on the left, source in the middle, and a
+    /// live card surface on the right. It remains a single vertical page on
+    /// iPhone, where three columns would make the code unreadable.
+    private var wideEditorLayout: some View {
+        ScrollView(.vertical) {
+            HStack(alignment: .top, spacing: 16) {
+                templateTree
+                    .frame(width: 190)
+                VStack(alignment: .leading, spacing: 16) {
+                    editorHeader(allowsTemplateSelection: false)
+                    templateValidationStatus
+                    sourceEditor
+                        .frame(minWidth: 420)
+                    InsertFieldSearchBox(
+                        searchText: $editorSearchText,
+                        borderColor: separatorBorderColor
+                    )
+                }
+                .frame(minWidth: 440, idealWidth: 560, maxWidth: 680)
+                TemplateEditorLivePreview(
+                    notetype: model.notetype,
+                    templateIndex: model.selectedTemplateIndex,
+                    loadSampleFields: {
+                        try await model.loadSampleFields(
+                            notetypeId: notetypeId,
+                            previewNoteId: previewNoteId
+                        )
+                    }
+                )
+                .frame(minWidth: 300, idealWidth: 390, maxWidth: 520)
+                .frame(minHeight: 560)
+            }
+            .padding(20)
+        }
+    }
+
+    private var templateTree: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Templates")
+                .amgiFont(.captionBold)
+                .foregroundStyle(palette.textSecondary)
+                .padding(.horizontal, 4)
+
+            if model.notetype.templates.isEmpty {
+                Text("No templates")
+                    .amgiFont(.caption)
+                    .foregroundStyle(palette.textTertiary)
+                    .padding(.horizontal, 4)
+            } else {
+                ForEach(Array(model.notetype.templates.enumerated()), id: \.offset) { index, template in
+                    let isSelected = index == model.selectedTemplateIndex
+                    let row = HStack(spacing: 8) {
+                        Image(systemName: isSelected
+                            ? "largecircle.fill.circle"
+                            : "circle")
+                            .foregroundStyle(isSelected ? palette.accent : palette.textTertiary)
+                        Text(template.name)
+                            .amgiFont(.caption)
+                            .foregroundStyle(palette.textPrimary)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 9)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        isSelected ? palette.accentSoft : Color.clear,
+                        in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    )
+
+                    Group {
+                        if mode.allowsTemplateSelection {
+                            Button {
+                                model.selectedTemplateIndex = index
+                            } label: {
+                                row
+                            }
+                            .buttonStyle(.plain)
+                        } else {
+                            row
+                        }
+                    }
+                    .accessibilityLabel(template.name)
+                    .accessibilityValue(isSelected ? "Selected template" : "Template")
+                    .contextMenu {
+                        Button {
+                            destination = .preview
+                        } label: {
+                            Label("Preview", systemImage: "eye")
+                        }
+                    }
+                }
+                .accessibilityElement(children: .contain)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(10)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(palette.surfaceElevated, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(separatorBorderColor, lineWidth: 1)
+        }
+    }
+
+    private func editorHeader(allowsTemplateSelection: Bool) -> some View {
+        TemplateEditorHeaderCard(
+            currentTemplateName: currentTemplateName,
+            allowsTemplateSelection: allowsTemplateSelection,
+            templates: model.notetype.templates,
+            selectedTemplateIndex: $model.selectedTemplateIndex,
+            editorTab: $editorTab,
+            onPreviewTab: { previousTab in
+                destination = .preview
+                editorTab = previousTab
+            },
+            borderColor: separatorBorderColor
+        )
+    }
+
+    @ViewBuilder
+    private var templateValidationStatus: some View {
+        if let currentTemplateValidationMessage {
+            AmgiStatusMessageView(
+                title: "Template issue",
+                message: currentTemplateValidationMessage,
+                systemImage: "exclamationmark.triangle",
+                tone: .warning
+            )
+        }
+    }
+
+    private var sourceEditor: some View {
+        TemplateSourceEditor(
+            text: currentEditorBinding,
+            fieldNames: currentFieldNames,
+            insertableTokens: currentInsertableTokens,
+            fieldButtonTitle: "Fields",
+            doneButtonTitle: "Done",
+            searchQuery: editorSearchText,
+            fontSize: codeEditorFontSize,
+            fontFamilyRaw: codeEditorFontFamilyRaw
+        )
+        .padding(16)
+        .frame(minHeight: 420)
+        .background(palette.surfaceElevated, in: RoundedRectangle(cornerRadius: 30, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 30, style: .continuous)
+                .stroke(separatorBorderColor, lineWidth: 1)
+        }
     }
 
     private var previewSheet: some View {
@@ -324,6 +508,25 @@ struct TemplateEditorPresentations<FieldManager: View, Preview: View>: ViewModif
             }
             .sheet(isPresented: $destination.fieldManager) { fieldManager() }
             .sheet(isPresented: $destination.preview) { preview() }
+    }
+}
+
+enum TemplateEditorLayout: Equatable {
+    case compact
+    case stacked
+    case wide
+
+    static let minimumStackedWidth: CGFloat = 620
+    static let minimumWideWidth: CGFloat = 1_040
+
+    static func resolve(
+        availableWidth: CGFloat,
+        isAccessibilitySize: Bool
+    ) -> TemplateEditorLayout {
+        guard !isAccessibilitySize else { return .compact }
+        if availableWidth >= minimumWideWidth { return .wide }
+        if availableWidth >= minimumStackedWidth { return .stacked }
+        return .compact
     }
 }
 

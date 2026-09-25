@@ -38,7 +38,13 @@ public struct StudyDueRing: View {
         .frame(width: ringSize, height: ringSize)
         .animation(AmgiMotion.standard, value: summary)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilitySummary)
+        .accessibilityLabel("Study progress")
+        .accessibilityValue(accessibilitySummary)
+        .accessibilityRepresentation {
+            Image(systemName: "chart.circle.fill")
+                .accessibilityLabel("Study progress")
+                .accessibilityValue(accessibilitySummary)
+        }
     }
 
     // MARK: - Category rings
@@ -101,16 +107,20 @@ public struct StudyDueRing: View {
             Text(summary.phase == .caughtUp ? "TODAY" : "DUE NOW")
                 .amgiFont(.micro)
                 .foregroundStyle(palette.textSecondary)
+                .accessibilityHidden(true)
 
             Text("\(displayedDue)")
-                .font(.system(size: diameter >= 190 ? 44 : 34, weight: .bold, design: .rounded))
+                .font(.largeTitle)
+                .fontWeight(.bold)
                 .foregroundStyle(palette.textPrimary)
                 .contentTransition(.numericText())
+                .accessibilityHidden(true)
 
             Text("\(summary.todayProgressPercent)%")
                 .amgiFont(.micro)
                 .monospacedDigit()
                 .foregroundStyle(palette.textTertiary)
+                .accessibilityHidden(true)
             progressIndicator
         }
         .onAppear {
@@ -123,6 +133,7 @@ public struct StudyDueRing: View {
                 displayedDue = newValue
             }
         }
+        .accessibilityHidden(true)
     }
 
     private var progressIndicator: some View {

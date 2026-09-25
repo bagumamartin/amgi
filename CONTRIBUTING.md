@@ -31,7 +31,7 @@ git clone --recursive https://github.com/antigluten/anki-ios.git
 cd anki-ios
 
 # Rust targets for iOS + macOS
-rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios-simulator aarch64-apple-darwin x86_64-apple-darwin
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-darwin x86_64-apple-darwin
 
 # Build Rust XCFramework (iOS + macOS slices; BUILD_WATCHOS=1 adds watchOS)
 ./scripts/build-xcframework.sh

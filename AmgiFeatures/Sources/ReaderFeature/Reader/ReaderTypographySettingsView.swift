@@ -22,6 +22,8 @@ struct ReaderTypographySettingsView: View {
     private var themeRaw: String = ReaderTypographyPreferences.Theme.default.rawValue
     @Shared(.appStorage(ReaderTypographyPreferences.Keys.justify))
     private var justify: Bool = true
+    @Shared(.appStorage(ReaderTypographyPreferences.Keys.twoPageLayout))
+    private var twoPageLayout: Bool = false
 
     var body: some View {
         NavigationStack {
@@ -31,6 +33,7 @@ struct ReaderTypographySettingsView: View {
                 fontFamilySection
                 lineHeightSection
                 pageMarginSection
+                twoPageSection
                 justifySection
             }
             .navigationTitle("Reading Style")
@@ -130,6 +133,16 @@ struct ReaderTypographySettingsView: View {
         }
     }
 
+    private var twoPageSection: some View {
+        Section {
+            Toggle(isOn: twoPageBinding) {
+                Label("Two-Page Layout", systemImage: "rectangle.split.2x1")
+            }
+        } footer: {
+            Text("Uses two pages in wide landscape windows and automatically returns to one page in compact or portrait layouts.")
+        }
+    }
+
     private var justifySection: some View {
         Section {
             Toggle(isOn: justifyBinding) {
@@ -165,6 +178,13 @@ struct ReaderTypographySettingsView: View {
         Binding(
             get: { lineHeight },
             set: { value in $lineHeight.withLock { $0 = value } }
+        )
+    }
+
+    private var twoPageBinding: Binding<Bool> {
+        Binding(
+            get: { twoPageLayout },
+            set: { newValue in $twoPageLayout.withLock { $0 = newValue } }
         )
     }
 

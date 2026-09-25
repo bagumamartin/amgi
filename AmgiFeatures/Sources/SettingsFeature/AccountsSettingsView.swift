@@ -5,6 +5,7 @@ import AnkiSync
 import CasePaths
 import SwiftUINavigation
 import AmgiUI
+import AmgiAppShared
 
 /// Profile picker / manager. Each row is one `AmgiAccount`; the active
 /// row shows a checkmark, tapping any other switches immediately. Add
@@ -20,7 +21,9 @@ package struct AccountsSettingsView: View {
     }
 
     @State private var store = AccountStore.shared
+    @State private var iconStore = ProfileIconStore.shared
     @State private var destination: Destination?
+    @State private var iconEditorAccount: AmgiAccount?
 
     /// One axis for the add sheet and both delete alerts. The add sheet's
     /// name field and validation error only exist while it's up, so they
@@ -59,6 +62,11 @@ package struct AccountsSettingsView: View {
         .sheet(isPresented: Binding($destination.add)) {
             addProfileSheet
         }
+        .sheet(item: $iconEditorAccount) { account in
+            ProfileIconEditorSheet(account: account) {
+                iconEditorAccount = nil
+            }
+        }
         .alert(
             "Delete \(pendingDelete?.displayName ?? "")?",
             isPresented: Binding($destination.confirmDelete),
@@ -81,6 +89,9 @@ package struct AccountsSettingsView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(deleteError ?? "")
+        }
+        .task {
+            await iconStore.refresh()
         }
     }
 
@@ -174,11 +185,21 @@ package struct AccountsSettingsView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { destination = nil }
+                        .keyboardShortcut(.cancelAction)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Add") { attemptAdd() }
                         .disabled(newName.wrappedValue.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .keyboardShortcut(.defaultAction)
                 }
+            }
+            .onSubmit { attemptAdd() }
+            .onKeyPress { press in
+                if press.key == .escape {
+                    destination = nil
+                    return .handled
+                }
+                return .ignored
             }
         }
     }
@@ -188,36 +209,102 @@ package struct AccountsSettingsView: View {
 private extension AccountsSettingsView {
     @ViewBuilder
     func profileRow(_ account: AmgiAccount) -> some View {
-        Button {
-            guard account.id != store.selectedID else { return }
-            Task { await onSwitchProfile(account) }
-        } label: {
-            HStack(spacing: AmgiSpacing.md) {
-                ProfileMonogram(name: account.displayName)
-                VStack(alignment: .leading, spacing: AmgiSpacing.xxs) {
-                    Text(account.displayName)
-                        .amgiFont(.body)
-                        .foregroundStyle(palette.textPrimary)
-                    Text("Created \(account.createdAt.formatted(date: .abbreviated, time: .omitted))")
-                        .amgiFont(.caption)
-                        .foregroundStyle(palette.textSecondary)
+        let canDelete = account.id != store.selectedID && store.accounts.count > 1
+
+        HStack(spacing: AmgiSpacing.md) {
+            Button {
+                guard account.id != store.selectedID else { return }
+                Task { await onSwitchProfile(account) }
+            } label: {
+                HStack(spacing: AmgiSpacing.md) {
+                    ProfileMonogram(
+                        name: account.displayName,
+                        emoji: iconStore.icon(for: account.id)
+                    )
+                    VStack(alignment: .leading, spacing: AmgiSpacing.xxs) {
+                        Text(account.displayName)
+                            .amgiFont(.body)
+                            .foregroundStyle(palette.textPrimary)
+                        Text("Created \(account.createdAt.formatted(date: .abbreviated, time: .omitted))")
+                            .amgiFont(.caption)
+                            .foregroundStyle(palette.textSecondary)
+                    }
+                    Spacer(minLength: AmgiSpacing.sm)
+                    if account.id == store.selectedID {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(palette.accent)
+                    }
                 }
-                Spacer(minLength: AmgiSpacing.sm)
-                if account.id == store.selectedID {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(palette.accent)
-                }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel(account.displayName)
+            .accessibilityValue(account.id == store.selectedID ? "Current profile" : "Profile")
+            .accessibilityHint(account.id == store.selectedID ? "Current profile" : "Switches to this profile")
+
+            Menu {
+                Button {
+                    iconEditorAccount = account
+                } label: {
+                    Label("Edit Profile Icon", systemImage: "face.smiling")
+                }
+                Button(role: .destructive) {
+                    requestDelete(account)
+                } label: {
+                    Label("Delete Profile", systemImage: "trash")
+                }
+                .disabled(!canDelete)
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(palette.textSecondary)
+                    .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton)
+            .accessibilityLabel("Actions for \(account.displayName)")
+            .accessibilityHint("Edit the profile icon or delete this profile")
         }
+        .padding(.vertical, AmgiSpacing.xxs)
+        .contextMenu {
+            Button {
+                iconEditorAccount = account
+            } label: {
+                Label("Edit Profile Icon", systemImage: "face.smiling")
+            }
+            Button(role: .destructive) {
+                requestDelete(account)
+            } label: {
+                Label("Delete Profile", systemImage: "trash")
+            }
+            .disabled(!canDelete)
+        }
+        .accessibilityAction(named: "Edit profile icon") {
+            iconEditorAccount = account
+        }
+        .accessibilityAction(named: "Delete profile") {
+            requestDelete(account)
+        }
+        #if os(macOS)
+        .onDeleteCommand {
+            requestDelete(account)
+        }
+        #endif
         .swipeActions(edge: .trailing) {
             Button(role: .destructive) {
-                destination = .confirmDelete(account)
+                requestDelete(account)
             } label: {
                 Label("Delete", systemImage: "trash")
             }
-            .disabled(account.id == store.selectedID || store.accounts.count <= 1)
+            .disabled(!canDelete)
         }
+        .accessibilityElement(children: .contain)
+    }
+
+    func requestDelete(_ account: AmgiAccount) {
+        guard account.id != store.selectedID, store.accounts.count > 1 else { return }
+        destination = .confirmDelete(account)
     }
 
     func attemptAdd() {
@@ -255,25 +342,34 @@ private struct ProfileMonogram: View {
     @Environment(\.palette) private var palette
 
     let name: String
+    var emoji: String?
 
     private var initial: String {
         String(name.trimmingCharacters(in: .whitespaces).prefix(1)).uppercased()
     }
 
     var body: some View {
-        Text(initial)
-            .amgiFont(.caption)
-            .fontWeight(.semibold)
-            .foregroundStyle(.white)
-            .frame(width: 30, height: 30)
-            .background(
-                LinearGradient(
-                    colors: [palette.accent, palette.link],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ),
-                in: Circle()
-            )
+        Group {
+            if let emoji {
+                Text(emoji)
+                    .font(.system(size: 18))
+            } else {
+                Text(initial)
+                    .amgiFont(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.white)
+            }
+        }
+        .frame(width: 30, height: 30)
+        .background(
+            LinearGradient(
+                colors: [palette.accent, palette.link],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            ),
+            in: Circle()
+        )
+        .accessibilityHidden(true)
     }
 }
 

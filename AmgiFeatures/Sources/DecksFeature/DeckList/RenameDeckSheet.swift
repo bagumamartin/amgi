@@ -52,12 +52,15 @@ struct RenameDeckSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .keyboardShortcut(.cancelAction)
+                        .disabled(errorMessage != nil)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         Task { await rename() }
                     }
-                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || isSaving)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || isSaving || errorMessage != nil)
                 }
             }
             .alert(
@@ -69,6 +72,11 @@ struct RenameDeckSheet: View {
             } message: { message in
                 Text(message)
             }
+            #if os(macOS)
+            .onExitCommand {
+                if errorMessage == nil { dismiss() }
+            }
+            #endif
         }
     }
 

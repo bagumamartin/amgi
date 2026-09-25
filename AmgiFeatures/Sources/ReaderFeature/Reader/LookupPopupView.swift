@@ -46,6 +46,7 @@ package struct LookupPopupView: View {
         self.onDismiss = onDismiss
     }
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var model = LookupPopupModel()
 
     @State private var query: String = ""
@@ -183,6 +184,7 @@ package struct LookupPopupView: View {
     }
 
     private var detents: Set<PresentationDetent> {
+        guard horizontalSizeClass == .compact else { return [] }
         if popupFullWidth { return [.large] }
         let fraction = max(0.2, min(popupHeight / 100.0, 0.95))
         return [.fraction(fraction), .large]

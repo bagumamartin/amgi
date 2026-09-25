@@ -8,15 +8,30 @@ import AmgiTheme
 public struct StudyForecastCard: View {
     public let data: StudyForecastData
     public let onSelectDay: (Int) -> Void
+    let presentation: StudyDashboardPresentation
 
     @Environment(\.palette) private var palette
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     public init(
         data: StudyForecastData,
         onSelectDay: @escaping (Int) -> Void = { _ in }
     ) {
+        self.init(
+            data: data,
+            onSelectDay: onSelectDay,
+            presentation: .compact
+        )
+    }
+
+    init(
+        data: StudyForecastData,
+        onSelectDay: @escaping (Int) -> Void,
+        presentation: StudyDashboardPresentation
+    ) {
         self.data = data
         self.onSelectDay = onSelectDay
+        self.presentation = presentation
     }
 
     public var body: some View {
@@ -43,8 +58,8 @@ public struct StudyForecastCard: View {
                 }
                 metrics
                 Text("Forecast assumes no intervening reviews.")
-                    .amgiFont(.micro)
-                    .foregroundStyle(palette.textTertiary)
+                    .font(.footnote)
+                    .foregroundStyle(palette.textSecondary)
             }
         }
     }
@@ -53,11 +68,14 @@ public struct StudyForecastCard: View {
         HStack(alignment: .firstTextBaseline, spacing: AmgiSpacing.sm) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Plan ahead")
-                    .amgiFont(.cardTitle)
+                    .font(.title3)
+                    .fontWeight(.semibold)
                     .foregroundStyle(palette.textPrimary)
+                    .accessibilityHidden(true)
                 Text("Next 7 Anki days")
-                    .amgiFont(.caption)
+                    .font(.subheadline)
                     .foregroundStyle(palette.textSecondary)
+                    .accessibilityHidden(true)
             }
             Spacer(minLength: AmgiSpacing.sm)
             Image(systemName: "calendar.badge.clock")
@@ -75,10 +93,16 @@ public struct StudyForecastCard: View {
                     onSelectDay(day.offset)
                 } label: {
                     VStack(spacing: AmgiSpacing.xs) {
-                        Text(day.count > 0 ? "\(day.count)" : "")
-                            .amgiFont(.micro, .monospacedDigits)
-                            .foregroundStyle(palette.textSecondary)
-                            .frame(height: 16)
+                        if day.count > 0 {
+                            Text("\(day.count)")
+                                .font(barLabelFont)
+                                .monospacedDigit()
+                                .foregroundStyle(palette.textPrimary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        } else {
+                            Color.clear
+                                .frame(height: 16)
+                        }
                         RoundedRectangle(cornerRadius: 4, style: .continuous)
                             .fill(barColor(for: day))
                             .frame(height: barHeight(count: day.count, peak: peak))
@@ -91,11 +115,11 @@ public struct StudyForecastCard: View {
                                         .offset(y: -3)
                                 }
                             }
-                        Text(day.label)
-                            .amgiFont(.micro)
-                            .foregroundStyle(day.offset == 0 ? palette.textPrimary : palette.textTertiary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
+                        Text(compactBarLabel(day.label))
+                            .font(barLabelFont)
+                            .foregroundStyle(palette.textPrimary)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     .frame(maxWidth: .infinity)
                     .contentShape(Rectangle())
@@ -105,40 +129,121 @@ public struct StudyForecastCard: View {
                 .accessibilityHint(day.offset == 0 ? "Today" : "Open this day")
             }
         }
-        .frame(height: 126)
+        .frame(minHeight: forecastBarAreaHeight)
     }
 
     private var metrics: some View {
-        LazyVGrid(
-            columns: [GridItem(.flexible(), spacing: AmgiSpacing.md), GridItem(.flexible())],
-            alignment: .leading,
-            spacing: AmgiSpacing.md
-        ) {
-            metric("Tomorrow", value: "\(data.tomorrowDue)", color: palette.textPrimary)
-            metric("Daily load", value: "\(data.dailyLoad)", color: palette.textPrimary)
-            if data.hasBacklog {
-                metric(
-                    "Backlog",
-                    value: data.backlogCount > 0 ? "\(data.backlogCount)" : "—",
-                    color: palette.warning
-                )
+        VStack(spacing: AmgiSpacing.md) {
+            ForEach(Array(metricRows.enumerated()), id: \.offset) { _, row in
+                Canvas { context, size in
+                    let columnGap = AmgiSpacing.md
+                    let columnWidth = max(0, (size.width - columnGap) / 2)
+                    for (index, metric) in row.enumerated() {
+                        let rect = CGRect(
+                            x: CGFloat(index) * (columnWidth + columnGap),
+                            y: 0,
+                            width: columnWidth,
+                            height: size.height
+                        )
+                        let value = context.resolve(
+                            Text(metric.value)
+                                .font(.body)
+                                .fontWeight(.semibold)
+                                .monospacedDigit()
+                                .foregroundStyle(metric.color)
+                        )
+                        let title = context.resolve(
+                            Text(metric.title)
+                                .font(.caption)
+                                .foregroundStyle(palette.textSecondary)
+                        )
+                        let valueSize = value.measure(in: rect.size)
+                        let titleSize = title.measure(in: rect.size)
+                        let totalHeight = valueSize.height + 4 + titleSize.height
+                        let y = rect.midY - totalHeight / 2
+                        context.draw(value, at: CGPoint(x: rect.minX, y: y), anchor: .topLeading)
+                        context.draw(
+                            title,
+                            at: CGPoint(x: rect.minX, y: y + valueSize.height + 4),
+                            anchor: .topLeading
+                        )
+                    }
+                }
+                .frame(height: metricRowHeight)
             }
-            if let unstable = data.unstableDueCount, data.fsrsEnabled {
-                metric("Unstable now", value: "\(unstable)", color: palette.danger)
-            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Forecast metrics")
+        .accessibilityValue(metricsAccessibilityLabel)
+        .accessibilityRepresentation {
+            Image(systemName: "chart.bar.xaxis")
+                .accessibilityLabel("Forecast metrics")
+                .accessibilityValue(metricsAccessibilityLabel)
         }
     }
 
-    private func metric(_ title: String, value: String, color: Color) -> some View {
-        VStack(alignment: .leading, spacing: AmgiSpacing.xxs) {
-            Text(value)
-                .amgiFont(.bodyEmphasis, .monospacedDigits)
-                .foregroundStyle(color)
-            Text(title)
-                .amgiFont(.micro)
-                .foregroundStyle(palette.textTertiary)
+    private var metricRows: [[ForecastMetric]] {
+        var metrics = [
+            ForecastMetric(title: "Tomorrow", value: "\(data.tomorrowDue)", color: palette.textPrimary),
+            ForecastMetric(title: "Daily load", value: "\(data.dailyLoad)", color: palette.textPrimary),
+        ]
+        if data.hasBacklog {
+            metrics.append(
+                ForecastMetric(
+                    title: "Backlog",
+                    value: data.backlogCount > 0 ? "\(data.backlogCount)" : "—",
+                    color: palette.warning
+                )
+            )
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        if let unstable = data.unstableDueCount, data.fsrsEnabled {
+            metrics.append(ForecastMetric(title: "Unstable now", value: "\(unstable)", color: palette.danger))
+        }
+        return stride(from: 0, to: metrics.count, by: 2).map { start in
+            Array(metrics[start..<min(start + 2, metrics.count)])
+        }
+    }
+
+    private var metricRowHeight: CGFloat {
+        if dynamicTypeSize.isAccessibilitySize { return 68 }
+        return presentation == .compact ? 46 : 42
+    }
+
+    private var metricsAccessibilityLabel: String {
+        var parts = [
+            "Tomorrow: \(data.tomorrowDue)",
+            "Daily load: \(data.dailyLoad)",
+        ]
+        if data.hasBacklog {
+            parts.append("Backlog: \(data.backlogCount)")
+        }
+        if let unstable = data.unstableDueCount, data.fsrsEnabled {
+            parts.append("Unstable now: \(unstable)")
+        }
+        return parts.joined(separator: ", ")
+    }
+
+    private struct ForecastMetric {
+        let title: String
+        let value: String
+        let color: Color
+    }
+
+    private var barLabelFont: Font {
+        presentation == .compact || presentation == .medium ? .caption2 : .caption
+    }
+
+    private var forecastBarAreaHeight: CGFloat {
+        switch presentation {
+        case .compact: 126
+        case .medium: 132
+        case .regular: 138
+        case .wide: 152
+        }
+    }
+
+    private func compactBarLabel(_ label: String) -> String {
+        (presentation == .compact || presentation == .medium) && label == "Tomorrow" ? "Tmrw" : label
     }
 
     private func barColor(for day: StudyForecastDay) -> Color {
@@ -148,7 +253,8 @@ public struct StudyForecastCard: View {
 
     private func barHeight(count: Int, peak: Int) -> CGFloat {
         guard count > 0 else { return 4 }
-        return max(10, 76 * CGFloat(count) / CGFloat(peak))
+        let availableHeight = max(20, forecastBarAreaHeight - 48)
+        return max(10, availableHeight * CGFloat(count) / CGFloat(peak))
     }
 }
 

@@ -33,11 +33,21 @@ public struct LiveReviewSnapshot: Equatable, Sendable {
 public final class LiveReviewCounts {
     package private(set) var snapshot: LiveReviewSnapshot?
 
+    public init() {}
+
     public func publish(sessionID: UUID, baseline: DeckCounts, live: DeckCounts) {
         snapshot = LiveReviewSnapshot(sessionID: sessionID, baseline: baseline, live: live)
     }
 
     public func clear() {
+        snapshot = nil
+    }
+
+    /// Clears only the publication owned by `sessionID`. A stale review window
+    /// must not erase the live pulse of the session that currently owns the
+    /// scheduler lease.
+    public func clear(sessionID: UUID) {
+        guard snapshot?.sessionID == sessionID else { return }
         snapshot = nil
     }
 }

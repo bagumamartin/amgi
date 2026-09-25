@@ -44,7 +44,10 @@ func switchProfile(to account: AmgiAccount) async {
     @Dependency(\.collectionStore) var store
     @Dependency(\.syncCoordinator) var syncCoordinator
 
-    guard syncCoordinator.beginCollectionLifecycle() else { return }
+    guard syncCoordinator.beginCollectionLifecycle() else {
+        accountStore.switchFailure = "Ijuka is still finishing a review, import, or export. Try switching profiles again in a moment."
+        return
+    }
     await ReviewSessionActivity.shared.drain()
     defer { ReviewSessionActivity.shared.endDrain() }
     await syncCoordinator.cancelAndWait()
@@ -52,11 +55,13 @@ func switchProfile(to account: AmgiAccount) async {
     ReviewSessionContext.shared.clear()
     try? backend.closeCollection()
     accountStore.select(account)
+    store.resetForProfileSwitch(to: account.id)
     do {
         try openCollection(for: account.id, backend: backend)
     } catch {
         // Roll back rather than leave the app with no open collection.
         accountStore.select(previous)
+        store.resetForProfileSwitch(to: previous.id)
         do {
             try openCollection(for: previous.id, backend: backend)
         } catch let rollbackError {
@@ -66,7 +71,7 @@ func switchProfile(to account: AmgiAccount) async {
             Log.decks.error("Profile switch and rollback both failed: \(rollbackError)")
             accountStore.switchFailure = """
                 Couldn't open either profile's collection. Quit and reopen \
-                Amgi. If that doesn't help, reset the collection from \
+                Ijuka. If that doesn't help, reset the collection from \
                 Settings > Maintenance.
                 """
         }

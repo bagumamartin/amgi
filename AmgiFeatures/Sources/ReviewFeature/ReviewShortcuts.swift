@@ -7,6 +7,7 @@ import AnkiKit
 /// read the same persisted binding.
 package enum ReviewShortcutAction: String, CaseIterable, Identifiable, Sendable {
     case undo
+    case redo
     case editNote
     case lookup
     case replayAudio
@@ -22,6 +23,7 @@ package enum ReviewShortcutAction: String, CaseIterable, Identifiable, Sendable 
     package var title: String {
         switch self {
         case .undo: "Undo"
+        case .redo: "Redo"
         case .editNote: "Edit Note"
         case .lookup: "Look Up"
         case .replayAudio: "Replay Audio"
@@ -37,6 +39,7 @@ package enum ReviewShortcutAction: String, CaseIterable, Identifiable, Sendable 
     package var systemImage: String {
         switch self {
         case .undo: "arrow.uturn.backward"
+        case .redo: "arrow.uturn.forward"
         case .editNote: "pencil"
         case .lookup: "character.book.closed"
         case .replayAudio: "play.circle"
@@ -52,6 +55,7 @@ package enum ReviewShortcutAction: String, CaseIterable, Identifiable, Sendable 
     package var defaultShortcut: ReviewShortcut {
         switch self {
         case .undo: ReviewShortcut(key: "z", modifiers: .command)
+        case .redo: ReviewShortcut(key: "z", modifiers: [.command, .shift])
         case .editNote: ReviewShortcut(key: "e", modifiers: .command)
         case .lookup: ReviewShortcut(key: "l", modifiers: .command)
         case .replayAudio: ReviewShortcut(key: "r", modifiers: .command)
@@ -90,6 +94,22 @@ package struct ReviewShortcut: Equatable, Codable, Hashable, Sendable {
     }
 
     package var modifiers: EventModifiers { EventModifiers(rawValue: modifiersRaw) }
+
+    /// Canonical representation used by duplicate validation. Case, Caps Lock,
+    /// and the two representations of each arrow/space key collapse to the
+    /// same value, while only user-recordable modifiers participate.
+    package var validationSignature: String {
+        let normalizedModifiers = modifiers.intersection(Self.bindableModifiers).rawValue
+        let normalizedKey: String
+        if key == " " || key.isEmpty {
+            normalizedKey = "space"
+        } else if let storedArrow = Self.validationArrowKey(for: key) {
+            normalizedKey = storedArrow
+        } else {
+            normalizedKey = key.lowercased()
+        }
+        return "\(normalizedModifiers)|\(normalizedKey)"
+    }
 
     /// The key equivalent for `.keyboardShortcut`; falls back to a space so an
     /// empty (never-persisted) key can't crash `KeyEquivalent`.
@@ -139,6 +159,16 @@ package struct ReviewShortcut: Equatable, Codable, Hashable, Sendable {
         }
     }
 
+    private static func validationArrowKey(for stored: String) -> String? {
+        switch stored {
+        case "\u{F700}", "↑": return "arrow.up"
+        case "\u{F701}", "↓": return "arrow.down"
+        case "\u{F702}", "←": return "arrow.left"
+        case "\u{F703}", "→": return "arrow.right"
+        default: return nil
+        }
+    }
+
     /// Human-readable form for tooltips and the settings row, e.g. "⌘Z".
     package var displayString: String {
         var s = ""
@@ -170,6 +200,62 @@ extension SharedReaderKey where Self == AppStorageKey<[String: ReviewShortcut]>.
     }
 }
 
+/// A real collision between two bindings that can be active in the same
+/// review phase. Context-disjoint pairs (for example Reve on the question side
+/// and Repeat on the answer side) are intentionally not conflicts.
+package struct ReviewShortcutConflict: Identifiable, Equatable, Sendable {
+    package let first: ReviewShortcutAction
+    package let second: ReviewShortcutAction
+    package var id: String { [first.rawValue, second.rawValue].sorted().joined(separator: "|") }
+}
+
+extension ReviewShortcutAction {
+    package static func resolvedShortcut(
+        for action: ReviewShortcutAction,
+        in bindings: [String: ReviewShortcut]
+    ) -> ReviewShortcut {
+        bindings[action.rawValue] ?? action.defaultShortcut
+    }
+
+    /// Returns every ambiguous duplicate in a complete or partial binding map.
+    /// Settings can call this before committing a recorded shortcut; the review
+    /// surface can also use it for diagnostics without duplicating comparison
+    /// rules.
+    package static func duplicateConflicts(
+        in bindings: [String: ReviewShortcut]
+    ) -> [ReviewShortcutConflict] {
+        var result: [ReviewShortcutConflict] = []
+        let actions = allCases
+        for firstIndex in actions.indices {
+            for secondIndex in actions.index(after: firstIndex)..<actions.endIndex {
+                let first = actions[firstIndex]
+                let second = actions[secondIndex]
+                guard resolvedShortcut(for: first, in: bindings).validationSignature
+                        == resolvedShortcut(for: second, in: bindings).validationSignature,
+                      !first.canShareShortcutWith(second)
+                else { continue }
+                result.append(ReviewShortcutConflict(first: first, second: second))
+            }
+        }
+        return result
+    }
+
+    /// The first existing action that would conflict with `candidate` when it
+    /// is assigned to `action`. Passing the action being edited excludes its
+    /// old value.
+    package static func conflictingAction(
+        for candidate: ReviewShortcut,
+        action: ReviewShortcutAction,
+        in bindings: [String: ReviewShortcut]
+    ) -> ReviewShortcutAction? {
+        allCases.first { other in
+            guard other != action, !action.canShareShortcutWith(other) else { return false }
+            return candidate.validationSignature
+                == resolvedShortcut(for: other, in: bindings).validationSignature
+        }
+    }
+}
+
 /// Focused-value payload injected by the review window so the app's "Card"
 /// menu can drive the focused review session. Empty outside review, which
 /// disables the menu items.
@@ -188,10 +274,49 @@ extension SharedReaderKey where Self == AppStorageKey<[String: ReviewShortcut]>.
 @MainActor
 @Observable
 package final class ReviewActions {
+    package var isAvailable = false
+    package var canUndo = false
+    package var canRedo = false
     package var undo: @MainActor () -> Void = {}
+    package var redo: @MainActor () -> Void = {}
     package var editNote: @MainActor () -> Void = {}
     package var lookup: @MainActor () -> Void = {}
     package var replayAudio: @MainActor () -> Void = {}
+
+    package func activate(
+        canUndo: Bool,
+        canRedo: Bool,
+        undo: @escaping @MainActor () -> Void,
+        redo: @escaping @MainActor () -> Void,
+        editNote: @escaping @MainActor () -> Void,
+        lookup: @escaping @MainActor () -> Void,
+        replayAudio: @escaping @MainActor () -> Void
+    ) {
+        isAvailable = true
+        self.canUndo = canUndo
+        self.canRedo = canRedo
+        self.undo = undo
+        self.redo = redo
+        self.editNote = editNote
+        self.lookup = lookup
+        self.replayAudio = replayAudio
+    }
+
+    package func updateAvailability(canUndo: Bool, canRedo: Bool) {
+        self.canUndo = canUndo
+        self.canRedo = canRedo
+    }
+
+    package func deactivate() {
+        isAvailable = false
+        canUndo = false
+        canRedo = false
+        undo = {}
+        redo = {}
+        editNote = {}
+        lookup = {}
+        replayAudio = {}
+    }
 }
 
 /// Dispatches a hardware key press to a review action. Used instead of
@@ -265,5 +390,16 @@ private extension ReviewShortcutAction {
         default:
             true
         }
+    }
+
+    /// Two actions may share a physical chord only when their availability
+    /// sets are disjoint. This permits deliberate phase-specific defaults
+    /// (Space reveals, then Space repeats) while rejecting ambiguous pairs.
+    func canShareShortcutWith(_ other: ReviewShortcutAction) -> Bool {
+        let lhsQuestion = isAvailable(showAnswer: false)
+        let lhsAnswer = isAvailable(showAnswer: true)
+        let rhsQuestion = other.isAvailable(showAnswer: false)
+        let rhsAnswer = other.isAvailable(showAnswer: true)
+        return !((lhsQuestion && rhsQuestion) || (lhsAnswer && rhsAnswer))
     }
 }

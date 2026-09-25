@@ -22,6 +22,7 @@ import AmgiTheme
 /// is an explicit mode from the overflow Select item.
 struct BrowseListColumn: View {
     @Environment(\.palette) private var palette
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Bindable var model: BrowseModel
     @Binding var selectionState: BrowseSelectionState
     let onSwipeDelete: (NoteRecord) -> Void
@@ -29,6 +30,9 @@ struct BrowseListColumn: View {
     /// route. Nil on the split-view path, where `List(selection:)` already
     /// drives the inspector column.
     var onOpenDetail: (() -> Void)? = nil
+    /// Reveal a detail column after an explicit row action. On macOS this is
+    /// also used when the inspector was hidden by the user.
+    var onRequestDetails: (() -> Void)? = nil
 
     #if os(macOS)
     @State private var multiSelection: Set<Int64> = []
@@ -48,15 +52,58 @@ struct BrowseListColumn: View {
         .onChange(of: multiSelection) { _, new in applySelection(new) }
         .onChange(of: model.mode) { _, _ in
             multiSelection = []
+            selectionState.resetForResultChange()
+            model.loadViewPrefs()
+            model.persistViewPrefs()
+            Task { await model.activateConfiguredColumns() }
+        }
+        .onChange(of: model.sortOrder) { _, _ in
+            multiSelection = []
+            selectionState.resetForResultChange()
             model.persistViewPrefs()
         }
-        .onChange(of: model.sortOrder) { _, _ in model.persistViewPrefs() }
+        .onChange(of: model.searchIdentity) { _, _ in
+            multiSelection = []
+            selectionState.resetForResultChange()
+        }
+        .onChange(of: model.source) { _, _ in
+            multiSelection = []
+            selectionState.resetForResultChange()
+        }
+        .onChange(of: model.resultIdentity) { _, _ in
+            multiSelection = []
+        }
+        .onChange(of: selectionState) { old, new in
+            // Batch actions clear the view-owned state. Clear the native
+            // multi-selection too, otherwise the next List update can
+            // immediately republish the old rows. A one-row peek is kept
+            // because it intentionally leaves Select mode.
+            if old.isSelectMode && !new.isSelectMode {
+                multiSelection = []
+            } else if new.isEmpty && multiSelection.count > 1 {
+                multiSelection = []
+            }
+        }
         #else
         .onChange(of: model.mode) { _, _ in
-            selectionState.exitSelectMode()
+            selectionState.resetForResultChange()
+            model.loadViewPrefs()
+            model.persistViewPrefs()
+            Task { await model.activateConfiguredColumns() }
+        }
+        .onChange(of: model.sortOrder) { _, _ in
+            selectionState.resetForResultChange()
             model.persistViewPrefs()
         }
-        .onChange(of: model.sortOrder) { _, _ in model.persistViewPrefs() }
+        .onChange(of: model.searchIdentity) { _, _ in
+            selectionState.resetForResultChange()
+        }
+        .onChange(of: model.source) { _, _ in
+            selectionState.resetForResultChange()
+        }
+        .onChange(of: model.resultIdentity) { _, _ in
+            selectionState.resetForResultChange()
+        }
         #endif
     }
 
@@ -85,6 +132,27 @@ struct BrowseListColumn: View {
                     .foregroundStyle(palette.textSecondary)
                     .accessibilityLabel(selectionSummary)
             }
+
+            #if os(macOS)
+            Button {
+                if selectionState.isSelectMode {
+                    selectionState.exitSelectMode()
+                } else {
+                    selectionState.enterSelectMode()
+                }
+            } label: {
+                Label(
+                    selectionState.isSelectMode ? "Exit Edit Mode" : "Enter Edit Mode",
+                    systemImage: selectionState.isSelectMode ? "checkmark.circle.fill" : "checkmark.circle"
+                )
+                .labelStyle(.iconOnly)
+            }
+            .buttonStyle(.borderless)
+            .help(selectionState.isSelectMode ? "Done selecting" : "Select notes")
+            .accessibilityLabel(selectionState.isSelectMode ? "Exit edit mode" : "Enter edit mode")
+            .keyboardShortcut("e", modifiers: .command)
+            .disabled(model.ids.isEmpty)
+            #endif
 
             Menu {
                 Picker("Sort by", selection: $model.sortOrder) {
@@ -158,7 +226,9 @@ struct BrowseListColumn: View {
         // when nothing is selected) to that one row.
         switch model.mode {
         case .notes:
-            selectionState.selectedNoteIDs = ids.count > 1 ? Set(ids.map { NoteID($0) }) : []
+            selectionState.selectedNoteIDs = ids.count > 1 || selectionState.isSelectMode
+                ? Set(ids.map { NoteID($0) })
+                : []
             selectionState.selectedCardIDs = []
         case .cards:
             selectionState.selectedCardIDs = ids.count > 1 ? Set(ids.map { CardID($0) }) : Set(ids.map { CardID($0) })
@@ -166,12 +236,18 @@ struct BrowseListColumn: View {
             // Single-card peek must still arm card scope (sibling-card
             // toolbar hid before because it required >1 *note* id).
             if ids.count == 1, let only = ids.first {
-                Task { await focusRow(only) }
+                Task {
+                    await focusRow(only)
+                    onRequestDetails?()
+                }
                 return
             }
         }
         if ids.count == 1, let only = ids.first {
-            Task { await focusRow(only) }
+            Task {
+                await focusRow(only)
+                onRequestDetails?()
+            }
         }
     }
     #endif
@@ -190,6 +266,25 @@ struct BrowseListColumn: View {
         false
         #else
         selectionState.isSelectMode
+        #endif
+    }
+
+    /// Configured engine columns are most useful where there is room for
+    /// labels and values. Compact rows keep the touch-friendly two-line
+    /// presentation until the user opens a detail/full-width layout.
+    private var usesConfiguredColumns: Bool {
+        #if os(macOS)
+        true
+        #else
+        horizontalSizeClass == .regular
+        #endif
+    }
+
+    private var showsCardOverflowButton: Bool {
+        #if os(macOS)
+        true
+        #else
+        false
         #endif
     }
 
@@ -323,21 +418,59 @@ struct BrowseListColumn: View {
                 browseModel: model,
                 cardId: card?.id ?? CardID(idRaw),
                 noteId: card?.nid,
-                showsOverflowButton: false,
+                showsOverflowButton: showsCardOverflowButton,
                 onActivate: {
                     #if os(iOS)
                     activateRow(idRaw)
                     #endif
                 },
+                onOpenDetails: {
+                    Task {
+                        await focusRow(idRaw)
+                        onRequestDetails?()
+                    }
+                },
+                onToggleSelection: {
+                    let cardID = card?.id ?? CardID(idRaw)
+                    if selectionState.isSelectMode {
+                        selectionState.toggle(card: cardID)
+                        #if os(macOS)
+                        if selectionState.contains(card: cardID) {
+                            multiSelection.insert(idRaw)
+                        } else {
+                            multiSelection.remove(idRaw)
+                        }
+                        #endif
+                    } else {
+                        selectionState.enterSelectMode(preselectCard: cardID)
+                        #if os(macOS)
+                        multiSelection = [idRaw]
+                        #endif
+                    }
+                },
                 onSuccess: {
                     Task { await model.performSearch() }
                 }
             ) {
-                CardRowView(
-                    card: card,
-                    dueText: card.flatMap { model.dueLabel(for: $0) },
-                    noteTitle: card.flatMap { model.parentNoteTitle(for: $0) }
-                )
+                if usesConfiguredColumns {
+                    BrowserConfiguredRow(
+                        model: model,
+                        rowID: idRaw,
+                        columns: model.activeBrowserColumns
+                    ) {
+                        CardRowView(
+                            card: card,
+                            dueText: card.flatMap { model.dueLabel(for: $0) },
+                            noteTitle: card.flatMap { model.parentNoteTitle(for: $0) }
+                        )
+                    }
+                } else {
+                    CardRowView(
+                        card: card,
+                        dueText: card.flatMap { model.dueLabel(for: $0) },
+                        noteTitle: card.flatMap { model.parentNoteTitle(for: $0) }
+                    )
+                }
             }
             .onAppear { loadMore(index) }
         }
@@ -367,11 +500,44 @@ struct BrowseListColumn: View {
                     activateRow(note.id.rawValue)
                     #endif
                 },
+                onOpenDetails: {
+                    Task {
+                        await focusRow(note.id.rawValue)
+                        onRequestDetails?()
+                    }
+                },
+                onToggleSelection: {
+                    if selectionState.isSelectMode {
+                        selectionState.toggle(note.id)
+                        #if os(macOS)
+                        if selectionState.contains(note.id) {
+                            multiSelection.insert(note.id.rawValue)
+                        } else {
+                            multiSelection.remove(note.id.rawValue)
+                        }
+                        #endif
+                    } else {
+                        selectionState.enterSelectMode(preselect: note.id)
+                        #if os(macOS)
+                        multiSelection.insert(note.id.rawValue)
+                        #endif
+                    }
+                },
                 onSuccess: {
                     Task { await model.performSearch() }
                 }
             ) {
-                NoteRowView(note: note, notetypeName: model.notetypeNames[note.mid])
+                if usesConfiguredColumns {
+                    BrowserConfiguredRow(
+                        model: model,
+                        rowID: note.id.rawValue,
+                        columns: model.activeBrowserColumns
+                    ) {
+                        NoteRowView(note: note, notetypeName: model.notetypeNames[note.mid])
+                    }
+                } else {
+                    NoteRowView(note: note, notetypeName: model.notetypeNames[note.mid])
+                }
             }
             .onAppear { loadMore(index) }
             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -434,6 +600,8 @@ private struct BrowseActionRow<Content: View>: View {
     var noteId: NoteID? = nil
     var showsOverflowButton: Bool
     var onActivate: (() -> Void)? = nil
+    var onOpenDetails: (() -> Void)? = nil
+    var onToggleSelection: (() -> Void)? = nil
     var onSuccess: (() -> Void)? = nil
     @ViewBuilder var content: Content
 
@@ -449,13 +617,34 @@ private struct BrowseActionRow<Content: View>: View {
                 #if os(iOS)
                 .onTapGesture { onActivate?() }
                 #endif
-                .contextMenu {
-                    if let id = effectiveCardId {
-                        actionMenu(cardId: id)
-                    }
-                }
             if showsOverflowButton {
                 overflowButton
+            }
+        }
+        .contentShape(Rectangle())
+        #if os(macOS)
+        .accessibilityHint("Right-click for row actions")
+        #endif
+        .contextMenu {
+            if let onOpenDetails {
+                Button {
+                    onOpenDetails()
+                } label: {
+                    Label("Open Details", systemImage: "sidebar.trailing")
+                }
+            }
+            if let onToggleSelection {
+                Button {
+                    onToggleSelection()
+                } label: {
+                    Label("Toggle Batch Selection", systemImage: "checkmark.circle")
+                }
+            }
+            if onOpenDetails != nil || onToggleSelection != nil {
+                Divider()
+            }
+            if let id = effectiveCardId {
+                actionMenu(cardId: id)
             }
         }
         .cardActionPresentations(
@@ -501,11 +690,122 @@ private struct BrowseActionRow<Content: View>: View {
                     .amgiFont(.bodyEmphasis)
             }
             .accessibilityLabel("Card actions")
+            .help("Card and note actions")
         } else {
             Image(systemName: "ellipsis.circle")
                 .amgiFont(.bodyEmphasis)
                 .foregroundStyle(.tertiary)
+                .accessibilityLabel("Card actions unavailable")
         }
+    }
+}
+
+// MARK: - Configured browser columns
+
+/// Lazy engine-row bridge used by regular-width Browse columns. The old
+/// fallback rendered only a title and subtitle, even though the engine had
+/// already fetched the user's configured column set. This view keeps the
+/// compact fallback while the row RPC is in flight, then presents every
+/// active column with its real catalog label.
+private struct BrowserConfiguredRow<Content: View>: View {
+    let model: BrowseModel
+    let rowID: Int64
+    let columns: [BrowserColumnSpec]
+    @ViewBuilder let fallback: () -> Content
+
+    @State private var engineRow: BrowserRowData?
+    @State private var loadedRowID: Int64?
+
+    init(
+        model: BrowseModel,
+        rowID: Int64,
+        columns: [BrowserColumnSpec],
+        @ViewBuilder fallback: @escaping () -> Content
+    ) {
+        self.model = model
+        self.rowID = rowID
+        self.columns = columns
+        self.fallback = fallback
+    }
+
+    var body: some View {
+        Group {
+            if let engineRow, loadedRowID == rowID, !columns.isEmpty {
+                BrowserConfiguredCells(
+                    row: engineRow,
+                    columns: columns,
+                    mode: model.mode
+                )
+            } else {
+                fallback()
+            }
+        }
+        .task(id: "\(rowID)|\(columns.map(\.key).joined(separator: ","))") {
+            guard !columns.isEmpty else {
+                engineRow = nil
+                loadedRowID = nil
+                return
+            }
+            let loaded = await model.browserRow(for: rowID)
+            guard !Task.isCancelled else { return }
+            engineRow = loaded
+            loadedRowID = rowID
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct BrowserConfiguredCells: View {
+    let row: BrowserRowData
+    let columns: [BrowserColumnSpec]
+    let mode: BrowseModel.Mode
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(alignment: .top, spacing: 0) {
+                ForEach(Array(columns.enumerated()), id: \.offset) { index, column in
+                    let cell = index < row.cells.count ? row.cells[index] : nil
+                    VStack(alignment: horizontalAlignment(for: column), spacing: 3) {
+                        Text(label(for: column))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                        Text(cell?.text ?? "—")
+                            .font(cellFont)
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                            .truncationMode(cell?.elide == .middle ? .middle : .tail)
+                            .frame(maxWidth: .infinity, alignment: alignment(for: column))
+                    }
+                    .padding(.horizontal, 8)
+                    .frame(minWidth: 92, maxWidth: 220, alignment: alignment(for: column))
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityLabel(
+            columns.enumerated().map { index, column in
+                let value = index < row.cells.count ? row.cells[index].text : "—"
+                return "\(label(for: column)): \(value)"
+            }.joined(separator: ", ")
+        )
+    }
+
+    private var cellFont: Font {
+        guard let size = row.fontSize, size > 0 else { return .body }
+        return .system(size: min(max(CGFloat(size), 10), 32))
+    }
+
+    private func label(for column: BrowserColumnSpec) -> String {
+        mode == .notes ? column.notesLabel : column.cardsLabel
+    }
+
+    private func horizontalAlignment(for column: BrowserColumnSpec) -> HorizontalAlignment {
+        column.alignment == .center ? .center : .leading
+    }
+
+    private func alignment(for column: BrowserColumnSpec) -> Alignment {
+        Alignment(horizontal: horizontalAlignment(for: column), vertical: .top)
     }
 }
 

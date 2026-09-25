@@ -118,13 +118,15 @@ struct CardWebView: View {
             forMainFrameOnly: true
         ))
         #else
-        if onLookupRequested != nil {
-            config.userContentController.addUserScript(WKUserScript(
-                source: Self.tapLookupBootstrapJS,
-                injectionTime: .atDocumentEnd,
-                forMainFrameOnly: true
-            ))
-        }
+        // Prewarming creates a placeholder CardWebView before any session
+        // callback exists. Install unconditionally so an adopted macOS
+        // prewarm cannot miss lookup forever; the nil coordinator callback
+        // remains the final enablement gate.
+        config.userContentController.addUserScript(WKUserScript(
+            source: Self.tapLookupBootstrapJS,
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        ))
         #endif
 
         config.mediaTypesRequiringUserActionForPlayback = []
@@ -309,45 +311,35 @@ struct CardWebView: View {
         return str
     }()
 
-    /// Tap-to-lookup user script. Listens for click events at the
-    /// capture phase, skips when there's an active selection (so taps
-    /// that dismiss selection don't also fire a lookup), grabs ~32
-    /// chars of text from the caret point, and posts to the native
-    /// `amgiLookupText` handler with the phrase + tap coordinates +
-    /// surrounding sentence context. Mirrors the chapter reader's
-    /// gesture so reviewer + reader behave the same.
-    private static let tapLookupBootstrapJS = """
-    document.addEventListener('click', function(e) {
-      const sel = window.getSelection();
-      if (sel && sel.toString().length > 0) { return; }
-      const range = document.caretRangeFromPoint(e.clientX, e.clientY);
-      if (!range) { return; }
-      let phrase = '';
-      let node = range.startContainer;
-      let offset = range.startOffset;
-      while (node && phrase.length < 32) {
-        if (node.nodeType === Node.TEXT_NODE) {
-          const t = node.nodeValue || '';
-          phrase += t.substring(offset);
-          offset = 0;
-        }
-        if (node.firstChild) {
-          node = node.firstChild;
-        } else {
-          while (node && !node.nextSibling) { node = node.parentNode; }
-          node = node && node.nextSibling;
-        }
+    /// Shared by both platforms' bootstrap scripts. Keep this list at least as
+    /// strict as the bridge's own lookup helper: links, controls, media, and
+    /// template-declared interactive surfaces must retain their own click
+    /// behavior instead of being replaced by dictionary lookup.
+    static let interactiveTargetSelectorJS = "'a, button, input, textarea, select, option, video, audio, iframe, [role=\"button\"], [contenteditable]:not([contenteditable=\"false\"]), [data-amgi-interactive], [onclick], .replay-button, .replay-btn, .sound-btn, .soundLink, #image-occlusion-canvas'"
+
+    /// macOS click-to-lookup policy. Existing selections are left alone so
+    /// drag-selection + Command-C remains native; a plain click on question
+    /// text looks it up, while links, controls, media, ruby text, and the
+    /// answer side are never intercepted. The script is installed even during
+    /// callback-free prewarming and is gated by the bridge + coordinator.
+    static let tapLookupBootstrapJS = """
+    (function() {
+      function interactiveTarget(target) {
+        return target && target.closest(\(Self.interactiveTargetSelectorJS));
       }
-      phrase = phrase.replace(/\\s+/g, ' ').trim();
-      if (phrase.length > 0) {
-        window.webkit.messageHandlers.amgiLookupText.postMessage({
-          text: phrase,
-          sentence: '',
-          x: e.clientX,
-          y: e.clientY
-        });
-      }
-    }, true);
+
+      document.addEventListener('click', function(event) {
+        const selection = window.getSelection();
+        if (selection && selection.toString().length > 0) { return; }
+        if (amgiCardState().isAnswerSide || document.getElementById('typeans')) { return; }
+        const target = event.target instanceof Element ? event.target : null;
+        if (!target || interactiveTarget(target) || target.closest('rt, rp')) { return; }
+        if (typeof amgiCardLookupPayloadAt !== 'function') { return; }
+        const payload = amgiCardLookupPayloadAt(event.clientX, event.clientY, 16);
+        if (!payload || !window.webkit.messageHandlers.amgiLookupText) { return; }
+        window.webkit.messageHandlers.amgiLookupText.postMessage(payload);
+      }, true);
+    })();
     """
 
     /// Pairs a fully configured webview with `coordinator`, loads the frame
@@ -404,12 +396,7 @@ struct CardWebView: View {
           var lastTouchActionAt = 0;
 
           function interactiveTarget(target) {
-            return target && target.closest(
-              'a, button, input, textarea, select, option, video, audio, iframe,' +
-              ' [role="button"], [contenteditable="true"], [data-amgi-interactive],' +
-              ' [onclick], .replay-button, .replay-btn, .sound-btn, .soundLink,' +
-              ' #image-occlusion-canvas'
-            );
+            return target && target.closest(\(Self.interactiveTargetSelectorJS));
           }
 
           function selectedTextExists() {

@@ -32,6 +32,7 @@ struct ReviewContent: View {
 
     @Environment(\.palette) private var palette
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     /// Supplied by the app root — see `EnvironmentValues.lookupPopup`. Keeping
     /// the popup itself out of this target is what keeps it off the Cxx chain.
     @Environment(\.lookupPopup) private var lookupPopup
@@ -43,6 +44,7 @@ struct ReviewContent: View {
     @State private var cardActions = CardContextMenuModel()
     @State private var confirmDeleteNote = false
     @State private var showRenderModeSheet = false
+    @State private var showSessionInspector = false
 
     var body: some View {
         NavigationStack {
@@ -80,6 +82,8 @@ struct ReviewContent: View {
                     )
                 }
             }
+            .frame(maxWidth: ReviewLayoutMetrics.contentMaxWidth)
+            .frame(maxWidth: .infinity)
             // The review chrome (progress strip, card well, answer-button
             // region) sits on the same background as the navigation bar
             // above it. When auto-matching that's the card's own chrome
@@ -124,18 +128,27 @@ struct ReviewContent: View {
             }
             .onAppear {
                 #if os(macOS)
-                reviewActions.undo = { session.undo() }
-                reviewActions.editNote = {
-                    destination = session.currentNote.map(ReviewDestination.editNote)
-                }
-                reviewActions.lookup = { destination = .lookup("") }
-                reviewActions.replayAudio = {
-                    if session.isAudioPlaying {
-                        session.bumpStopAudioRequest()
-                    } else {
-                        session.bumpReplayRequest()
-                    }
-                }
+                activateReviewActions()
+                #endif
+            }
+            .onChange(of: session.canUndo) { _, _ in
+                #if os(macOS)
+                reviewActions.updateAvailability(canUndo: session.canUndo, canRedo: session.canRedo)
+                #endif
+            }
+            .onChange(of: session.canRedo) { _, _ in
+                #if os(macOS)
+                reviewActions.updateAvailability(canUndo: session.canUndo, canRedo: session.canRedo)
+                #endif
+            }
+            .onChange(of: horizontalSizeClass) { _, sizeClass in
+                #if os(iOS)
+                if sizeClass != .regular { showSessionInspector = false }
+                #endif
+            }
+            .onDisappear {
+                #if os(macOS)
+                reviewActions.deactivate()
                 #endif
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -190,6 +203,10 @@ struct ReviewContent: View {
                 }
             }
         }
+        .inspector(isPresented: $showSessionInspector) {
+            ReviewSessionInspector(session: session)
+                .inspectorColumnWidth(min: 220, ideal: 270, max: 320)
+        }
     }
 
     /// `ReviewCardArea` drives lookup from a tap on the card and knows nothing
@@ -203,6 +220,30 @@ struct ReviewContent: View {
             set: { destination = $0.map(ReviewDestination.lookup) }
         )
     }
+
+    // MARK: - Focused review commands
+
+    #if os(macOS)
+    private func activateReviewActions() {
+        reviewActions.activate(
+            canUndo: session.canUndo,
+            canRedo: session.canRedo,
+            undo: { session.undo() },
+            redo: { session.redo() },
+            editNote: {
+                destination = session.currentNote.map(ReviewDestination.editNote)
+            },
+            lookup: { destination = .lookup("") },
+            replayAudio: {
+                if session.isAudioPlaying {
+                    session.bumpStopAudioRequest()
+                } else {
+                    session.bumpReplayRequest()
+                }
+            }
+        )
+    }
+    #endif
 
     // MARK: - Progress
 
@@ -236,7 +277,7 @@ struct ReviewContent: View {
             }
         }
         #endif
-        // Undo · Edit share one glass capsule. The Menu is a separate
+        // Undo · Redo · Edit share one glass capsule. The Menu is a separate
         // toolbar item so iOS 26 cannot fold it into the system overflow
         // chevron (that was the nested-ellipsis: tap … to get another …).
         // Only visible when actively reviewing cards.
@@ -251,6 +292,14 @@ struct ReviewContent: View {
                 .accessibilityLabel(session.canUndo ? "Undo" : "Nothing to undo")
 
                 Button {
+                    session.redo()
+                } label: {
+                    Image(systemName: "arrow.uturn.forward")
+                }
+                .disabled(!session.canRedo)
+                .accessibilityLabel(session.canRedo ? "Redo" : "Nothing to redo")
+
+                Button {
                     destination = session.currentNote.map(ReviewDestination.editNote)
                 } label: {
                     Image(systemName: "pencil")
@@ -262,6 +311,24 @@ struct ReviewContent: View {
                 cardActionsMenu
             }
         }
+        if supportsSessionInspector {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showSessionInspector.toggle()
+                } label: {
+                    Image(systemName: "sidebar.trailing")
+                }
+                .accessibilityLabel(showSessionInspector ? "Hide Session Inspector" : "Show Session Inspector")
+            }
+        }
+    }
+
+    private var supportsSessionInspector: Bool {
+        #if os(macOS)
+        true
+        #else
+        horizontalSizeClass == .regular
+        #endif
     }
 
     /// Parent path in the large font, leaf deck below it in the small one.
@@ -361,7 +428,7 @@ struct ReviewContent: View {
     /// the overflow Menu's buttons are unmounted.
     private var iOSShortcutOverlay: some View {
         reviewKeyboardShortcuts
-            .frame(width: 0, height: 0)
+            .frame(width: 1, height: 1)
             .clipped()
             .accessibilityHidden(true)
     }
@@ -370,56 +437,66 @@ struct ReviewContent: View {
     /// Hidden buttons that register hardware-keyboard shortcuts on iOS/iPadOS.
     /// The on-screen actions live inside the overflow `Menu`, whose buttons are
     /// only materialized once the menu opens — so they never register their
-    /// `.keyboardShortcut` equivalents. These zero-size buttons mirror the
-    /// persisted bindings instead, giving Magic Keyboard / Bluetooth keyboard
-    /// users the same ⌘Z / ⌘E / ⌘L / ⌘R shortcuts as macOS.
+    /// `.keyboardShortcut` equivalents. One explicitly identified button per
+    /// action stays mounted for the screen lifetime, giving Magic Keyboard and
+    /// Bluetooth keyboard users a stable path (including ⌘⇧Z Redo).
     @ViewBuilder
     private var reviewKeyboardShortcuts: some View {
         ZStack {
-            Button("Undo") { session.undo() }
-                .keyboardShortcut(shortcut(.undo).keyEquivalent, modifiers: shortcut(.undo).modifiers)
-                .disabled(!session.canUndo)
-
-            Button("Edit Note") {
-                destination = session.currentNote.map(ReviewDestination.editNote)
-            }
-            .keyboardShortcut(shortcut(.editNote).keyEquivalent, modifiers: shortcut(.editNote).modifiers)
-            .disabled(session.currentNote == nil)
-
-            Button("Look Up") { destination = .lookup("") }
-                .keyboardShortcut(shortcut(.lookup).keyEquivalent, modifiers: shortcut(.lookup).modifiers)
-
-            Button("Replay Audio") {
-                if session.isAudioPlaying {
-                    session.bumpStopAudioRequest()
-                } else {
-                    session.bumpReplayRequest()
+            ForEach(ReviewShortcutAction.allCases) { action in
+                Button(action.title) {
+                    performReviewShortcut(action)
                 }
-            }
-            .keyboardShortcut(shortcut(.replayAudio).keyEquivalent, modifiers: shortcut(.replayAudio).modifiers)
-            .disabled(session.currentNote == nil)
-
-            // Ratings live on RatingBar too, but iPad doesn't deliver
-            // `.keyboardShortcut` for arrow keys to those buttons (focus
-            // navigation eats them). Registering here with the mapped
-            // `.upArrow` equivalents is the hardware-keyboard path.
-            ForEach(Rating.allCases, id: \.self) { rating in
-                let action = ReviewShortcutAction.ratingAction(for: rating)
-                Button(action.title) { session.answer(rating: rating) }
-                    .keyboardShortcut(shortcut(action).keyEquivalent, modifiers: shortcut(action).modifiers)
-                    .disabled(!session.showAnswer || session.isAdvancing)
+                .id("review-shortcut-registration-\(action.rawValue)")
+                .keyboardShortcut(
+                    shortcut(action).keyEquivalent,
+                    modifiers: shortcut(action).modifiers
+                )
+                .disabled(!shortcutActionEnabled(action))
             }
         }
+        // Zero-sized views can be discarded by layout in some toolbar/overlay
+        // passes. A one-point, fully clipped, non-interactive host remains in
+        // the hierarchy long enough for every key equivalent to register.
+        .frame(width: 1, height: 1)
+        .clipped()
+        .opacity(0.001)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
     private func shortcut(_ action: ReviewShortcutAction) -> ReviewShortcut {
-        reviewShortcuts[action.rawValue] ?? action.defaultShortcut
+        ReviewShortcutAction.resolvedShortcut(for: action, in: reviewShortcuts)
+    }
+
+    private func shortcutActionEnabled(_ action: ReviewShortcutAction) -> Bool {
+        guard !session.isAdvancing, !session.isFinished, !session.isWaitingForLearning else {
+            return false
+        }
+        switch action {
+        case .undo:
+            return session.canUndo
+        case .redo:
+            return session.canRedo
+        case .editNote:
+            return session.currentNote != nil
+        case .replayAudio:
+            return session.currentNote != nil
+        case .revealAnswer:
+            return session.currentCardId != nil && !session.showAnswer && !session.requiresTypedAnswerInput
+        case .repeatLastRating, .rateAgain, .rateHard, .rateGood, .rateEasy:
+            return session.showAnswer
+        case .lookup:
+            return true
+        }
     }
 
     private func performReviewShortcut(_ action: ReviewShortcutAction) {
         switch action {
         case .undo:
             session.undo()
+        case .redo:
+            session.redo()
         case .editNote:
             destination = session.currentNote.map(ReviewDestination.editNote)
         case .lookup:

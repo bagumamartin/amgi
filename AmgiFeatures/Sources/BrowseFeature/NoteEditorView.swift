@@ -1,4 +1,5 @@
 package import SwiftUI
+import AmgiAppShared
 import AmgiUI
 package import AnkiKit
 import AmgiTheme
@@ -16,6 +17,10 @@ package struct NoteEditorView: View {
     var onClose: (() -> Void)?
     /// When set, uses inspector chrome (Cancel/Save/Close) instead of sheet dismiss.
     var principalTitle: String?
+    /// Browse supplies this so the duplicate warning can reveal the matching
+    /// rows in the surrounding browser. Other hosts fall back to the shared
+    /// Browse launcher.
+    var onShowDuplicates: (([NoteID]) -> Void)?
     private let resumeDraft: Bool
 
     @State private var showSavedConfirmation = false
@@ -30,6 +35,7 @@ package struct NoteEditorView: View {
         principalTitle: String? = nil,
         onCancel: (() -> Void)? = nil,
         onClose: (() -> Void)? = nil,
+        onShowDuplicates: (([NoteID]) -> Void)? = nil,
         onSave: @escaping () -> Void
     ) {
         _model = State(initialValue: NoteEditorModel(note: note, deckID: deckID))
@@ -37,11 +43,15 @@ package struct NoteEditorView: View {
         self.principalTitle = principalTitle
         self.onCancel = onCancel
         self.onClose = onClose
+        self.onShowDuplicates = onShowDuplicates
         self.onSave = onSave
     }
 
     package var body: some View {
-        NoteEditorContent(model: model)
+        NoteEditorContent(
+            model: model,
+            onShowDuplicates: onShowDuplicates
+        )
             .navigationBarTitleDisplayMode(.inline)
             .modifier(NoteEditorTitle(title: principalTitle == nil ? "Edit Note" : nil))
             .toolbar { editorToolbar }
@@ -227,6 +237,9 @@ private struct NoteEditorTitle: ViewModifier {
 struct NoteEditorContent: View {
     @Environment(\.palette) private var palette
     @Bindable var model: NoteEditorModel
+    /// Optional host action for the duplicate warning. A nil callback uses
+    /// the shared Browse launcher so the affordance remains actionable.
+    var onShowDuplicates: (([NoteID]) -> Void)? = nil
     /// Manual overrides; otherwise the notetype's `collapsed` flag rules.
     @State private var manuallyExpanded: Set<Int> = []
     @State private var manuallyCollapsed: Set<Int> = []
@@ -244,11 +257,16 @@ struct NoteEditorContent: View {
                             .foregroundStyle(palette.textPrimary)
                         Spacer()
                         Button("Show Duplicates") {
-                            // Handled by the hosting Browse list via notification;
-                            // inline navigation stays out of the editor.
+                            if let onShowDuplicates {
+                                onShowDuplicates(model.duplicateNoteIDs)
+                            } else if let query = model.duplicateQuery {
+                                BrowseLauncher.shared.launch(query: query)
+                            }
                         }
                         .buttonStyle(.borderless)
-                        .disabled(true)
+                        .disabled(model.duplicateNoteIDs.isEmpty)
+                        .accessibilityLabel("Show duplicate notes")
+                        .accessibilityHint("Reveals the matching notes in Browse")
                     }
                 }
             }

@@ -23,7 +23,9 @@ final class MaintenanceModel {
     private(set) var isChecking = false
 
     func checkDatabase() async {
+        guard !isChecking else { return }
         isChecking = true
+        statusMessage = ""
         defer { isChecking = false }
         do {
             // A full-collection integrity check is one of the longest
@@ -50,6 +52,10 @@ final class MaintenanceModel {
     /// was gone but whose sync credentials still worked, and the next sync
     /// could push an empty collection up.
     func resetEverything() async {
+        guard !isChecking else {
+            statusMessage = "Wait for the database check to finish before resetting."
+            return
+        }
         let profileID = AccountStore.shared.current.id
         let profileDirectory = AccountStore.profileDirectory(for: profileID)
         let backend = self.backend

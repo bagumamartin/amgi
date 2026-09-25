@@ -147,6 +147,11 @@ public actor ModelAssetManager {
         guard let destination = groupContainerModelsRoot() else { return }
         let fm = FileManager.default
         let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let legacyGroupIDs = [
+            "group.com.bagumamartin.AmgiApp",
+            "39557WW39R.group.com.bagumamartin.AmgiApp",
+            "group.com.amgiapp",
+        ]
         let legacyRoots = [
             appSupport
                 .appendingPathComponent("AmgiIcons", isDirectory: true)
@@ -154,15 +159,31 @@ public actor ModelAssetManager {
             appSupport
                 .appendingPathComponent("AmgiEmbeddings", isDirectory: true)
                 .appendingPathComponent("models", isDirectory: true),
-        ]
+        ] + legacyGroupIDs.compactMap { groupID in
+            fm.containerURL(forSecurityApplicationGroupIdentifier: groupID)?
+                .appendingPathComponent("AmgiEmbeddings", isDirectory: true)
+                .appendingPathComponent("models", isDirectory: true)
+        }
         for legacyModels in legacyRoots {
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: legacyModels.path, isDirectory: &isDir), isDir.boolValue else { continue }
-            guard !fm.fileExists(atPath: destination.path) else { continue }
             try? fm.createDirectory(
                 at: destination.deletingLastPathComponent(), withIntermediateDirectories: true
             )
-            try? fm.moveItem(at: legacyModels, to: destination)
+            if !fm.fileExists(atPath: destination.path) {
+                try? fm.moveItem(at: legacyModels, to: destination)
+            } else {
+                let children = (try? fm.contentsOfDirectory(
+                    at: legacyModels,
+                    includingPropertiesForKeys: nil
+                )) ?? []
+                for child in children {
+                    let target = destination.appendingPathComponent(child.lastPathComponent)
+                    if !fm.fileExists(atPath: target.path) {
+                        try? fm.moveItem(at: child, to: target)
+                    }
+                }
+            }
             let legacyParent = legacyModels.deletingLastPathComponent()
             if (try? fm.contentsOfDirectory(at: legacyParent, includingPropertiesForKeys: nil))?.isEmpty == true {
                 try? fm.removeItem(at: legacyParent)

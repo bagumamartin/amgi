@@ -48,6 +48,44 @@ struct BrowseSelectionTests {
         #expect(!s.contains(NoteID(7)))
     }
 
+    @Test func resultIdentityChangeClearsSelectModeAndStaleIds() {
+        var s = BrowseSelectionState()
+        s.enterSelectMode(preselect: NoteID(1))
+        s.toggle(NoteID(2))
+        s.toggle(card: CardID(8))
+
+        s.resetForResultChange()
+
+        #expect(!s.isSelectMode)
+        #expect(s.isEmpty)
+        #expect(!s.showsBatchActions)
+    }
+
+    @Test func reconcileDropsOnlyIdsOutsideTheNewResultSet() {
+        var s = BrowseSelectionState()
+        s.enterSelectMode(preselect: NoteID(1))
+        s.toggle(NoteID(2))
+        s.toggle(card: CardID(8))
+
+        s.reconcile(
+            validNoteIDs: [NoteID(2), NoteID(3)],
+            validCardIDs: [CardID(9)]
+        )
+
+        #expect(s.selectedNoteIDs == [NoteID(2)])
+        #expect(s.selectedCardIDs.isEmpty)
+        #expect(s.isSelectMode)
+    }
+
+    @Test func reconcileCanLeaveAnIntentionalEmptySelection() {
+        var s = BrowseSelectionState()
+        s.enterSelectMode()
+        s.reconcile(validNoteIDs: [], validCardIDs: [])
+        #expect(s.isSelectMode)
+        #expect(s.isEmpty)
+        #expect(s.showsBatchActions)
+    }
+
     @Test func exitClearsEverything() {
         var s = BrowseSelectionState()
         s.enterSelectMode(preselect: NoteID(1))

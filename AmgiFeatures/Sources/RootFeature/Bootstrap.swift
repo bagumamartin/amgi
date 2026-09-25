@@ -27,7 +27,9 @@ public enum AmgiRoot {
 
     @MainActor
     private static func bootstrapBody() {
+        LegacyAmgiMigration.run()
         migratePreferences()
+        WidgetSnapshotStore.migrateLegacySnapshotsIfNeeded()
         // Deck tiles render Phosphor glyphs through this bridge; the watch
         // target never registers one and keeps letter tiles.
         DeckIconRendering.provider = { iconName in
@@ -100,6 +102,7 @@ public enum AmgiRoot {
         prepareDependencies {
             $0.ankiBackend = launchBackend
             $0.syncCoordinator = syncCoordinator
+            $0.collectionStore.resetForProfileSwitch(to: activeProfile.id)
             // CollectionStore is deliberately ignorant of SyncFeature. The
             // composition root injects this small activity rail instead, so
             // every confirmed local mutation gets one debounced widget

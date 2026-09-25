@@ -23,7 +23,6 @@ public struct AmgiHeroSummary<Decoration: View, Footer: View, Sidecar: View>: Vi
     @ViewBuilder public let sidecar: () -> Sidecar
 
     @Environment(\.palette) private var palette
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     public init(
         eyebrow: String?,
@@ -49,17 +48,9 @@ public struct AmgiHeroSummary<Decoration: View, Footer: View, Sidecar: View>: Vi
             shadow: palette.shadows.sm,
             cornerRadius: AmgiRadius.hero
         ) {
-            if horizontalSizeClass == .regular {
-                RegularHeroSplit {
-                    compactColumn
-                    sidecar()
-                }
-                .fixedSize(horizontal: false, vertical: true)
-            } else {
-                VStack(alignment: .leading, spacing: 12) {
-                    compactColumn
-                    sidecar()
-                }
+            AdaptiveHeroLayout {
+                compactColumn
+                sidecar()
             }
         }
     }
@@ -103,23 +94,48 @@ enum LibraryHeroMetrics {
     static let compactSparklineHeight: CGFloat = 64
 }
 
-/// Places the iPhone column at a fixed compact width and the sidecar
-/// in the remaining space. `sizeThatFits` reports the column's ideal
-/// height (ignoring a tall List proposal) so the card cannot stretch.
-private struct RegularHeroSplit: Layout {
-    var spacing: CGFloat = 20
+/// Places the Library hero side-by-side only when the card itself has
+/// enough room for both pieces. The old regular-width branch used a fixed
+/// 320-point column, which could clip the copy and squeeze the sparkline in
+/// an iPad split pane. This layout makes the decision from the actual card
+/// proposal and keeps the compact vertical composition below 420 points.
+private struct AdaptiveHeroLayout: Layout {
+    let spacing: CGFloat = 20
+    let minimumHorizontalWidth: CGFloat = 420
 
     func sizeThatFits(
         proposal: ProposedViewSize,
         subviews: Subviews,
         cache: inout ()
     ) -> CGSize {
-        let columnWidth = LibraryHeroMetrics.compactColumnWidth
-        let left = subviews[0].sizeThatFits(
+        let width = proposal.width ?? minimumHorizontalWidth
+        let views = Array(subviews)
+        guard views.count == 2 else {
+            return views[0].sizeThatFits(proposal)
+        }
+
+        if width < minimumHorizontalWidth {
+            let first = views[0].sizeThatFits(
+                ProposedViewSize(width: width, height: nil)
+            )
+            let second = views[1].sizeThatFits(
+                ProposedViewSize(width: width, height: nil)
+            )
+            return CGSize(width: width, height: first.height + spacing + second.height)
+        }
+
+        let columnWidth = min(
+            LibraryHeroMetrics.compactColumnWidth,
+            max(220, (width - spacing) * 0.58)
+        )
+        let sidecarWidth = max(100, width - columnWidth - spacing)
+        let first = views[0].sizeThatFits(
             ProposedViewSize(width: columnWidth, height: nil)
         )
-        let width = proposal.width ?? (columnWidth + spacing + 120)
-        return CGSize(width: width, height: left.height)
+        let second = views[1].sizeThatFits(
+            ProposedViewSize(width: sidecarWidth, height: nil)
+        )
+        return CGSize(width: width, height: max(first.height, second.height))
     }
 
     func placeSubviews(
@@ -128,18 +144,41 @@ private struct RegularHeroSplit: Layout {
         subviews: Subviews,
         cache: inout ()
     ) {
-        let columnWidth = LibraryHeroMetrics.compactColumnWidth
-        let height = bounds.height
-        subviews[0].place(
-            at: CGPoint(x: bounds.minX, y: bounds.minY),
-            proposal: ProposedViewSize(width: columnWidth, height: height)
+        let views = Array(subviews)
+        guard views.count == 2 else {
+            views[0].place(at: bounds.origin, proposal: proposal)
+            return
+        }
+
+        let width = bounds.width
+        if width < minimumHorizontalWidth {
+            let first = views[0].sizeThatFits(
+                ProposedViewSize(width: width, height: nil)
+            )
+            views[0].place(
+                at: CGPoint(x: bounds.minX, y: bounds.minY),
+                proposal: ProposedViewSize(width: width, height: first.height)
+            )
+            views[1].place(
+                at: CGPoint(x: bounds.minX, y: bounds.minY + first.height + spacing),
+                proposal: ProposedViewSize(width: width, height: bounds.height - first.height - spacing)
+            )
+            return
+        }
+
+        let columnWidth = min(
+            LibraryHeroMetrics.compactColumnWidth,
+            max(220, (width - spacing) * 0.58)
         )
-        guard subviews.count > 1 else { return }
         let sidecarX = bounds.minX + columnWidth + spacing
-        let sidecarWidth = max(0, bounds.maxX - sidecarX)
-        subviews[1].place(
+        let sidecarWidth = max(100, bounds.maxX - sidecarX)
+        views[0].place(
+            at: CGPoint(x: bounds.minX, y: bounds.minY),
+            proposal: ProposedViewSize(width: columnWidth, height: bounds.height)
+        )
+        views[1].place(
             at: CGPoint(x: sidecarX, y: bounds.minY),
-            proposal: ProposedViewSize(width: sidecarWidth, height: height)
+            proposal: ProposedViewSize(width: sidecarWidth, height: bounds.height)
         )
     }
 }

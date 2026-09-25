@@ -8,16 +8,15 @@ import SettingsFeature
 import Sharing
 import StatsFeature
 import SwiftUI
+import AmgiTheme
 import AmgiUI
 
-/// The app's top-level sections. Shared by the iOS tab bar / iPad adaptable
-/// sidebar and the macOS sidebar so menu commands (⌘1–5) stay in sync.
+/// The app's top-level sections. Shared by the iPhone tab bar, the regular
+/// iPad/Mac root split, and their menus so menu commands (⌘1–5) stay in sync.
 ///
-/// Browse fills the fifth slot. Settings lives in the sidebar footer
-/// (profile capsule + gear) on Mac and on iPad while the adaptable sidebar
-/// is showing. When that sidebar collapses to the top tab bar — and on
-/// iPhone — profile and Settings combine in the leading toolbar. macOS
-/// also exposes Settings from the menu bar.
+/// Browse fills the fifth slot. Settings lives in the sidebar footer on Mac
+/// and regular iPad; on compact iPhone, profile and Settings combine in the
+/// leading toolbar. macOS also exposes Settings from the menu bar.
 enum MainSection: String, CaseIterable, Identifiable {
     case library, read, study, stats, browse
 
@@ -50,12 +49,14 @@ enum MainSection: String, CaseIterable, Identifiable {
 /// each tab's whole subtree — scroll position, search text, selected deck,
 /// pushed navigation. Library and Study reload via `CollectionStore`.
 ///
-/// Platform idiom: iPhone keeps the bottom tab bar; iPad uses
-/// `.sidebarAdaptable` (Browse takes the window over at regular width so
-/// its three columns aren't nested in that sidebar); macOS uses a
-/// `NavigationSplitView` with the profile row at the bottom.
+/// Platform idiom: iPhone keeps the bottom tab bar. iPad regular width gets
+/// a real, persistent `NavigationSplitView` instead of an adaptable tab bar
+/// that turns into a dimmed overlay in portrait. Browse takes the window over
+/// at regular width so its three columns are never nested in the root split;
+/// macOS uses the same split shell with AppKit menus around it.
 struct MainTabView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.palette) private var palette
     let refreshID: UUID
     let showReaderTab: Bool
     let studyTodayRequest: Int
@@ -65,7 +66,7 @@ struct MainTabView: View {
     let onOpenAssistant: () -> Void
 
     /// Persisted so menu commands and the sidebar share one source of truth.
-    @Shared(.appStorage(NavigationPreferences.rootSection)) private var sectionRaw: String = MainSection.study.rawValue
+    @SceneStorage(NavigationPreferences.rootSection) private var sectionRaw: String = MainSection.study.rawValue
 
     /// Consume drill-in launch requests (deck detail "Browse", deep links)
     /// by switching sections; BrowseView clears after consuming.
@@ -77,6 +78,7 @@ struct MainTabView: View {
     /// Settings push from the sidebar footer. On macOS the footer opens the
     /// Settings window instead of writing this.
     @State private var accountDestination: AccountMenuDestination?
+    @State private var rootColumnVisibility: NavigationSplitViewVisibility = .all
 
     private var sections: [MainSection] {
         MainSection.allCases.filter { section in
@@ -86,7 +88,8 @@ struct MainTabView: View {
     }
 
     private var selection: MainSection {
-        MainSection(rawValue: sectionRaw) ?? .study
+        let requested = MainSection(rawValue: sectionRaw) ?? .study
+        return sections.contains(requested) ? requested : .study
     }
 
     /// Writes the `@Shared` raw value directly (nonmutating), so the binding
@@ -95,7 +98,7 @@ struct MainTabView: View {
         Binding(
             get: { selection },
             set: { newSection in
-                $sectionRaw.withLock { $0 = newSection.rawValue }
+                sectionRaw = newSection.rawValue
             }
         )
     }
@@ -111,6 +114,17 @@ struct MainTabView: View {
                 }
             }
         )
+    }
+
+    /// Regular iPad and macOS already have the root split shell. Their
+    /// Library and Read workspaces therefore render two-pane content inside
+    /// the detail column without creating a second navigation owner.
+    private var usesRootFeatureWorkspace: Bool {
+        #if os(macOS)
+        return true
+        #else
+        return horizontalSizeClass == .regular
+        #endif
     }
 
     /// Mac always; iPad Browse at regular width takes the window over.
@@ -130,7 +144,11 @@ struct MainTabView: View {
                 #if os(macOS)
                 splitRoot
                 #else
-                iosTabView
+                if horizontalSizeClass == .regular {
+                    splitRoot
+                } else {
+                    iosTabView
+                }
                 #endif
             }
         }
@@ -141,6 +159,11 @@ struct MainTabView: View {
         }
         .onChange(of: browseRequest.requestID) {
             selectionBinding.wrappedValue = .browse
+        }
+        .onChange(of: showReaderTab) { _, isEnabled in
+            if !isEnabled, selection == .read {
+                selectionBinding.wrappedValue = .study
+            }
         }
     }
 
@@ -162,11 +185,12 @@ struct MainTabView: View {
     /// wrapping `NavigationSplitView` in `NavigationStack` ate Library's
     /// deck-detail `navigationDestination`.
     private var splitRoot: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $rootColumnVisibility) {
             rootSidebar
         } detail: {
             sectionContent(selection, showsAccountMenu: false)
         }
+        .navigationSplitViewStyle(.balanced)
     }
 
     private var rootSidebar: some View {
@@ -177,6 +201,8 @@ struct MainTabView: View {
             }
         }
         .listStyle(.sidebar)
+        .tint(palette.link)
+        .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 340)
         .appSidebarWidth()
         .accountSidebarFooter(open: $accountDestination)
     }
@@ -198,16 +224,16 @@ struct MainTabView: View {
             Tab(MainSection.stats.title, systemImage: MainSection.stats.systemImage, value: MainSection.stats) {
                 tabContent(for: .stats)
             }
-            Tab(MainSection.browse.title, systemImage: MainSection.browse.systemImage, value: MainSection.browse) {
+            Tab(
+                MainSection.browse.title,
+                systemImage: MainSection.browse.systemImage,
+                value: MainSection.browse,
+                role: .search
+            ) {
                 tabContent(for: .browse)
             }
         }
-        .tabViewStyle(.sidebarAdaptable)
-        .defaultAdaptableTabBarPlacement(.sidebar)
-        .tabBarAlwaysVisibleIfAvailable()
-        .tabViewSidebarBottomBar {
-            AccountSidebarFooterHost(open: $accountDestination)
-        }
+        .tint(palette.link)
     }
     #endif
 
@@ -216,9 +242,12 @@ struct MainTabView: View {
         switch section {
         case .library:
             NavigationStack {
-                DeckListView(onOpenToday: {
-                    $sectionRaw.withLock { $0 = MainSection.study.rawValue }
-                })
+                DeckListView(
+                    onOpenToday: {
+                        sectionRaw = MainSection.study.rawValue
+                    },
+                    embeddedInRootWorkspace: usesRootFeatureWorkspace
+                )
                     .accountChrome(
                         showsMenu: showsAccountMenu,
                         destination: $accountDestination,
@@ -227,7 +256,10 @@ struct MainTabView: View {
             }
         case .read:
             NavigationStack {
-                ReaderLibraryView(refreshID: refreshID)
+                ReaderLibraryView(
+                    refreshID: refreshID,
+                    embeddedInRootWorkspace: usesRootFeatureWorkspace
+                )
                     .accountChrome(
                         showsMenu: showsAccountMenu,
                         destination: $accountDestination,
@@ -239,7 +271,7 @@ struct MainTabView: View {
                 StudyLandingView(
                     onSelectDeck: onSelectStudyDeck,
                     onOpenLibrary: {
-                        $sectionRaw.withLock { $0 = MainSection.library.rawValue }
+                        sectionRaw = MainSection.library.rawValue
                     },
                     showsContinueReading: showReaderTab,
                     onPullCooling: onPullCooling,
@@ -280,6 +312,7 @@ struct MainTabView: View {
         TabAccountChrome { showsMenu in
             sectionContent(section, showsAccountMenu: showsMenu)
         }
+        .accessibilityHidden(selection != section)
         #else
         sectionContent(section, showsAccountMenu: false)
         #endif

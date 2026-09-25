@@ -43,6 +43,31 @@ struct BrowseSelectionState: Equatable, Sendable {
         selectedCardIDs = []
     }
 
+    /// A new source, search, mode, or result set is a new selection domain.
+    /// Keeping ids here is especially dangerous on macOS: a native List can
+    /// retain a highlighted row while the engine has already returned a
+    /// different result set, and a later batch action would then target a
+    /// note that is no longer visible.  Treat a result identity change as a
+    /// hard boundary and leave Select mode as well.
+    mutating func resetForResultChange() {
+        exitSelectMode()
+    }
+
+    /// Drops ids that are no longer present while preserving an intentional
+    /// empty Select mode. This is useful after a refresh that does not change
+    /// the query, where callers still want the mode's Done affordance.
+    mutating func reconcile(
+        validNoteIDs: Set<NoteID>,
+        validCardIDs: Set<CardID>
+    ) {
+        selectedNoteIDs.formIntersection(validNoteIDs)
+        selectedCardIDs.formIntersection(validCardIDs)
+        if selectedNoteIDs.isEmpty && selectedCardIDs.isEmpty {
+            selectedNoteIDs = []
+            selectedCardIDs = []
+        }
+    }
+
     /// Mail's Deselect All: drop the ticks but stay in select mode.
     mutating func clearSelectionKeepingMode() {
         selectedNoteIDs = []

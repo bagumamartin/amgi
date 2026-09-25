@@ -1,4 +1,5 @@
 package import SwiftUI
+import Foundation
 import AmgiAppShared
 import AmgiUI
 package import AnkiKit
@@ -49,12 +50,16 @@ package struct BrowseView: View {
     @State private var renameSearchTo = ""
     #if os(iOS)
     @State private var preferredColumn: NavigationSplitViewColumn = .sidebar
-    @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     #endif
+    /// Shared by the iPad split and the macOS three-column layout. On macOS
+    /// `.doubleColumn` is the explicit Hide Details state; on iOS it remains
+    /// the normal adaptive navigation state.
+    @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     /// Settings from the sidebar footer when the source list is showing,
     /// or the combined list-column profile menu when that sidebar is hidden.
     @State private var accountDestination: AccountMenuDestination?
     @State private var batchScopeOverride: BatchScope?
+    @State private var showImportPicker = false
 
     private struct BatchScope {
         var notes: Set<NoteID>
@@ -85,6 +90,9 @@ package struct BrowseView: View {
         self.exit = exit
         #if os(iOS)
         _preferredColumn = State(initialValue: model.rootDeck != nil ? .content : .sidebar)
+        _columnVisibility = State(initialValue: .automatic)
+        #else
+        _columnVisibility = State(initialValue: .all)
         #endif
     }
 
@@ -96,10 +104,44 @@ package struct BrowseView: View {
             // stale result cannot land after the user has typed further or
             // switched tabs.
             .task(id: model.searchIdentity) {
+                // Clear before the debounce as well as after the engine
+                // publishes ids; otherwise a previous result can remain armed
+                // while the new query is still being typed.
+                selectionState.resetForResultChange()
+                model.clearFocus()
                 await model.performSearch(debounce: .milliseconds(250))
+            }
+            .onChange(of: model.searchIdentity) { _, _ in
+                selectionState.resetForResultChange()
+                model.clearFocus()
+                batchScopeOverride = nil
+                activeSheet = nil
+                showTagSheet = false
+                showDeleteConfirm = false
+            }
+            .onChange(of: model.source) { _, _ in
+                // Two different sidebar sources can compose to the same query
+                // string (for example a saved search and typed text), so the
+                // source itself is also a selection boundary.
+                selectionState.resetForResultChange()
+                model.clearFocus()
+                batchScopeOverride = nil
+                activeSheet = nil
+                showTagSheet = false
+                showDeleteConfirm = false
+            }
+            .onChange(of: model.resultIdentity) { _, _ in
+                // A refresh can return the same query with a different id
+                // set (mutations, imports, sync). Treat that as a new result
+                // domain too, not just a source/search text edit.
+                selectionState.resetForResultChange()
             }
             .task(id: store.generation) {
                 await model.refreshUndoStatus()
+            }
+            .onOpenURL { url in
+                guard url.isFileURL else { return }
+                _ = routeImportURLs([url])
             }
             #if os(iOS)
             // Select-mode batch actions live on the bottom bar. Hide the tab
@@ -143,29 +185,57 @@ package struct BrowseView: View {
 
     @ViewBuilder
     private var splitColumns: some View {
-        if usesColumnSearch {
-            splitView.navigationSplitViewStyle(.balanced)
-        } else {
-            #if os(iOS)
-            ZStack {
-                if accountDestination == nil {
-                    withBrowseSearch(splitView.navigationSplitViewStyle(.balanced))
-                } else {
-                    // Same three-column split as browse — swapping to a
-                    // two-column split treats `.doubleColumn` as "show the
-                    // sidebar" and forces it open.
-                    splitView.navigationSplitViewStyle(.balanced)
-                }
-                if accountDestination != nil, isBrowseSidebarHidden {
-                    NavigationStack {
-                        BrowseAccountDestination(destination: $accountDestination)
+        VStack(spacing: 0) {
+            browseWorkspaceHeader
+            if usesColumnSearch {
+                splitView.navigationSplitViewStyle(.balanced)
+            } else {
+                #if os(iOS)
+                ZStack {
+                    if accountDestination == nil {
+                        withBrowseSearch(splitView.navigationSplitViewStyle(.balanced))
+                    } else {
+                        // Same three-column split as browse — swapping to a
+                        // two-column split treats `.doubleColumn` as "show the
+                        // sidebar" and forces it open.
+                        splitView.navigationSplitViewStyle(.balanced)
                     }
-                    .amgiScreenCanvas()
+                    if accountDestination != nil, isBrowseSidebarHidden {
+                        NavigationStack {
+                            BrowseAccountDestination(destination: $accountDestination)
+                        }
+                        .amgiScreenCanvas()
+                    }
                 }
+                #else
+                withBrowseSearch(splitView.navigationSplitViewStyle(.balanced))
+                #endif
             }
-            #else
-            withBrowseSearch(splitView.navigationSplitViewStyle(.balanced))
-            #endif
+        }
+    }
+
+    @ViewBuilder
+    private var browseWorkspaceHeader: some View {
+        if let exit {
+            HStack(spacing: 12) {
+                Button(action: exit.action) {
+                    Label("Back to \(exit.title)", systemImage: exit.systemImage)
+                        .font(.body.weight(.semibold))
+                        .frame(minHeight: 44)
+                }
+                .buttonStyle(.bordered)
+                .accessibilityLabel("Back to \(exit.title)")
+                Spacer(minLength: 12)
+                Text("Browse")
+                    .font(.headline)
+                    .foregroundStyle(palette.textSecondary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 6)
+            .background(.bar)
+            .overlay(alignment: .bottom) {
+                Divider()
+            }
         }
     }
 
@@ -191,13 +261,18 @@ package struct BrowseView: View {
             }
         }
         #else
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebarPane
         } content: {
             listPane
         } detail: {
             detailPane
         }
+        #if os(macOS)
+        .navigationSplitViewStyle(.prominentDetail)
+        #else
+        .navigationSplitViewStyle(.balanced)
+        #endif
         #endif
     }
 
@@ -225,6 +300,7 @@ package struct BrowseView: View {
                         sourceName: "Browse",
                         itemCount: cardIDs.isEmpty ? noteIDs.count : cardIDs.count
                     )
+                    selectionState.resetForResultChange()
                     batchScopeOverride = nil
                     activeSheet = nil
                 } else {
@@ -238,6 +314,11 @@ package struct BrowseView: View {
             collectionGeneration: store.generation
         )
         .appSidebarWidth()
+        #if os(macOS)
+        // Keep the source rail usable while reserving a real minimum for the
+        // detail column in compact desktop windows.
+        .navigationSplitViewColumnWidth(min: 200, ideal: 260)
+        #endif
         .navigationTitle("Browse")
         #if os(iOS)
         .toolbarRole(usesColumnSearch ? .automatic : .editor)
@@ -266,9 +347,20 @@ package struct BrowseView: View {
                 #if os(iOS)
                 preferredColumn = .detail
                 #endif
+            },
+            onRequestDetails: {
+                #if os(iOS)
+                preferredColumn = .detail
+                #else
+                columnVisibility = .all
+                #endif
             }
         )
+        #if os(macOS)
+        .navigationSplitViewColumnWidth(min: 240, ideal: 340)
+        #else
         .navigationSplitViewColumnWidth(min: 300, ideal: 400)
+        #endif
         .navigationTitle(sourceTitle)
         .navigationBarTitleDisplayMode(.inline)
         #if os(iOS)
@@ -286,6 +378,17 @@ package struct BrowseView: View {
         .toolbar { listToolbarContent }
         .dropDestination(for: String.self) { items, _ in
             dropTags(items)
+        }
+        .dropDestination(for: URL.self) { urls, _ in
+            routeImportURLs(urls)
+        }
+        .fileImporter(
+            isPresented: $showImportPicker,
+            allowedContentTypes: AnkiImportFormat.supportedContentTypes
+        ) { result in
+            if case .success(let url) = result {
+                ImportRequestRouter.shared.request(url)
+            }
         }
         if usesColumnSearch {
             withBrowseSearch(pane)
@@ -331,12 +434,26 @@ package struct BrowseView: View {
                     deckID: model.activeDeck?.id,
                     onSaved: { Task { await model.performSearch() } },
                     onClose: {
-                        model.clearFocus()
                         #if os(iOS)
+                        model.clearFocus()
                         preferredColumn = .content
+                        #else
+                        // On macOS the third split column is a real,
+                        // user-resizable inspector. Hide it while retaining
+                        // the focused row so Show details can restore it.
+                        columnVisibility = .doubleColumn
                         #endif
                     },
-                    previewNav: previewNav
+                    previewNav: previewNav,
+                    onShowDuplicates: { ids in
+                        guard let query = BrowseSearchGrammar.noteIDs(ids), !query.isEmpty else { return }
+                        // Duplicate warnings are collection-wide. Do not leave
+                        // the current deck/tag source silently filtering the
+                        // reveal set down to one scope.
+                        model.source = .allDecks
+                        model.searchText = query
+                        activeSheet = nil
+                    }
                 )
                 .id(model.focusedNote?.id ?? NoteID(0))
             } else {
@@ -351,6 +468,9 @@ package struct BrowseView: View {
                 #endif
             }
         }
+        #if os(macOS)
+        .navigationSplitViewColumnWidth(min: 320, ideal: 500)
+        #endif
         .navigationBarTitleDisplayMode(.inline)
     }
 
@@ -371,6 +491,24 @@ package struct BrowseView: View {
 
     private var batchCards: Set<CardID> {
         batchScopeOverride?.cards ?? selectionState.selectedCardIDs
+    }
+
+    private var selectModeTitle: String {
+        #if os(macOS)
+        selectionState.isSelectMode ? "Exit Edit Mode" : "Enter Edit Mode"
+        #else
+        selectionState.isSelectMode ? "Done Selecting" : "Select"
+        #endif
+    }
+
+    private func routeImportURLs(_ urls: [URL]) -> Bool {
+        guard let url = urls.first(where: {
+            !$0.hasDirectoryPath && AnkiImportFormat(url: $0) != nil
+        }) else {
+            return false
+        }
+        ImportRequestRouter.shared.request(url)
+        return true
     }
 
     private func dropTags(_ items: [String]) -> Bool {
@@ -619,9 +757,7 @@ package struct BrowseView: View {
                 browseModel: model
             ) {
                 Task {
-                    if batchScopeOverride == nil {
-                        selectionState.exitSelectMode()
-                    }
+                    selectionState.resetForResultChange()
                     batchScopeOverride = nil
                     await model.performSearch()
                 }
@@ -651,16 +787,30 @@ package struct BrowseView: View {
         case .findDuplicates:
             FindDuplicatesView(
                 notetypeFields: notetypeFieldNames,
-                runExactScan: { field, text in
-                    await model.exactDuplicateGroups(field: field, searchText: text)
+                runExactScan: { field, text, noteIDs, cardIDs in
+                    await model.exactDuplicateGroups(
+                        field: field,
+                        searchText: text,
+                        scopeNoteIDs: noteIDs,
+                        scopeCardIDs: cardIDs
+                    )
                 },
-                runNearScan: {
-                    model.nearDuplicateGroupsInScope()
+                runNearScan: { noteIDs, cardIDs in
+                    await model.nearDuplicateGroups(
+                        scopeNoteIDs: noteIDs,
+                        scopeCardIDs: cardIDs
+                    )
                 },
+                scopeNoteIDs: batchNotes,
+                scopeCardIDs: batchCards,
                 openGroup: { ids in openDuplicateGroup(ids.map { NoteID($0) }) },
-                onTagDuplicates: { noteIDs in
-                    guard !noteIDs.isEmpty else { return }
-                    await model.tagDuplicateGroups([noteIDs], tag: "duplicate")
+                onTagDuplicates: { groups, noteIDs, cardIDs in
+                    await model.tagDuplicateGroups(
+                        groups,
+                        tag: "duplicate",
+                        scopeNoteIDs: noteIDs,
+                        scopeCardIDs: cardIDs
+                    )
                 }
             )
         case .findReplace:
@@ -796,7 +946,15 @@ package struct BrowseView: View {
         listDefaultTrailingItems
         #endif
         if selectionState.showsBatchActions {
-            selectionToolbar
+            #if os(iOS)
+            if horizontalSizeClass == .compact {
+                selectionBottomToolbar
+            } else {
+                selectionRegularToolbar
+            }
+            #else
+            selectionRegularToolbar
+            #endif
         }
     }
 
@@ -821,14 +979,30 @@ package struct BrowseView: View {
 
     @ToolbarContentBuilder
     private var listDefaultTrailingItems: some ToolbarContent {
+        #if os(macOS)
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
+                columnVisibility = .all
+            } label: {
+                Image(systemName: "sidebar.trailing")
+            }
+            .help("Show details")
+            .accessibilityLabel("Show details")
+            .disabled(columnVisibility == .all)
+        }
+        #endif
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
                 Button("Add Note") { showAddNote = true }
                 Button("Add Image Occlusion") { showAddImageOcclusion = true }
+                Divider()
+                Button("Import…", systemImage: "square.and.arrow.down") {
+                    showImportPicker = true
+                }
             } label: {
                 Image(systemName: "plus")
             }
-            .accessibilityLabel("Add")
+            .accessibilityLabel("Add or import")
         }
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
@@ -897,14 +1071,17 @@ package struct BrowseView: View {
     @ViewBuilder
     private var selectionSection: some View {
         Section("Selection") {
-            #if os(iOS)
             Button {
-                selectionState.enterSelectMode()
+                if selectionState.isSelectMode {
+                    selectionState.exitSelectMode()
+                } else {
+                    selectionState.enterSelectMode()
+                }
             } label: {
-                Label("Select", systemImage: "checkmark.circle")
+                Label(selectModeTitle, systemImage: selectionState.isSelectMode ? "checkmark.circle.fill" : "checkmark.circle")
             }
             .disabled(model.ids.isEmpty)
-            #endif
+            .keyboardShortcut("e", modifiers: .command)
             Button {
                 selectAllResults()
             } label: {
@@ -952,13 +1129,12 @@ package struct BrowseView: View {
         }
     }
 
-    /// Three primary batch actions, then a single overflow for the rest.
-    /// The overflow is a *separate* toolbar item so iOS 26 cannot fold it
-    /// into the system chevron (that nested-ellipsis is what made Restore
-    /// and Tags reappear inside More). A flexible spacer pins the cluster
-    /// to the leading edge and More to the trailing edge.
+    /// Compact iPhone/iPad-width selection mode keeps the familiar bottom
+    /// action bar. It is intentionally not used on a regular Mac/iPad split,
+    /// where a bottom bar consumes the detail pane's vertical space and
+    /// makes the window feel like a phone.
     @ToolbarContentBuilder
-    private var selectionToolbar: some ToolbarContent {
+    private var selectionBottomToolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .bottomBar) {
             Button {
                 suspendSelected()
@@ -980,6 +1156,34 @@ package struct BrowseView: View {
             ToolbarSpacer(.flexible, placement: .bottomBar)
         }
         ToolbarItem(placement: .bottomBar) {
+            batchOverflowMenu
+        }
+    }
+
+    /// Regular-width split layouts put batch commands in the window toolbar.
+    /// The three visible commands mirror the compact bar; everything else
+    /// remains in the overflow menu so a narrow desktop window never grows a
+    /// second phone-sized action shelf.
+    @ToolbarContentBuilder
+    private var selectionRegularToolbar: some ToolbarContent {
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            Button {
+                suspendSelected()
+            } label: {
+                Label("Suspend", systemImage: "pause.circle")
+            }
+            .disabled(selectionState.isEmpty)
+
+            flagMenu
+
+            Button {
+                showTagSheet = true
+            } label: {
+                Label("Tags", systemImage: "tag")
+            }
+            .disabled(selectionState.isEmpty)
+        }
+        ToolbarItem(placement: .topBarTrailing) {
             batchOverflowMenu
         }
     }
@@ -1119,9 +1323,9 @@ package struct BrowseView: View {
     private func consumeBatchScope() -> (Set<NoteID>, Set<CardID>) {
         let notes = batchNotes
         let cards = batchCards
-        if batchScopeOverride == nil {
-            selectionState.exitSelectMode()
-        }
+        // A sidebar mass action is a different scope from the list selection;
+        // clear the latter after capturing its explicit override as well.
+        selectionState.resetForResultChange()
         batchScopeOverride = nil
         return (notes, cards)
     }
@@ -1166,9 +1370,16 @@ package struct BrowseView: View {
     }
 
     private func deleteSelected() {
-        let ids = selectionState.selectedNoteIDs
+        let notes = selectionState.selectedNoteIDs
+        let cards = selectionState.selectedCardIDs
         selectionState.exitSelectMode()
-        Task { await model.deleteSelected(ids) }
+        Task {
+            let resolved = await model.resolveTargetNotes(
+                cardIDs: Array(cards),
+                noteIDs: Array(notes)
+            )
+            await model.deleteSelected(Set(resolved))
+        }
     }
 
     // MARK: - Selection commands (P2)

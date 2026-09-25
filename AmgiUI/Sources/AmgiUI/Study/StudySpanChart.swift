@@ -6,18 +6,34 @@ public struct StudySpanChart: View {
     let model: StudyChartModel
     let onSelectOffset: (Int) -> Void
     let onSelectMonth: (Int) -> Void
+    let presentation: StudyDashboardPresentation
 
     @Environment(\.palette) private var palette
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     public init(
         model: StudyChartModel,
         onSelectOffset: @escaping (Int) -> Void,
         onSelectMonth: @escaping (Int) -> Void = { _ in }
     ) {
+        self.init(
+            model: model,
+            onSelectOffset: onSelectOffset,
+            onSelectMonth: onSelectMonth,
+            presentation: .compact
+        )
+    }
+
+    init(
+        model: StudyChartModel,
+        onSelectOffset: @escaping (Int) -> Void,
+        onSelectMonth: @escaping (Int) -> Void,
+        presentation: StudyDashboardPresentation
+    ) {
         self.model = model
         self.onSelectOffset = onSelectOffset
         self.onSelectMonth = onSelectMonth
+        self.presentation = presentation
     }
 
     public var body: some View {
@@ -81,7 +97,7 @@ public struct StudySpanChart: View {
                     .accessibilityLabel(accessibility(column))
                 }
             }
-            .frame(height: 72, alignment: .bottom)
+            .frame(height: primaryBarAreaHeight, alignment: .bottom)
             HStack(spacing: 8) {
                 ForEach(columns) { column in
                     headerLabel(column.axis, emphasized: column.isSelected)
@@ -97,8 +113,18 @@ public struct StudySpanChart: View {
         return VStack(spacing: headerGap) {
             HStack(spacing: 1) {
                 ForEach(Array(columns.enumerated()), id: \.element.id) { index, column in
-                    headerLabel(index % 3 == 0 ? column.label : "", emphasized: false)
-                        .minimumScaleFactor(0.7)
+                    if index % 3 == 0 {
+                        Text(column.label)
+                            .font(.caption2)
+                            .foregroundStyle(palette.textSecondary)
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: axisHeight)
+                            .accessibilityHidden(true)
+                    } else {
+                        Color.clear
+                            .frame(height: axisHeight)
+                    }
                 }
             }
             HStack(alignment: .bottom, spacing: 1) {
@@ -110,52 +136,75 @@ public struct StudySpanChart: View {
                         .accessibilityLabel("\(column.label), \(column.value)")
                 }
             }
-            .frame(height: 72, alignment: .bottom)
+            .frame(height: primaryBarAreaHeight, alignment: .bottom)
             hourScale(axis, slots: columns.count)
         }
     }
 
-    /// The word is centered on its hour column, so the middle of "Morning"
-    /// lines up with 6, "Noon" with 12, "Evening" with 18, "Midnight" with 0.
+    /// Period labels are positioned by hour and clamped at the edges. This
+    /// keeps words such as "Morning" and "Midnight" legible instead of
+    /// clipping them inside a single 1/24-width chart slot.
     private func hourScale(_ marks: [StudyAxisLabel], slots: Int) -> some View {
-        let titled = Dictionary(uniqueKeysWithValues: marks.map { ($0.slot, $0.title) })
-        return HStack(spacing: 1) {
-            ForEach(0..<slots, id: \.self) { slot in
-                Color.clear
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 14)
-                    .overlay {
-                        if let title = titled[slot] {
-                            hourTick(title)
-                        }
-                    }
+        GeometryReader { proxy in
+            let horizontalInset = min(44, proxy.size.width / 4)
+            ZStack {
+                Rectangle()
+                    .fill(palette.separator.opacity(0.8))
+                    .frame(height: 0.5)
+                    .offset(y: 1)
+                ForEach(marks.sorted { $0.slot < $1.slot }) { mark in
+                    let rawX = CGFloat(mark.slot) / CGFloat(max(slots, 1)) * proxy.size.width
+                    let x = min(max(rawX, horizontalInset), proxy.size.width - horizontalInset)
+                    Text(mark.title)
+                        .font(.caption2)
+                        .foregroundStyle(palette.textSecondary)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .position(x: x, y: axisHeight / 2)
+                }
             }
         }
+        .frame(height: axisHeight)
+        .accessibilityHidden(true)
     }
 
     /// Same gap the month grid uses between its weekday letters and the days.
-    private var headerGap: CGFloat { 6 }
+    private var headerGap: CGFloat {
+        presentation == .compact || presentation == .medium ? 6 : 8
+    }
 
-    /// Matches the month chart's weekday row: micro type, flush to the top of the chart.
     private func headerLabel(_ text: String, emphasized: Bool) -> some View {
         Text(text)
-            .amgiFont(.micro)
-            .foregroundStyle(emphasized ? palette.textPrimary : palette.textTertiary)
+            .font(presentation == .compact || presentation == .medium ? .caption2 : .caption)
+            .foregroundStyle(emphasized ? palette.textPrimary : palette.textSecondary)
             .lineLimit(1)
             .frame(maxWidth: .infinity, alignment: .center)
     }
 
-    private func hourTick(_ label: String) -> some View {
-        Text(label)
-            .amgiFont(.micro)
-            .foregroundStyle(palette.textTertiary)
-            .lineLimit(1)
-            .fixedSize()
+    private var axisHeight: CGFloat {
+        dynamicTypeSize.isAccessibilitySize ? 28 : 18
+    }
+
+    private var primaryBarAreaHeight: CGFloat {
+        switch presentation {
+        case .compact: 72
+        case .medium: 88
+        case .regular: 88
+        case .wide: 112
+        }
+    }
+
+    private var monthCellHeight: CGFloat {
+        presentation == .compact ? 40 : (presentation == .medium ? 42 : 44)
+    }
+
+    private var yearDayHeight: CGFloat {
+        presentation == .compact ? 20 : (presentation == .medium ? 21 : 22)
     }
 
     private func barHeight(value: Int, peak: Int) -> CGFloat {
         if value <= 0 { return 2 }
-        return max(8, 72 * CGFloat(value) / CGFloat(peak))
+        return max(8, (primaryBarAreaHeight - 6) * CGFloat(value) / CGFloat(peak))
     }
 
     private func barFill(_ column: StudyChartColumn) -> Color {
@@ -188,7 +237,7 @@ public struct StudySpanChart: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel(monthAccessibility(cell))
                 } else {
-                    Color.clear.frame(height: 40)
+                    Color.clear.frame(height: monthCellHeight)
                 }
             }
         }
@@ -200,7 +249,7 @@ public struct StudySpanChart: View {
             .amgiFont(.caption)
             .foregroundStyle(cell.isFuture ? palette.textPrimary : (solid ? Color.white : palette.textPrimary))
             .frame(maxWidth: .infinity)
-            .frame(height: 40)
+            .frame(height: monthCellHeight)
             .background {
                 Circle()
                     .fill(heatFill(cell.value, peak: peak, future: cell.isFuture))
@@ -223,7 +272,7 @@ public struct StudySpanChart: View {
 
     private func yearWall(_ months: [StudyYearMonth]) -> some View {
         let peak = max(months.flatMap(\.cells).map(\.value).max() ?? 0, 1)
-        let columnCount = horizontalSizeClass == .regular ? 3 : 2
+        let columnCount = presentation == .wide ? 3 : 2
         let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: columnCount)
         return LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
             ForEach(months) { month in
@@ -255,7 +304,7 @@ public struct StudySpanChart: View {
                         .buttonStyle(.plain)
                         .accessibilityLabel(monthAccessibility(cell))
                     } else {
-                        Color.clear.frame(height: 20)
+                        Color.clear.frame(height: yearDayHeight)
                     }
                 }
             }
@@ -268,7 +317,7 @@ public struct StudySpanChart: View {
             .amgiFont(.micro)
             .foregroundStyle(yearNumberColor(cell, solid: solid))
             .frame(maxWidth: .infinity)
-            .frame(height: 20)
+            .frame(height: yearDayHeight)
             .background {
                 if cell.isToday {
                     Circle().fill(palette.accent).frame(width: 16, height: 16)

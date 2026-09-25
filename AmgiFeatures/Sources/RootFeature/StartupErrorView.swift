@@ -51,6 +51,7 @@ struct StartupErrorView: View {
         }
         .padding(AmgiSpacing.xl)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .amgiScreenCanvas()
         .themedRoot()
         .confirmationDialog(
             "Reset this profile's collection?",

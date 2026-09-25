@@ -241,8 +241,14 @@ private struct AmgiMaterialElevationModifier<S: InsettableShape>: ViewModifier {
     /// Both inputs collapse to a `Bool` here, so the elevation is switched by
     /// *value*. Nothing in this file selects between two view structures.
     private var isGlassBacked: Bool {
+        #if os(iOS)
         guard #available(iOS 26, *) else { return false }
         return !reduceTransparency
+        #else
+        // AppKit materials do not use `glassEffect`; they still need the
+        // elevation ring/shadow that iOS 26 draws itself.
+        return false
+        #endif
     }
 
     func body(content: Content) -> some View {

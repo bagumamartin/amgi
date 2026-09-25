@@ -12,6 +12,17 @@ public struct HeatmapDay: Identifiable, Equatable, Sendable {
     public var id: Int { offset }
     public var isFuture: Bool { offset > 0 }
 
+    /// Spoken review value for a day cell. The date is supplied by the view's
+    /// localized formatter; keeping the count grammar here makes VoiceOver
+    /// consistent for no reviews, one review, and multiple reviews.
+    public var reviewAccessibilityValue: String {
+        switch count {
+        case 0: "No reviews"
+        case 1: "1 review"
+        default: "\(count) reviews"
+        }
+    }
+
     public init(offset: Int, date: Date, count: Int) {
         self.offset = offset
         self.date = date

@@ -1,23 +1,24 @@
-<h1 align="center">Amgi</h1>
+<h1 align="center">Ijuka</h1>
 
 <p align="center">
   <em>암기 (amgi) — Korean for "memorization"</em>
 </p>
 
 <p align="center">
-  An open-source, offline-first Anki-compatible iOS flashcard client with sync server support.
+  An open-source, offline-first Anki-compatible flashcard client for iPhone, iPad, and Mac.
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Swift-6.2-F05138?logo=swift&logoColor=white" alt="Swift 6.2">
-  <img src="https://img.shields.io/badge/iOS-18%2B-000000?logo=apple&logoColor=white" alt="iOS 18+">
+  <img src="https://img.shields.io/badge/iOS-iPadOS-18%2B-000000?logo=apple&logoColor=white" alt="iOS and iPadOS 18+">
+  <img src="https://img.shields.io/badge/macOS-15%2B-000000?logo=apple&logoColor=white" alt="macOS 15+">
   <img src="https://img.shields.io/badge/Rust-FFI-DEA584?logo=rust&logoColor=white" alt="Rust FFI">
   <img src="https://img.shields.io/badge/License-AGPL--3.0-blue" alt="AGPL-3.0">
 </p>
 
 ---
 
-Amgi wraps the official [ankitects/anki](https://github.com/ankitects/anki) Rust backend via C FFI, giving you a native SwiftUI experience backed by the same battle-tested engine that powers Anki Desktop and AnkiDroid. Sync your decks with any compatible sync server (including self-hosted), study with FSRS scheduling, and keep your review history in perfect sync across all your devices.
+Ijuka wraps the official [ankitects/anki](https://github.com/ankitects/anki) Rust engine and provides a native Apple-platform experience on iPhone, iPad, and Mac. Compact layouts remain touch-first; regular-width and Mac layouts add split navigation, inspectors, keyboard commands, pointer workflows, native windows, and desktop file integration.
 
 ## Features
 
@@ -36,6 +37,7 @@ Amgi wraps the official [ankitects/anki](https://github.com/ankitects/anki) Rust
 - **Per-Deck Study Options** -- FSRS weights editor with optimizer + simulator, preset CRUD, Easy Days, bury rules, timer, auto-advance
 - **Apple Watch App** -- companion watchOS app with deck list, card review with audio playback, stats, and sync; the Anki engine runs on-device
 - **Safe Sync Merge** -- when local and server collections diverge, merge them (keeping cards from both sides) instead of being forced to overwrite one; destructive choices require explicit confirmation
+- **Adaptive Apple UI** -- touch-first iPhone tabs and sheets; split navigation and inspectors on iPad; Mac windows, menus, keyboard shortcuts, pointer tools, Finder integration, and AppKit editors
 - **Offline-First** -- everything works offline; sync when you have a connection
 - **Swift 6.2 Strict Concurrency** -- zero data races, fully actor-isolated, `Sendable` throughout
 
@@ -55,9 +57,9 @@ SwiftUI Views
     |
 AnkiBackend (Swift wrapper)
     |
-C FFI (4 functions)
+C FFI (typed RPC)
     |
-Rust static library (ankitects/anki)
+Rust dynamic framework (AnkiRustLib)
 ```
 
 Swift owns the UI. Rust owns everything else -- database, sync, FSRS scheduling, card templates, statistics.
@@ -68,7 +70,8 @@ For the full architecture walkthrough, see **[ARCHITECTURE.md](ARCHITECTURE.md)*
 
 | Tool | Version |
 |------|---------|
-| iOS | 18.0+ |
+| iOS / iPadOS | 18.0+ |
+| macOS | 15.0+ |
 | Xcode | 16.0+ |
 | Rust | 1.92+ (via rustup) |
 | protoc | 3.0+ |
@@ -89,7 +92,7 @@ cd amgi
 ```bash
 # Rust toolchain
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-darwin x86_64-apple-darwin
 
 # Protobuf compiler and Swift plugin
 brew install protobuf swift-protobuf
@@ -121,7 +124,7 @@ open AmgiApp/AmgiApp.xcodeproj
 
 ### 6. Build and Run
 
-Select an iOS Simulator or device, then build and run (Cmd+R).
+Select an iPhone/iPad Simulator or device, or the `AmgiAppMac` scheme, then build and run (Cmd+R).
 
 ## Tech Stack
 

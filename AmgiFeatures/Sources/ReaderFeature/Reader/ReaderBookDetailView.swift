@@ -11,20 +11,51 @@ private enum ReaderBookDetailColumn {
     static let maxWidth: CGFloat = 800
 }
 
+/// The chapter rail is a desktop composition, not a consequence of a
+/// regular size class. A narrow iPad detail pane keeps the chapter list in
+/// the document instead of reserving a fixed 220-point rail beside a tiny
+/// reader canvas.
+enum ReaderBookDetailLayout: Equatable {
+    case narrow
+    case wide
+
+    static let minimumWideWidth: CGFloat = 720
+
+    static func resolve(
+        availableWidth: CGFloat,
+        isAccessibilitySize: Bool
+    ) -> ReaderBookDetailLayout {
+        guard !isAccessibilitySize, availableWidth >= minimumWideWidth else {
+            return .narrow
+        }
+        return .wide
+    }
+}
+
 struct ReaderBookDetailView: View {
     let book: ReaderBook
     let progress: ReaderProgressCoordinator
 
     @State private var model = ReaderBookDetailModel()
     @State private var savedProgress: ReaderSavedProgress?
+    @State private var selectedChapterIndex: Int?
+
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        ReaderBookDetailContent(
-            book: book,
-            savedProgress: savedProgress,
-            state: model.state,
-            progress: progress
-        )
+        GeometryReader { proxy in
+            let layout = ReaderBookDetailLayout.resolve(
+                availableWidth: proxy.size.width,
+                isAccessibilitySize: dynamicTypeSize.isAccessibilitySize
+            )
+            Group {
+                if layout == .wide {
+                    wideLayout
+                } else {
+                    bookSummary
+                }
+            }
+        }
         .navigationTitle(book.title)
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -37,6 +68,159 @@ struct ReaderBookDetailView: View {
             Task { await model.load(book: book) }
         }
     }
+
+    private var bookSummary: some View {
+        ReaderBookDetailContent(
+            book: book,
+            savedProgress: savedProgress,
+            state: model.state,
+            progress: progress,
+            onSelectChapter: nil
+        )
+    }
+
+    private var wideLayout: some View {
+        HStack(spacing: 0) {
+            ReaderChapterSidebar(
+                book: book,
+                selection: $selectedChapterIndex,
+                savedProgress: savedProgress,
+                pageRanges: pageRanges,
+                cardsByChapter: cardsByChapter
+            )
+            .frame(minWidth: 220, idealWidth: 260, maxWidth: 300)
+
+            Divider()
+
+            Group {
+                if let selectedChapterIndex,
+                   book.chapters.indices.contains(selectedChapterIndex) {
+                    chapterDestination(at: selectedChapterIndex)
+                } else {
+                    ReaderBookDetailContent(
+                        book: book,
+                        savedProgress: savedProgress,
+                        state: model.state,
+                        progress: progress,
+                        onSelectChapter: nil
+                    )
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private var pageRanges: [Int64: ClosedRange<Int>] {
+        if case .loaded(_, _, let ranges) = model.state { return ranges }
+        return [:]
+    }
+
+    private var cardsByChapter: [Int64: Int] {
+        if case .loaded(_, let counts, _) = model.state { return counts }
+        return [:]
+    }
+
+    @ViewBuilder
+    private func chapterDestination(at index: Int) -> some View {
+        if case .epub = book.source {
+            EPUBChapterReaderView(
+                book: book,
+                chapterIndex: index,
+                progressCoordinator: progress,
+                onClose: { selectedChapterIndex = nil }
+            )
+        } else if book.chapters.indices.contains(index) {
+            ChapterReaderView(
+                book: book,
+                chapter: book.chapters[index],
+                progress: progress,
+                chapterIndex: index,
+                onNavigateToChapter: { selectedChapterIndex = $0 }
+            )
+        }
+    }
+}
+
+/// Persistent chapter rail used inside the regular-width book detail. It
+/// remains mounted while a chapter reader is visible, so switching chapters
+/// never pushes another opaque reader on top of the previous one.
+private struct ReaderChapterSidebar: View {
+    let book: ReaderBook
+    @Binding var selection: Int?
+    let savedProgress: ReaderSavedProgress?
+    let pageRanges: [Int64: ClosedRange<Int>]
+    let cardsByChapter: [Int64: Int]
+
+    @Environment(\.palette) private var palette
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("CHAPTERS")
+                    .amgiFont(.captionBold)
+                    .foregroundStyle(palette.textSecondary)
+                Spacer()
+                if selection != nil {
+                    Button {
+                        selection = nil
+                    } label: {
+                        Image(systemName: "book.closed")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Show book details")
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+
+            Divider()
+
+            if book.chapters.isEmpty {
+                ContentUnavailableView(
+                    "No Chapters",
+                    systemImage: "text.book.closed",
+                    description: Text("This book does not contain readable chapters.")
+                )
+            } else {
+                List(selection: $selection) {
+                    ForEach(Array(book.chapters.enumerated()), id: \.element.id) { index, chapter in
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(chapter.title)
+                                .amgiFont(selection == index ? .bodyEmphasis : .body)
+                                .lineLimit(2)
+                            if let subline = subline(for: chapter) {
+                                Text(subline)
+                                    .amgiFont(.caption)
+                                    .foregroundStyle(palette.textSecondary)
+                            }
+                            if savedProgress?.chapterID == chapter.id {
+                                ProgressView(value: savedProgress?.progress ?? 0)
+                                    .progressViewStyle(.linear)
+                                    .tint(palette.accent)
+                            }
+                        }
+                        .padding(.vertical, 3)
+                        .tag(index)
+                    }
+                }
+                .listStyle(.sidebar)
+            }
+        }
+        .background(palette.surface)
+    }
+
+    private func subline(for chapter: ReaderChapter) -> String? {
+        var parts: [String] = []
+        if let range = pageRanges[chapter.id] {
+            parts.append(range.lowerBound == range.upperBound
+                ? "\(range.lowerBound)"
+                : "\(range.lowerBound)–\(range.upperBound)")
+        }
+        if let cards = cardsByChapter[chapter.id], cards > 0 {
+            parts.append("\(cards) card\(cards == 1 ? "" : "s")")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
 }
 
 private struct ReaderBookDetailContent: View {
@@ -44,6 +228,7 @@ private struct ReaderBookDetailContent: View {
     let savedProgress: ReaderSavedProgress?
     let state: ReaderBookDetailModel.ViewState
     let progress: ReaderProgressCoordinator
+    let onSelectChapter: ((Int) -> Void)?
 
     private var coverURL: URL? {
         if case .loaded(let url, _, _) = state { return url }
@@ -93,7 +278,8 @@ private struct ReaderBookDetailContent: View {
                 ContinueBlock(
                     percent: overallProgressPercent,
                     resumeIndex: resumeChapterIndex,
-                    destination: destinationForChapter(at:)
+                    destination: destinationForChapter(at:),
+                    onSelect: onSelectChapter
                 )
                 ChaptersSection(
                     book: book,
@@ -101,7 +287,8 @@ private struct ReaderBookDetailContent: View {
                     cardsByChapter: cardsByChapter,
                     currentIndex: currentChapterIndex,
                     isChapterComplete: isChapterComplete(at:),
-                    destination: destinationForChapter(at:)
+                    destination: destinationForChapter(at:),
+                    onSelect: onSelectChapter
                 )
             }
             .frame(maxWidth: ReaderBookDetailColumn.maxWidth)
@@ -230,20 +417,18 @@ private struct ContinueBlock<Destination: View>: View {
     let percent: Int
     let resumeIndex: Int
     @ViewBuilder var destination: (Int) -> Destination
+    let onSelect: ((Int) -> Void)?
 
     @Environment(\.palette) private var palette
 
     var body: some View {
         VStack(spacing: 8) {
-            NavigationLink {
-                destination(resumeIndex)
-            } label: {
-                Text("Continue · \(percent)%")
-                    .amgiFont(.cardTitle)
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(palette.accent, in: RoundedRectangle(cornerRadius: AmgiRadius.inset))
+            Group {
+                if let onSelect {
+                    Button { onSelect(resumeIndex) } label: { label }
+                } else {
+                    NavigationLink { destination(resumeIndex) } label: { label }
+                }
             }
             .buttonStyle(.pressScale)
 
@@ -251,6 +436,15 @@ private struct ContinueBlock<Destination: View>: View {
                 .progressViewStyle(.linear)
                 .tint(palette.accent)
         }
+    }
+
+    private var label: some View {
+        Text("Continue · \(percent)%")
+            .amgiFont(.cardTitle)
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+            .background(palette.accent, in: RoundedRectangle(cornerRadius: AmgiRadius.inset))
     }
 }
 
@@ -263,6 +457,7 @@ private struct ChaptersSection<Destination: View>: View {
     let currentIndex: Int?
     let isChapterComplete: (Int) -> Bool
     @ViewBuilder var destination: (Int) -> Destination
+    let onSelect: ((Int) -> Void)?
 
     @Environment(\.palette) private var palette
 
@@ -274,17 +469,16 @@ private struct ChaptersSection<Destination: View>: View {
                 .padding(.top, 8)
             VStack(spacing: 0) {
                 ForEach(Array(book.chapters.enumerated()), id: \.element.id) { index, chapter in
-                    NavigationLink {
-                        destination(index)
-                    } label: {
-                        ChapterRow(
-                            index: index,
-                            chapter: chapter,
-                            pageRange: pageRanges[chapter.id],
-                            cardsAdded: cardsByChapter[chapter.id] ?? 0,
-                            isComplete: isChapterComplete(index),
-                            isCurrent: currentIndex == index
-                        )
+                    Group {
+                        if let onSelect {
+                            Button { onSelect(index) } label: {
+                                row(index: index, chapter: chapter)
+                            }
+                        } else {
+                            NavigationLink { destination(index) } label: {
+                                row(index: index, chapter: chapter)
+                            }
+                        }
                     }
                     .buttonStyle(.pressScale)
                     if index < book.chapters.count - 1 {
@@ -294,6 +488,17 @@ private struct ChaptersSection<Destination: View>: View {
             }
             .background(palette.surface, in: RoundedRectangle(cornerRadius: AmgiRadius.inset))
         }
+    }
+
+    private func row(index: Int, chapter: ReaderChapter) -> some View {
+        ChapterRow(
+            index: index,
+            chapter: chapter,
+            pageRange: pageRanges[chapter.id],
+            cardsAdded: cardsByChapter[chapter.id] ?? 0,
+            isComplete: isChapterComplete(index),
+            isCurrent: currentIndex == index
+        )
     }
 }
 

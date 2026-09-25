@@ -34,6 +34,35 @@ struct HeatmapCardDataTests {
     }
 }
 
+@Suite("Heatmap cell accessibility")
+struct HeatmapCellAccessibilityTests {
+    @Test("review values use singular, plural, and empty grammar")
+    func reviewValueGrammar() {
+        let day = HeatmapDay(offset: 0, date: Date(), count: 0)
+        #expect(day.reviewAccessibilityValue == "No reviews")
+
+        let one = HeatmapDay(offset: -1, date: Date(), count: 1)
+        #expect(one.reviewAccessibilityValue == "1 review")
+
+        let many = HeatmapDay(offset: -2, date: Date(), count: 12)
+        #expect(many.reviewAccessibilityValue == "12 reviews")
+    }
+
+    @Test("compact keeps its original 13-point pitch")
+    func compactHitTarget() {
+        let spacing = HeatmapGridMetrics.cellSpacing(regularWidth: false)
+        #expect(HeatmapGridMetrics.cellSize + spacing == 13)
+    }
+
+    @Test("regular layouts provide a 24-point target without changing the visual cell")
+    func regularHitTarget() {
+        let spacing = HeatmapGridMetrics.cellSpacing(regularWidth: true)
+        #expect(HeatmapGridMetrics.cellSize == 11)
+        #expect(HeatmapGridMetrics.cellSize + spacing == HeatmapGridMetrics.minimumHitTarget)
+        #expect(HeatmapGridMetrics.minimumHitTarget >= 24)
+    }
+}
+
 /// The four figures are derived in one pass rather than as four separately
 /// computed properties, so these pin the arithmetic that pass has to preserve.
 /// A fixed clock: the month and week figures are relative to the current date.

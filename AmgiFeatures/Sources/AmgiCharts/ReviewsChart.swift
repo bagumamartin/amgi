@@ -14,6 +14,7 @@ public struct ReviewsChart: View {
     }
 
     @Environment(\.palette) private var palette
+    @State private var selectedDay: Int?
 
     private struct ReviewEntry: Identifiable {
         /// Number of review types — the stride `id` packs `day` by.
@@ -66,13 +67,30 @@ public struct ReviewsChart: View {
         return Double(totalReviews(entries)) / Double(max(uniqueDays, 1))
     }
 
+    private func nearestDay(proxy: ChartProxy, plotX: CGFloat, values: [Int]) -> Int? {
+        guard let value: Double = proxy.value(atX: plotX) else { return nil }
+        return values.min {
+            abs(Double($0) - value) < abs(Double($1) - value)
+        }
+    }
+
+    private func selectedReviewLines(for day: Int, entries: [ReviewEntry]) -> [String] {
+        let matching = entries.filter { $0.day == day }
+        return ["Reviews: \(totalReviews(matching))"] + matching.map { "\($0.type): \($0.count)" }
+    }
+
+    private func selectedAccessibilityText(for day: Int, entries: [ReviewEntry]) -> String {
+        ([statsChartDayTitle(day)] + selectedReviewLines(for: day, entries: entries)).joined(separator: ", ")
+    }
+
     public var body: some View {
         // Built once per pass and threaded through. Reading the computed
         // `entries` from each call site instead rebuilt the whole series six
         // times per `body` — once for `isEmpty`, once for the chart, and four
         // more inside the two footer figures.
         let entries = self.entries
-        AmgiCard(
+        let selectableDays = Array(Set(entries.map(\.day))).sorted()
+        return AmgiCard(
             background: .surface,
             shadow: palette.shadows.sm,
             cornerRadius: AmgiRadius.inset,
@@ -84,12 +102,26 @@ public struct ReviewsChart: View {
                 if entries.isEmpty {
                     Text("No review data").foregroundStyle(palette.textSecondary).frame(height: 180)
                 } else {
-                    Chart(entries) { entry in
-                        BarMark(
-                            x: .value("Day", entry.day),
-                            y: .value("Count", entry.count)
-                        )
-                        .foregroundStyle(by: .value("Type", entry.type))
+                    Chart {
+                        ForEach(entries) { entry in
+                            BarMark(
+                                x: .value("Day", entry.day),
+                                y: .value("Count", entry.count)
+                            )
+                            .foregroundStyle(by: .value("Type", entry.type))
+                        }
+
+                        if let selectedDay, entries.contains(where: { $0.day == selectedDay }) {
+                            RuleMark(x: .value("Selected Day", selectedDay))
+                                .foregroundStyle(palette.textSecondary.opacity(0.55))
+                                .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                                .annotation(position: .top, spacing: 0) {
+                                    StatsChartTooltip(
+                                        title: statsChartDayTitle(selectedDay),
+                                        lines: selectedReviewLines(for: selectedDay, entries: entries)
+                                    )
+                                }
+                        }
                     }
                     .chartForegroundStyleScale([
                         "Learn": palette.cardStateNew,
@@ -104,6 +136,17 @@ public struct ReviewsChart: View {
                             AxisValueLabel()
                         }
                     }
+                    .statsChartXInspection(
+                        values: selectableDays,
+                        selection: $selectedDay,
+                        valueAtX: { proxy, x in
+                            nearestDay(proxy: proxy, plotX: x, values: selectableDays)
+                        },
+                        xPosition: { Double($0) },
+                        accessibilityText: { day in
+                            selectedAccessibilityText(for: day, entries: entries)
+                        }
+                    )
                     .frame(height: 180)
                 }
 

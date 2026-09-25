@@ -1,31 +1,51 @@
 // AmgiApp/Sources/Shared/CollectionChrome.swift
 package import SwiftUI
 import AmgiUI
-public import Foundation
+import Foundation
 
 // MARK: - Sync
 
-extension Notification.Name {
-    /// Posted by `SyncToolbarButton`. Observed by `.syncFlow()` so every
-    /// screen can fire the same preflight/sync sheet without importing
-    /// SyncFeature (AmgiAppShared cannot).
-    public static let amgiPresentSync = Notification.Name("amgiPresentSync")
+/// Stable scene-local trigger installed by `.syncFlow()`. A class reference
+/// keeps toolbar invalidation cheap and, unlike a process notification, opens
+/// Sync only in the window where the user tapped.
+package final class SyncPresentationAction: @unchecked Sendable {
+    private var action: () -> Void
+    package static let uninstalled = SyncPresentationAction {}
 
-    /// Fired by the iOS automatic-sync background task. Observed by the
-    /// sync flow, which runs a quiet automatic sync without presenting UI.
-    public static let amgiPerformBackgroundSync = Notification.Name("com.amgiapp.performBackgroundSync")
+    package init(action: @escaping () -> Void = {}) {
+        self.action = action
+    }
+
+    package func configure(action: @escaping () -> Void) {
+        self.action = action
+    }
+
+    package func callAsFunction() {
+        action()
+    }
+}
+
+private struct SyncPresentationActionKey: EnvironmentKey {
+    static let defaultValue = SyncPresentationAction.uninstalled
+}
+
+extension EnvironmentValues {
+    package var presentSync: SyncPresentationAction {
+        get { self[SyncPresentationActionKey.self] }
+        set { self[SyncPresentationActionKey.self] = newValue }
+    }
 }
 
 /// Standalone sync affordance for screens whose trailing slot carries the
-/// ever-present sync glyph. Posts the app-wide `.amgiPresentSync` rail
-/// consumed by `.syncFlow()`, so every concerned screen reaches the same
-/// preflight/sync sheet without new plumbing.
+/// ever-present sync glyph.
 package struct SyncToolbarButton: View {
+    @Environment(\.presentSync) private var presentSync
+
     package init() {}
 
     package var body: some View {
         Button {
-            NotificationCenter.default.post(name: .amgiPresentSync, object: nil)
+            presentSync()
         } label: {
             Image(systemName: "arrow.triangle.2.circlepath")
         }

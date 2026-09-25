@@ -17,6 +17,10 @@ enum ReaderTypographyPreferences {
         static let pageMargin = "reader_typo_page_margin"
         static let theme = "reader_typo_theme"
         static let justify = "reader_typo_justify"
+        /// Optional two-page display. The reader still falls back to a
+        /// single, capped page whenever the available window is compact or
+        /// portrait, so the preference is safe on every device.
+        static let twoPageLayout = "reader_typo_two_page_layout"
     }
 
     enum FontFamily: String, CaseIterable, Identifiable {

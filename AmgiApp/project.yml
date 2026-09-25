@@ -20,11 +20,9 @@ settings:
     SWIFT_VERSION: "6.0"
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: 6
-    # AnkiRustLib currently ships only a macOS arm64 slice. Keep the archive
-    # architecture honest instead of asking Xcode to link an impossible
-    # x86_64 helper (which then produces misleading missing-FFI-symbol errors).
-    ARCHS: arm64
-    VALID_ARCHS: arm64
+    # The packaged macOS XCFramework is universal (arm64 + x86_64). Do not
+    # force a project-wide architecture: iOS/watchOS retain their own SDK
+    # defaults while Release macOS builds can link both Mac architectures.
     SWIFT_STRICT_CONCURRENCY: complete
     # Must match the SPM packages: NonisolatedNonsendingByDefault changes the
     # mangling of `nonisolated async` function types, so the app target has to
@@ -148,6 +146,11 @@ schemes:
         AmgiApp: all
     run:
       config: Debug
+    test:
+      config: Debug
+      testPlans:
+        - path: AmgiAppMac.xctestplan
+          defaultPlan: true
     archive:
       config: Release
 
@@ -397,6 +400,21 @@ targets:
       base:
         IPHONEOS_DEPLOYMENT_TARGET: "27.0"
         PRODUCT_BUNDLE_IDENTIFIER: com.bagumamartin.ijuka.AppIntentsUITests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: AmgiApp
+        SWIFT_ENABLE_EXPLICIT_MODULES: NO
+        COMPILATION_CACHE_ENABLE_CACHING: NO
+
+  AmgiAppAdaptiveUITests:
+    type: bundle.ui-testing
+    supportedDestinations: [iOS, macOS]
+    sources:
+      - path: Tests/AmgiAppAdaptiveUITests
+    dependencies:
+      - target: AmgiApp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.bagumamartin.ijuka.AdaptiveUITests
         GENERATE_INFOPLIST_FILE: YES
         TEST_TARGET_NAME: AmgiApp
         SWIFT_ENABLE_EXPLICIT_MODULES: NO

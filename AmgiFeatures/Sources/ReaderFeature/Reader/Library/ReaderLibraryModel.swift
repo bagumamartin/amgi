@@ -129,6 +129,10 @@ final class ReaderLibraryModel {
     func importEPUBs(_ urls: [URL], searchText: String, sortMode: BookshelfSortMode) async {
         var succeeded = 0
         for url in urls {
+            let accessed = url.startAccessingSecurityScopedResource()
+            defer {
+                if accessed { url.stopAccessingSecurityScopedResource() }
+            }
             do {
                 _ = try await epubLibraryClient.importEPUB(url)
                 succeeded += 1

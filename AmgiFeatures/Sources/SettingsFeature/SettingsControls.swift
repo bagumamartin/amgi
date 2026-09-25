@@ -16,9 +16,42 @@ struct SettingsPage<Content: View>: View {
             VStack(alignment: .leading, spacing: 0) {
                 content()
             }
+            .settingsAdaptiveWidth()
             .padding(.bottom, AmgiSpacing.xl)
         }
         .amgiScreenCanvas()
+    }
+}
+
+/// Keeps settings content readable in a regular-width window. A full-width
+/// settings form on an iPad or Mac makes short rows stretch across the
+/// display and leaves their labels difficult to scan; the cap is wide enough
+/// for a settings pane while retaining the surrounding canvas.
+private struct SettingsAdaptiveWidthModifier: ViewModifier {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        if horizontalSizeClass == .regular {
+            content
+                .frame(maxWidth: 760)
+                .frame(maxWidth: .infinity)
+        } else {
+            content
+        }
+        #else
+        content
+            .frame(maxWidth: 900)
+            .frame(maxWidth: .infinity)
+        #endif
+    }
+}
+
+extension View {
+    /// Apply the adaptive Settings reading width to a page or a split-view
+    /// detail column.
+    func settingsAdaptiveWidth() -> some View {
+        modifier(SettingsAdaptiveWidthModifier())
     }
 }
 
@@ -139,6 +172,9 @@ struct SettingsButtonRow: View {
             .opacity(isEnabled ? 1 : 0.4)
         }
         .buttonStyle(.pressScale)
+        .accessibilityLabel(title)
+        .accessibilityValue(isBusy ? "Working" : "")
+        .accessibilityHint(isDestructive ? "Performs a destructive action" : "Performs this action")
     }
 }
 

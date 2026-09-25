@@ -35,7 +35,7 @@ public struct DeckDetailScreen<HeatmapSlot: View>: View {
     public let onAction: (Action) -> Void
 
     @Environment(\.palette) private var palette
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var archivedExpanded = false
 
     public init(
@@ -51,28 +51,69 @@ public struct DeckDetailScreen<HeatmapSlot: View>: View {
     }
 
     public var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 18) {
-                heroSection
-                statsSection
-                ctaSection
-                #if os(iOS)
-                quickActionsSection
-                #else
-                if horizontalSizeClass == .compact { quickActionsSection }
-                #endif
-                customStudySection
-                subdecksSection
-                heatmapSection
-                insightsSection
+        GeometryReader { proxy in
+            let layout = DeckDetailLayout.resolve(
+                availableWidth: proxy.size.width,
+                isAccessibilitySize: dynamicTypeSize.isAccessibilitySize
+            )
+            ScrollView {
+                if layout == .wide {
+                    wideLayout
+                } else {
+                    narrowLayout
+                }
             }
-            .frame(maxWidth: DeckDetailColumn.maxWidth)
+            .frame(maxWidth: layout.maximumContentWidth)
             .frame(maxWidth: .infinity)
-            .padding(.horizontal, 20)
+            .padding(.horizontal, layout.horizontalPadding)
             .padding(.top, 6)
             .padding(.bottom, 32)
         }
         .amgiScreenCanvas()
+    }
+
+    @ViewBuilder
+    private var narrowLayout: some View {
+        LazyVStack(alignment: .leading, spacing: 18) {
+            heroSection
+            statsSection
+            ctaSection
+            #if os(iOS)
+            quickActionsSection
+            #endif
+            customStudySection
+            subdecksSection
+            heatmapSection
+            insightsSection
+        }
+    }
+
+    @ViewBuilder
+    private var wideLayout: some View {
+        HStack(alignment: .top, spacing: 24) {
+            LazyVStack(alignment: .leading, spacing: 18) {
+                heroSection
+                statsSection
+                ctaSection
+                customStudySection
+                subdecksSection
+            }
+            .frame(minWidth: DeckDetailLayout.minimumPrimaryWidth, maxWidth: .infinity, alignment: .top)
+
+            LazyVStack(alignment: .leading, spacing: 18) {
+                #if os(iOS)
+                quickActionsSection
+                #endif
+                heatmapSection
+                insightsSection
+            }
+            .frame(
+                minWidth: DeckDetailLayout.minimumSecondaryWidth,
+                idealWidth: 360,
+                maxWidth: 440,
+                alignment: .top
+            )
+        }
     }
 
     @ViewBuilder
@@ -242,11 +283,44 @@ public struct DeckDetailScreen<HeatmapSlot: View>: View {
     }
 }
 
-/// Centered content column for the deck-detail screen, matching the
-/// Library/Study columns so the hero, tiles, and subdeck cards stay
-/// readable on regular-width layouts instead of stretching full-width.
-private enum DeckDetailColumn {
-    static let maxWidth: CGFloat = 800
+/// Resolves the detail composition from the width actually assigned to the
+/// deck detail. A regular size class alone is not enough: an iPad split pane
+/// can be regular while still being narrower than a desktop detail column.
+enum DeckDetailLayout: Equatable {
+    case narrow
+    case wide
+
+    static let minimumPrimaryWidth: CGFloat = 520
+    static let minimumSecondaryWidth: CGFloat = 320
+    static let columnSpacing: CGFloat = 24
+    static let minimumWideWidth: CGFloat = minimumPrimaryWidth
+        + minimumSecondaryWidth
+        + columnSpacing
+        + 64
+
+    static func resolve(
+        availableWidth: CGFloat,
+        isAccessibilitySize: Bool = false
+    ) -> DeckDetailLayout {
+        guard !isAccessibilitySize, availableWidth >= minimumWideWidth else {
+            return .narrow
+        }
+        return .wide
+    }
+
+    var maximumContentWidth: CGFloat {
+        switch self {
+        case .narrow: 800
+        case .wide: 1_200
+        }
+    }
+
+    var horizontalPadding: CGFloat {
+        switch self {
+        case .narrow: 20
+        case .wide: 32
+        }
+    }
 }
 
 // MARK: - Previews

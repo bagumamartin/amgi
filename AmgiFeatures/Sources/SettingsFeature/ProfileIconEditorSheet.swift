@@ -16,6 +16,7 @@ struct ProfileIconEditorSheet: View {
     @Dependency(\.collectionStore) private var store
     @State private var iconStore = ProfileIconStore.shared
     @State private var draftText = ""
+    @FocusState private var isEditorFocused: Bool
     @Environment(\.dismiss) private var dismiss
     @Environment(\.palette) private var palette
 
@@ -53,7 +54,26 @@ struct ProfileIconEditorSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .keyboardShortcut(.cancelAction)
                 }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        Task { await commit(ProfileIconStore.sanitizedEmoji(from: draftText)) }
+                    }
+                    .disabled(ProfileIconStore.sanitizedEmoji(from: draftText) == nil)
+                    .keyboardShortcut(.defaultAction)
+                }
+            }
+            .onAppear {
+                draftText = iconStore.icon(for: account.id) ?? ""
+                isEditorFocused = true
+            }
+            .onKeyPress { press in
+                if press.key == .escape {
+                    dismiss()
+                    return .handled
+                }
+                return .ignored
             }
         }
         #if os(macOS)
@@ -81,6 +101,11 @@ struct ProfileIconEditorSheet: View {
             HStack {
                 TextField("🙂", text: $draftText)
                     .autocorrectionDisabled()
+                    .focused($isEditorFocused)
+                    .onSubmit {
+                        Task { await commit(ProfileIconStore.sanitizedEmoji(from: draftText)) }
+                    }
+                    .accessibilityLabel("Profile emoji")
                 if !draftText.isEmpty {
                     Button("Clear") {
                         draftText = ""

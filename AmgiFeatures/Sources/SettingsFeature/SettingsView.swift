@@ -12,10 +12,10 @@ import ReaderFeature
 /// hairline footer. Title lives in the navigation bar so a push from any
 /// root (profile switcher on Library / Study / …) still has a Back.
 ///
-/// Row inventory is the app's real screens rather than the mock's — the
-/// mock names four destinations that don't exist (Privacy & Data, a global
-/// FSRS Scheduler, an auto-card-from-highlights toggle, onboarding replay)
-/// and omits three that do (Backups, Media Check, Code Editor).
+/// The route metadata comes from `SettingsRouteInventory`, the same
+/// catalogue used by the macOS source list. This page is still arranged into
+/// the design's iOS sections, but adding a route cannot make the two
+/// platforms drift apart silently.
 package struct SettingsView: View {
     private let onSwitchProfile: (AmgiAccount) async -> Void
 
@@ -27,8 +27,33 @@ package struct SettingsView: View {
     }
 
     @Environment(\.palette) private var palette
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @State private var selectedRoute: SettingsRoute? = .appearance
 
     package var body: some View {
+        GeometryReader { proxy in
+            let layout = SettingsContentLayout.resolve(
+                availableWidth: proxy.size.width,
+                isAccessibilitySize: dynamicTypeSize.isAccessibilitySize
+            )
+            Group {
+                if layout == .split {
+                    splitLayout
+                } else {
+                    compactLayout
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .amgiScreenCanvas()
+        .navigationTitle("Settings")
+        .navigationBarTitleDisplayMode(.large)
+        #if os(iOS)
+        .toolbarVisibility(.visible, for: .navigationBar)
+        #endif
+    }
+
+    private var compactLayout: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 appearanceSection
@@ -40,14 +65,47 @@ package struct SettingsView: View {
                 aboutSection
                 footer
             }
+            .settingsAdaptiveWidth()
             .padding(.bottom, AmgiSpacing.xl)
         }
-        .amgiScreenCanvas()
-        .navigationTitle("Settings")
-        .navigationBarTitleDisplayMode(.large)
-        #if os(iOS)
-        .toolbarVisibility(.visible, for: .navigationBar)
-        #endif
+    }
+
+    /// iPad and Mac-sized settings use the same route catalogue as the
+    /// macOS Settings window, but as a lightweight two-column workspace. The
+    /// root shell already owns navigation, so this is an HStack rather than a
+    /// second `NavigationSplitView`.
+    private var splitLayout: some View {
+        HStack(spacing: 0) {
+            List(selection: $selectedRoute) {
+                ForEach(SettingsRouteInventory.availableGroups) { group in
+                    Section(group.title) {
+                        ForEach(group.routes) { route in
+                            Label(route.title, systemImage: route.systemImage)
+                                .tag(route)
+                        }
+                    }
+                }
+            }
+            .listStyle(.sidebar)
+            .frame(minWidth: 220, idealWidth: 250, maxWidth: 300)
+
+            Divider()
+
+            ScrollView {
+                Group {
+                    if let selectedRoute {
+                        detailView(for: selectedRoute)
+                    } else {
+                        Text("Choose a setting")
+                            .foregroundStyle(palette.textSecondary)
+                    }
+                }
+                .settingsAdaptiveWidth()
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .padding(.top, 12)
+                .padding(.bottom, AmgiSpacing.xl)
+            }
+        }
     }
 
     // MARK: - Sections
@@ -56,20 +114,11 @@ package struct SettingsView: View {
         Group {
             SettingsSectionHeader(title: "Appearance")
             SettingsGroup {
-                SettingsRowLink(
-                    title: "Theme & Appearance",
-                    systemImage: "paintpalette",
-                    tone: .mature,
-                    detail: themeName
-                ) {
+                routeLink(.appearance, detail: themeName) {
                     AppearanceSettingsView(manager: .shared)
                 }
                 SettingsSeparator()
-                SettingsRowLink(
-                    title: "Reader Display",
-                    systemImage: "book",
-                    tone: .learning
-                ) {
+                routeLink(.readerDisplay) {
                     ReaderSettingsView()
                 }
             }
@@ -80,20 +129,11 @@ package struct SettingsView: View {
         Group {
             SettingsSectionHeader(title: "Account")
             SettingsGroup {
-                SettingsRowLink(
-                    title: "Profiles",
-                    systemImage: "person.crop.circle",
-                    tone: .accent,
-                    detail: AccountStore.shared.current.displayName
-                ) {
+                routeLink(.profiles, detail: AccountStore.shared.current.displayName) {
                     AccountsSettingsView(onSwitchProfile: onSwitchProfile)
                 }
                 SettingsSeparator()
-                SettingsRowLink(
-                    title: "Sync Server",
-                    systemImage: "arrow.triangle.2.circlepath",
-                    tone: .info
-                ) {
+                routeLink(.syncServer) {
                     SyncSettingsView()
                 }
             }
@@ -104,43 +144,27 @@ package struct SettingsView: View {
         Group {
             SettingsSectionHeader(title: "Study")
             SettingsGroup {
-                SettingsRowLink(
-                    title: "Review Behavior",
-                    systemImage: "timer",
-                    tone: .review
-                ) {
+                routeLink(.reviewBehavior) {
                     ReviewSettingsView()
                 }
                 SettingsSeparator()
-                SettingsRowLink(
-                    title: "Card Rendering",
-                    systemImage: "textformat",
-                    tone: .accent
-                ) {
+                routeLink(.cardRendering) {
                     CardRenderingSettingsView()
                 }
                 SettingsSeparator()
-                SettingsRowLink(
-                    title: "Manage Templates",
-                    systemImage: "doc.text",
-                    tone: .learning
-                ) {
+                routeLink(.shortcuts) {
+                    ShortcutsSettingsView()
+                }
+                SettingsSeparator()
+                routeLink(.manageTemplates) {
                     DeckTemplateListView()
                 }
                 SettingsSeparator()
-                SettingsRowLink(
-                    title: "Template Overrides",
-                    systemImage: "arrow.turn.down.right",
-                    tone: .neutral
-                ) {
+                routeLink(.templateOverrides) {
                     TemplateOverridesView()
                 }
                 SettingsSeparator()
-                SettingsRowLink(
-                    title: "Code Editor",
-                    systemImage: "chevron.left.forwardslash.chevron.right",
-                    tone: .link
-                ) {
+                routeLink(.codeEditor) {
                     CodeEditorSettingsView()
                 }
             }
@@ -151,12 +175,7 @@ package struct SettingsView: View {
         Group {
             SettingsSectionHeader(title: "Apple Intelligence")
             SettingsGroup {
-                SettingsRowLink(
-                    title: "Study Assistant & System Search",
-                    systemImage: "sparkles",
-                    tone: .accent,
-                    detail: FoundationModelService.availability.title
-                ) {
+                routeLink(.assistant, detail: FoundationModelService.availability.title) {
                     AssistantSettingsView()
                 }
             }
@@ -167,11 +186,7 @@ package struct SettingsView: View {
         Group {
             SettingsSectionHeader(title: "Reader")
             SettingsGroup {
-                SettingsRowLink(
-                    title: "Dictionaries",
-                    systemImage: "character.book.closed",
-                    tone: .danger
-                ) {
+                routeLink(.dictionaries) {
                     ReaderDictionarySettingsView()
                 }
             }
@@ -182,43 +197,23 @@ package struct SettingsView: View {
         Group {
             SettingsSectionHeader(title: "Maintenance")
             SettingsGroup {
-                SettingsRowLink(
-                    title: "Manage Tags",
-                    systemImage: "tag",
-                    tone: .neutral
-                ) {
+                routeLink(.tags) {
                     TagsView()
                 }
                 SettingsSeparator()
-                SettingsRowLink(
-                    title: "Database",
-                    systemImage: "internaldrive",
-                    tone: .info
-                ) {
+                routeLink(.database) {
                     MaintenanceView()
                 }
                 SettingsSeparator()
-                SettingsRowLink(
-                    title: "Empty Cards",
-                    systemImage: "square.dashed",
-                    tone: .danger
-                ) {
+                routeLink(.emptyCards) {
                     EmptyCardsView()
                 }
                 SettingsSeparator()
-                SettingsRowLink(
-                    title: "Backups",
-                    systemImage: "clock.arrow.circlepath",
-                    tone: .mature
-                ) {
+                routeLink(.backups) {
                     BackupView(username: AccountStore.shared.current.displayName)
                 }
                 SettingsSeparator()
-                SettingsRowLink(
-                    title: "Media Check",
-                    systemImage: "photo",
-                    tone: .learning
-                ) {
+                routeLink(.mediaCheck) {
                     MediaCheckResultView()
                 }
             }
@@ -229,12 +224,7 @@ package struct SettingsView: View {
         Group {
             SettingsSectionHeader(title: "About")
             SettingsGroup {
-                SettingsRowLink(
-                    title: "About Ijuka",
-                    systemImage: "info.circle",
-                    tone: .accent,
-                    detail: appVersion
-                ) {
+                routeLink(.about, detail: appVersion) {
                     AboutView()
                 }
             }
@@ -248,6 +238,68 @@ package struct SettingsView: View {
             .frame(maxWidth: .infinity, alignment: .center)
             .padding(.top, 20)
             .padding(.bottom, AmgiSpacing.sm)
+    }
+
+    @ViewBuilder
+    private func detailView(for route: SettingsRoute) -> some View {
+        switch route {
+        case .appearance:
+            AppearanceSettingsView(manager: .shared)
+        case .profiles:
+            AccountsSettingsView(onSwitchProfile: onSwitchProfile)
+        case .syncServer:
+            SyncSettingsView()
+        case .reviewBehavior:
+            ReviewSettingsView()
+        case .cardRendering:
+            CardRenderingSettingsView()
+        case .shortcuts:
+            ShortcutsSettingsView()
+        case .assistant:
+            AssistantSettingsView()
+        case .readerDisplay:
+            ReaderSettingsView()
+        case .dictionaries:
+            ReaderDictionarySettingsView()
+        case .tags:
+            TagsView()
+        case .database:
+            MaintenanceView()
+        case .backups:
+            BackupView(username: AccountStore.shared.current.displayName)
+        case .emptyCards:
+            EmptyCardsView()
+        case .mediaCheck:
+            MediaCheckResultView()
+        case .manageTemplates:
+            DeckTemplateListView()
+        case .templateOverrides:
+            TemplateOverridesView()
+        case .codeEditor:
+            CodeEditorSettingsView()
+        case .agentMCP:
+            MCPServerSettingsView()
+        case .about:
+            AboutView()
+        }
+    }
+
+    // MARK: - Shared route metadata
+
+    /// Every navigation row gets its labels and icon from the shared route
+    /// inventory, so the iOS drill-down and macOS source list cannot drift.
+    private func routeLink<Destination: View>(
+        _ route: SettingsRoute,
+        detail: String? = nil,
+        @ViewBuilder destination: @escaping () -> Destination
+    ) -> some View {
+        SettingsRowLink(
+            title: route.title,
+            systemImage: route.systemImage,
+            tone: route.tone,
+            detail: detail,
+            destination: destination
+        )
     }
 
     // MARK: - Trailing values
@@ -265,6 +317,23 @@ package struct SettingsView: View {
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
+    }
+}
+
+enum SettingsContentLayout: Equatable {
+    case compact
+    case split
+
+    static let minimumSplitWidth: CGFloat = 700
+
+    static func resolve(
+        availableWidth: CGFloat,
+        isAccessibilitySize: Bool
+    ) -> SettingsContentLayout {
+        guard !isAccessibilitySize, availableWidth >= minimumSplitWidth else {
+            return .compact
+        }
+        return .split
     }
 }
 

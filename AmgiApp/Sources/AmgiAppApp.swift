@@ -33,7 +33,7 @@ struct AnkiAppApp: App {
 }
 
 #if os(macOS)
-/// macOS single-instance guard for URL (widget-click) launches.
+/// macOS single-instance guard for URL and document launches.
 ///
 /// Clicking a widget delivers `amgi://study` through LaunchServices. When the
 /// URL scheme is registered to a different copy of the app than the one
@@ -48,13 +48,26 @@ struct AnkiAppApp: App {
 @MainActor
 private final class AmgiAppDelegate: NSObject, NSApplicationDelegate {
     func application(_ application: NSApplication, open urls: [URL]) {
-        guard let firstURL = urls.first, firstURL.scheme == "amgi" else { return }
+        let forwardable = urls.filter { $0.scheme == "amgi" || $0.isFileURL }
+        guard !forwardable.isEmpty else { return }
         let ownPID = ProcessInfo.processInfo.processIdentifier
         let bundleID = Bundle.main.bundleIdentifier ?? "com.bagumamartin.ijuka"
         guard let existing = NSRunningApplication
             .runningApplications(withBundleIdentifier: bundleID)
             .first(where: { $0.processIdentifier != ownPID })
         else { return } // First instance — SwiftUI's onOpenURL handles the URL.
+
+        // Activation alone does not replay LaunchServices' payload into the
+        // already-running process. Forward every URL explicitly before this
+        // duplicate exits so widget, deep-link, Finder, and Files opens keep
+        // their destination and multi-file selections.
+        for url in forwardable {
+            DistributedNotificationCenter.default().post(
+                name: Notification.Name("com.ijuka.app.forwarded-url"),
+                object: nil,
+                userInfo: ["url": url.absoluteString]
+            )
+        }
         if #available(macOS 14.0, *) {
             existing.activate(options: [.activateAllWindows])
         } else {

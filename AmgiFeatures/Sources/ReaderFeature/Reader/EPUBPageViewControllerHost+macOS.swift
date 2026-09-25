@@ -21,6 +21,8 @@ struct EPUBPageViewControllerHost: NSViewRepresentable {
     let styleTokens: EPUBReaderStyleTokens
     /// 0..1 fraction to scroll to on the first chapter load only.
     let pendingRestoreFraction: Double?
+    let pageTurnRequest: ReaderPageTurnRequest?
+    let selectionRequestID: Int
     /// Suppresses paging while dictionary sheets absorb input (UX spec
     /// edge case), mirroring the iOS host's dataSource suppression.
     let pagingEnabled: Bool
@@ -28,6 +30,7 @@ struct EPUBPageViewControllerHost: NSViewRepresentable {
     let onPageInfo: (Int, Int) -> Void
     let onProgress: (Double, Int) -> Void
     let onWordTap: (String, String) -> Void
+    let onSelectionForNote: (String) -> Void
     let onTapEmpty: (CGFloat) -> Void
     let onReachedEnd: () -> Void
 
@@ -49,6 +52,8 @@ struct EPUBPageViewControllerHost: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         context.coordinator.host = self
         context.coordinator.applyStyleTokensIfNeeded()
+        context.coordinator.consumeSelectionRequestIfNeeded()
+        context.coordinator.consumePageTurnRequestIfNeeded()
         if context.coordinator.currentChapterIndex != chapterIndex {
             context.coordinator.showChapter(
                 at: chapterIndex,
@@ -75,11 +80,15 @@ struct EPUBPageViewControllerHost: NSViewRepresentable {
         private var pageCount = 1
         private var appliedStyleTokens: EPUBReaderStyleTokens?
         private var keyMonitor: Any?
+        private var handledPageTurnSequence = 0
+        private var handledSelectionRequestID = 0
 
         // Wheel gesture state: deltas accumulate until they cross the snap
-        // threshold, producing at most one page turn per gesture burst.
+        // threshold, then latch until the gesture ends. This produces exactly
+        // one turn per gesture (including its momentum phase) without a
+        // time-based cooldown dead zone.
         private var wheelAccumulator: CGFloat = 0
-        private var wheelCooldownUntil = Date.distantPast
+        private var wheelTurnLatched = false
 
         init(host: EPUBPageViewControllerHost) {
             self.host = host
@@ -99,17 +108,23 @@ struct EPUBPageViewControllerHost: NSViewRepresentable {
                     forMainFrameOnly: true
                 ))
             }
-            if let js = EPUBReaderBundledResources.js() {
+            if let js = EPUBReaderBundledResources.interactionJS() {
                 userContent.addUserScript(WKUserScript(
                     source: js,
                     injectionTime: .atDocumentEnd,
                     forMainFrameOnly: true
                 ))
             }
+            userContent.addUserScript(WKUserScript(
+                source: EPUBReaderBundledResources.emptyTapScript,
+                injectionTime: .atDocumentEnd,
+                forMainFrameOnly: true
+            ))
 
             userContent.add(self, name: "pageInfo")
             userContent.add(self, name: "progress")
             userContent.add(self, name: "wordTap")
+            userContent.add(self, name: "emptyTap")
             configuration.userContentController = userContent
             configuration.suppressesIncrementalRendering = false
 
@@ -119,12 +134,6 @@ struct EPUBPageViewControllerHost: NSViewRepresentable {
             // The chapter document paints its own --reader-bg; match the
             // surrounding chrome so no white border flashes during loads.
             webView.underPageBackgroundColor = .windowBackgroundColor
-
-            let click = NSClickGestureRecognizer(
-                target: self,
-                action: #selector(handleClick(_:))
-            )
-            webView.addGestureRecognizer(click)
 
             webView.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(webView)
@@ -138,6 +147,12 @@ struct EPUBPageViewControllerHost: NSViewRepresentable {
             self.webView = webView
             applyHostBackgroundColor()
             installKeyMonitor()
+            DispatchQueue.main.async { [weak container, weak webView] in
+                guard let window = container?.window else { return }
+                if window.firstResponder == nil, let webView {
+                    window.makeFirstResponder(webView)
+                }
+            }
         }
 
         func tearDown() {
@@ -145,6 +160,7 @@ struct EPUBPageViewControllerHost: NSViewRepresentable {
             controller.removeScriptMessageHandler(forName: "pageInfo")
             controller.removeScriptMessageHandler(forName: "progress")
             controller.removeScriptMessageHandler(forName: "wordTap")
+            controller.removeScriptMessageHandler(forName: "emptyTap")
             if let keyMonitor {
                 NSEvent.removeMonitor(keyMonitor)
                 self.keyMonitor = nil
@@ -153,15 +169,23 @@ struct EPUBPageViewControllerHost: NSViewRepresentable {
 
         // MARK: Chapter loading
 
-        func showChapter(at index: Int, restoreFraction: Double?) {
-            guard index >= 0, index < host.book.chapters.count else { return }
-            guard let content = host.chapterContents[index] else { return }
+        @discardableResult
+        func showChapter(at index: Int, restoreFraction: Double?) -> Bool {
+            guard index >= 0, index < host.book.chapters.count else { return false }
+            guard let content = host.chapterContents[index] else { return false }
+            if host.chapterIndex != index {
+                host.chapterIndex = index
+            }
             currentChapterIndex = index
             pageIndex = 0
             pageCount = 1
             didFinishInitialLoad = false
+            appliedStyleTokens = nil
+            wheelAccumulator = 0
+            wheelTurnLatched = false
             self.restoreFraction = restoreFraction
             webView.loadFileURL(content.contentURL, allowingReadAccessTo: content.readAccessURL)
+            return true
         }
 
         // MARK: Paging
@@ -170,32 +194,53 @@ struct EPUBPageViewControllerHost: NSViewRepresentable {
             case forward, backward
         }
 
-        func paginate(_ direction: PageDirection) {
-            guard host.pagingEnabled, didFinishInitialLoad else { return }
+        @discardableResult
+        func paginate(_ direction: PageDirection) -> Bool {
+            guard host.pagingEnabled, didFinishInitialLoad else { return false }
             let nextIndex = direction == .forward ? pageIndex + 1 : pageIndex - 1
             let clamped = max(0, min(nextIndex, pageCount - 1))
-            guard clamped != pageIndex else { return }
-            pageIndex = clamped
-            webView.evaluateJavaScript(
-                "window.__amgiScrollToPage && window.__amgiScrollToPage(\(clamped));",
-                completionHandler: nil
-            )
-            // Emit immediately for snappy chrome updates; the debounced JS
-            // `pageInfo` message reconfirms once the scroll settles.
-            host.onPageInfo(pageIndex, pageCount)
-            host.onProgress(progressFraction, pageIndex)
+            if clamped != pageIndex {
+                pageIndex = clamped
+                webView.evaluateJavaScript(
+                    "window.__amgiScrollToPage && window.__amgiScrollToPage(\(clamped));",
+                    completionHandler: nil
+                )
+                // Emit immediately for snappy chrome updates; the debounced JS
+                // `pageInfo` message reconfirms once the scroll settles.
+                host.onPageInfo(pageIndex, pageCount)
+                host.onProgress(progressFraction, pageIndex)
+                return true
+            }
+
+            switch direction {
+            case .forward:
+                let nextChapter = currentChapterIndex + 1
+                if showChapter(at: nextChapter, restoreFraction: 0) {
+                    host.onPageInfo(0, 1)
+                    return true
+                }
+                host.onReachedEnd()
+            case .backward:
+                // Entering the previous chapter at its end is the page-turn
+                // equivalent of moving backwards one page, rather than the
+                // surprising jump back to that chapter's title page.
+                _ = showChapter(at: currentChapterIndex - 1, restoreFraction: 1)
+            }
+            return false
         }
 
         private var progressFraction: Double {
-            let denom = Double(max(1, pageCount - 1))
-            return min(1, max(0, Double(pageIndex) / denom))
+            guard pageCount > 1 else { return 1 }
+            return min(1, max(0, Double(pageIndex) / Double(pageCount - 1)))
         }
 
         /// Wheel input snapped to whole pages. The WebView's own scrolling
         /// is suppressed (we own `scrollLeft` through the injection JS), so
         /// every wheel gesture lands here instead.
         func webViewDidScroll(_ event: NSEvent) {
-            guard host.pagingEnabled, didFinishInitialLoad else { return }
+            guard host.pagingEnabled,
+                  didFinishInitialLoad,
+                  !event.modifierFlags.contains(.control) else { return }
 
             let dx = event.scrollingDeltaX
             let dy = event.scrollingDeltaY
@@ -206,21 +251,24 @@ struct EPUBPageViewControllerHost: NSViewRepresentable {
             switch event.phase {
             case .began:
                 wheelAccumulator = 0
+                wheelTurnLatched = false
             case .ended, .cancelled:
                 wheelAccumulator = 0
+                wheelTurnLatched = false
+                return
             default:
                 break
             }
+            guard !wheelTurnLatched else { return }
 
             wheelAccumulator += delta
-            let now = Date()
-            guard abs(wheelAccumulator) >= 60, now >= wheelCooldownUntil else { return }
-            wheelAccumulator = 0
-            wheelCooldownUntil = now.addingTimeInterval(0.25)
-
+            let threshold: CGFloat = event.hasPreciseScrollingDeltas ? 18 : 60
+            guard abs(wheelAccumulator) >= threshold else { return }
             // Natural scrolling: swipe left / push up (negative delta) moves
-            // the content forward.
+            // the content forward. Latch after the call because crossing a
+            // chapter deliberately resets gesture state for the new load.
             paginate(delta < 0 ? .forward : .backward)
+            wheelTurnLatched = true
         }
 
         /// Edge-tap zones mirror the iOS coordinator: the outer 15% drive
@@ -229,36 +277,13 @@ struct EPUBPageViewControllerHost: NSViewRepresentable {
             let leftEdge: CGFloat = 0.15
             let rightEdge: CGFloat = 0.85
             if relativeX <= leftEdge {
-                if pageIndex == 0 && currentChapterIndex == 0 {
-                    host.onTapEmpty(relativeX)
-                    return
-                }
-                if pageIndex == 0 {
-                    host.chapterIndex = currentChapterIndex - 1
-                } else {
-                    paginate(.backward)
-                }
+                if pageIndex == 0 && currentChapterIndex == 0 { return }
+                paginate(.backward)
             } else if relativeX >= rightEdge {
-                if pageIndex >= pageCount - 1 && currentChapterIndex == host.book.chapters.count - 1 {
-                    host.onReachedEnd()
-                    return
-                }
-                if pageIndex >= pageCount - 1 {
-                    host.chapterIndex = currentChapterIndex + 1
-                } else {
-                    paginate(.forward)
-                }
+                paginate(.forward)
             } else {
                 host.onTapEmpty(relativeX)
             }
-        }
-
-        @objc
-        private func handleClick(_ recognizer: NSClickGestureRecognizer) {
-            guard let view = recognizer.view else { return }
-            let location = recognizer.location(in: view)
-            let relativeX = view.bounds.width > 0 ? location.x / view.bounds.width : 0.5
-            handleTap(atRelativeX: relativeX)
         }
 
         private func installKeyMonitor() {
@@ -266,21 +291,48 @@ struct EPUBPageViewControllerHost: NSViewRepresentable {
                 guard let self,
                       let window = self.webView?.window,
                       NSApp.keyWindow === window,
-                      self.host.pagingEnabled
-                else { return event }
+                      self.host.pagingEnabled else { return event }
+
+                // Key repeat and shortcuts belong to the focused WebView /
+                // system. Intercepting them turns holding a key into runaway
+                // paging and steals commands such as Space in a search field.
+                if event.isARepeat { return event }
+                let commandModifiers: NSEvent.ModifierFlags = [.command, .control, .option, .shift]
+                guard event.modifierFlags.intersection(commandModifiers).isEmpty else { return event }
+                if let firstResponder = window.firstResponder,
+                   firstResponder is NSTextView || firstResponder is NSTextField {
+                    return event
+                }
+
                 switch event.keyCode {
-                case 123: // left arrow
-                    self.paginate(.backward)
-                    return nil
-                case 124: // right arrow
-                    self.paginate(.forward)
-                    return nil
+                case 123, 116: // left arrow, page up
+                    return self.paginate(.backward) ? nil : event
+                case 124, 121: // right arrow, page down
+                    return self.paginate(.forward) ? nil : event
                 case 49: // space
-                    self.paginate(.forward)
-                    return nil
+                    return self.paginate(.forward) ? nil : event
                 default:
                     return event
                 }
+            }
+        }
+
+        func consumePageTurnRequestIfNeeded() {
+            guard let request = host.pageTurnRequest,
+                  request.sequence > handledPageTurnSequence,
+                  didFinishInitialLoad else { return }
+            handledPageTurnSequence = request.sequence
+            paginate(request.direction == .forward ? .forward : .backward)
+        }
+
+        func consumeSelectionRequestIfNeeded() {
+            guard host.selectionRequestID > handledSelectionRequestID else { return }
+            handledSelectionRequestID = host.selectionRequestID
+            webView.evaluateJavaScript("window.getSelection().toString()") { [weak self] result, _ in
+                guard let text = result as? String else { return }
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return }
+                self?.host.onSelectionForNote(trimmed)
             }
         }
 
@@ -313,6 +365,7 @@ struct EPUBPageViewControllerHost: NSViewRepresentable {
               r.style.setProperty('--reader-font-family', '\(escapedFontFamily)');
               r.style.setProperty('--reader-text-align', '\(tokens.textAlign)');
               r.style.setProperty('--reader-tok-underline', '\(tokens.tokenUnderlineCSS)');
+              r.setAttribute('data-amgi-page-columns', '\(tokens.pageColumns == 2 ? 2 : 1)');
               if (typeof window.__amgiRelayout === 'function') { window.__amgiRelayout(); }
             })();
             """
@@ -331,6 +384,7 @@ struct EPUBPageViewControllerHost: NSViewRepresentable {
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             didFinishInitialLoad = true
             applyStyleTokens()
+            consumePageTurnRequestIfNeeded()
             if let fraction = restoreFraction {
                 restoreFraction = nil
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
@@ -369,13 +423,16 @@ struct EPUBPageViewControllerHost: NSViewRepresentable {
                 guard let dict = body as? [String: Any],
                       let newPageIndex = dict["pageIndex"] as? Int,
                       let fraction = dict["progressFraction"] as? Double else { return }
-                host.onProgress(fraction, newPageIndex)
+                host.onProgress(pageCount <= 1 ? 1 : fraction, newPageIndex)
             case "wordTap":
                 guard let dict = body as? [String: Any] else { return }
                 let token = (dict["token"] as? String) ?? ""
                 let sentence = (dict["sentence"] as? String) ?? token
                 guard !token.isEmpty else { return }
                 host.onWordTap(token, sentence)
+            case "emptyTap":
+                guard let number = body as? NSNumber else { return }
+                handleTap(atRelativeX: CGFloat(truncating: number))
             default:
                 break
             }
@@ -392,7 +449,11 @@ private final class EPUBPagingWebView: WKWebView {
     @MainActor weak var pagingDelegate: (any EPUBPagingWebViewDelegate)?
 
     override func scrollWheel(with event: NSEvent) {
-        pagingDelegate?.webViewDidScroll(event)
+        if event.modifierFlags.contains(.control) {
+            super.scrollWheel(with: event)
+        } else {
+            pagingDelegate?.webViewDidScroll(event)
+        }
     }
 }
 

@@ -34,22 +34,6 @@
 		<dict>
 			<key>CFBundleTypeExtensions</key>
 			<array>
-				<string>zip</string>
-			</array>
-			<key>CFBundleTypeName</key>
-			<string>Anki ZIP Package</string>
-			<key>CFBundleTypeRole</key>
-			<string>Editor</string>
-			<key>LSHandlerRank</key>
-			<string>Alternate</string>
-			<key>LSItemContentTypes</key>
-			<array>
-				<string>public.zip-archive</string>
-			</array>
-		</dict>
-		<dict>
-			<key>CFBundleTypeExtensions</key>
-			<array>
 				<string>csv</string>
 				<string>tsv</string>
 				<string>txt</string>
@@ -88,17 +72,19 @@
 		<dict>
 			<key>CFBundleTypeExtensions</key>
 			<array>
-				<string>db</string>
+				<string>epub</string>
 			</array>
+			<key>CFBundleTypeIconName</key>
+			<string>AppIcon</string>
 			<key>CFBundleTypeName</key>
-			<string>Mnemosyne Database</string>
+			<string>EPUB Book</string>
 			<key>CFBundleTypeRole</key>
-			<string>Editor</string>
+			<string>Viewer</string>
 			<key>LSHandlerRank</key>
 			<string>Alternate</string>
 			<key>LSItemContentTypes</key>
 			<array>
-				<string>public.database</string>
+				<string>org.idpf.epub-container</string>
 			</array>
 		</dict>
 	</array>

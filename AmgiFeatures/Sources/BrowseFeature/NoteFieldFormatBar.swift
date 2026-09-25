@@ -164,7 +164,11 @@ struct NoteFieldFormatBar: View {
                         selected: chrome.isHTMLSource,
                         label: "HTML source"
                     )
+                    #if os(macOS)
+                    icon("photo", .camera, label: "Choose image")
+                    #else
                     icon("camera", .camera, label: "Take photo")
+                    #endif
                     icon("photo", .photoLibrary, label: "Choose from library")
                     icon("paperclip", .attach, label: "Attach file")
                     icon("mic", .recordAudio, label: "Record audio")

@@ -424,17 +424,25 @@ struct BrowserColumnsSheet: View {
                 }
                 Section(model.mode == .notes ? "Notes columns" : "Cards columns") {
                     ForEach(model.browserColumns, id: \.key) { col in
-                        HStack {
-                            Text(model.mode == .notes ? col.notesLabel : col.cardsLabel)
-                                .foregroundStyle(palette.textPrimary)
-                            Spacer()
-                            if activeKeys.contains(col.key) {
-                                Image(systemName: "checkmark")
-                                    .foregroundStyle(palette.accent)
+                        let isActive = activeKeys.contains(col.key)
+                        Button {
+                            toggle(col.key)
+                        } label: {
+                            HStack {
+                                Text(model.mode == .notes ? col.notesLabel : col.cardsLabel)
+                                    .foregroundStyle(palette.textPrimary)
+                                Spacer()
+                                Image(systemName: isActive ? "checkmark" : "circle")
+                                    .foregroundStyle(isActive ? palette.accent : palette.textTertiary)
                             }
+                            .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+                            .contentShape(Rectangle())
                         }
-                        .contentShape(Rectangle())
-                        .onTapGesture { toggle(col.key) }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(model.mode == .notes ? col.notesLabel : col.cardsLabel)
+                        .accessibilityValue(isActive ? "Shown" : "Hidden")
+                        .accessibilityAddTraits(isActive ? .isSelected : [])
+                        .accessibilityHint("Double-click to \(isActive ? "hide" : "show") this column")
                     }
                 }
             }
@@ -493,6 +501,31 @@ struct SavedSearchManageSheet: View {
                                 model.updateSavedSearch(named: saved.name)
                             }
                             .buttonStyle(.borderless)
+                        }
+                        .contextMenu {
+                            Button {
+                                model.updateSavedSearch(named: saved.name)
+                            } label: {
+                                Label("Update from current query", systemImage: "arrow.clockwise")
+                            }
+                            Button {
+                                renameFrom = saved.name
+                                renameTo = saved.name
+                            } label: {
+                                Label("Rename", systemImage: "pencil")
+                            }
+                            Button(role: .destructive) {
+                                model.deleteSavedSearch(named: saved.name)
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
+                        .accessibilityAction(named: "Rename") {
+                            renameFrom = saved.name
+                            renameTo = saved.name
+                        }
+                        .accessibilityAction(named: "Delete") {
+                            model.deleteSavedSearch(named: saved.name)
                         }
                         .swipeActions {
                             Button("Rename") {

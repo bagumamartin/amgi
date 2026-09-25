@@ -35,6 +35,10 @@ struct EPUBReaderStyleTokens: Equatable {
     var pageMarginPx: Int = 24
     var textAlign: String = "justify"
     var tokenUnderlineCSS: String = "rgba(120, 120, 120, 0.55)"
+    /// Number of logical pages visible in one physical WebKit viewport.
+    /// The bundled CSS halves its column width for a spread, while native
+    /// paging remains based on the full viewport.
+    var pageColumns: Int = 1
 }
 
 /// Bundled reader web resources shared by both platform hosts.
@@ -52,6 +56,45 @@ enum EPUBReaderBundledResources {
         guard let url else { return nil }
         return try? String(contentsOf: url, encoding: .utf8)
     }
+
+    /// The bundled tap handler intentionally treats every token as a lookup.
+    /// Guard live text selections before it so the click that dismisses a
+    /// selection cannot also open lookup or turn the page.
+    static func interactionJS() -> String? {
+        guard let source = js() else { return nil }
+        return """
+        (function() {
+          document.addEventListener('click', function(event) {
+            var selection = window.getSelection();
+            if (selection && !selection.isCollapsed && selection.toString().trim().length > 0) {
+              event.stopImmediatePropagation();
+            }
+          }, true);
+        })();
+        \(source)
+        """
+    }
+
+    /// Empty-page taps are routed through the same document listener as token
+    /// taps. The mutually-exclusive early return guarantees one click can
+    /// produce either `wordTap` or `emptyTap`, never both.
+    static let emptyTapScript = """
+    (function() {
+      document.addEventListener('click', function(event) {
+        var selection = window.getSelection();
+        if (selection && !selection.isCollapsed && selection.toString().trim().length > 0) return;
+
+        var target = event.target;
+        if (target && target.closest && target.closest('.amgi-tok, a, button, input, select, textarea, [role="button"]')) return;
+
+        var width = window.innerWidth || document.documentElement.clientWidth || 1;
+        var relativeX = Math.max(0, Math.min(1, (event.clientX || 0) / width));
+        try {
+          window.webkit.messageHandlers.emptyTap.postMessage(relativeX);
+        } catch (e) { /* host detached */ }
+      }, true);
+    })();
+    """
 
     static func injectStyleSnippet(css: String) -> String {
         let escaped = css.replacingOccurrences(of: "\\", with: "\\\\")
@@ -71,7 +114,11 @@ enum EPUBReaderBundledResources {
             var s = existing || document.createElement('style');
             if (!existing) {
               s.setAttribute('data-amgi', 'reader');
-              s.textContent = `\(escaped)`;
+              s.textContent = `\(escaped)
+              html[data-amgi-page-columns="2"] {
+                column-width: 50vw !important;
+                -webkit-column-width: 50vw !important;
+              }`;
             }
             var head = document.head || document.documentElement;
             // Re-append moves the node to the end of head's child list.
@@ -97,6 +144,7 @@ protocol EPUBChapterPageControllerDelegate: AnyObject {
     func epubChapter(_ controller: EPUBChapterPageController, didReportPageInfoIndex pageIndex: Int, pageCount: Int)
     func epubChapter(_ controller: EPUBChapterPageController, didReportProgressFraction fraction: Double, pageIndex: Int)
     func epubChapter(_ controller: EPUBChapterPageController, didTapWord token: String, sentence: String)
+    func epubChapter(_ controller: EPUBChapterPageController, didSelectTextForNote text: String)
     func epubChapterDidTapEmptySpace(_ controller: EPUBChapterPageController, atRelativeX relativeX: CGFloat)
 }
 
@@ -154,7 +202,7 @@ final class EPUBChapterPageController: UIViewController {
             )
             userContent.addUserScript(cssScript)
         }
-        if let js = Self.bundledJS() {
+        if let js = Self.interactionJS() {
             let jsScript = WKUserScript(
                 source: js,
                 injectionTime: .atDocumentEnd,
@@ -162,11 +210,17 @@ final class EPUBChapterPageController: UIViewController {
             )
             userContent.addUserScript(jsScript)
         }
+        userContent.addUserScript(WKUserScript(
+            source: Self.emptyTapScript,
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        ))
 
         bridge = ScriptBridge(owner: self)
         userContent.add(bridge, name: "pageInfo")
         userContent.add(bridge, name: "progress")
         userContent.add(bridge, name: "wordTap")
+        userContent.add(bridge, name: "emptyTap")
 
         config.userContentController = userContent
         config.suppressesIncrementalRendering = false
@@ -187,14 +241,6 @@ final class EPUBChapterPageController: UIViewController {
         webView.navigationDelegate = bridge
         webView.isOpaque = false
         webView.backgroundColor = .clear
-
-        // Tap-empty-space recogniser for chrome toggle. Set to fail when
-        // the WebView's own tap (word lookup) succeeds; the JS click
-        // handler stops propagation up here when a token is hit.
-        let tap = UITapGestureRecognizer(target: bridge, action: #selector(ScriptBridge.handleEmptyTap(_:)))
-        tap.cancelsTouchesInView = false
-        tap.delegate = bridge
-        webView.addGestureRecognizer(tap)
 
         self.webView = webView
         self.view = webView
@@ -294,7 +340,7 @@ final class EPUBChapterPageController: UIViewController {
         scroll.setContentOffset(CGPoint(x: CGFloat(clamped) * viewport, y: 0), animated: true)
     }
 
-    enum PageDirection {
+    enum PageDirection: Equatable {
         case forward, backward
     }
 
@@ -313,6 +359,20 @@ final class EPUBChapterPageController: UIViewController {
 
     var isAtFirstPage: Bool {
         webView.scrollView.contentOffset.x <= 1
+    }
+
+    var isReadyForPaging: Bool {
+        didFinishInitialLoad
+    }
+
+    func requestSelectionForNote() {
+        webView.evaluateJavaScript("window.getSelection().toString()") { [weak self] result, _ in
+            guard let self,
+                  let text = result as? String else { return }
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            self.pageDelegate?.epubChapter(self, didSelectTextForNote: trimmed)
+        }
     }
 
     fileprivate func applyStyleTokens() {
@@ -334,6 +394,7 @@ final class EPUBChapterPageController: UIViewController {
           r.style.setProperty('--reader-font-family', '\(escapedFontFamily)');
           r.style.setProperty('--reader-text-align', '\(styleTokens.textAlign)');
           r.style.setProperty('--reader-tok-underline', '\(styleTokens.tokenUnderlineCSS)');
+          r.setAttribute('data-amgi-page-columns', '\(styleTokens.pageColumns == 2 ? 2 : 1)');
           if (typeof window.__amgiRelayout === 'function') { window.__amgiRelayout(); }
         })();
         """
@@ -379,7 +440,15 @@ private extension EPUBChapterPageController {
     }
 
     static func bundledJS() -> String? {
-        EPUBReaderBundledResources.js()
+        EPUBReaderBundledResources.interactionJS()
+    }
+
+    static func interactionJS() -> String? {
+        EPUBReaderBundledResources.interactionJS()
+    }
+
+    static var emptyTapScript: String {
+        EPUBReaderBundledResources.emptyTapScript
     }
 
     static func injectStyleSnippet(css: String) -> String {
@@ -389,12 +458,12 @@ private extension EPUBChapterPageController {
 
 // MARK: - Script + scroll bridge
 
-/// Bridges WKScriptMessageHandler, WKNavigationDelegate, UIScrollViewDelegate,
-/// and the empty-tap recogniser. Held by the chapter VC (which owns the
-/// WebView), so its lifetime tracks the chapter page.
+/// Bridges WKScriptMessageHandler, WKNavigationDelegate, and
+/// UIScrollViewDelegate. Token and empty taps both originate in the document
+/// script, so they share one gesture and cannot race a native recognizer.
 @MainActor
 final class ScriptBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate,
-                          UIScrollViewDelegate, UIGestureRecognizerDelegate {
+                          UIScrollViewDelegate {
     private weak var owner: EPUBChapterPageController?
 
     init(owner: EPUBChapterPageController) {
@@ -443,24 +512,6 @@ final class ScriptBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         if !decelerate { emitPageInfo(scrollView) }
     }
 
-    // MARK: Empty-tap recogniser
-
-    @objc
-    func handleEmptyTap(_ recognizer: UITapGestureRecognizer) {
-        guard let owner, let view = recognizer.view else { return }
-        let location = recognizer.location(in: view)
-        let relativeX = view.bounds.width > 0 ? location.x / view.bounds.width : 0.5
-        owner.pageDelegate?.epubChapterDidTapEmptySpace(owner, atRelativeX: relativeX)
-    }
-
-    nonisolated func gestureRecognizer(
-        _ gestureRecognizer: UIGestureRecognizer,
-        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
-    ) -> Bool {
-        // Let the WebView's internal recognisers run alongside ours so
-        // word taps + horizontal swipes still function.
-        true
-    }
 }
 
 private extension ScriptBridge {
@@ -487,6 +538,12 @@ private extension ScriptBridge {
             let sentence = (dict["sentence"] as? String) ?? token
             guard !token.isEmpty else { return }
             owner.pageDelegate?.epubChapter(owner, didTapWord: token, sentence: sentence)
+        case "emptyTap":
+            guard let number = body as? NSNumber else { return }
+            owner.pageDelegate?.epubChapterDidTapEmptySpace(
+                owner,
+                atRelativeX: CGFloat(truncating: number)
+            )
         default:
             break
         }

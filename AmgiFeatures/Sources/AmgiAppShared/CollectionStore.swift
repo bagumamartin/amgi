@@ -1,3 +1,4 @@
+import AmgiAppCore
 import AnkiClients
 public import AnkiKit
 public import Dependencies
@@ -40,10 +41,33 @@ public final class CollectionStore {
     @ObservationIgnored private var cachedGeneration = -1
     @ObservationIgnored private var inFlight: Task<[DeckTreeNode], any Error>?
     @ObservationIgnored private var inFlightGeneration = -1
+    @ObservationIgnored private var profileID: String?
+
+    /// Discards every value that belongs to the previously opened collection.
+    /// Call this before changing profiles; `tree()` also performs the check so
+    /// a missed lifecycle hook can never return another profile's cached IDs.
+    public func resetForProfileSwitch(to profileID: String) {
+        guard self.profileID != profileID else { return }
+        self.profileID = profileID
+        generation &+= 1
+        cachedTree = nil
+        cachedGeneration = -1
+        inFlight?.cancel()
+        inFlight = nil
+        inFlightGeneration = -1
+    }
+
+    private func alignWithSelectedProfile() {
+        let selected = AccountStore.shared.selectedID
+        if profileID != selected {
+            resetForProfileSwitch(to: selected)
+        }
+    }
 
     /// Read-through deck tree. Concurrent callers share one fetch; a
     /// generation bump makes both the cache and any in-flight fetch stale.
     public func tree() async throws -> [DeckTreeNode] {
+        alignWithSelectedProfile()
         if let cachedTree, cachedGeneration == generation {
             return cachedTree
         }
@@ -70,7 +94,8 @@ public final class CollectionStore {
     /// Snapshot writers use this after a mutation so a newly opened profile
     /// or an invalidation racing the write cannot publish stale due counts.
     public func freshTree() async throws -> [DeckTreeNode] {
-        try await deckClient.fetchTree()
+        alignWithSelectedProfile()
+        return try await deckClient.fetchTree()
     }
 
     public func apply(_ changes: CollectionChanges, origin: CollectionChangeOrigin = .localUser) {

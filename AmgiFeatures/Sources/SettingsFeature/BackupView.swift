@@ -110,7 +110,11 @@ struct BackupView: View {
     private var listSection: some View {
         Section {
             ForEach(backups) { entry in
-                BackupRow(entry: entry, accent: palette.accent)
+                BackupRow(
+                    entry: entry,
+                    accent: palette.accent,
+                    onDelete: { destination = .confirmDelete(entry) }
+                )
                     .listRowBackground(palette.surfaceElevated)
                     .swipeActions(edge: .trailing) {
                         Button(role: .destructive) {
@@ -181,14 +185,26 @@ private extension BackupView {
     }
 
     func deleteBackup(_ entry: BackupEntry) {
-        try? FileManager.default.removeItem(at: entry.url)
-        loadBackups()
+        do {
+            try FileManager.default.removeItem(at: entry.url)
+            destination = nil
+            loadBackups()
+        } catch CocoaError.fileNoSuchFile {
+            // The file was already removed by Finder or another app. The
+            // user's intent is still satisfied, so refresh without showing a
+            // misleading failure.
+            destination = nil
+            loadBackups()
+        } catch {
+            destination = .failure("Could not delete the backup: \(error.localizedDescription)")
+        }
     }
 }
 
 private struct BackupRow: View {
     let entry: BackupView.BackupEntry
     let accent: Color
+    let onDelete: () -> Void
 
     @Environment(\.palette) private var palette
 
@@ -207,19 +223,59 @@ private struct BackupRow: View {
             ShareLink(item: entry.url) {
                 Image(systemName: "square.and.arrow.up")
                     .foregroundStyle(accent)
+                    .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Share backup")
+            .accessibilityLabel("Share backup from \(entry.formattedDate)")
+            .accessibilityHint("Opens the system share sheet")
             Button {
                 ImportRequestRouter.shared.request(entry.url)
             } label: {
                 Image(systemName: "arrow.down.doc")
                     .foregroundStyle(accent)
+                    .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Restore backup")
+            .accessibilityLabel("Restore backup from \(entry.formattedDate)")
+            .accessibilityHint("Imports this collection backup")
             .help("Restore this collection backup")
+
+            // macOS lists do not expose swipe actions. Keep a visible,
+            // native destructive affordance there; touch platforms retain the
+            // familiar swipe plus the shared context/keyboard actions below.
+            #if os(macOS)
+            Button(role: .destructive) {
+                onDelete()
+            } label: {
+                Image(systemName: "trash")
+                    .foregroundStyle(palette.danger)
+                    .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Delete backup from \(entry.formattedDate)")
+            .accessibilityHint("Asks before deleting this backup")
+            .help("Delete this backup")
+            #endif
         }
+        .contentShape(Rectangle())
+        .contextMenu {
+            Button(role: .destructive) {
+                onDelete()
+            } label: {
+                Label("Delete Backup", systemImage: "trash")
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Backup from \(entry.formattedDate), \(entry.fileSize)")
+        .accessibilityAction(named: "Delete backup", onDelete)
+        #if os(macOS)
+        .onDeleteCommand {
+            onDelete()
+        }
+        #endif
     }
 }
 

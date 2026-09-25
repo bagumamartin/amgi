@@ -27,7 +27,6 @@
   function isCJK(cp) {
     return (cp >= 0x3040 && cp <= 0x309F) || // Hiragana
            (cp >= 0x30A0 && cp <= 0x30FF) || // Katakana
-           (cp >= 0x3000 && cp <= 0x303F) || // CJK Symbols
            (cp >= 0x3400 && cp <= 0x9FFF);   // CJK Unified Ideographs
   }
   function isWordChar(ch) {
@@ -119,9 +118,25 @@
 
   function sentenceAround(span) {
     const TERMINATORS = /[.!?。！？\n]/;
-    const text = (span.closest('p, li, div, section, body') || document.body).innerText || '';
+    const container = span.closest('p, li, div, section, body') || document.body;
+    const text = container.innerText || '';
     const tokenText = span.textContent || '';
-    const idx = text.indexOf(tokenText);
+    const tokens = Array.prototype.slice.call(container.querySelectorAll('.amgi-tok'));
+    const tokenOrdinal = tokens.indexOf(span);
+    let idx = -1;
+    let searchFrom = 0;
+
+    // `innerText` does not expose a DOM offset for the clicked span. Use
+    // the token's document order to select the corresponding occurrence
+    // instead of always taking the first repeated word in the paragraph.
+    for (let i = 0; i <= Math.max(tokenOrdinal, 0); i++) {
+      idx = text.indexOf(tokenText, searchFrom);
+      if (idx < 0) {
+        idx = text.indexOf(tokenText);
+        break;
+      }
+      searchFrom = idx + tokenText.length;
+    }
     if (idx < 0) return tokenText;
 
     let start = idx;
@@ -146,7 +161,7 @@
     if (meta) return;
     meta = document.createElement('meta');
     meta.setAttribute('name', 'viewport');
-    meta.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
+    meta.setAttribute('content', 'width=device-width, initial-scale=1.0');
     meta.setAttribute('data-amgi', 'reader');
     var head = document.head || document.documentElement;
     head.insertBefore(meta, head.firstChild);
@@ -196,8 +211,9 @@
       const pageCount = measurePages();
       const scrollLeft = document.documentElement.scrollLeft || 0;
       const pageIndex = Math.round(scrollLeft / w);
-      const denom = Math.max(1, pageCount - 1);
-      const fraction = Math.min(1, Math.max(0, pageIndex / denom));
+      const fraction = pageCount <= 1
+        ? 1
+        : Math.min(1, Math.max(0, pageIndex / (pageCount - 1)));
       try {
         window.webkit.messageHandlers.progress.postMessage({
           pageIndex: pageIndex,
@@ -255,9 +271,18 @@
   window.__amgiScrollToFraction = function (fraction) {
     const w = window.innerWidth || document.documentElement.clientWidth || 1;
     const scrollW = document.documentElement.scrollWidth || w;
-    const target = Math.max(0, Math.min(scrollW - w, Math.round(scrollW * fraction)));
-    const pageIndex = Math.round(target / w);
-    document.documentElement.scrollLeft = pageIndex * w;
+    const pageCount = measurePages();
+    const lastPage = Math.max(0, pageCount - 1);
+    const safeFraction = Number.isFinite(fraction)
+      ? Math.min(1, Math.max(0, fraction))
+      : 0;
+    const pageIndex = Math.max(0, Math.min(
+      lastPage,
+      Math.round(safeFraction * lastPage)
+    ));
+    const maxOffset = Math.max(0, scrollW - w);
+    const target = Math.min(maxOffset, pageIndex * w);
+    document.documentElement.scrollLeft = target;
     reportPageInfo();
   };
 

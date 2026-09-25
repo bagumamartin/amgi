@@ -1,6 +1,7 @@
 import AmgiReader
 import AmgiTheme
 import AmgiAppCore
+import Foundation
 import Sharing
 import SwiftUI
 import AmgiUI
@@ -19,11 +20,24 @@ struct ChapterReaderView: View {
     let book: ReaderBook
     let chapter: ReaderChapter
     let progress: ReaderProgressCoordinator
+    /// Present when this chapter is hosted by a book-level sequence. Regular
+    /// width uses it to cross chapter boundaries without losing the sidebar.
+    var chapterIndex: Int? = nil
+    var onNavigateToChapter: ((Int) -> Void)? = nil
 
     @State private var scrollProgress: Double = 0
     @State private var didRestoreInitialProgress = false
     @State private var initialRestoreProgress: Double?
     @State private var lookupQuery: String?
+    @State private var pageTurnRequest: ReaderPageTurnRequest?
+    @State private var paginationEnabled = false
+    @State private var pageIndex = 0
+    @State private var pageCount = 1
+    #if os(iOS)
+    @FocusState private var keyboardFocused: Bool
+    #endif
+
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @Shared(.appStorage(ReaderPreferences.Keys.fontSize))
     private var fontSize: Double = 17
@@ -67,6 +81,8 @@ struct ChapterReaderView: View {
     private var verticalLayout: Bool = false
     @Shared(.appStorage(ReaderPreferences.Keys.popupDebugInfoEnabled))
     private var debugInfoEnabled: Bool = false
+    @Shared(.appStorage(ReaderTypographyPreferences.Keys.twoPageLayout))
+    private var twoPageLayout: Bool = false
 
     @State private var pendingNoteText: String?
     @State private var lastTapPhrase: String?
@@ -110,18 +126,39 @@ struct ChapterReaderView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            ChapterWebView(
-                html: renderedHTML,
-                initialProgress: didRestoreInitialProgress ? nil : initialRestoreProgress,
-                progress: $scrollProgress,
-                onTapLookup: tapLookup
-                    ? { phrase in
-                        lastTapPhrase = phrase
-                        lookupQuery = phrase
-                    }
-                    : nil,
-                onSelectionForNote: { selected in pendingNoteText = selected }
-            )
+            GeometryReader { proxy in
+                let layout = ReaderPageLayout.resolve(
+                    availableSize: proxy.size,
+                    allowsTwoPageLayout: twoPageLayout && !verticalLayout
+                )
+                ChapterWebView(
+                    html: renderedHTML,
+                    initialProgress: didRestoreInitialProgress ? nil : initialRestoreProgress,
+                    progress: $scrollProgress,
+                    isPaginated: layout.usesTwoPageLayout,
+                    pageTurnRequest: pageTurnRequest,
+                    onPageInfo: { index, count in
+                        pageIndex = index
+                        pageCount = max(1, count)
+                    },
+                    onPageBoundary: navigateFromPageBoundary,
+                    onTapLookup: tapLookup
+                        ? { phrase in
+                            lastTapPhrase = phrase
+                            lookupQuery = phrase
+                        }
+                        : nil,
+                    onSelectionForNote: { selected in pendingNoteText = selected }
+                )
+                .frame(width: layout.contentWidth)
+                .frame(maxWidth: .infinity)
+                .onAppear {
+                    paginationEnabled = layout.usesTwoPageLayout
+                }
+                .onChange(of: layout.usesTwoPageLayout) { _, usesTwoPageLayout in
+                    paginationEnabled = usesTwoPageLayout
+                }
+            }
             if showProgressTop {
                 ProgressView(value: scrollProgress)
                     .progressViewStyle(.linear)
@@ -143,6 +180,16 @@ struct ChapterReaderView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Toggle(isOn: twoPageLayoutBinding) {
+                        Label("Two-Page Layout", systemImage: "rectangle.split.2x1")
+                    }
+                } label: {
+                    Image(systemName: "rectangle.split.2x1")
+                }
+                .accessibilityLabel("Page Layout")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     requestSelectionForNote()
                 } label: {
@@ -160,34 +207,39 @@ struct ChapterReaderView: View {
             }
             if showPercentage {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Text("\(Int(scrollProgress * 100))%")
+                    Text(paginationEnabled
+                         ? "\(pageIndex + 1) of \(pageCount) · \(Int(scrollProgress * 100))%"
+                         : "\(Int(scrollProgress * 100))%")
                         .amgiFont(.caption)
                         .foregroundStyle(palette.textSecondary)
                         .monospacedDigit()
                 }
             }
         }
-        .sheet(item: Binding(
-            get: { lookupQuery.map(LookupQuery.init) },
-            set: { lookupQuery = $0?.text }
-        )) { wrapped in
-            LookupPopupView(initialQuery: wrapped.text, languageHint: book.language) {
-                lookupQuery = nil
-            }
+        .sheet(isPresented: lookupSheetPresented) {
+            lookupPopupContent
         }
-        .sheet(item: Binding(
-            get: { pendingNoteText.map(LookupQuery.init) },
-            set: { pendingNoteText = $0?.text }
-        )) { wrapped in
-            // Reuse the lookup popup with the selection prefilled — the
-            // popup's "+" already drives note creation through the user's
-            // saved note template, so we don't need a parallel codepath.
-            LookupPopupView(initialQuery: wrapped.text, languageHint: book.language) {
-                pendingNoteText = nil
-            }
+        .popover(isPresented: lookupPopoverPresented, arrowEdge: .top) {
+            lookupPopupContent
+                .frame(minWidth: 380, idealWidth: 420, maxWidth: 460, minHeight: 420, idealHeight: 560)
         }
+        #if os(iOS)
+        .focusable()
+        .focused($keyboardFocused)
+        .focusEffectDisabled()
+        .onKeyPress(.leftArrow, phases: .down) { press in handlePageKey(.backward, press: press) }
+        .onKeyPress(.upArrow, phases: .down) { press in handlePageKey(.backward, press: press) }
+        .onKeyPress(.pageUp, phases: .down) { press in handlePageKey(.backward, press: press) }
+        .onKeyPress(.rightArrow, phases: .down) { press in handlePageKey(.forward, press: press) }
+        .onKeyPress(.downArrow, phases: .down) { press in handlePageKey(.forward, press: press) }
+        .onKeyPress(.pageDown, phases: .down) { press in handlePageKey(.forward, press: press) }
+        .onKeyPress(.space, phases: .down) { press in handlePageKey(.forward, press: press) }
+        #endif
         .onAppear {
             didRestoreInitialProgress = false
+            #if os(iOS)
+            keyboardFocused = true
+            #endif
         }
         .task(id: renderInputs) {
             let inputs = renderInputs
@@ -229,6 +281,91 @@ struct ChapterReaderView: View {
         .background(palette.textPrimary.opacity(0.55), in: RoundedRectangle(cornerRadius: 4))
         .foregroundStyle(.white)
     }
+}
+
+private extension ChapterReaderView {
+    var hasActiveLookup: Bool {
+        lookupQuery != nil || pendingNoteText != nil
+    }
+
+    var usesLookupInspector: Bool {
+        horizontalSizeClass != .compact
+    }
+
+    var lookupSheetPresented: Binding<Bool> {
+        Binding(
+            get: { hasActiveLookup && !usesLookupInspector },
+            set: { if !$0 { dismissLookup() } }
+        )
+    }
+
+    var lookupPopoverPresented: Binding<Bool> {
+        Binding(
+            get: { hasActiveLookup && usesLookupInspector },
+            set: { if !$0 { dismissLookup() } }
+        )
+    }
+
+    var twoPageLayoutBinding: Binding<Bool> {
+        Binding(
+            get: { twoPageLayout },
+            set: { newValue in $twoPageLayout.withLock { $0 = newValue } }
+        )
+    }
+
+    @ViewBuilder
+    var lookupPopupContent: some View {
+        if let text = lookupQuery ?? pendingNoteText {
+            LookupPopupView(
+                initialQuery: text,
+                languageHint: book.language,
+                extraTags: sourceTags,
+                onAddedNote: postCardAdded,
+                onDismiss: dismissLookup
+            )
+        }
+    }
+
+    var sourceTags: [String] {
+        guard let chapterIndex else { return ["amgi::book::\(book.id)"] }
+        return ["amgi::book::\(book.id)", "amgi::book::\(book.id)::ch::\(chapterIndex)"]
+    }
+
+    func dismissLookup() {
+        lookupQuery = nil
+        pendingNoteText = nil
+    }
+
+    func postCardAdded() {
+        var info: [String: Any] = ["bookID": book.id]
+        if let chapterIndex, book.chapters.indices.contains(chapterIndex) {
+            info["chapterID"] = book.chapters[chapterIndex].id
+        }
+        NotificationCenter.default.post(
+            name: .amgiReaderCardAdded,
+            object: nil,
+            userInfo: info
+        )
+    }
+
+    func navigateFromPageBoundary(_ direction: ReaderPageDirection) {
+        guard let chapterIndex, let onNavigateToChapter else { return }
+        let target = chapterIndex + (direction == .forward ? 1 : -1)
+        guard book.chapters.indices.contains(target) else { return }
+        onNavigateToChapter(target)
+    }
+
+    #if os(iOS)
+    func handlePageKey(
+        _ direction: ReaderPageDirection,
+        press: KeyPress
+    ) -> KeyPress.Result {
+        guard paginationEnabled, !hasActiveLookup, press.modifiers.isEmpty else { return .ignored }
+        let nextSequence = (pageTurnRequest?.sequence ?? 0) + 1
+        pageTurnRequest = ReaderPageTurnRequest(sequence: nextSequence, direction: direction)
+        return .handled
+    }
+    #endif
 }
 
 extension ChapterReaderView {
@@ -409,13 +546,4 @@ struct ChapterRenderInputs: Equatable, Sendable {
     let customHintColorHex: String
     let verticalLayout: Bool
     let language: String?
-}
-
-/// Wrapper so an empty-string query is still presentable via .sheet(item:);
-/// `.sheet(item:)` requires `Identifiable` and treats nil as "dismissed".
-/// The id is the query text — a fresh `UUID()` here would change identity on
-/// every body re-evaluation and make the sheet dismiss/re-present endlessly.
-private struct LookupQuery: Identifiable {
-    var id: String { text }
-    let text: String
 }

@@ -2,6 +2,8 @@ public import SwiftUI
 
 #if os(iOS)
 import UIKit
+#elseif os(macOS)
+import AppKit
 #endif
 
 /// The project's motion vocabulary.
@@ -74,6 +76,8 @@ public enum AmgiMotion {
     public static var prefersReducedMotion: Bool {
         #if os(iOS)
         UIAccessibility.isReduceMotionEnabled
+        #elseif os(macOS)
+        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         #else
         false
         #endif

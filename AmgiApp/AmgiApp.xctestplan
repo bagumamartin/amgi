@@ -33,6 +33,14 @@
     },
     {
       "target" : {
+        "containerPath" : "container:AmgiApp.xcodeproj",
+        "identifier" : "19A9FA0B51A65BD9EDF4DD4E",
+        "name" : "AmgiAppAdaptiveUITests"
+      },
+      "parallelizable" : false
+    },
+    {
+      "target" : {
         "containerPath" : "container:..",
         "identifier" : "AnkiKitTests",
         "name" : "AnkiKitTests"

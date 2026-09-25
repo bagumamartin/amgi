@@ -26,7 +26,7 @@ defaults:
 jobs:
   build:
     runs-on: macos-26
-    timeout-minutes: 60
+    timeout-minutes: 120
 
     # GITHUB_TOKEN scopes — minimal set required for tag-triggered release publish.
     permissions:
@@ -56,7 +56,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.95"
-          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios,aarch64-apple-darwin,x86_64-apple-darwin
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,aarch64-apple-darwin,x86_64-apple-darwin
 
       # ── 4.5. Install nightly + rust-src (watchOS build-std) ───────
       # build-xcframework.sh builds the tier-3 watchOS sim slice with
@@ -115,7 +115,7 @@ jobs:
             -project AmgiApp/AmgiApp.xcodeproj \
             -scheme AmgiApp \
             -configuration Debug \
-            -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max' \
+            -destination 'platform=iOS Simulator,name=iPhone 18 Pro Max' \
             -derivedDataPath "$DERIVED_DATA_PATH" \
             -skipPackagePluginValidation \
             -skipMacroValidation \
@@ -143,13 +143,56 @@ jobs:
             -project AmgiApp/AmgiApp.xcodeproj \
             -scheme AmgiApp \
             -configuration Debug \
-            -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max' \
+            -destination 'platform=iOS Simulator,name=iPhone 18 Pro Max' \
             -derivedDataPath "$RUNNER_TEMP/DerivedData" \
             -skipPackagePluginValidation \
             -skipMacroValidation \
             -parallel-testing-enabled NO \
             -collect-test-diagnostics never \
             2>&1 | tee simulator-tests.log
+
+      - name: Build and run adaptive UI tests on iPad
+        run: |
+          set -o pipefail
+          IPAD_DERIVED_DATA="$RUNNER_TEMP/DerivedData-iPad"
+          xcodebuild build-for-testing \
+            -project AmgiApp/AmgiApp.xcodeproj \
+            -scheme AmgiApp \
+            -configuration Debug \
+            -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M5)' \
+            -derivedDataPath "$IPAD_DERIVED_DATA" \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            2>&1 | tee ipad-build.log
+          xcodebuild test-without-building \
+            -project AmgiApp/AmgiApp.xcodeproj \
+            -scheme AmgiApp \
+            -configuration Debug \
+            -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M5)' \
+            -derivedDataPath "$IPAD_DERIVED_DATA" \
+            -only-testing:AmgiAppAdaptiveUITests \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            -parallel-testing-enabled NO \
+            -collect-test-diagnostics never \
+            2>&1 | tee ipad-tests.log
+
+      - name: Run macOS Unit and Adaptive UI Tests
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project AmgiApp/AmgiApp.xcodeproj \
+            -scheme AmgiAppMac \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData-mac-tests" \
+            -only-testing:AmgiAppTests \
+            -only-testing:AmgiAppAdaptiveUITests \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            -parallel-testing-enabled NO \
+            -collect-test-diagnostics never \
+            2>&1 | tee macos-tests.log
 
       # ── 10. Build unsigned xcarchive ──────────────────────────────
       # -skipPackagePluginValidation: allows Swift macro plugins (e.g.
@@ -217,7 +260,7 @@ jobs:
         run: |
           IPA_PATH="/tmp/AmgiApp-unsigned.ipa"
           {
-            echo "# Amgi iOS IPA Build Summary"
+            echo "# Ijuka iOS IPA Build Summary"
             echo ""
             echo "**Build Date**: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
             echo "**Commit**: \`${{ github.sha }}\`"
@@ -272,7 +315,7 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}
           files: /tmp/AmgiApp-unsigned.ipa
           body: |
-            ## Amgi ${{ github.ref_name }}
+            ## Ijuka ${{ github.ref_name }}
 
             Unsigned iOS IPA build. Sign locally with [AltStore](https://altstore.io/) or [Sideloadly](https://sideloadly.io/) using your own Apple ID.
 
@@ -295,7 +338,7 @@ jobs:
 
             ### License
 
-            Amgi is licensed under [AGPL-3.0](https://www.gnu.org/licenses/agpl-3.0.html).
+            Ijuka is licensed under [AGPL-3.0](https://www.gnu.org/licenses/agpl-3.0.html).
             It includes the [ankitects/anki](https://github.com/ankitects/anki) Rust backend (also AGPL-3.0).
 
             Source: https://github.com/${{ github.repository }}/tree/${{ github.sha }}

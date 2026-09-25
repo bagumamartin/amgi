@@ -627,7 +627,7 @@ package final class ExportReviewModel {
         let disallowed = CharacterSet(charactersIn: "/\\:?%*|\"<>")
         let cleaned = value.components(separatedBy: disallowed).joined(separator: "-")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return cleaned.isEmpty ? "Amgi Export" : String(cleaned.prefix(80))
+        return cleaned.isEmpty ? "Ijuka Export" : String(cleaned.prefix(80))
     }
 }
 

@@ -23,6 +23,14 @@ public struct ActivityHeatmapCard: View {
     @Environment(\.palette) private var palette
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
+    private var usesRegularWidth: Bool {
+        #if os(macOS)
+        true
+        #else
+        horizontalSizeClass == .regular
+        #endif
+    }
+
     public init(data: HeatmapCardData, initialDays: Int = 180) {
         self.data = data
         self._selectedDays = State(initialValue: initialDays)
@@ -53,20 +61,27 @@ public struct ActivityHeatmapCard: View {
                 } else {
                     HeatmapSummaryRow(
                         summary: summary,
-                        spread: horizontalSizeClass != .regular
+                        spread: !usesRegularWidth
                     )
                     GeometryReader { geo in
                         HeatmapScrollGrid(
                             grid: grid,
                             maxCount: data.maxCount,
                             cellSize: HeatmapGridMetrics.cellSize,
-                            cellSpacing: HeatmapGridMetrics.cellSpacing,
+                            cellSpacing: HeatmapGridMetrics.cellSpacing(
+                                regularWidth: usesRegularWidth
+                            ),
                             weekdayLabelWidth: weekdayLabelWidth,
                             containerWidth: geo.size.width,
                             tooltipOffset: $tooltipOffset
                         )
                     }
-                    .frame(height: HeatmapGridMetrics.gridHeight(cellSize: HeatmapGridMetrics.cellSize))
+                    .frame(height: HeatmapGridMetrics.gridHeight(
+                        cellSize: HeatmapGridMetrics.cellSize,
+                        cellSpacing: HeatmapGridMetrics.cellSpacing(
+                            regularWidth: usesRegularWidth
+                        )
+                    ))
                     HeatmapLegend(cellSize: HeatmapGridMetrics.cellSize)
                 }
             }
@@ -76,19 +91,29 @@ public struct ActivityHeatmapCard: View {
 
 // MARK: - Grid metrics
 
-private enum HeatmapGridMetrics {
+enum HeatmapGridMetrics {
     static let cellSize: CGFloat = 11
-    static let cellSpacing: CGFloat = 2
+    static let compactCellSpacing: CGFloat = 2
+    /// WCAG's minimum target size. On regular-width layouts the visual cell
+    /// remains 11 points, while the surrounding spacing expands the complete
+    /// button hit region to this size. Compact iPhone keeps its original
+    /// 13-point pitch and pixel-for-pixel layout.
+    static let minimumHitTarget: CGFloat = 24
     static let weekdayLabelWidth: CGFloat = 18
     static let monthHeaderHeight: CGFloat = 14
 
-    static func contentWidth(weekCount: Int, cellSize: CGFloat) -> CGFloat {
+    static func cellSpacing(regularWidth: Bool) -> CGFloat {
+        guard regularWidth else { return compactCellSpacing }
+        return max(compactCellSpacing, minimumHitTarget - cellSize)
+    }
+
+    static func contentWidth(weekCount: Int, cellSize: CGFloat, cellSpacing: CGFloat) -> CGFloat {
         weekdayLabelWidth
             + CGFloat(weekCount) * cellSize
             + CGFloat(max(weekCount - 1, 0)) * cellSpacing
     }
 
-    static func gridHeight(cellSize: CGFloat) -> CGFloat {
+    static func gridHeight(cellSize: CGFloat, cellSpacing: CGFloat) -> CGFloat {
         monthHeaderHeight + 7 * cellSize + 6 * cellSpacing
     }
 }
@@ -216,7 +241,11 @@ private struct HeatmapScrollGrid: View {
     @Binding var tooltipOffset: Int?
 
     private var contentWidth: CGFloat {
-        HeatmapGridMetrics.contentWidth(weekCount: grid.weeks.count, cellSize: cellSize)
+        HeatmapGridMetrics.contentWidth(
+            weekCount: grid.weeks.count,
+            cellSize: cellSize,
+            cellSpacing: cellSpacing
+        )
     }
 
     private var needsScroll: Bool {
@@ -304,6 +333,7 @@ private struct HeatmapCellGrid: View {
                                 day: day,
                                 maxCount: maxCount,
                                 cellSize: cellSize,
+                                hitTargetSize: cellSize + cellSpacing,
                                 isShowingTooltip: tooltipOffset == day.offset,
                                 onTap: {
                                     tooltipOffset = tooltipOffset == day.offset ? nil : day.offset
@@ -344,6 +374,7 @@ private struct HeatmapCell: View {
     let day: HeatmapDay
     let maxCount: Int
     let cellSize: CGFloat
+    let hitTargetSize: CGFloat
     let isShowingTooltip: Bool
     let onTap: () -> Void
     let onDismiss: () -> Void
@@ -373,12 +404,25 @@ private struct HeatmapCell: View {
     }
 
     private var cellButton: some View {
-        Button(action: onTap) {
+        let targetSize = hitTargetSize
+        return Button(action: onTap) {
             RoundedRectangle(cornerRadius: 2, style: .continuous)
                 .fill(cellColor)
                 .frame(width: cellSize, height: cellSize)
+                // The custom shape grows the interaction/assistive target
+                // into the surrounding grid spacing without changing the
+                // visual pitch. This is 13 points on compact (the full
+                // original pitch) and 24 points on regular-width layouts.
+                .contentShape(HeatmapHitShape(size: targetSize))
         }
         .buttonStyle(.pressScale)
+        .disabled(day.isFuture)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Self.dateFormatter.string(from: day.date))
+        .accessibilityValue(day.reviewAccessibilityValue)
+        .accessibilityHint("Shows this day's review details")
+        .accessibilityHidden(day.isFuture)
+        .accessibilityAddTraits(isShowingTooltip ? .isSelected : [])
     }
 
     private var tooltip: some View {
@@ -394,6 +438,20 @@ private struct HeatmapCell: View {
     private var cellColor: Color {
         guard !day.isFuture else { return Color.clear }
         return HeatmapColorRamp.color(count: day.count, maxCount: maxCount, palette: palette)
+    }
+}
+
+private struct HeatmapHitShape: Shape {
+    let size: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let target = CGRect(
+            x: rect.midX - size / 2,
+            y: rect.midY - size / 2,
+            width: size,
+            height: size
+        )
+        return Path(roundedRect: target, cornerRadius: 2)
     }
 }
 

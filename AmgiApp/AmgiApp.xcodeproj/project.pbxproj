@@ -94,6 +94,13 @@
 			remoteGlobalIDString = 9B3B324834735D7AA9620491;
 			remoteInfo = AmgiWidget;
 		};
+		F125BCC4D547FDEC0B866A7F /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = CCE55545D9F1ABEDD48DB366 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 95284AD6E89B9B84191749DE;
+			remoteInfo = AmgiApp;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -117,6 +124,7 @@
 		1B84A2ADB8D6A599253D2E78 /* Review */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Review; path = Resources/Review; sourceTree = SOURCE_ROOT; };
 		20B1543BD569468BABE06195 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		2B60A11C277A30E8180CB0F1 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		2C2CD939552B0A4CB501E99D /* AmgiAppAdaptiveUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AmgiAppAdaptiveUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		308AC2057FB8232A7A730D15 /* mathjax */ = {isa = PBXFileReference; lastKnownFileType = folder; name = mathjax; path = Resources/mathjax; sourceTree = SOURCE_ROOT; };
 		32D10E5F584CDD7816F8408A /* Fonts */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Fonts; path = Resources/Fonts; sourceTree = SOURCE_ROOT; };
 		34B25F9D324E0B703F834DC4 /* WatchAssets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = WatchAssets.xcassets; sourceTree = "<group>"; };
@@ -186,6 +194,16 @@
 			);
 			name = AmgiAppTests;
 			path = AmgiAppTests;
+			sourceTree = "<group>";
+		};
+		7608F7C11757FEACED1F7B35 /* AmgiAppAdaptiveUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			name = AmgiAppAdaptiveUITests;
+			path = AmgiAppAdaptiveUITests;
 			sourceTree = "<group>";
 		};
 		866AB3935E4B832E1E446D8E /* AmgiAppIntentsUITests */ = {
@@ -332,6 +350,7 @@
 		C2DEE343E176258185B95328 /* Tests */ = {
 			isa = PBXGroup;
 			children = (
+				7608F7C11757FEACED1F7B35 /* AmgiAppAdaptiveUITests */,
 				866AB3935E4B832E1E446D8E /* AmgiAppIntentsUITests */,
 				70BB06347ADF26FA0276AD23 /* AmgiAppTests */,
 			);
@@ -366,6 +385,7 @@
 			isa = PBXGroup;
 			children = (
 				DE61E854280804F08BB1DD31 /* AmgiApp.app */,
+				2C2CD939552B0A4CB501E99D /* AmgiAppAdaptiveUITests.xctest */,
 				C4E1BF55165FBA317A5B42C7 /* AmgiAppIntentsUITests.xctest */,
 				FEF6D1A33091968455963805 /* AmgiAppTests.xctest */,
 				E52A1F699FA8746826E4EAB0 /* AmgiWatchApp.app */,
@@ -402,6 +422,28 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		19A9FA0B51A65BD9EDF4DD4E /* AmgiAppAdaptiveUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B57A78D66E30CD3E92C5BF83 /* Build configuration list for PBXNativeTarget "AmgiAppAdaptiveUITests" */;
+			buildPhases = (
+				50CEBE415148F6FE5A0B38A2 /* Sources */,
+				6479DF7311BEB50C2E94FCC8 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A0971496B4D02732C6D38BD2 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				7608F7C11757FEACED1F7B35 /* AmgiAppAdaptiveUITests */,
+			);
+			name = AmgiAppAdaptiveUITests;
+			packageProductDependencies = (
+			);
+			productName = AmgiAppAdaptiveUITests;
+			productReference = 2C2CD939552B0A4CB501E99D /* AmgiAppAdaptiveUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 		355EA53755D1BF2DEDF97E58 /* IjukaMCPHelper */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = BEF5C5BECF4EB54917BDAFC4 /* Build configuration list for PBXNativeTarget "IjukaMCPHelper" */;
@@ -562,6 +604,11 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 2700;
 				TargetAttributes = {
+					19A9FA0B51A65BD9EDF4DD4E = {
+						DevelopmentTeam = 39557WW39R;
+						ProvisioningStyle = Automatic;
+						TestTargetID = 95284AD6E89B9B84191749DE;
+					};
 					355EA53755D1BF2DEDF97E58 = {
 						DevelopmentTeam = 39557WW39R;
 						ProvisioningStyle = Automatic;
@@ -621,6 +668,7 @@
 				9B3B324834735D7AA9620491 /* AmgiWidget */,
 				D799962EF4F5CA4D32203063 /* AmgiWatchApp */,
 				D2AE43B206388AEEED1DF7A4 /* AmgiAppIntentsUITests */,
+				19A9FA0B51A65BD9EDF4DD4E /* AmgiAppAdaptiveUITests */,
 				EE6CF1FAA191BC2F0404B752 /* AmgiAppTests */,
 			);
 		};
@@ -660,6 +708,13 @@
 			buildActionMask = 2147483647;
 			files = (
 				B7DC18E3EDF82685C810048E /* WatchAssets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6479DF7311BEB50C2E94FCC8 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -724,6 +779,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		50CEBE415148F6FE5A0B38A2 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		9B505B3DB3F7C871FAAEF781 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -773,6 +835,11 @@
 			target = 9B3B324834735D7AA9620491 /* AmgiWidget */;
 			targetProxy = EE34BEA2D08D4B4B3CE4BF7A /* PBXContainerItemProxy */;
 		};
+		A0971496B4D02732C6D38BD2 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 95284AD6E89B9B84191749DE /* AmgiApp */;
+			targetProxy = F125BCC4D547FDEC0B866A7F /* PBXContainerItemProxy */;
+		};
 		CBE72A2FC9443D7575B4394A /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 95284AD6E89B9B84191749DE /* AmgiApp */;
@@ -799,7 +866,6 @@
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				APP_GROUP_IDENTIFIER = group.com.bagumamartin.ijuka;
-				ARCHS = arm64;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOLS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
@@ -868,7 +934,6 @@
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.0;
-				VALID_ARCHS = arm64;
 				WATCHOS_DEPLOYMENT_TARGET = 11.0;
 				_SWIFT_EXPLICIT_MODULES_ALLOW_CXX_INTEROP = NO;
 			};
@@ -1050,6 +1115,52 @@
 			};
 			name = Release;
 		};
+		5A8EA4853F53C1BE58B04F9C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMPILATION_CACHE_ENABLE_CACHING = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.bagumamartin.ijuka.AdaptiveUITests;
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
+				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = AmgiApp;
+			};
+			name = Debug;
+		};
+		6274F4CC25FEA60978483818 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMPILATION_CACHE_ENABLE_CACHING = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.bagumamartin.ijuka.AdaptiveUITests;
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
+				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = AmgiApp;
+			};
+			name = Release;
+		};
 		B2FEE2CDEFFBD12DCDE488BA /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -1069,7 +1180,6 @@
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				APP_GROUP_IDENTIFIER = group.com.bagumamartin.ijuka;
-				ARCHS = arm64;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOLS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
@@ -1143,7 +1253,6 @@
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.0;
-				VALID_ARCHS = arm64;
 				WATCHOS_DEPLOYMENT_TARGET = 11.0;
 				_SWIFT_EXPLICIT_MODULES_ALLOW_CXX_INTEROP = NO;
 			};
@@ -1282,6 +1391,15 @@
 			buildConfigurations = (
 				B2FEE2CDEFFBD12DCDE488BA /* Debug */,
 				50D2E3D69F1AC5A7F66FE08C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		B57A78D66E30CD3E92C5BF83 /* Build configuration list for PBXNativeTarget "AmgiAppAdaptiveUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5A8EA4853F53C1BE58B04F9C /* Debug */,
+				6274F4CC25FEA60978483818 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

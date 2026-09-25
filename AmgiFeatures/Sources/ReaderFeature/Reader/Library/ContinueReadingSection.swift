@@ -6,6 +6,7 @@ struct ContinueReadingSection: View {
     let items: [ContinueReadingItem]
     let bookForId: (String) -> ReaderBook?
     let progress: ReaderProgressCoordinator
+    let onSelectBook: ((String) -> Void)?
 
     @Environment(\.palette) private var palette
     /// See `AllBooksSection` — the detail push grows from the tapped card.
@@ -23,18 +24,30 @@ struct ContinueReadingSection: View {
                     LazyHStack(alignment: .top, spacing: 14) {
                         ForEach(items) { item in
                             if let book = bookForId(item.id) {
-                                NavigationLink {
-                                    ReaderBookDetailView(book: book, progress: progress)
-                                        #if os(iOS)
-                                        .navigationTransition(.zoom(sourceID: item.id, in: coverTransition))
-                                        #endif
-                                } label: {
-                                    ContinueReadingCard(item: item)
+                                if let onSelectBook {
+                                    Button {
+                                        onSelectBook(item.id)
+                                    } label: {
+                                        ContinueReadingCard(item: item)
+                                    }
+                                    .buttonStyle(.pressScale)
+                                    #if os(iOS)
+                                    .matchedTransitionSource(id: item.id, in: coverTransition)
+                                    #endif
+                                } else {
+                                    NavigationLink {
+                                        ReaderBookDetailView(book: book, progress: progress)
+                                            #if os(iOS)
+                                            .navigationTransition(.zoom(sourceID: item.id, in: coverTransition))
+                                            #endif
+                                    } label: {
+                                        ContinueReadingCard(item: item)
+                                    }
+                                    .buttonStyle(.pressScale)
+                                    #if os(iOS)
+                                    .matchedTransitionSource(id: item.id, in: coverTransition)
+                                    #endif
                                 }
-                                .buttonStyle(.pressScale)
-                                #if os(iOS)
-                                .matchedTransitionSource(id: item.id, in: coverTransition)
-                                #endif
                             } else {
                                 ContinueReadingCard(item: item)
                             }

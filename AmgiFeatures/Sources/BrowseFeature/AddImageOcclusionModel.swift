@@ -82,39 +82,73 @@ final class AddImageOcclusionModel {
     func loadImage(from item: PhotosPickerItem?) async {
         guard let item else { return }
         masks = []
+        selectedImage = nil
+        imageURL = nil
+        guard let data = try? await item.loadTransferable(type: Data.self) else {
+            errorMessage = "Couldn't read that image."
+            return
+        }
+        await ingestImageData(data)
+    }
 
-        if let data = try? await item.loadTransferable(type: Data.self),
-           let img = PlatformImage(data: data) {
-            // Encode and write off the main actor: this model is @MainActor,
-            // and re-encoding a full-resolution camera photo there froze the
-            // UI for the length of the encode right after the picker dismissed.
-            let tempDir = FileManager.default.temporaryDirectory
-            let filename = "io_pick_\(UUID().uuidString).jpg"
-            let url = tempDir.appendingPathComponent(filename)
-            let fit = Self.displayFit(for: img.size)
-            let result = await Task.detached(priority: .userInitiated) {
-                // The note gets the full-resolution encode; the editor gets a
-                // display-sized copy on iOS. Holding the 12 MP original as a
-                // decoded ~48 MB backing store was a jetsam risk on older
-                // devices. Mac keeps the original; PhotosPicker images there
-                // are already modest.
-                #if canImport(UIKit)
-                let displayImage = await img.byPreparingThumbnail(ofSize: fit) ?? img
-                #else
-                let displayImage = img
-                #endif
-                guard let jpegData = Self.jpegRepresentation(of: img) else {
-                    return (displayImage, false)
-                }
-                do {
-                    try jpegData.write(to: url)
-                    return (displayImage, true)
-                } catch {
-                    return (displayImage, false)
-                }
-            }.value
-            selectedImage = result.0
-            if result.1 { imageURL = url }
+    /// File/Finder drop path. The security-scoped URL is consumed before the
+    /// temporary JPEG is handed to the image-occlusion backend, so the
+    /// resulting note never depends on the dropped file remaining readable.
+    func loadImage(from url: URL) async {
+        let accessed = url.startAccessingSecurityScopedResource()
+        defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+        masks = []
+        selectedImage = nil
+        imageURL = nil
+        let data = await Task.detached(priority: .userInitiated) {
+            try? Data(contentsOf: url)
+        }.value
+        guard let data else {
+            errorMessage = "Couldn't read that image."
+            return
+        }
+        await ingestImageData(data)
+    }
+
+    private func ingestImageData(_ data: Data) async {
+        errorMessage = nil
+        guard let img = PlatformImage(data: data) else {
+            errorMessage = "That file isn't a supported image."
+            return
+        }
+        // Encode and write off the main actor: this model is @MainActor,
+        // and re-encoding a full-resolution camera photo there froze the
+        // UI for the length of the encode right after the picker dismissed.
+        let tempDir = FileManager.default.temporaryDirectory
+        let filename = "io_pick_\(UUID().uuidString).jpg"
+        let url = tempDir.appendingPathComponent(filename)
+        let fit = Self.displayFit(for: img.size)
+        let result = await Task.detached(priority: .userInitiated) {
+            // The note gets the full-resolution encode; the editor gets a
+            // display-sized copy on iOS. Holding the 12 MP original as a
+            // decoded ~48 MB backing store was a jetsam risk on older
+            // devices. Mac keeps the original; PhotosPicker images there
+            // are already modest.
+            #if canImport(UIKit)
+            let displayImage = await img.byPreparingThumbnail(ofSize: fit) ?? img
+            #else
+            let displayImage = img
+            #endif
+            guard let jpegData = Self.jpegRepresentation(of: img) else {
+                return (displayImage, false)
+            }
+            do {
+                try jpegData.write(to: url)
+                return (displayImage, true)
+            } catch {
+                return (displayImage, false)
+            }
+        }.value
+        selectedImage = result.0
+        if result.1 {
+            imageURL = url
+        } else {
+            errorMessage = "Couldn't prepare that image."
         }
     }
 

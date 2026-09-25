@@ -1,4 +1,5 @@
 import SwiftUI
+import Foundation
 import PhotosUI
 import AmgiTheme
 import AmgiUI
@@ -127,6 +128,10 @@ struct AddImageOcclusionContent: View {
                 }
             } header: {
                 Text("Image")
+            } footer: {
+                Text("Drop an image here, or choose one above.")
+                    .amgiFont(.caption)
+                    .foregroundStyle(palette.textSecondary)
             }
 
             if let uiImage = model.selectedImage {
@@ -169,6 +174,16 @@ struct AddImageOcclusionContent: View {
         }
         .scrollContentBackground(.hidden)
         .background(palette.background)
+        .dropDestination(for: URL.self) { urls, _ in
+            guard let url = urls.first, !url.hasDirectoryPath else { return false }
+            let ext = url.pathExtension.lowercased()
+            let imageExtensions: Set<String> = [
+                "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "heic", "tif", "tiff",
+            ]
+            guard ext.isEmpty || imageExtensions.contains(ext) else { return false }
+            Task { await model.loadImage(from: url) }
+            return true
+        }
     }
 }
 

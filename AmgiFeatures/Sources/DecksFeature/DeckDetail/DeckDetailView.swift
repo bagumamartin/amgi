@@ -20,6 +20,10 @@ import Sharing
 /// model and dispatches `DeckDetailScreen.Action` callbacks.
 struct DeckDetailView: View {
     let deck: DeckInfo
+    /// Collection activity is owned by the detail pane in the large-screen
+    /// Library split. Passing it through the view keeps the list and detail
+    /// from rendering the same heatmap twice.
+    let activityData: HeatmapCardData?
 
     @Environment(\.palette) private var palette
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -35,8 +39,9 @@ struct DeckDetailView: View {
     @State private var deleteSubdeckTarget: DeckSubdeckRowData?
     @State private var deleteError: String?
 
-    init(deck: DeckInfo) {
+    init(deck: DeckInfo, activityData: HeatmapCardData? = nil) {
         self.deck = deck
+        self.activityData = activityData
         _model = State(initialValue: DeckDetailModel(deck: deck))
     }
 
@@ -192,10 +197,12 @@ struct DeckDetailView: View {
     }
 
     private var contentWithToolbar: some View {
-        DeckDetailScreen(
+        DeckDetailScreen<DeckActivitySlot>(
             state: viewState,
             sortOrder: sortOrderBinding,
-            heatmapSlot: { EmptyView() }, // R03 will inject its chart here.
+            heatmapSlot: {
+                DeckActivitySlot(data: activityData)
+            },
             onAction: handle
         )
         .navigationTitle(shortTitle)
@@ -316,7 +323,7 @@ struct DeckDetailView: View {
 }
 
 private extension DeckDetailView {
-    func handle(_ action: DeckDetailScreen<EmptyView>.Action) {
+    func handle(_ action: DeckDetailScreen<DeckActivitySlot>.Action) {
         switch action {
         case .studyNow:
             destination = .review(deck.id)
@@ -514,6 +521,17 @@ private extension DeckDetailView {
             isFiltered: node.isFiltered,
             isArchived: isArchived
         )
+    }
+}
+
+private struct DeckActivitySlot: View {
+    let data: HeatmapCardData?
+
+    var body: some View {
+        if let data {
+            ActivityHeatmapCard(data: data, initialDays: 365)
+                .frame(maxWidth: .infinity)
+        }
     }
 }
 

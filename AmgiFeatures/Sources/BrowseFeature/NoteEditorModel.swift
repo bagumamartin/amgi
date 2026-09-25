@@ -25,6 +25,11 @@ final class NoteEditorModel {
     var fieldConfigs: [Notetype.Field] = []
     /// Live duplicate-field warning for the sort field (desktop parity).
     var duplicateWarning: String?
+    /// Matching notes returned by the same duplicate query, including the
+    /// edited note. Keeping the ids alongside the warning makes "Show
+    /// Duplicates" an actual navigation action instead of a permanently
+    /// disabled affordance.
+    private(set) var duplicateNoteIDs: [NoteID] = []
     /// Tag completions for the current tag token (collection-aware).
     var tagCompletions: [String] = []
     private var originalFieldValues: [String] = []
@@ -86,6 +91,7 @@ final class NoteEditorModel {
     /// (desktop live duplicate warning). Sets `duplicateWarning`; empty = none.
     func refreshDuplicateWarning() async {
         duplicateWarning = nil
+        duplicateNoteIDs = []
         guard let first = fieldValues.first?.trimmingCharacters(in: .whitespacesAndNewlines),
               !first.isEmpty else { return }
         let client = noteClient
@@ -94,9 +100,19 @@ final class NoteEditorModel {
         let query = "dupe:\(note.mid.rawValue),\(first)"
         guard let hits = try? await client.searchIds(query, nil) else { return }
         let others = hits.filter { $0 != ownID }
+        // Keep the edited note in the reveal set so the user sees the whole
+        // duplicate group, not just the other side of the comparison.
+        duplicateNoteIDs = [ownID] + others
         if !others.isEmpty {
             duplicateWarning = "This field matches \(others.count) other note\(others.count == 1 ? "" : "s")."
         }
+    }
+
+    /// Query used by Browse's "Show Duplicates" action. The comma form is
+    /// the same grammar accepted by the bundled search parser.
+    var duplicateQuery: String? {
+        guard !duplicateNoteIDs.isEmpty else { return nil }
+        return BrowseSearchGrammar.noteIDs(duplicateNoteIDs)
     }
 
     /// Collection-aware tag completions for the in-progress token.

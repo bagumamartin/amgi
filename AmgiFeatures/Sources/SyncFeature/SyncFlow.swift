@@ -12,18 +12,21 @@ import Dependencies
 /// the root used to drive all three by hand, which is what forced them
 /// public.
 private struct SyncFlowModifier: ViewModifier {
+    let requestID: Int
     let onFinished: () -> Void
 
     @Dependency(\.syncCoordinator) private var coordinator
     @Dependency(\.collectionStore) private var store
 
     @State private var toast = SyncToastController()
+    @State private var presentationAction = SyncPresentationAction()
     @State private var modelDownloads = ModelDownloadCoordinator()
     @State private var showSheet = false
 
     func body(content: Content) -> some View {
         content
             .environment(\.startSync, SyncAction(toast: toast))
+            .environment(\.presentSync, presentationAction)
             .sheet(isPresented: $showSheet) {
                 store.invalidateAll()
                 onFinished()
@@ -39,15 +42,25 @@ private struct SyncFlowModifier: ViewModifier {
                 toast.handle(newState)
                 if case .success = newState { store.invalidateAll() }
             }
-            .onReceive(NotificationCenter.default.publisher(for: .amgiPresentSync)) { _ in
+            .onChange(of: requestID) { _, _ in
                 SyncAction(toast: toast)()
             }
-            .onReceive(NotificationCenter.default.publisher(for: .amgiPerformBackgroundSync)) { _ in
-                // Kept as a compatibility hook for older integrations. The
-                // registered BGTask now invokes the coordinator directly.
-                Task { _ = await coordinator.runScheduledCollectionSync() }
+            .onAppear {
+                presentationAction.configure {
+                    SyncAction(toast: toast)()
+                }
+            }
+            .onDisappear {
+                presentationAction.configure(action: {})
             }
             .task {
+                // The adaptive UI lane exercises the root shell. Suppress the
+                // optional first-run model consent so a network-dependent
+                // system alert cannot block or contaminate accessibility
+                // audits; normal launches retain the consent flow unchanged.
+                guard !ProcessInfo.processInfo.arguments.contains("--ui-testing") else {
+                    return
+                }
                 modelDownloads.onAppear()
             }
             .onChange(of: NetworkMonitor.shared.isSatisfied) { _, isSatisfied in
@@ -145,7 +158,10 @@ extension EnvironmentValues {
 extension View {
     /// Attach the sync flow. `onFinished` fires after the sheet is dismissed
     /// so the host can refresh anything not backed by `CollectionStore`.
-    package func syncFlow(onFinished: @escaping () -> Void) -> some View {
-        modifier(SyncFlowModifier(onFinished: onFinished))
+    package func syncFlow(
+        requestID: Int = 0,
+        onFinished: @escaping () -> Void
+    ) -> some View {
+        modifier(SyncFlowModifier(requestID: requestID, onFinished: onFinished))
     }
 }

@@ -14,16 +14,30 @@ package final class ReviewSessionContext: @unchecked Sendable {
 
     private let lock = NSLock()
     private var snapshot: ReviewSessionSnapshot?
+    private var ownerID: UUID?
 
-    package func publish(_ snapshot: ReviewSessionSnapshot) {
+    package func publish(_ snapshot: ReviewSessionSnapshot, ownerID: UUID) {
         lock.lock()
         self.snapshot = snapshot
+        self.ownerID = ownerID
         lock.unlock()
     }
 
+    package func clear(ownerID: UUID) {
+        lock.lock()
+        if self.ownerID == ownerID {
+            snapshot = nil
+            self.ownerID = nil
+        }
+        lock.unlock()
+    }
+
+    /// Unconditional clear for a collection lifecycle transition. Profile
+    /// switching already drains every review mutation before calling this.
     package func clear() {
         lock.lock()
-        self.snapshot = nil
+        snapshot = nil
+        ownerID = nil
         lock.unlock()
     }
 
