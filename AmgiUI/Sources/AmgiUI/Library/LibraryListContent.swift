@@ -30,10 +30,6 @@ public struct LibraryListContent: View {
     let onRenameDeck: (DeckRowViewData) -> Void
     let onCreateDeck: () -> Void
     let onChangeIconDeck: (DeckRowViewData) -> Void
-    /// Regular-width split hosts can place Activity in the detail column while
-    /// keeping the hero and deck tree visible in the list. Compact callers
-    /// retain the complete single surface.
-    let showsActivity: Bool
     /// Namespace the container's deck-detail push zooms from. Optional
     /// because the row rendering is useful in previews and tests that have
     /// no navigation stack to anchor to.
@@ -45,14 +41,6 @@ public struct LibraryListContent: View {
     @Environment(\.palette) private var palette
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-    private var usesRegularWidth: Bool {
-        #if os(macOS)
-        true
-        #else
-        horizontalSizeClass == .regular
-        #endif
-    }
-
     public init(
         state: State,
         sortOrder: Binding<DeckSortOrder> = .constant(.mostUsed),
@@ -63,7 +51,6 @@ public struct LibraryListContent: View {
         onRenameDeck: @escaping (DeckRowViewData) -> Void,
         onCreateDeck: @escaping () -> Void,
         onChangeIconDeck: @escaping (DeckRowViewData) -> Void = { _ in },
-        showsActivity: Bool = true,
         deckTransition: Namespace.ID? = nil
     ) {
         self.state = state
@@ -75,7 +62,6 @@ public struct LibraryListContent: View {
         self.onRenameDeck = onRenameDeck
         self.onCreateDeck = onCreateDeck
         self.onChangeIconDeck = onChangeIconDeck
-        self.showsActivity = showsActivity
         self.deckTransition = deckTransition
     }
 
@@ -130,7 +116,7 @@ public struct LibraryListContent: View {
         #if os(iOS)
         // Sidebar resizing must not replace the scroll surface when the
         // content width crosses the column's maximum width.
-        if usesRegularWidth {
+        if horizontalSizeClass == .regular {
             scrollList(rows: rows, hero: hero, heatmap: heatmap)
         } else {
             deckList(rows: rows, hero: hero, heatmap: heatmap)
@@ -141,7 +127,7 @@ public struct LibraryListContent: View {
     }
 
     private var heatmapInitialDays: Int {
-        usesRegularWidth ? 365 : 180
+        horizontalSizeClass == .regular ? 365 : 180
     }
 
     #if os(iOS)
@@ -196,14 +182,12 @@ public struct LibraryListContent: View {
                 }
             }
 
-            if showsActivity {
-                Section {
-                    ActivityHeatmapCard(data: heatmap ?? .empty, initialDays: heatmapInitialDays)
-                        .redacted(reason: heatmap == nil ? .placeholder : [])
-                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                }
+            Section {
+                ActivityHeatmapCard(data: heatmap ?? .empty, initialDays: heatmapInitialDays)
+                    .redacted(reason: heatmap == nil ? .placeholder : [])
+                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
             }
         }
         .listStyle(.insetGrouped)
@@ -233,111 +217,46 @@ public struct LibraryListContent: View {
     #endif
 
     private func scrollList(rows: [DeckRowViewData], hero: HeroData, heatmap: HeatmapCardData?) -> some View {
-        GeometryReader { proxy in
-            let layout = LibraryContentLayout.resolve(
-                isRegularWidth: usesRegularWidth,
-                availableWidth: proxy.size.width
-            )
-            ScrollView {
-                switch layout {
-                case .compactList:
-                    // This branch is only used by non-iOS platforms today; iOS
-                    // compact keeps its native List surface in `deckList`.
-                    singleColumnOverview(rows: rows, hero: hero, heatmap: heatmap)
-                case .regularNarrow:
-                    singleColumnOverview(rows: rows, hero: hero, heatmap: heatmap)
-                case .regularWide:
-                    wideOverview(rows: rows, hero: hero, heatmap: heatmap)
-                }
-            }
-            .refreshable { await onRefresh() }
-        }
-    }
+        let active = rows.filter { !$0.isArchived }
+        let archived = rows.filter(\.isArchived)
+        return ScrollView {
+            LazyVStack(alignment: .leading, spacing: 18) {
+                LibraryHeroCard(
+                    data: hero,
+                    activityPending: heatmap == nil,
+                    onOpenToday: onOpenToday
+                )
 
-    private func singleColumnOverview(
-        rows: [DeckRowViewData],
-        hero: HeroData,
-        heatmap: HeatmapCardData?
-    ) -> some View {
-        LazyVStack(alignment: .leading, spacing: 18) {
-            LibraryHeroCard(
-                data: hero,
-                activityPending: heatmap == nil,
-                onOpenToday: onOpenToday
-            )
-            deckSections(rows: rows)
-            if showsActivity {
+                if !active.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        DeckSectionHeader(title: "Decks", sortOrder: $sortOrder)
+                        deckRowsCard(rows: active)
+                    }
+                }
+
+                if !archived.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ArchivedSectionHeader(
+                            count: archived.count,
+                            itemNoun: "decks",
+                            isExpanded: $archivedExpanded
+                        )
+                        if archivedExpanded {
+                            deckRowsCard(rows: archived)
+                        }
+                    }
+                }
+
                 ActivityHeatmapCard(data: heatmap ?? .empty, initialDays: heatmapInitialDays)
                     .redacted(reason: heatmap == nil ? .placeholder : [])
             }
+            .frame(maxWidth: LibraryColumn.maxWidth)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 20)
+            .padding(.top, 6)
+            .padding(.bottom, 32)
         }
-        .frame(maxWidth: LibraryColumn.maxWidth)
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 20)
-        .padding(.top, 6)
-        .padding(.bottom, 32)
-    }
-
-    /// On a genuinely wide regular layout, keep the hero as the visual
-    /// anchor and place the deck tree and activity side by side. The narrow
-    /// regular layout — notably the Library column of the split view — stays
-    /// a single readable column.
-    private func wideOverview(
-        rows: [DeckRowViewData],
-        hero: HeroData,
-        heatmap: HeatmapCardData?
-    ) -> some View {
-        LazyVStack(alignment: .leading, spacing: 18) {
-            LibraryHeroCard(
-                data: hero,
-                activityPending: heatmap == nil,
-                onOpenToday: onOpenToday
-            )
-
-            if showsActivity {
-                HStack(alignment: .top, spacing: LibraryContentLayout.columnSpacing) {
-                    deckSections(rows: rows)
-                        .frame(minWidth: LibraryContentLayout.minimumColumnWidth, maxWidth: .infinity, alignment: .top)
-
-                    ActivityHeatmapCard(data: heatmap ?? .empty, initialDays: heatmapInitialDays)
-                        .redacted(reason: heatmap == nil ? .placeholder : [])
-                        .frame(minWidth: LibraryContentLayout.minimumColumnWidth, maxWidth: .infinity)
-                }
-            } else {
-                deckSections(rows: rows)
-            }
-        }
-        .frame(maxWidth: LibraryColumn.maxWidth)
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 20)
-        .padding(.top, 6)
-        .padding(.bottom, 32)
-    }
-
-    @ViewBuilder
-    private func deckSections(rows: [DeckRowViewData]) -> some View {
-        let active = rows.filter { !$0.isArchived }
-        let archived = rows.filter(\.isArchived)
-
-        if !active.isEmpty {
-            VStack(alignment: .leading, spacing: 6) {
-                DeckSectionHeader(title: "Decks", sortOrder: $sortOrder)
-                deckRowsCard(rows: active)
-            }
-        }
-
-        if !archived.isEmpty {
-            VStack(alignment: .leading, spacing: 6) {
-                ArchivedSectionHeader(
-                    count: archived.count,
-                    itemNoun: "decks",
-                    isExpanded: $archivedExpanded
-                )
-                if archivedExpanded {
-                    deckRowsCard(rows: archived)
-                }
-            }
-        }
+        .refreshable { await onRefresh() }
     }
 
     private func deckRowsCard(rows: [DeckRowViewData]) -> some View {
@@ -521,7 +440,6 @@ extension LibraryListContent: Equatable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.state == rhs.state
             && lhs.deckTransition == rhs.deckTransition
-            && lhs.showsActivity == rhs.showsActivity
             && lhs.sortOrder == rhs.sortOrder
     }
 }
@@ -530,31 +448,7 @@ extension LibraryListContent: Equatable {
 /// align to this centered column so they stay readable on regular-width
 /// layouts without pinning the scroll indicator to the column edge.
 private enum LibraryColumn {
-    static let maxWidth: CGFloat = 1_200
-}
-
-/// Responsive policy is based on the space the content actually receives,
-/// not a device model. In particular, an iPad split-view sidebar can be
-/// regular-width while still being much narrower than a standalone iPad or
-/// Mac window.
-enum LibraryContentLayout: Equatable {
-    case compactList
-    case regularNarrow
-    case regularWide
-
-    static let minimumColumnWidth: CGFloat = 280
-    static let columnSpacing: CGFloat = 18
-    static let horizontalPadding: CGFloat = 40
-
-    /// Two 280-point content columns, their spacing, and the outside padding.
-    /// Every term comes from a component's layout requirement rather than a
-    /// guessed screen breakpoint.
-    static let minimumWideWidth = minimumColumnWidth * 2 + columnSpacing + horizontalPadding
-
-    static func resolve(isRegularWidth: Bool, availableWidth: CGFloat) -> Self {
-        guard isRegularWidth else { return .compactList }
-        return availableWidth >= minimumWideWidth ? .regularWide : .regularNarrow
-    }
+    static let maxWidth: CGFloat = 800
 }
 
 

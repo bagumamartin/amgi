@@ -19,7 +19,12 @@ final class StatsDashboardModel {
     /// behaviour — keep the stale graphs, show nothing — was indistinguishable
     /// from having ignored the tap.
     private(set) var isRefreshing = false
-    var decks: [DeckInfo] = []
+    var decks: [DeckInfo] = [] {
+        didSet { topLevelDecks = decks.filter { !$0.name.contains("::") } }
+    }
+
+    /// Stored so the deck menu doesn't re-filter on every `body` pass.
+    private(set) var topLevelDecks: [DeckInfo] = []
 
     @ObservationIgnored @Dependency(\.statsClient) private var statsClient
     @ObservationIgnored @Dependency(\.deckClient) private var deckClient

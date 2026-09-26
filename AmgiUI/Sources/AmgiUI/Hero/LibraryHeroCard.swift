@@ -54,13 +54,11 @@ public struct LibraryHeroCard: View {
     private var openTodayButton: some View {
         Button(action: onOpenToday) {
             Text("Study today")
-                .font(.body)
-                .fontWeight(.semibold)
-                .frame(maxWidth: .infinity, minHeight: 44)
+                .amgiFont(size: 16, weight: .semibold, relativeTo: .body)
+                .frame(maxWidth: .infinity)
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(palette.link)
-        .contentShape(Rectangle())
+        .buttonStyle(.borderless)
+        .foregroundStyle(palette.accent)
     }
 
     private var sparkline: some View {

@@ -130,10 +130,38 @@ let package = Package(
             ],
             swiftSettings: sharedSwiftSettings
         ),
+        // PDF-source adapter. Sits alongside AmgiReaderEPUB behind the same
+        // domain types.
+        //
+        // Deliberately does NOT depend on PDFKit: this target holds the PDF
+        // object layer, the incremental-update writer, the source-anchor
+        // algebra, and the notetype contract — all of which are testable
+        // without a renderer. PDFKit is a rendering concern and stays in the app
+        // layer, which also keeps Swift 6 concurrency honest: PDFKit's document
+        // objects are not Sendable, so a store that owned them could not be an
+        // actor. The test target is where PDFKit *is* used, as an independent
+        // oracle for whether the files we write are readable by Preview.
+        .target(
+            name: "AmgiReaderPDF",
+            dependencies: ["AmgiReader"],
+            swiftSettings: sharedSwiftSettings
+        ),
         .testTarget(
             name: "AmgiReaderEPUBTests",
             dependencies: ["AmgiReaderEPUB"],
             path: "Tests/AmgiReaderEPUBTests"
+        ),
+        .testTarget(
+            name: "AmgiReaderPDFTests",
+            dependencies: ["AmgiReaderPDF"],
+            path: "Tests/AmgiReaderPDFTests"
+        ),
+        // Reader state that is not EPUB-specific: progress persistence,
+        // source anchors, and the annotation store.
+        .testTarget(
+            name: "AmgiReaderTests",
+            dependencies: ["AmgiReader"],
+            path: "Tests/AmgiReaderTests"
         ),
     ],
     swiftLanguageModes: [.v6]
