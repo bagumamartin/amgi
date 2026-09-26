@@ -87,6 +87,33 @@
 				<string>org.idpf.epub-container</string>
 			</array>
 		</dict>
+		<dict>
+			<!--
+				PDF, as an Alternate handler.
+
+				Alternate rather than Owner or Default on purpose: Preview, Acrobat
+				and the built-in Quick Look all handle PDFs, and claiming more
+				than Alternate would make this app the default PDF reader on the
+				device, which is not what a reading app with Anki integration
+				should be.
+			-->
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>pdf</string>
+			</array>
+			<key>CFBundleTypeIconName</key>
+			<string>AppIcon</string>
+			<key>CFBundleTypeName</key>
+			<string>PDF Document</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.adobe.pdf</string>
+			</array>
+		</dict>
 	</array>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>

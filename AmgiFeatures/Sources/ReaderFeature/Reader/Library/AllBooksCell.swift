@@ -1,4 +1,5 @@
 import AmgiTheme
+import AmgiReaderEPUB
 import SwiftUI
 
 struct AllBooksCell: View {
@@ -18,6 +19,11 @@ struct AllBooksCell: View {
             )
             .aspectRatio(Self.coverAspect, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.small))
+            .overlay(alignment: .topTrailing) {
+                if let repair = item.repair {
+                    repairBadge(repair)
+                }
+            }
 
             Text(item.title)
                 .amgiFont(.bodyEmphasis)
@@ -29,8 +35,33 @@ struct AllBooksCell: View {
                     .amgiFont(.caption)
                     .foregroundStyle(palette.textSecondary)
                     .lineLimit(1)
+            } else if let repair = item.repair {
+                Text(repair.title)
+                    .amgiFont(.caption)
+                    .foregroundStyle(palette.textSecondary)
+                    .lineLimit(1)
             }
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(item.title)
+        .accessibilityValue(item.repair?.title ?? "")
+        .accessibilityHint(item.repair == nil ? "" : "Double tap to repair this book.")
+    }
+
+    /// Marks an unreadable book without hiding it. The label is the repair
+    /// reason so VoiceOver announces the problem at the row, not just a
+    /// generic "image".
+    @ViewBuilder
+    private func repairBadge(_ repair: ReaderBookRepair) -> some View {
+        Image(systemName: "exclamationmark.triangle.fill")
+            .amgiFont(.caption)
+            .foregroundStyle(.white)
+            .padding(5)
+            .background(
+                Circle().fill(palette.accent)
+            )
+            .padding(6)
+            .accessibilityHidden(true)
     }
 }
 
@@ -43,7 +74,26 @@ struct AllBooksCell: View {
             title: "Don Quijote",
             author: "Miguel de Cervantes",
             surname: "Cervantes",
-            coverArt: .none
+            coverArt: .none,
+            repair: nil
+        )
+    )
+    .frame(width: 110)
+    .padding()
+}
+
+#Preview("Needing repair") {
+    AllBooksCell(
+        item: BookCellItem(
+            id: "preview-3",
+            title: "Broken Book",
+            author: nil,
+            surname: nil,
+            coverArt: .none,
+            repair: ReaderBookRepair(
+                fault: .sourceMissing,
+                detail: "The stored EPUB for this book is missing on disk."
+            )
         )
     )
     .frame(width: 110)

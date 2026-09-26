@@ -47,6 +47,16 @@ package struct ReaderLibraryView: View {
     @State private var isImporting: Bool = false
     @State private var showConfiguration: Bool = false
 
+    /// Files handed over by Finder, Files, AirDrop or drag-and-drop, waiting
+    /// for the library to be ready to import them.
+    ///
+    /// The router is drained here because this is the first place with a live
+    /// model. Nothing consumed it before, so a dropped file was accepted by the
+    /// app, routed, and then quietly discarded — the file appeared to do
+    /// nothing at all, which reads as a broken drop target rather than a
+    /// missing feature.
+    @State private var droppedRequestID: UUID?
+
     package init(refreshID: UUID? = nil) {
         self.refreshID = refreshID
         _model = State(initialValue: ReaderLibraryModel())
@@ -70,7 +80,20 @@ package struct ReaderLibraryView: View {
             progress: model.progress,
             onImport: { isImporting = true },
             onConfigure: { showConfiguration = true },
-            onRetry: { model.startReload(searchText: searchText, sortMode: sortMode) }
+            onRetry: { model.startReload(searchText: searchText, sortMode: sortMode) },
+            repairActions: ReaderLibraryContent.BookRepairActions(
+                retry: { bookID in
+                    let repaired = await model.retryRepair(bookID: bookID)
+                    if repaired {
+                        model.startReload(searchText: searchText, sortMode: sortMode)
+                    }
+                    return repaired
+                },
+                relink: { bookID, url in
+                    try await model.relink(bookID: bookID, to: url)
+                    model.startReload(searchText: searchText, sortMode: sortMode)
+                }
+            )
         )
         .navigationTitle("Library")
         .navigationBarTitleDisplayMode(.large)
@@ -95,6 +118,15 @@ package struct ReaderLibraryView: View {
         .onChange(of: deckName) { _, _ in model.startReload(searchText: searchText, sortMode: sortMode) }
         .refreshable { await model.reload(searchText: searchText, sortMode: sortMode) }
         .task(id: refreshID) { model.startReload(searchText: searchText, sortMode: sortMode) }
+        .onChange(of: ReaderImportRequestRouter.shared.requestID) { _, _ in
+            Task { await importDroppedFiles() }
+        }
+        .task {
+            // A file can arrive before this view exists — the app was launched
+            // by the drop — so the queue is drained once on appear as well as
+            // on every subsequent change.
+            await importDroppedFiles()
+        }
         .sheet(isPresented: $showConfiguration) {
             NavigationStack {
                 ReaderConfigurationView {
@@ -105,7 +137,7 @@ package struct ReaderLibraryView: View {
         }
         .fileImporter(
             isPresented: $isImporting,
-            allowedContentTypes: [UTType(filenameExtension: "epub") ?? .data],
+            allowedContentTypes: UTType.readerDocuments,
             allowsMultipleSelection: true
         ) { result in
             handleImport(result: result)
@@ -123,7 +155,7 @@ package struct ReaderLibraryView: View {
     @ViewBuilder
     private var plusMenu: some View {
         Button { isImporting = true } label: {
-            Label("Import EPUB…", systemImage: "square.and.arrow.down")
+            Label("Import EPUB or PDF…", systemImage: "square.and.arrow.down")
         }
         Divider()
         Menu("Sort by") {
@@ -145,10 +177,28 @@ package struct ReaderLibraryView: View {
         }
     }
 
+    /// Imports anything the system handed us that has not been imported yet.
+    ///
+    /// Requests are consumed one at a time and re-checked against the active
+    /// profile, because a file dropped for one profile must not land in
+    /// another's library.
+    private func importDroppedFiles() async {
+        let router = ReaderImportRequestRouter.shared
+        let profileID = AccountStore.shared.selectedID
+        while let request = router.consume(profileID: profileID) {
+            await model.importBooks(
+                [request.url],
+                searchText: searchText,
+                sortMode: sortMode
+            )
+        }
+        droppedRequestID = router.requestID
+    }
+
     private func handleImport(result: Result<[URL], any Error>) {
         switch result {
         case .success(let urls):
-            Task { await model.importEPUBs(urls, searchText: searchText, sortMode: sortMode) }
+            Task { await model.importBooks(urls, searchText: searchText, sortMode: sortMode) }
         case .failure(let error):
             model.importError = error.localizedDescription
         }

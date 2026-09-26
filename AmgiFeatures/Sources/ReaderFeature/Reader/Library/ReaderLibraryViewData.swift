@@ -1,4 +1,5 @@
 import AmgiReader
+public import AmgiReaderEPUB
 import AmgiUI
 import Foundation
 
@@ -23,6 +24,10 @@ struct BookCellItem: Identifiable, Equatable {
     let author: String?
     let surname: String?
     let coverArt: CoverArtSource
+    /// Non-nil when the book is present but unreadable (source missing or no
+    /// longer parsing). The row still renders so the book does not silently
+    /// disappear; the view turns this into a repair affordance.
+    let repair: ReaderBookRepair?
 }
 
 enum CoverArtSource: Equatable {
@@ -38,6 +43,7 @@ enum ReaderLibraryViewDataBuilder {
         books: [ReaderBook],
         progressFor: (String) -> ReaderSavedProgress?,
         epubCoverURLFor: (String) -> URL?,
+        repairFor: (String) -> ReaderBookRepair? = { _ in nil },
         searchText: String,
         sortMode: BookshelfSortMode,
         hasAnkiConfig: Bool
@@ -54,8 +60,11 @@ enum ReaderLibraryViewDataBuilder {
             }
         )
 
+        // A book that needs repair has nothing readable to resume, so it stays
+        // out of "continue reading" even if it still has a saved position.
         let continueReading: [ContinueReadingItem] = Array(
             filtered.compactMap { book -> ContinueReadingItem? in
+                guard repairFor(book.id) == nil else { return nil }
                 guard let p = progressByID[book.id], p.progress > 0, p.progress < 1 else {
                     return nil
                 }
@@ -74,6 +83,11 @@ enum ReaderLibraryViewDataBuilder {
 
         let allBooks: [BookCellItem] = filtered
             .sorted { lhs, rhs in
+                // Books needing repair sort last in every mode: they are not
+                // really in the library until repaired.
+                let lhsNeedsRepair = repairFor(lhs.id) != nil
+                let rhsNeedsRepair = repairFor(rhs.id) != nil
+                if lhsNeedsRepair != rhsNeedsRepair { return !lhsNeedsRepair }
                 switch sortMode {
                 case .recent:
                     let lhsDate = progressByID[lhs.id]?.updatedAt ?? .distantPast
@@ -96,7 +110,8 @@ enum ReaderLibraryViewDataBuilder {
                     title: book.title,
                     author: book.author,
                     surname: BookMetaFormatters.surname(from: book.author),
-                    coverArt: coverArt(for: book, epubCoverURLFor: epubCoverURLFor)
+                    coverArt: coverArt(for: book, epubCoverURLFor: epubCoverURLFor),
+                    repair: repairFor(book.id)
                 )
             }
 
@@ -116,7 +131,10 @@ private extension ReaderLibraryViewDataBuilder {
         switch book.source {
         case .ankiDeck:
             return .anki(filePath: book.coverImagePath)
-        case .epub:
+        case .epub, .pdf:
+            // A PDF's cover is resolved from the same library path as an
+            // EPUB's, because both are a file on disk owned by the reader
+            // library rather than an Anki media entry.
             return .epub(localFileURL: epubCoverURLFor(book.id))
         }
     }

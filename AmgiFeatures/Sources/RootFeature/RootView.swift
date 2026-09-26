@@ -202,9 +202,23 @@ public struct RootView: View {
         #endif
     }
 
+    /// Whether a dropped or picked file belongs to the reader rather than to
+    /// the Anki importer.
+    ///
+    /// Decided by extension, which is the only thing available at this point:
+    /// the file may be outside any sandbox and is not read until the library
+    /// actually imports it. An unrecognised extension goes to the Anki importer
+    /// as before, so nothing that used to work stops working.
+    private static func isReaderDocument(_ url: URL) -> Bool {
+        switch url.pathExtension.lowercased() {
+        case "epub", "pdf": true
+        default: false
+        }
+    }
+
     private func handleIncomingURL(_ url: URL) {
         if url.isFileURL {
-            if url.pathExtension.lowercased() == "epub" {
+            if Self.isReaderDocument(url) {
                 readerImportRouter.request(
                     url,
                     profileID: AccountStore.shared.selectedID
@@ -372,12 +386,10 @@ public struct RootView: View {
         }
         .fileImporter(
             isPresented: $isImportPresented,
-            allowedContentTypes: AnkiImportFormat.supportedContentTypes + [
-                UTType(filenameExtension: "epub") ?? .data
-            ]
+            allowedContentTypes: AnkiImportFormat.supportedContentTypes + UTType.readerDocuments
         ) { result in
             if case .success(let url) = result {
-                if url.pathExtension.lowercased() == "epub" {
+                if Self.isReaderDocument(url) {
                     readerImportRouter.request(url, profileID: AccountStore.shared.selectedID)
                     $showReaderTab.withLock { $0 = true }
                     sectionRaw = MainSection.read.rawValue

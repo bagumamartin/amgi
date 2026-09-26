@@ -21,6 +21,22 @@ struct ReaderLibraryContent: View {
     let onImport: () -> Void
     let onConfigure: () -> Void
     let onRetry: () -> Void
+    /// Repair actions for a book that is present but unreadable. Nil hides
+    /// the affordance entirely.
+    var repairActions: BookRepairActions? = nil
+
+    @State private var repairTarget: RepairTarget?
+
+    struct RepairTarget: Identifiable {
+        let id: String
+        let title: String
+        let repair: ReaderBookRepair
+    }
+
+    struct BookRepairActions {
+        let retry: (String) async -> Bool
+        let relink: (String, URL) async throws -> Void
+    }
 
     var body: some View {
         Group {
@@ -45,6 +61,20 @@ struct ReaderLibraryContent: View {
             }
         }
         .amgiScreenCanvas()
+        .sheet(item: $repairTarget) { target in
+            BookRepairSheet(
+                bookID: target.id,
+                title: target.title,
+                repair: target.repair,
+                onRetry: { [repairActions] in
+                    await repairActions?.retry(target.id) ?? false
+                },
+                onRelink: { [repairActions] url in
+                    try await repairActions?.relink(target.id, url)
+                },
+                onDismiss: { repairTarget = nil }
+            )
+        }
     }
 
 }
@@ -73,7 +103,15 @@ private extension ReaderLibraryContent {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 ContinueReadingSection(items: data.continueReading, bookForId: bookForId, progress: progress)
-                AllBooksSection(items: data.allBooks, bookForId: bookForId, progress: progress)
+                AllBooksSection(
+                    items: data.allBooks,
+                    bookForId: bookForId,
+                    progress: progress,
+                    onRepair: repairActions == nil ? nil : { id, repair in
+                        let title = bookForId(id)?.title ?? repair.title
+                        repairTarget = RepairTarget(id: id, title: title, repair: repair)
+                    }
+                )
                 ImportBookCTA(action: onImport)
                 Color.clear.frame(height: 8)
             }

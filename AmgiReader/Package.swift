@@ -70,6 +70,7 @@ let package = Package(
         .library(name: "AmgiReader", targets: ["AmgiReader"]),
         .library(name: "AmgiReaderDictionary", targets: ["AmgiReaderDictionary"]),
         .library(name: "AmgiReaderEPUB", targets: ["AmgiReaderEPUB"]),
+        .library(name: "AmgiReaderPDF", targets: ["AmgiReaderPDF"]),
     ],
     dependencies: [
         // Vendored MIT-licensed EPUB parser. Path-relative so the package

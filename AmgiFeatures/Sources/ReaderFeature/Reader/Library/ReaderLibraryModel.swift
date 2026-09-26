@@ -1,11 +1,13 @@
 import AmgiReader
+import AmgiReaderEPUB
+import AmgiReaderPDF
 import AnkiClients
 import Dependencies
 import Foundation
 
 /// Data state + load/import logic for the reader Library screen. Mirrors
 /// `DeckListModel`: the View owns navigation, search, sheets, and the
-/// toolbar, while the model owns the EPUB/Anki book I/O, cover resolution,
+/// toolbar, while the model owns the EPUB/PDF/Anki book I/O, cover resolution,
 /// and the engine → `ReaderLibraryContent.State` assembly so that assembly
 /// is testable in isolation and the View stays thin.
 @Observable
@@ -16,13 +18,22 @@ final class ReaderLibraryModel {
 
     private(set) var books: [ReaderBook] = []
     private var bookIndex: [String: ReaderBook] = [:]
-    private var epubCoverURLs: [String: URL] = [:]
+    /// Covers resolved from the two file-backed stores, keyed by book ID.
+    private var localCoverURLs: [String: URL] = [:]
+    /// Books that are present but unreadable. Kept so the row can render a
+    /// repair affordance instead of the book silently vanishing.
+    ///
+    /// One map for both formats, keyed by book ID, because a row cannot tell the
+    /// two stores apart — an EPUB and a PDF break the same way and are repaired
+    /// the same way. Which store to call is decided from the book itself.
+    private var repairs: [String: ReaderBookRepair] = [:]
     /// Saved-progress snapshot taken during `reload` so the synchronous
     /// `rebuildViewData` (search/sort onChange) never awaits the engine.
     private var progressByBook: [String: ReaderSavedProgress] = [:]
 
     @ObservationIgnored @Dependency(\.readerBookClient) private var readerBookClient
     @ObservationIgnored @Dependency(\.epubLibraryClient) private var epubLibraryClient
+    @ObservationIgnored @Dependency(\.pdfLibraryClient) private var pdfLibraryClient
     @ObservationIgnored private var reloadTask: Task<Void, Never>?
 
     /// Shared with `ReaderLibraryContent` so the list and the loader resolve
@@ -51,7 +62,12 @@ final class ReaderLibraryModel {
         // backgrounding or force-quit after a chapter closed.
         await progress.flushPendingPushes()
 
+        // Both file-backed stores are asked at once rather than in sequence.
+        // They are independent — separate directories, separate indexes — so
+        // awaiting one before starting the other doubles the time the library
+        // takes to appear on a cold launch for no reason.
         async let epubBooks: [ReaderBook] = epubLibraryClient.listBooks()
+        async let pdfBooks: [ReaderBook] = pdfLibraryClient.listBooks()
 
         var ankiBooks: [ReaderBook] = []
         var firstError: String?
@@ -64,22 +80,30 @@ final class ReaderLibraryModel {
         }
 
         let resolvedEPUBs = await epubBooks
+        let resolvedPDFs = await pdfBooks
         if Task.isCancelled { return }
-        let merged = ankiBooks + resolvedEPUBs
+        // The two stores cannot collide on book ID: each derives one from the
+        // document's own identity and prefixes it, so an EPUB and a PDF are
+        // never the same entry.
+        let merged = ankiBooks + resolvedEPUBs + resolvedPDFs
         books = merged
         bookIndex = Dictionary(merged.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
-        let epubIDs = merged.compactMap { book -> String? in
-            if case .epub = book.source { return book.id }
-            return nil
-        }
+        // Covers come from whichever store owns the book. Dispatching on the
+        // book's own source, rather than on which list it came from, is what
+        // keeps this correct as formats are added.
         var resolved: [String: URL] = [:]
-        let client = epubLibraryClient
+        let epubClient = epubLibraryClient
+        let pdfClient = pdfLibraryClient
         await withTaskGroup(of: (String, URL?).self) { group in
-            for id in epubIDs {
-                group.addTask {
-                    let url = await client.coverURL(id)
-                    return (id, url)
+            for book in merged {
+                switch book.source {
+                case .epub:
+                    group.addTask { (book.id, await epubClient.coverURL(book.id)) }
+                case .pdf:
+                    group.addTask { (book.id, await pdfClient.coverURL(book.id)) }
+                case .ankiDeck:
+                    break
                 }
             }
             for await (id, url) in group {
@@ -87,7 +111,26 @@ final class ReaderLibraryModel {
             }
         }
         if Task.isCancelled { return }
-        epubCoverURLs = resolved
+        localCoverURLs = resolved
+
+        // Ask the stores which books need repair. This is the authoritative
+        // check, so a book whose source vanished since the last launch is
+        // flagged here instead of quietly dropping out of the list.
+        let epubHealth = await epubLibraryClient.bookHealth()
+        let pdfHealth = await pdfLibraryClient.bookHealth()
+        var foundRepairs: [String: ReaderBookRepair] = [:]
+        for (id, state) in epubHealth {
+            if case .needsRepair(let fault, let detail) = state.state {
+                foundRepairs[id] = ReaderBookRepair(fault: fault, detail: detail)
+            }
+        }
+        for (id, state) in pdfHealth {
+            if case .needsRepair(let fault, let detail) = state.state {
+                foundRepairs[id] = ReaderBookRepair(fault: fault, detail: detail)
+            }
+        }
+        if Task.isCancelled { return }
+        repairs = foundRepairs
 
         var progressSnapshot: [String: ReaderSavedProgress] = [:]
         for book in merged {
@@ -114,11 +157,13 @@ final class ReaderLibraryModel {
 
     func rebuildViewData(searchText: String, sortMode: BookshelfSortMode) {
         guard !books.isEmpty else { return }
-        let coverURLs = epubCoverURLs
+        let coverURLs = localCoverURLs
+        let repairSnapshot = repairs
         let data = ReaderLibraryViewDataBuilder.build(
             books: books,
             progressFor: { [progressByBook] in progressByBook[$0] },
             epubCoverURLFor: { coverURLs[$0] },
+            repairFor: { repairSnapshot[$0] },
             searchText: searchText,
             sortMode: sortMode,
             hasAnkiConfig: hasAnkiConfiguration
@@ -126,7 +171,62 @@ final class ReaderLibraryModel {
         state = .loaded(data)
     }
 
-    func importEPUBs(_ urls: [URL], searchText: String, sortMode: BookshelfSortMode) async {
+    /// Re-read one book in place. Returns true when it became readable again.
+    @discardableResult
+    func retryRepair(bookID: String) async -> Bool {
+        // Dispatched on the book's own source. Guessing from the fault, or
+        // calling both stores, would either repair the wrong library or do the
+        // work twice; the book knows where it lives.
+        let repaired: ReaderBook?
+        switch book(for: bookID)?.source {
+        case .pdf:
+            repaired = await pdfLibraryClient.retryBook(bookID)
+        default:
+            repaired = await epubLibraryClient.retryBook(bookID)
+        }
+        if repaired == nil { return false }
+        await reloadRepairState()
+        return true
+    }
+
+    /// Point a broken book at a replacement file on disk.
+    func relink(bookID: String, to url: URL) async throws {
+        switch book(for: bookID)?.source {
+        case .pdf:
+            _ = try await pdfLibraryClient.relinkBook(bookID, url)
+        default:
+            _ = try await epubLibraryClient.relinkBook(bookID, url)
+        }
+        await reloadRepairState()
+    }
+
+    /// Refresh only the health state after a repair, then rebuild the visible
+    /// rows. Avoids a full reload so the list does not flash.
+    private func reloadRepairState() async {
+        let epubHealth = await epubLibraryClient.bookHealth()
+        let pdfHealth = await pdfLibraryClient.bookHealth()
+        var found: [String: ReaderBookRepair] = [:]
+        for (id, state) in epubHealth {
+            if case .needsRepair(let fault, let detail) = state.state {
+                found[id] = ReaderBookRepair(fault: fault, detail: detail)
+            }
+        }
+        for (id, state) in pdfHealth {
+            if case .needsRepair(let fault, let detail) = state.state {
+                found[id] = ReaderBookRepair(fault: fault, detail: detail)
+            }
+        }
+        repairs = found
+    }
+
+    /// Imports book files, routing each to the store that owns its format.
+    ///
+    /// One entry point rather than one per format, because the picker hands
+    /// over a mixed selection and the user should not have to choose which
+    /// button to press. A file whose extension is not recognised is reported
+    /// rather than skipped silently — an import that appears to do nothing is
+    /// indistinguishable from a broken one.
+    func importBooks(_ urls: [URL], searchText: String, sortMode: BookshelfSortMode) async {
         var succeeded = 0
         for url in urls {
             let accessed = url.startAccessingSecurityScopedResource()
@@ -134,7 +234,15 @@ final class ReaderLibraryModel {
                 if accessed { url.stopAccessingSecurityScopedResource() }
             }
             do {
-                _ = try await epubLibraryClient.importEPUB(url)
+                switch url.pathExtension.lowercased() {
+                case "pdf":
+                    _ = try await pdfLibraryClient.importPDF(url)
+                case "epub":
+                    _ = try await epubLibraryClient.importEPUB(url)
+                default:
+                    importError = "\"\(url.lastPathComponent)\" is not an EPUB or a PDF."
+                    continue
+                }
                 succeeded += 1
             } catch {
                 importError = error.localizedDescription
