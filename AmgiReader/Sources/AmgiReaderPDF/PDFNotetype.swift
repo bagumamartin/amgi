@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 
 /// The field contract for the dedicated PDF notetype.
 ///

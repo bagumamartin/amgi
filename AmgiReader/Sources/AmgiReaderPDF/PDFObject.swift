@@ -1,5 +1,3 @@
-public import Foundation
-
 /// An object in a PDF's object graph.
 ///
 /// PDF is a graph of indirect objects, each written as

@@ -1,5 +1,3 @@
-public import Foundation
-
 /// Folds several copies of a PDF into one.
 ///
 /// The reconciliation step. Each device that annotates produces the base file
@@ -28,6 +26,7 @@ public import Foundation
 /// merged file. The annotations are found by their `/P` back-reference, which is
 /// why the annotation writer always sets it. The result is that both devices'
 /// annotations appear, whichever page definition happened to win.
+public import Foundation
 public enum PDFLineariser {
     public struct Result: Sendable {
         /// The rewritten, compact file.

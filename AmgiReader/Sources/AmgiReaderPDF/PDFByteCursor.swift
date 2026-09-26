@@ -1,5 +1,3 @@
-public import Foundation
-
 /// A cursor over PDF bytes.
 ///
 /// The lexer is written against raw bytes rather than `String` on purpose:

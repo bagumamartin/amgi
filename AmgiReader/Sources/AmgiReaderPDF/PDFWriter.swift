@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 
 /// Writes a `PDFObject` back to bytes.
 ///
@@ -86,7 +86,6 @@ public enum PDFWriter {
             // Delimiters and whitespace must be escaped, as must `#` because
             // it introduces a hex escape. Everything else is passed through,
             // which keeps the output readable.
-            let isRegular = (byte >= 0x21 && byte <= 0x7E)
             let needsEscape = byte < 0x21
                 || byte > 0x7E
                 || isDelimiter(byte)

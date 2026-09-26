@@ -1,5 +1,3 @@
-public import Foundation
-
 /// Parses a single indirect object starting at the cursor.
 public enum PDFObjectParser {
     public enum ParseFailure: Error, Equatable {

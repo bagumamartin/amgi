@@ -1,5 +1,3 @@
-public import Foundation
-
 /// Writes annotations into a PDF, in the way Preview does.
 ///
 /// Two things make this more than "append an object", and both are the reason

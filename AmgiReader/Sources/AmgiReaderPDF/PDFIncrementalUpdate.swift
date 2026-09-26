@@ -1,5 +1,3 @@
-public import Foundation
-
 /// Appends an incremental update to a PDF.
 ///
 /// This is the whole answer to the concurrency problem, and it is the mechanism
@@ -18,6 +16,7 @@ public import Foundation
 /// The trade the format imposes: appended objects are never reclaimed, so a
 /// heavily annotated file grows. Linearising is the answer when a compact file
 /// is wanted, and it is lossless.
+public import Foundation
 public enum PDFIncrementalUpdate {
     /// One object to be added or superseded.
     public struct Entry: Sendable {

@@ -42,6 +42,13 @@ public struct PDFDocumentDescriptor: Sendable, Hashable, Codable {
 
     public var pageSize: PDFPageSize?
 
+    /// A cover image extracted from the document, when one was available.
+    ///
+    /// A PDF's first page is very often the cover, and rendering it needs PDFKit,
+    /// so this is filled in by the app layer rather than derived here. Left nil,
+    /// the library shows a generated placeholder rather than a blank square.
+    public var coverImageData: Data?
+
     public init(
         bookID: String,
         title: String,
@@ -53,7 +60,8 @@ public struct PDFDocumentDescriptor: Sendable, Hashable, Codable {
         hasTextLayer: Bool,
         textLayerCoverage: Double = 0,
         documentFingerprint: String,
-        pageSize: PDFPageSize? = nil
+        pageSize: PDFPageSize? = nil,
+        coverImageData: Data? = nil
     ) {
         self.bookID = bookID
         self.title = title
@@ -66,6 +74,7 @@ public struct PDFDocumentDescriptor: Sendable, Hashable, Codable {
         self.textLayerCoverage = textLayerCoverage
         self.documentFingerprint = documentFingerprint
         self.pageSize = pageSize
+        self.coverImageData = coverImageData
     }
 
     /// The label for a page, falling back to its 1-based index.
