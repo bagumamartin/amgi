@@ -64,6 +64,7 @@ let package = Package(
         .package(url: "https://github.com/pointfreeco/swift-sharing", from: "2.0.0"),
         .package(url: "https://github.com/pointfreeco/swift-navigation", from: "2.0.0"),
         .package(url: "https://github.com/pointfreeco/swift-case-paths", from: "1.0.0"),
+        .package(url: "https://github.com/weichsel/ZIPFoundation.git", from: "0.9.19"),
     ],
     targets: [
         .target(
@@ -96,6 +97,10 @@ let package = Package(
                 .product(name: "AmgiIcons", package: "AmgiIcons"),
                 .product(name: "AmgiEmbeddings", package: "AmgiEmbeddings"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
+                // Rewrites a staged .colpkg to also carry the reader library
+                // (see ReaderBackupBundle). Needed because the colpkg itself
+                // is written by the Rust engine, which knows nothing about it.
+                .product(name: "ZIPFoundation", package: "ZIPFoundation"),
             ],
             swiftSettings: sharedSwiftSettings
         ),
@@ -107,6 +112,8 @@ let package = Package(
                 .product(name: "AnkiClients", package: "amgi"),
                 .product(name: "AnkiServices", package: "amgi"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
+                // ReaderBackupBundle round-trips a colpkg through ZIP.
+                .product(name: "ZIPFoundation", package: "ZIPFoundation"),
             ],
             swiftSettings: sharedSwiftSettings
         ),
@@ -324,6 +331,7 @@ let package = Package(
                 "AmgiAppShared",
                 "AmgiReviewCore",
                 "BrowseFeature",
+                "SyncFeature",
                 "TemplatesFeature",
                 .product(name: "AnkiKit", package: "amgi"),
                 .product(name: "AnkiClients", package: "amgi"),
@@ -361,6 +369,7 @@ let package = Package(
                 "BrowseFeature",
                 .product(name: "AmgiReader", package: "AmgiReader"),
                 .product(name: "AmgiReaderDictionary", package: "AmgiReader"),
+                .product(name: "AmgiReaderPDF", package: "AmgiReader"),
                 .product(name: "AnkiKit", package: "amgi"),
                 .product(name: "AnkiClients", package: "amgi"),
                 .product(name: "AmgiTheme", package: "AmgiUI"),
@@ -370,11 +379,22 @@ let package = Package(
             ],
             swiftSettings: sharedSwiftSettings + [.interoperabilityMode(.Cxx)]
         ),
+        // Reader security + library-health tests. Must stay in the Cxx chain
+        // with ReaderFeature (see the note on that target): dropping
+        // interoperabilityMode here reintroduces the dependency-scanner
+        // failure the chain is structured to avoid.
+        .testTarget(
+            name: "ReaderFeatureTests",
+            dependencies: ["ReaderFeature"],
+            path: "Tests/ReaderFeatureTests",
+            swiftSettings: sharedSwiftSettings + [.interoperabilityMode(.Cxx)]
+        ),
         .target(
             name: "SyncFeature",
             dependencies: [
                 "AmgiAppCore",
                 "AmgiAppShared",
+                "AmgiReviewCore",
                 .product(name: "AnkiKit", package: "amgi"),
                 .product(name: "AnkiClients", package: "amgi"),
                 .product(name: "AnkiSync", package: "amgi"),
@@ -391,6 +411,7 @@ let package = Package(
             dependencies: [
                 "SyncFeature",
                 "AmgiAppCore",
+                "AmgiReviewCore",
                 .product(name: "AnkiKit", package: "amgi"),
                 .product(name: "AnkiClients", package: "amgi"),
                 .product(name: "AnkiSync", package: "amgi"),

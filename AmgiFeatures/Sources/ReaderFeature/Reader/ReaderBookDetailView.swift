@@ -1,4 +1,5 @@
 import AmgiReader
+import AmgiReaderPDF
 import AmgiTheme
 import AmgiUI
 import Foundation
@@ -133,6 +134,18 @@ private extension ReaderBookDetailContent {
                 book: book,
                 chapterIndex: max(0, min(index, book.chapters.count - 1)),
                 progressCoordinator: progress
+            )
+        } else if case .pdf = book.source {
+            // A PDF is read as one continuous document, not chapter by chapter:
+            // it is already paginated, its own outline drives navigation, and
+            // opening at a chapter's start page is the only thing the chapter
+            // list usefully contributes.
+            PDFReaderView(
+                book: book,
+                progressCoordinator: progress,
+                startPageIndex: book.chapters.indices.contains(index)
+                    ? (book.chapters[index].startPageIndex ?? 0)
+                    : 0
             )
         } else if index >= 0, index < book.chapters.count {
             ChapterReaderView(
