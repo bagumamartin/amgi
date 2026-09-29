@@ -306,6 +306,17 @@ public struct PDFAnnotationRecord: Sendable {
 
     public var subtype: String? { dictionary["Subtype"]?.asName }
 
+    /// The annotation's `/NM`, its unique name.
+    ///
+    /// The field every conforming reader uses to identify an annotation, and the
+    /// only way to find one again after a reload, a sync, or a round trip
+    /// through another application. Our annotations are namespaced so they can
+    /// be told apart from markup some other tool added.
+    public var name: String? {
+        guard case .string(let bytes, let isHex)? = dictionary["NM"] else { return nil }
+        return PDFStringLiteral(bytes: bytes, isHex: isHex).text
+    }
+
     public var contents: String? {
         guard case .string(let bytes, let isHex)? = dictionary["Contents"] else { return nil }
         return PDFStringLiteral(bytes: bytes, isHex: isHex).text

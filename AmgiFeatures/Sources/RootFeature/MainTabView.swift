@@ -216,9 +216,7 @@ struct MainTabView: View {
         switch section {
         case .library:
             NavigationStack {
-                DeckListView(onOpenToday: {
-                    $sectionRaw.withLock { $0 = MainSection.study.rawValue }
-                })
+                DeckListView()
                     .accountChrome(
                         showsMenu: showsAccountMenu,
                         destination: $accountDestination,

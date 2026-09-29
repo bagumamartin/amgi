@@ -19,6 +19,9 @@ extension DeckClient: DependencyKey {
                     return result
                 }
             },
+            current: {
+                try await backendOffload { try decks.getCurrentDeck() }
+            },
             fetchTree: {
                 try await backendOffload { try decks.fetchTree() }
             },

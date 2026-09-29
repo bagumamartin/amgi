@@ -3,36 +3,47 @@
  * Injected at document-end into every EPUB chapter that the paginated
  * reader displays. Drives layout (CSS multi-column pagination on the
  * <html> element) and theme via CSS custom properties set per-load by
- * Swift through user-script source. Token underline matches the
- * screenshot's dashed hint.
+ * Swift through user-script source.
  *
- * Pagination contract (rev 2):
+ * Pagination contract (rev 3):
  *   - Swift pushes --page-width / --page-height (px) on every layout
  *     pass; those equal the WKWebView scrollView bounds.
  *   - <html> is the multi-column container AND the WKWebView's
  *     scrollable root. column-width = --page-width, column-fill: auto,
  *     and an explicit height force the browser to break content into
  *     page-width columns and scroll horizontally.
- *   - <body> is the column-flow content. Padding on body becomes the
- *     reader's page gutter; it flows with the columns so every page
- *     has consistent margins without breaking the contentSize ==
- *     pageCount * pageWidth invariant UIScrollView.isPagingEnabled
- *     relies on.
  *   - There is no #__amgi-content wrapper. No JS-forced body.style.width.
+ *
+ * Vertical insets live on <html>, not <body>, and that is load-bearing.
+ * <body> is a *fragmented* box: its top/bottom padding would apply only
+ * at the very start and end of the whole flow, so page 1 and the last
+ * page would get a margin and every interior page would run edge to
+ * edge — which is what clipped the last line of text behind the bottom
+ * chrome. <html> is the scroll container rather than a fragment, so its
+ * padding insets *every* column uniformly. Horizontal page gutters stay
+ * on <body>, where the spec does apply left/right padding to every
+ * fragment.
  */
 
 :root {
   color-scheme: light dark;
   --reader-fg: #1f2a26;
   --reader-bg: #faf7f2;
-  --reader-tok-underline: rgba(120, 120, 120, 0.55);
   --reader-writing-mode: horizontal-tb;
   --reader-font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
   --reader-font-size: 17px;
   --reader-line-height: 1.55;
   --reader-text-align: justify;
   --reader-page-margin: 24px;
+  /* Vertical breathing room. --reader-inset-top/-bottom are pushed by
+   * Swift so the text never sits under the floating chrome; the padding
+   * values are the reader's own top/bottom margin. */
+  --reader-inset-top: 0px;
+  --reader-inset-bottom: 0px;
   --reader-page-padding: 28px;
+  /* Press feedback for a token. No persistent decoration: an underline
+   * on every word makes the page unreadable. */
+  --reader-press: rgba(120, 120, 120, 0.22);
   /* Initial fallback; Swift overwrites this on first layout. */
   --page-width: 100vw;
   --page-height: 100vh;
@@ -41,16 +52,18 @@
 /* <html> is the multi-column container and the WKWebView's scrollable
  * root. Explicit height + column-fill: auto stops columns growing
  * vertically; overflow-x: auto lets the scroll view see the full
- * column-flow width. */
+ * column-flow width. border-box + padding is what makes the vertical
+ * inset subtract from the column height instead of adding to it. */
 html {
   height: var(--page-height);
+  padding-top: var(--reader-inset-top);
+  padding-bottom: var(--reader-inset-bottom);
   column-width: var(--page-width, 100vw) !important;
   column-gap: 0 !important;
   column-fill: auto !important;
   overflow-y: hidden;
   overflow-x: auto;
   box-sizing: border-box;
-  padding: 0;
   margin: 0;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
@@ -58,15 +71,16 @@ html {
   text-orientation: mixed;
 }
 
-/* Body is the column flow content. Padding here becomes the page
- * gutter — multicol handles it correctly per-column. */
+/* Body is the column flow content. Only horizontal padding here: it is
+ * the page gutter and the spec applies it to every fragment. */
 body {
   margin: 0;
-  padding: var(--reader-page-padding) var(--reader-page-margin) !important;
+  padding: 0 var(--reader-page-margin) !important;
   box-sizing: border-box;
   background: var(--reader-bg);
   color: var(--reader-fg);
 }
+
 
 /* Typography overrides — applied with !important + broad selectors so
  * the book's own stylesheet can't beat us. html sets the rem root via
@@ -79,8 +93,24 @@ html {
   background: var(--reader-bg) !important;
 }
 
-body, body * {
+/* Typography overrides — applied with !important + broad selectors so
+ * the book's own stylesheet can't beat us. html sets the rem root via
+ * --reader-font-size; body elements rescale via 1em so heading
+ * hierarchy is preserved while the slider drives the whole document. */
+
+/* Font family is the one setting that must NOT be forced. A book that
+ * embeds a serif face — a textbook, a novel, anything typeset rather
+ * than generated — loses its entire character when a reader substitutes
+ * the system sans, and Apple Books keeps the book's font by default. So
+ * the override is gated on the user having actually chosen a family;
+ * `--reader-honour-book-font: 1` leaves the book's own stack alone. */
+html[data-amgi-honour-book-font="0"],
+html[data-amgi-honour-book-font="0"] body,
+html[data-amgi-honour-book-font="0"] body * {
   font-family: var(--reader-font-family) !important;
+}
+
+body, body * {
   color: inherit !important;
   background: transparent !important;
 }
@@ -102,13 +132,116 @@ body p, body li, body blockquote {
   text-align: var(--reader-text-align) !important;
 }
 
+/* First-line indent for body paragraphs, matching a printed book rather
+ * than a web page. Suppressed on the first paragraph after a heading or
+ * a block element so a run of paragraphs after a title is not all
+ * indented. */
+body p {
+  text-indent: 1.2em;
+}
+body p.first-paragraph,
+body h1 + p, body h2 + p, body h3 + p, body h4 + p, body h5 + p, body h6 + p,
+body blockquote + p, body hr + p, body div + p {
+  text-indent: 0;
+}
+
 p { margin: 0 0 0.9em 0; }
 img, svg, video { max-width: 100% !important; height: auto !important; }
 table { max-width: 100% !important; }
 
+/* Tokens are the tap/lookup affordance, so they must be *invisible* until
+ * touched. An earlier revision drew a dashed underline under every word to
+ * show the tokenisation; it made the page unreadable and looked like
+ * broken rendering. Now: nothing at rest, a soft press tint while a
+ * finger is down, and WebKit's own selection colours when selected. */
 .amgi-tok {
-  text-decoration: underline dashed var(--reader-tok-underline);
-  text-underline-offset: 2px;
-  -webkit-tap-highlight-color: rgba(0, 122, 255, 0.18);
-  cursor: pointer;
+  text-decoration: none;
+  -webkit-tap-highlight-color: var(--reader-press);
+  cursor: text;
+  border-radius: 2px;
+  /* Tokenisation wraps every word in a span, so the span must be
+   * typographically invisible or the text reflows on load and every saved
+   * reading position becomes wrong. A book stylesheet that styles `span` is
+   * the realistic threat, so these are !important rather than relying on
+   * source order against an equal-specificity rule. */
+  padding: 0 !important;
+  border: 0 !important;
+  margin: 0 !important;
+  font: inherit !important;
+  letter-spacing: inherit !important;
+  text-indent: inherit !important;
 }
+
+.amgi-tok[data-amgi-pressed="1"] {
+  background: var(--reader-press);
+}
+
+/* Disable the synthetic grey flash so the press tint above is the only
+ * feedback, instead of both stacking. */
+.amgi-tok::selection,
+::selection {
+  background: rgba(0, 122, 255, 0.28);
+}
+
+/* ------------------------------------------------------------------ *
+ * Running furniture
+ *
+ * The page number and the running head belong to the *page*, not to the
+ * chrome above it. Apple Books sets them in the page's own face and
+ * colour at the page's own margins, so they read as part of the printed
+ * object; a floating glass pill above the text reads as a separate piece
+ * of app UI that happens to overlap the book. That distinction is the
+ * whole difference between "a book" and "a viewer for a book".
+ *
+ * Both are `position: fixed` inside the multicol scroll container, which
+ * means they stay put while the columns slide past — one page number for
+ * the page being read, not one per column.
+ * ------------------------------------------------------------------ */
+
+[data-amgi-running-head] {
+  position: fixed;
+  top: calc(var(--reader-inset-top) * 0.42);
+  left: 0;
+  right: 0;
+  z-index: 3;
+  text-align: center;
+  font-family: var(--reader-running-face, inherit);
+  font-size: 0.82em;
+  line-height: 1.2;
+  color: var(--reader-running-fg, var(--reader-fg));
+  /* A hint of transparency so it sits with the text rather than on top
+   * of it, matching how a printed running head behaves. */
+  opacity: 0.62;
+  pointer-events: none;
+  -webkit-user-select: none;
+  user-select: none;
+  padding: 0 var(--reader-page-margin);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+[data-amgi-page-number] {
+  position: fixed;
+  bottom: calc(var(--reader-inset-bottom) * 0.34);
+  left: 0;
+  right: 0;
+  z-index: 3;
+  text-align: center;
+  font-family: var(--reader-running-face, inherit);
+  font-size: 0.82em;
+  line-height: 1.2;
+  color: var(--reader-running-fg, var(--reader-fg));
+  opacity: 0.62;
+  pointer-events: none;
+  -webkit-user-select: none;
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Two-digit and three-digit page numbers must not shift as they change,
+ * or the footer appears to twitch on every turn. */
+[data-amgi-page-number] .amgi-page-total {
+  opacity: 0.75;
+}
+

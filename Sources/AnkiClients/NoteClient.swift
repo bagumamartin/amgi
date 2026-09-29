@@ -36,6 +36,24 @@ public struct NoteClient: Sendable {
     public var clozeNumbers: @Sendable (_ fields: [String], _ notetypeId: NotetypeID) async throws -> [UInt32]
     public var save: @Sendable (_ note: NoteRecord) async throws -> Void
     public var delete: @Sendable (_ noteId: NoteID) async throws -> Void
+    /// Creates a note from a positional field array.
+    ///
+    /// `fields` is **positional** — indexed by the notetype's field ordinals, not
+    /// by name. A caller that projects onto named fields has to pass them in the
+    /// notetype's own order, and a field with nothing to say must still occupy
+    /// its slot as an empty string: a short array does not skip a field, it
+    /// shifts every field after the gap into the wrong column.
+    ///
+    /// This is the only write path that takes a notetype and a field array
+    /// rather than an edited `NoteRecord`, which is what a feature that
+    /// *generates* a note needs — the reader's card parks build fields rather
+    /// than round-trip a record through the editor.
+    public var add: @Sendable (
+        _ notetypeID: NotetypeID,
+        _ deckID: DeckID,
+        _ fields: [String],
+        _ tags: [String]
+    ) async throws -> Void
 }
 
 extension NoteClient: TestDependencyKey {

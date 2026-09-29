@@ -24,6 +24,12 @@ struct ReaderTypographySettingsView: View {
     private var justify: Bool = true
     @Shared(.appStorage(ReaderTypographyPreferences.Keys.twoPageLayout))
     private var twoPageLayout: Bool = false
+    @Shared(.appStorage(ReaderPreferenceKeys.pageTransition))
+    private var pageTransitionRaw: String = ReaderPageTransition.curl.rawValue
+
+    private var pageTransition: ReaderPageTransition {
+        ReaderPageTransition(rawValue: pageTransitionRaw) ?? .curl
+    }
 
     var body: some View {
         NavigationStack {
@@ -35,12 +41,63 @@ struct ReaderTypographySettingsView: View {
                 pageMarginSection
                 twoPageSection
                 justifySection
+                pageTransitionSection
             }
             .navigationTitle("Reading Style")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { doneButton }
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.large])
+    }
+
+    /// Page-turn effect, matching Apple Books' four options.
+    ///
+    /// Each option is shown with a one-line explanation of what it costs,
+    /// because Curl has a real trade-off: UIKit's page-curl controller drops
+    /// its interactive pan, so a drag no longer turns a chapter.
+    private var pageTransitionSection: some View {
+        Section {
+            ForEach(ReaderPageTransition.allCases) { option in
+                Button {
+                    $pageTransitionRaw.withLock { $0 = option.rawValue }
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: option.systemImage)
+                            .amgiFont(.body)
+                            .frame(width: 26)
+                            .foregroundStyle(
+                                pageTransition == option ? palette.accent : palette.textSecondary
+                            )
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(option.label)
+                                .amgiFont(.body)
+                                .foregroundStyle(palette.textPrimary)
+                            if !option.supportsInteractivePan {
+                                Text("Swipe to turn a chapter is disabled; use the page edges or arrow keys.")
+                                    .amgiFont(.micro)
+                                    .foregroundStyle(palette.textSecondary)
+                            }
+                        }
+                        Spacer(minLength: 0)
+                        if pageTransition == option {
+                            Image(systemName: "checkmark")
+                                .amgiFont(.bodyEmphasis)
+                                .foregroundStyle(palette.accent)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(option.label)
+                .accessibilityAddTraits(
+                    pageTransition == option ? [.isSelected] : []
+                )
+            }
+        } header: {
+            Text("Page Transition")
+        } footer: {
+            Text("Curl is the default. Intra-chapter turns always use a swipe.")
+        }
     }
 
     // MARK: - Sections

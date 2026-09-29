@@ -1,10 +1,12 @@
-import SwiftUI
+package import SwiftUI
 import AmgiUI
 import AmgiTheme
 import AnkiClients
 import AnkiSync
 
-struct LoginSheet: View {
+/// Username/password sheet. Package-visible so Settings can prompt for
+/// credentials right after a server save, not just via the sync sheet.
+package struct LoginSheet: View {
     @Environment(\.palette) private var palette
 
     @Binding var isPresented: Bool
@@ -15,7 +17,12 @@ struct LoginSheet: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
 
-    var body: some View {
+    package init(isPresented: Binding<Bool>, onSuccess: @escaping () -> Void) {
+        self._isPresented = isPresented
+        self.onSuccess = onSuccess
+    }
+
+    package var body: some View {
         NavigationStack {
             Form {
                 Section {

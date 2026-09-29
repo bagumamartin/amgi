@@ -1,4 +1,6 @@
-import AmgiReader
+// `public import` because this file's `package init` exposes
+// `ReaderSourceAnchor` in its signature.
+public import AmgiReader
 import AmgiReaderDictionary
 import AmgiAppCore
 import AnkiClients
@@ -20,6 +22,14 @@ package struct LookupPopupView: View {
     /// BCP-47 / loose hint forwarded into entry rows for TTS voice
     /// selection (`book.language`). Nil falls back to script sniffing.
     var languageHint: String? = nil
+    /// The sentence the reader was reading when the user tapped, when the
+    /// caller captured one. This is what lands in the note's sentence field —
+    /// previously it was hard-coded to `nil`, so every card made from a
+    /// lookup lost the context that motivated it.
+    var contextSentence: String? = nil
+    /// Durable pointer back to the tapped words, when the reader produced
+    /// one. Forwarded into the note draft so a template can persist it.
+    var sourceAnchor: ReaderSourceAnchor? = nil
     /// Extra Anki tags appended to every `AddNoteDraft` built from a
     /// dictionary entry while this popup is on screen. Used by the EPUB
     /// reader to source-tag cards (e.g. `amgi::book::<id>::ch::<idx>`)
@@ -35,12 +45,16 @@ package struct LookupPopupView: View {
     package init(
         initialQuery: String,
         languageHint: String? = nil,
+        contextSentence: String? = nil,
+        sourceAnchor: ReaderSourceAnchor? = nil,
         extraTags: [String] = [],
         onAddedNote: (() -> Void)? = nil,
         onDismiss: @escaping () -> Void
     ) {
         self.initialQuery = initialQuery
         self.languageHint = languageHint
+        self.contextSentence = contextSentence
+        self.sourceAnchor = sourceAnchor
         self.extraTags = extraTags
         self.onAddedNote = onAddedNote
         self.onDismiss = onDismiss
@@ -326,7 +340,10 @@ private extension LookupPopupView {
         let payload = ReaderLookupNotePayload(
             term: entry.term,
             reading: entry.reading,
-            sentence: nil,
+            // The sentence the user actually tapped. Fall back to the term so
+            // the field is never empty when the template references it, and
+            // nil when there is genuinely no surrounding text.
+            sentence: contextSentence?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank,
             definitions: entry.glossaries.isEmpty
                 ? ReaderLookupNotePayload.definitionsByDictionary(from: entry.structuredGlossaries)
                 : entry.glossaries,
@@ -340,7 +357,8 @@ private extension LookupPopupView {
             deinflection: entry.deinflectionTrace.map(\.name).joined(separator: " → ").nilIfBlank,
             matched: entry.matched,
             source: entry.source,
-            rules: entry.rules.joined(separator: ", ").nilIfBlank
+            rules: entry.rules.joined(separator: ", ").nilIfBlank,
+            sourceAnchor: sourceAnchor
         )
 
         var draft = template.makeDraft(

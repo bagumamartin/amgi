@@ -1,6 +1,7 @@
 import AmgiReader
 import AnkiClients
 import AnkiKit
+import Foundation
 import Testing
 
 @Suite("ReaderLookupNoteTemplate")
@@ -81,6 +82,130 @@ struct ReaderLookupNoteTemplateTests {
             notetypeID: 2,
             termField: "Front",
             definition1Field: "Back"
+        )
+        let restored = ReaderLookupNoteTemplate.decode(from: original.encodedString())
+        #expect(restored == original)
+    }
+
+    // MARK: - Source anchor
+
+    /// Built once so a round-trip comparison is against the same value —
+    /// `ReaderSourceAnchor` stamps `createdAt` on creation.
+    private static let sampleAnchor = ReaderSourceAnchor(
+        bookID: "epub-abc",
+        chapterID: 7,
+        chapterHref: "OEBPS/Text/ch3.xhtml",
+        cfi: 1_024,
+        path: [1, 0, 3],
+        quote: "an anchored sentence"
+    )
+
+    @Test("a mapped anchor field receives the encoded anchor")
+    func anchorFieldReceivesEncodedAnchor() throws {
+        let payload = ReaderLookupNotePayload(
+            term: "word",
+            sentence: "an anchored sentence",
+            sourceAnchor: Self.sampleAnchor
+        )
+        let template = ReaderLookupNoteTemplate(
+            termField: "Front",
+            sentenceField: "Sentence",
+            anchorField: "SourceAnchor"
+        )
+
+        let draft = template.makeDraft(
+            payload: payload,
+            fallbackDeckID: nil,
+            sourceDescription: "src"
+        )
+
+        let json = try #require(draft.fieldValues["SourceAnchor"])
+        // Stored as JSON so a later feature can re-open the note at its source
+        // rather than pattern-matching the sentence text.
+        let decoded = try JSONDecoder().decode(
+            ReaderSourceAnchor.self,
+            from: Data(json.utf8)
+        )
+        #expect(decoded == Self.sampleAnchor)
+    }
+
+    @Test("an unmapped anchor field leaves no value behind")
+    func unmappedAnchorFieldIsOmitted() {
+        // The default template has no anchor field, so existing users must not
+        // get a JSON blob dropped into a field they never mapped.
+        let payload = ReaderLookupNotePayload(
+            term: "word",
+            sentence: "an anchored sentence",
+            sourceAnchor: Self.sampleAnchor
+        )
+        let draft = ReaderLookupNoteTemplate(
+            termField: "Front",
+            sentenceField: "Sentence"
+        ).makeDraft(
+            payload: payload,
+            fallbackDeckID: nil,
+            sourceDescription: "src"
+        )
+        #expect(draft.fieldValues.keys.sorted() == ["Front", "Sentence"])
+    }
+
+    @Test("a payload with no anchor does not populate the anchor field")
+    func nilAnchorIsOmitted() {
+        let payload = ReaderLookupNotePayload(
+            term: "word",
+            sentence: "from a plain selection"
+        )
+        let template = ReaderLookupNoteTemplate(
+            termField: "Front",
+            anchorField: "SourceAnchor"
+        )
+        let draft = template.makeDraft(
+            payload: payload,
+            fallbackDeckID: nil,
+            sourceDescription: "src"
+        )
+        #expect(draft.fieldValues["SourceAnchor"] == nil)
+    }
+
+    @Test("an anchor mapped onto an already-claimed field does not overwrite it")
+    func anchorDoesNotOverwriteAnotherMapping() {
+        // "Source" is also one of the names the unmapped fallback uses, so a
+        // user can easily map both sourceField and anchorField there. The
+        // first writer must win, or the dictionary source is lost to JSON.
+        let payload = ReaderLookupNotePayload(
+            term: "word",
+            sentence: "an anchored sentence",
+            source: "JMdict",
+            sourceAnchor: Self.sampleAnchor
+        )
+        let template = ReaderLookupNoteTemplate(
+            termField: "Front",
+            sourceField: "Source",
+            anchorField: "Source"
+        )
+        let draft = template.makeDraft(
+            payload: payload,
+            fallbackDeckID: nil,
+            sourceDescription: "src"
+        )
+        #expect(draft.fieldValues["Source"] == "JMdict")
+    }
+
+    @Test("an orphan anchor field is dropped after a notetype change")
+    func clearInvalidFieldsDropsOrphanAnchorField() {
+        var template = ReaderLookupNoteTemplate(
+            termField: "Front",
+            anchorField: "Removed"
+        )
+        template.clearInvalidFields(validFields: ["Front", "Back"])
+        #expect(template.anchorField == "")
+    }
+
+    @Test("the anchor field round-trips through encoding")
+    func anchorFieldRoundTrips() {
+        let original = ReaderLookupNoteTemplate(
+            termField: "Front",
+            anchorField: "SourceAnchor"
         )
         let restored = ReaderLookupNoteTemplate.decode(from: original.encodedString())
         #expect(restored == original)

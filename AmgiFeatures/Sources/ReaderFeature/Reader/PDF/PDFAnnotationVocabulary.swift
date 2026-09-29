@@ -110,6 +110,12 @@ enum PDFAnnotationTool: String, CaseIterable, Identifiable, Sendable {
     case pen
     case note
     case text
+    /// Not a markup tool. The one tool whose drag does not make an annotation:
+    /// it makes a card selection, which is a different verb entirely and has
+    /// its own drag semantics. It lives in this enum because the toolbar is a
+    /// row of mutually-exclusive tools and a second row would be a second place
+    /// to look.
+    case card
 
     var id: String { rawValue }
 
@@ -120,6 +126,7 @@ enum PDFAnnotationTool: String, CaseIterable, Identifiable, Sendable {
         case .pen: "Draw"
         case .note: "Note"
         case .text: "Text"
+        case .card: "Card"
         }
     }
 
@@ -130,6 +137,7 @@ enum PDFAnnotationTool: String, CaseIterable, Identifiable, Sendable {
         case .pen: "pencil.tip"
         case .note: "note.text"
         case .text: "textformat"
+        case .card: "rectangle.portrait.on.rectangle.portrait"
         }
     }
 
@@ -140,7 +148,23 @@ enum PDFAnnotationTool: String, CaseIterable, Identifiable, Sendable {
         case .pen: [.ink]
         case .note: [.note]
         case .text: [.freeText]
+        // A card is a region, and the nearest existing kind describes that
+        // shape. Reusing `.square` rather than adding a kind that maps to no PDF
+        // `/Subtype` keeps the annotation round-trip honest: the card path
+        // intercepts the drag before any annotation is built, so this kind is
+        // never written to a file.
+        case .card: [.square]
         }
+    }
+
+    /// Whether this tool writes markup into the document.
+    ///
+    /// False for the card tool, and the distinction is load-bearing in two
+    /// places: the toolbar must not offer a colour for a tool that has none,
+    /// and the drag gesture must not consume a drag that ends up making an
+    /// annotation. A card drag shows the selection menu instead.
+    var makesAnnotations: Bool {
+        self != .card
     }
 }
 
@@ -368,4 +392,28 @@ enum PDFAnnotationFactory {
         case .freeText: .freeText
         }
     }
+}
+
+/// Represents the text or region selected by the user in a PDF.
+struct PDFSelectionContext: Equatable, Sendable {
+    enum Source: Equatable, Sendable {
+        case textSelection
+        case region(dragRect: PDFNormalizedRect)
+    }
+
+    struct Details: Sendable {
+        let bookID: String
+        let documentFingerprint: String
+        let pageLabel: @Sendable (Int) -> String
+    }
+
+    let text: String
+    let anchor: PDFSourceAnchor
+    let regionRect: PDFNormalizedRect
+    let pageBounds: CGRect?
+    let pageIndex: Int
+    let pageLabel: String
+    let source: Source
+
+    var hasText: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 }

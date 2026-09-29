@@ -28,22 +28,82 @@ public struct ReaderSavedProgress: Codable, Equatable, Sendable {
 // `UserDefaults` is thread-safe but not formally `Sendable`. The struct is
 // otherwise value-only, so `@unchecked Sendable` is honest here.
 public struct ReaderProgressStore: @unchecked Sendable {
+    /// Unscoped namespace used before progress became profile-owned. Still
+    /// read as a fallback so existing positions migrate on first read.
+    public static let legacyKeyNamespace = "amgi.reader.progress"
+
     private let userDefaults: UserDefaults
     private let keyNamespace: String
+    private let legacyKeyNamespace: String?
 
     public init(
         userDefaults: UserDefaults = .standard,
-        keyNamespace: String = "amgi.reader.progress"
+        keyNamespace: String = ReaderProgressStore.legacyKeyNamespace
+    ) {
+        self.init(
+            userDefaults: userDefaults,
+            keyNamespace: keyNamespace,
+            legacyKeyNamespace: nil
+        )
+    }
+
+    /// Scoped form. `legacyKeyNamespace` is consulted only when the scoped key
+    /// is absent, and only for the default profile: another profile must never
+    /// inherit a position the shared namespace happened to hold.
+    init(
+        userDefaults: UserDefaults,
+        keyNamespace: String,
+        legacyKeyNamespace: String?
     ) {
         self.userDefaults = userDefaults
         self.keyNamespace = keyNamespace
+        self.legacyKeyNamespace = legacyKeyNamespace
+    }
+
+    /// Progress scoped to `profileID`. Progress is per-profile state, so the
+    /// key namespace carries the profile rather than the value itself.
+    public static func scoped(
+        to profileID: String,
+        userDefaults: UserDefaults = .standard
+    ) -> ReaderProgressStore {
+        let sanitized = Self.sanitize(profileID)
+        return ReaderProgressStore(
+            userDefaults: userDefaults,
+            keyNamespace: "\(legacyKeyNamespace)__\(sanitized.isEmpty ? "default" : sanitized)",
+            legacyKeyNamespace: sanitized == "default" || sanitized.isEmpty
+                ? legacyKeyNamespace
+                : nil
+        )
+    }
+
+    /// Progress scoped to the profile selected in `UserDefaults.standard`.
+    ///
+    /// The `AmgiReader` package has no edge to `AnkiKit`, so — exactly like
+    /// `AmgiReaderDictionary`'s local copy of the anchor — it reads the
+    /// `amgi.selectedUser` key itself rather than importing `ProfileScope`.
+    /// Keep the key in sync with `ProfileScope.anchorKey`.
+    public static func forCurrentProfile(
+        userDefaults: UserDefaults = .standard
+    ) -> ReaderProgressStore {
+        let selected = userDefaults.string(forKey: "amgi.selectedUser")
+            ?? "default"
+        return scoped(to: selected, userDefaults: userDefaults)
     }
 
     public func load(bookID: String) -> ReaderSavedProgress? {
-        guard let data = userDefaults.data(forKey: storageKey(for: bookID)) else {
-            return nil
+        if let data = userDefaults.data(forKey: storageKey(for: bookID)),
+           let progress = try? JSONDecoder().decode(ReaderSavedProgress.self, from: data) {
+            return progress
         }
-        return try? JSONDecoder().decode(ReaderSavedProgress.self, from: data)
+        // Migration read: adopt the pre-profiles value once, then write it back
+        // under the scoped key so the fallback stops firing.
+        if let legacyKeyNamespace,
+           let data = userDefaults.data(forKey: "\(legacyKeyNamespace).\(Self.sanitize(bookID))"),
+           let progress = try? JSONDecoder().decode(ReaderSavedProgress.self, from: data) {
+            save(bookID: bookID, payload: progress)
+            return progress
+        }
+        return nil
     }
 
     public func save(bookID: String, chapterID: Int64, progress: Double, now: Date = .now) {

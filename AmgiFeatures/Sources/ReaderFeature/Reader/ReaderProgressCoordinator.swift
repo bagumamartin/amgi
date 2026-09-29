@@ -19,7 +19,13 @@ struct ReaderProgressCoordinator: Sendable {
 
     @Dependency(\.readerProgressSyncClient) private var sync
 
-    init(store: ReaderProgressStore = ReaderProgressStore()) {
+    /// The default store is profile-scoped. Progress used to live under a
+    /// single global `amgi.reader.progress` namespace, so a profile switch
+    /// showed the previous profile's reading positions. Scoping the key
+    /// namespace by the active profile (and falling back to the legacy
+    /// namespace on read) fixes that without changing any call site —
+    /// every construction in the app goes through this default argument.
+    init(store: ReaderProgressStore = ReaderProgressStore.forCurrentProfile()) {
         self.store = store
     }
 

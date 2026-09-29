@@ -18,6 +18,11 @@ extension NotetypesClient: DependencyKey {
             get: { id in
                 try await backend.invoke(.notetype(for: id))
             },
+            create: { notetype in
+                let id = try await backend.invoke(.addNotetype(notetype))
+                logger.info("Notetype created: id=\(id.rawValue)")
+                return id
+            },
             update: { notetype in
                 try await backend.invoke(.updateNotetype(notetype))
                 logger.info("Notetype updated: id=\(notetype.id.rawValue)")

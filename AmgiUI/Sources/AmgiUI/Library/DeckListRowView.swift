@@ -116,7 +116,9 @@ public struct DeckListRowView: View {
 
 // MARK: - DeckTile
 
-private struct DeckTile: View {
+/// Shared with `DeckTriageCard` (same module) so the triage rows reuse the
+/// exact tile instead of growing a third copy of the glyph logic.
+struct DeckTile: View {
     let name: String
     let iconName: String?
     let isFiltered: Bool

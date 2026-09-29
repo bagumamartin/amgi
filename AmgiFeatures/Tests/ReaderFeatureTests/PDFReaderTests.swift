@@ -194,7 +194,10 @@ struct PDFAnnotationVocabularyTests {
 
     @Test("every tool offers at least one kind and every kind one tool")
     func toolsAndKindsAgree() {
-        for tool in PDFAnnotationTool.allCases {
+        // Markup tools only. The card tool borrows `.square` purely to describe
+        // the shape of its drag, so `kind.tool` is `.shape` for it and the
+        // round-trip below does not apply.
+        for tool in PDFAnnotationTool.allCases where tool.makesAnnotations {
             #expect(!tool.kinds.isEmpty, "\(tool.label) offers nothing")
             for kind in tool.kinds {
                 #expect(kind.tool == tool)
@@ -202,6 +205,18 @@ struct PDFAnnotationVocabularyTests {
         }
         for kind in PDFAnnotationKind.allCases {
             #expect(PDFAnnotationTool.allCases.contains(kind.tool))
+        }
+    }
+
+    @Test("the card tool is not a markup tool")
+    func cardToolMakesNoAnnotations() {
+        // It is a drag that makes a card, not an annotation, and the distinction
+        // is load-bearing in two places: the toolbar must not offer a colour for
+        // a tool that has none, and the drag gesture must not consume a drag
+        // that ends up writing an annotation into the file.
+        #expect(PDFAnnotationTool.card.makesAnnotations == false)
+        for tool in PDFAnnotationTool.allCases where tool.makesAnnotations {
+            #expect(tool != .card)
         }
     }
 

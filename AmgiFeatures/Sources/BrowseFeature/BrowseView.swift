@@ -50,11 +50,8 @@ package struct BrowseView: View {
     @State private var renameSearchTo = ""
     #if os(iOS)
     @State private var preferredColumn: NavigationSplitViewColumn = .sidebar
-    #endif
-    /// Shared by the iPad split and the macOS three-column layout. On macOS
-    /// `.doubleColumn` is the explicit Hide Details state; on iOS it remains
-    /// the normal adaptive navigation state.
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
+    #endif
     /// Settings from the sidebar footer when the source list is showing,
     /// or the combined list-column profile menu when that sidebar is hidden.
     @State private var accountDestination: AccountMenuDestination?
@@ -90,9 +87,6 @@ package struct BrowseView: View {
         self.exit = exit
         #if os(iOS)
         _preferredColumn = State(initialValue: model.rootDeck != nil ? .content : .sidebar)
-        _columnVisibility = State(initialValue: .automatic)
-        #else
-        _columnVisibility = State(initialValue: .all)
         #endif
     }
 
@@ -185,57 +179,29 @@ package struct BrowseView: View {
 
     @ViewBuilder
     private var splitColumns: some View {
-        VStack(spacing: 0) {
-            browseWorkspaceHeader
-            if usesColumnSearch {
-                splitView.navigationSplitViewStyle(.balanced)
-            } else {
-                #if os(iOS)
-                ZStack {
-                    if accountDestination == nil {
-                        withBrowseSearch(splitView.navigationSplitViewStyle(.balanced))
-                    } else {
-                        // Same three-column split as browse — swapping to a
-                        // two-column split treats `.doubleColumn` as "show the
-                        // sidebar" and forces it open.
-                        splitView.navigationSplitViewStyle(.balanced)
-                    }
-                    if accountDestination != nil, isBrowseSidebarHidden {
-                        NavigationStack {
-                            BrowseAccountDestination(destination: $accountDestination)
-                        }
-                        .amgiScreenCanvas()
-                    }
+        if usesColumnSearch {
+            splitView.navigationSplitViewStyle(.balanced)
+        } else {
+            #if os(iOS)
+            ZStack {
+                if accountDestination == nil {
+                    withBrowseSearch(splitView.navigationSplitViewStyle(.balanced))
+                } else {
+                    // Same three-column split as browse — swapping to a
+                    // two-column split treats `.doubleColumn` as "show the
+                    // sidebar" and forces it open.
+                    splitView.navigationSplitViewStyle(.balanced)
                 }
-                #else
-                withBrowseSearch(splitView.navigationSplitViewStyle(.balanced))
-                #endif
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var browseWorkspaceHeader: some View {
-        if let exit {
-            HStack(spacing: 12) {
-                Button(action: exit.action) {
-                    Label("Back to \(exit.title)", systemImage: exit.systemImage)
-                        .font(.body.weight(.semibold))
-                        .frame(minHeight: 44)
+                if accountDestination != nil, isBrowseSidebarHidden {
+                    NavigationStack {
+                        BrowseAccountDestination(destination: $accountDestination)
+                    }
+                    .amgiScreenCanvas()
                 }
-                .buttonStyle(.bordered)
-                .accessibilityLabel("Back to \(exit.title)")
-                Spacer(minLength: 12)
-                Text("Browse")
-                    .font(.headline)
-                    .foregroundStyle(palette.textSecondary)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 6)
-            .background(.bar)
-            .overlay(alignment: .bottom) {
-                Divider()
-            }
+            #else
+            withBrowseSearch(splitView.navigationSplitViewStyle(.balanced))
+            #endif
         }
     }
 
@@ -261,18 +227,13 @@ package struct BrowseView: View {
             }
         }
         #else
-        NavigationSplitView(columnVisibility: $columnVisibility) {
+        NavigationSplitView {
             sidebarPane
         } content: {
             listPane
         } detail: {
             detailPane
         }
-        #if os(macOS)
-        .navigationSplitViewStyle(.prominentDetail)
-        #else
-        .navigationSplitViewStyle(.balanced)
-        #endif
         #endif
     }
 
@@ -314,11 +275,6 @@ package struct BrowseView: View {
             collectionGeneration: store.generation
         )
         .appSidebarWidth()
-        #if os(macOS)
-        // Keep the source rail usable while reserving a real minimum for the
-        // detail column in compact desktop windows.
-        .navigationSplitViewColumnWidth(min: 200, ideal: 260)
-        #endif
         .navigationTitle("Browse")
         #if os(iOS)
         .toolbarRole(usesColumnSearch ? .automatic : .editor)
@@ -347,20 +303,9 @@ package struct BrowseView: View {
                 #if os(iOS)
                 preferredColumn = .detail
                 #endif
-            },
-            onRequestDetails: {
-                #if os(iOS)
-                preferredColumn = .detail
-                #else
-                columnVisibility = .all
-                #endif
             }
         )
-        #if os(macOS)
-        .navigationSplitViewColumnWidth(min: 240, ideal: 340)
-        #else
         .navigationSplitViewColumnWidth(min: 300, ideal: 400)
-        #endif
         .navigationTitle(sourceTitle)
         .navigationBarTitleDisplayMode(.inline)
         #if os(iOS)
@@ -434,14 +379,9 @@ package struct BrowseView: View {
                     deckID: model.activeDeck?.id,
                     onSaved: { Task { await model.performSearch() } },
                     onClose: {
-                        #if os(iOS)
                         model.clearFocus()
+                        #if os(iOS)
                         preferredColumn = .content
-                        #else
-                        // On macOS the third split column is a real,
-                        // user-resizable inspector. Hide it while retaining
-                        // the focused row so Show details can restore it.
-                        columnVisibility = .doubleColumn
                         #endif
                     },
                     previewNav: previewNav,
@@ -468,9 +408,6 @@ package struct BrowseView: View {
                 #endif
             }
         }
-        #if os(macOS)
-        .navigationSplitViewColumnWidth(min: 320, ideal: 500)
-        #endif
         .navigationBarTitleDisplayMode(.inline)
     }
 
@@ -979,18 +916,6 @@ package struct BrowseView: View {
 
     @ToolbarContentBuilder
     private var listDefaultTrailingItems: some ToolbarContent {
-        #if os(macOS)
-        ToolbarItem(placement: .topBarTrailing) {
-            Button {
-                columnVisibility = .all
-            } label: {
-                Image(systemName: "sidebar.trailing")
-            }
-            .help("Show details")
-            .accessibilityLabel("Show details")
-            .disabled(columnVisibility == .all)
-        }
-        #endif
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
                 Button("Add Note") { showAddNote = true }

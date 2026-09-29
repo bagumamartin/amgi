@@ -11,6 +11,9 @@ public struct NotetypesClient: Sendable {
     /// Fetches a notetype as the AnkiKit mirror for editing.
     public var get: @Sendable (_ id: NotetypeID) async throws -> Notetype
 
+    /// Creates a notetype and returns its assigned id.
+    public var create: @Sendable (_ notetype: Notetype) async throws -> NotetypeID
+
     /// Persists a modified notetype back to the collection.
     public var update: @Sendable (_ notetype: Notetype) async throws -> Void
 

@@ -122,6 +122,63 @@ final class DeckListLoadPerformanceTests: XCTestCase {
 
     // MARK: - Correctness
 
+    /// The triage card's new-limit reads are bounded: ten wall-sized decks
+    /// must cost at most four `getDeckConfig` calls, no matter how many
+    /// qualify. The bound is the whole point of the top-4 pre-filter, so it
+    /// gets a regression test rather than living only in a comment.
+    @MainActor
+    func testTriageConfigReadsBounded() async {
+        let tree = (1...10).map { i in
+            DeckTreeNode(
+                id: DeckID(Int64(i)),
+                name: "Deck\(i)",
+                fullName: "Deck\(i)",
+                counts: DeckCounts(newCount: 500, learnCount: 0, reviewCount: 0),
+                isFiltered: false,
+                children: []
+            )
+        }
+        // Empty history: every deck reads as never started, so all ten
+        // qualify and the cap + overflow engage. (The shared `graphs()`
+        // fixture carries a full year of reviews, which would mark every
+        // deck actively studied instead.)
+        let emptyHistory = GraphsSnapshot()
+        let configCalls = ConfigCallCounter()
+        var deckClient = DeckClient()
+        deckClient.fetchTree = { tree }
+        deckClient.getDeckConfig = { _ in
+            await configCalls.increment()
+            return DeckConfig(config: DeckConfig.Config(newPerDay: 20))
+        }
+        let model = withDependencies {
+            $0.deckClient = deckClient
+            $0.statsClient = StatsClient(
+                fetchGraphs: { _, _ in emptyHistory },
+                graduatedToday: { _ in 0 },
+                learningDueToday: { _ in 0 },
+                lastRating: { _ in nil }
+            )
+        } operation: {
+            let store = CollectionStore()
+            return withDependencies {
+                $0.collectionStore = store
+            } operation: {
+                DeckListModel()
+            }
+        }
+
+        await model.load()
+        let calls = await configCalls.count
+        XCTAssertLessThanOrEqual(calls, 4, "new-limit reads must stay bounded, got \(calls)")
+        guard case .loaded(_, _, _, let triage) = model.state else {
+            return XCTFail("expected .loaded, got \(model.state)")
+        }
+        // All ten qualify as never started (no review history in the stub);
+        // the card shows four and folds the rest into the overflow.
+        XCTAssertEqual(triage.items.count, 4)
+        XCTAssertEqual(triage.overflowCount, 6)
+    }
+
     /// The measurement above is worthless if the fixture silently stops
     /// producing a loaded state — a thrown error would "measure" the failure
     /// path instead.
@@ -129,11 +186,19 @@ final class DeckListLoadPerformanceTests: XCTestCase {
     func testFixtureActuallyLoads() async {
         let model = Self.makeModel()
         await model.load()
-        guard case .loaded(let rows, let hero, let heatmap) = model.state else {
+        guard case .loaded(let rows, let hero, let heatmap, _) = model.state else {
             return XCTFail("expected .loaded, got \(model.state)")
         }
         XCTAssertEqual(rows.count, 7, "top-level rows")
         XCTAssertEqual(hero.deckCount, 7)
         XCTAssertEqual(heatmap?.counts.count, 365, "a full year of activity")
+    }
+}
+
+private actor ConfigCallCounter {
+    private(set) var count = 0
+
+    func increment() {
+        count += 1
     }
 }

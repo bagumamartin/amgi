@@ -110,7 +110,7 @@ private final class SearchProbe: @unchecked Sendable {
         )
 
         await model.load(sortOrder: .collectionOrder)
-        guard case .loaded(let rows, let hero, _) = model.state else {
+        guard case .loaded(let rows, let hero, _, _) = model.state else {
             Issue.record("expected .loaded, got \(model.state)")
             return
         }

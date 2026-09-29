@@ -8,6 +8,7 @@ import AnkiClients
 package import AnkiKit
 import Dependencies
 import BrowseFeature
+import SyncFeature
 import TemplatesFeature
 import Sharing
 import AmgiReviewCore
@@ -53,6 +54,7 @@ package struct ReviewView: View {
     @Dependency(\.deckClient) private var deckClient
     @Dependency(\.collectionStore) private var store
     @Dependency(\.liveReviewCounts) private var liveCounts
+    @Dependency(\.syncCoordinator) private var syncCoordinator
 
     package init(deckId: DeckID, pullCooling: Bool = false, onDismiss: @escaping () -> Void) {
         self.deckId = deckId
@@ -76,6 +78,10 @@ package struct ReviewView: View {
         )
         .task {
             ReviewAudioSession.apply(playInSilent: playAudioInSilentMode)
+            // A post-review flush may be sleeping toward launch; drop it so
+            // the session's first cards don't serialize behind a sync on the
+            // backend lock. Dirty state persists and this review re-arms.
+            syncCoordinator.cancelPendingAutomaticSync()
             session.start()
         }
         .alert(
@@ -123,6 +129,13 @@ package struct ReviewView: View {
         // durable hand-off point: invalidate deck/count caches exactly once so
         // every consumer reloads the scheduler's final state.
         store.invalidateAll(origin: .localUser)
+        // The scheduler lease is released above, so deferred automatic syncs
+        // may run again. Flush the session's accumulated mutations now — one
+        // sync for the whole sitting instead of attempts interleaved with
+        // ratings — and let the scheduled pull catch up if the session
+        // outlasted its interval.
+        syncCoordinator.resumeAutomaticSyncIfNeeded(reason: "Review session ended")
+        syncCoordinator.runScheduledCollectionSyncIfNeeded()
     }
 
     /// A filtered deck built for one sitting ("Study · …", Custom Study)

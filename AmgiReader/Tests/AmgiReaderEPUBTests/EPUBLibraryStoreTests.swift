@@ -149,6 +149,115 @@ struct EPUBLibraryStoreTests {
     }
 }
 
+#if os(macOS)
+@Suite("EPUB library health and repair")
+struct EPUBLibraryHealthTests {
+    @Test("a missing source keeps the book listed and reports a repairable fault")
+    func missingSourceIsReportedNotHidden() async throws {
+        let fixtureRoot = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+
+        let sourceURL = fixtureRoot.appendingPathComponent("source.epub")
+        try makeValidEPUB(at: sourceURL)
+
+        let libraryRoot = fixtureRoot.appendingPathComponent("library", isDirectory: true)
+        let store = EPUBLibraryStore(rootDirectory: libraryRoot)
+        let book = try await store.importEPUB(from: sourceURL)
+
+        // Simulate the cold-start failure: the managed source vanishes (sync
+        // eviction, restore abort, external cleanup).
+        let managedSource = libraryRoot
+            .appendingPathComponent(book.id, isDirectory: true)
+            .appendingPathComponent("original.epub")
+        try FileManager.default.removeItem(at: managedSource)
+
+        // A fresh store models the next cold launch, where nothing is cached.
+        let coldStore = EPUBLibraryStore(rootDirectory: libraryRoot)
+        let listed = await coldStore.books()
+
+        // The book must still occupy a row: this is the "silent disappearance"
+        // regression. Title comes from the persisted index, not the parser.
+        #expect(listed.count == 1)
+        #expect(listed.first?.id == book.id)
+        #expect(listed.first?.title == "Test Publication")
+
+        let health = await coldStore.bookHealth()
+        #expect(health[book.id]?.isReady == false)
+        #expect(health[book.id]?.fault == .sourceMissing)
+
+        // Retry cannot invent a source that is gone.
+        #expect(await coldStore.retryBook(bookID: book.id) == nil)
+        let healthAfterRetry = await coldStore.bookHealth()
+        #expect(healthAfterRetry[book.id]?.fault == .sourceMissing)
+    }
+
+    @Test("a corrupt source reports parseFailed and relink repairs it")
+    func relinkRepairsCorruptSource() async throws {
+        let fixtureRoot = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+
+        let sourceURL = fixtureRoot.appendingPathComponent("source.epub")
+        try makeValidEPUB(at: sourceURL)
+
+        let libraryRoot = fixtureRoot.appendingPathComponent("library", isDirectory: true)
+        let store = EPUBLibraryStore(rootDirectory: libraryRoot)
+        let book = try await store.importEPUB(from: sourceURL)
+
+        let managedSource = libraryRoot
+            .appendingPathComponent(book.id, isDirectory: true)
+            .appendingPathComponent("original.epub")
+        try Data("corrupted, not a zip".utf8).write(to: managedSource)
+
+        let coldStore = EPUBLibraryStore(rootDirectory: libraryRoot)
+        let health = await coldStore.bookHealth()
+        #expect(health[book.id]?.fault == .parseFailed)
+        // Still listed, still identifiable.
+        let listed = await coldStore.books()
+        #expect(listed.first?.id == book.id)
+
+        // Repoint the user at a different publication: must be refused.
+        let otherSource = fixtureRoot.appendingPathComponent("other.epub")
+        try makeValidEPUB(at: otherSource, title: "Other Publication")
+        await #expect(throws: EPUBLibraryStore.StoreError.self) {
+            _ = try await coldStore.relinkBook(bookID: book.id, to: otherSource)
+        }
+
+        // Repoint at the correct file: the book is repaired and healthy again.
+        let repaired = try await coldStore.relinkBook(bookID: book.id, to: sourceURL)
+        #expect(repaired.id == book.id)
+        let repairedHealth = await coldStore.bookHealth()
+        #expect(repairedHealth[book.id]?.isReady == true)
+        let repairedBooks = await coldStore.books()
+        #expect(repairedBooks.first?.chapters.isEmpty == false)
+    }
+
+    @Test("a fault persisted by one store is visible to the next cold launch")
+    func faultSurvivesColdRestart() async throws {
+        let fixtureRoot = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+
+        let sourceURL = fixtureRoot.appendingPathComponent("source.epub")
+        try makeValidEPUB(at: sourceURL)
+        let libraryRoot = fixtureRoot.appendingPathComponent("library", isDirectory: true)
+
+        let store = EPUBLibraryStore(rootDirectory: libraryRoot)
+        let book = try await store.importEPUB(from: sourceURL)
+        try FileManager.default.removeItem(
+            at: libraryRoot.appendingPathComponent(book.id, isDirectory: true)
+                .appendingPathComponent("original.epub")
+        )
+        // Touch the fault path so it is written to index.json.
+        _ = await store.books()
+
+        // A brand-new store reads the persisted fault rather than treating the
+        // book as absent.
+        let coldStore = EPUBLibraryStore(rootDirectory: libraryRoot)
+        let health = await coldStore.bookHealth()
+        #expect(health[book.id]?.fault == .sourceMissing)
+    }
+}
+#endif
+
 private func makeTemporaryDirectory() throws -> URL {
     let url = FileManager.default.temporaryDirectory
         .appendingPathComponent("AmgiEPUBTests-\(UUID().uuidString)", isDirectory: true)
@@ -156,7 +265,7 @@ private func makeTemporaryDirectory() throws -> URL {
     return url
 }
 
-private func makeValidEPUB(at archiveURL: URL) throws {
+private func makeValidEPUB(at archiveURL: URL, title: String = "Test Publication") throws {
     let workDirectory = archiveURL.deletingLastPathComponent()
         .appendingPathComponent("fixture-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(
@@ -190,7 +299,7 @@ private func makeValidEPUB(at archiveURL: URL) throws {
     <?xml version="1.0" encoding="UTF-8"?>
     <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="book-id">
       <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-        <dc:title>Test Publication</dc:title>
+        <dc:title>\(title)</dc:title>
         <dc:language>en</dc:language>
         <dc:identifier id="book-id">urn:uuid:test-publication</dc:identifier>
       </metadata>

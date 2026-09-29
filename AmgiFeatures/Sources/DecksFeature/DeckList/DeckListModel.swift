@@ -22,6 +22,13 @@ final class DeckListModel {
     private var deckRows: [DeckListRow] = []
     private var lastSortOrder: DeckSortOrder = .mostUsed
     private var usageRanks: [Int64: DeckUsageRank] = [:]
+    /// Per-deck daily new limits for the new-wall signal, keyed by deck.
+    /// Best-effort enrichment fetched off the critical path (at most 4
+    /// decks per load); absent means unknown, never zero.
+    private var newPerDayLimits: [DeckID: Int] = [:]
+    /// Guards the fill-missing background rank fetch so concurrent loads
+    /// don't stack duplicate fetches.
+    private var backgroundRankFetchInFlight = false
     /// Top-level decks whose every card is suspended. Default and filtered
     /// decks are never included, even when parked.
     private var archivedDeckIDs: Set<DeckID> = []
@@ -49,7 +56,7 @@ final class DeckListModel {
     /// `mostUsed` lazily pulls revlog ranks if this session has not yet.
     func resort(sortOrder: DeckSortOrder) {
         lastSortOrder = sortOrder
-        guard !deckRows.isEmpty, case .loaded(_, let hero, let heatmap) = state else { return }
+        guard !deckRows.isEmpty, case .loaded(_, let hero, let heatmap, _) = state else { return }
         if sortOrder == .mostUsed && usageRanks.isEmpty {
             Task {
                 usageRanks = await fetchUsageRanks(for: deckRows)
@@ -63,8 +70,10 @@ final class DeckListModel {
     private func loadBody() async {
         // Carry the previous activity data through a refresh rather than
         // flashing placeholders over numbers that are still on screen.
+        // Triage needs no carrying: phase one recomputes it from the
+        // stored ranks, which persist across loads.
         let carried: (hero: HeroData, heatmap: HeatmapCardData?)?
-        if case .loaded(_, let hero, let heatmap) = state {
+        if case .loaded(_, let hero, let heatmap, _) = state {
             carried = (hero, heatmap)
         } else {
             carried = nil
@@ -105,16 +114,21 @@ final class DeckListModel {
             // tree) and phase two (a 365-day revlog scan) have very
             // different costs, and a single interval hides which one the
             // launch path is actually waiting on. Usage ranks for Most used
-            // ride alongside so the first paint is not gated on them.
+            // ride alongside so the first paint is not gated on them. The
+            // new-limit reads are bounded (top 4 wall candidates) and land
+            // here for the same reason.
             let rows = deckRows
             async let activity = AppSignpost.measure("DeckListActivity") {
                 await self.buildHeroAndHeatmap(rows: rows)
             }
             async let ranks = usageRanks(neededFor: lastSortOrder, rows: rows)
+            async let limits = newPerDayLimits(for: rows)
             let (hero, heatmap) = await activity
             usageRanks = await ranks
+            newPerDayLimits = await limits
             guard !Task.isCancelled else { return }
             publishLoaded(hero: hero, heatmap: heatmap)
+            ensureBackgroundRanks(rows: rows)
             Task { await refineRowIcons() }
         } catch {
             Log.decks.error("Error loading decks: \(error)")
@@ -126,7 +140,7 @@ final class DeckListModel {
 
     /// Semantic suggestions stream in per row after first paint.
     func refineRowIcons() async {
-        guard case .loaded(let rows, let hero, let heatmap) = state else { return }
+        guard case .loaded(let rows, let hero, let heatmap, _) = state else { return }
         var updated = rows
         var changed = false
         for index in updated.indices {
@@ -141,7 +155,15 @@ final class DeckListModel {
             changed = true
         }
         if changed {
-            state = .loaded(rows: updated, hero: hero, heatmap: heatmap)
+            // Triage rows carry the same `DeckRowViewData` values, so the
+            // refined icons must flow through — recompute over the updated
+            // rows rather than carrying a stale payload.
+            state = .loaded(
+                rows: updated,
+                hero: hero,
+                heatmap: heatmap,
+                triage: classifiedTriage(for: updated)
+            )
         }
     }
 
@@ -167,31 +189,44 @@ final class DeckListModel {
 
     private func publishLoaded(hero: HeroData, heatmap: HeatmapCardData?) {
         let existingIcons: [Int64: String?] = {
-            guard case .loaded(let rows, _, _) = state else { return [:] }
+            guard case .loaded(let rows, _, _, _) = state else { return [:] }
             return Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.iconName) })
         }()
         let sorted = DeckSorting.libraryRows(deckRows, order: lastSortOrder, ranks: usageRanks)
+        let viewRows = sorted.map { row in
+            var viewData = row.viewData(isArchived: archivedDeckIDs.contains(row.id))
+            if let existing = existingIcons[row.id.rawValue] {
+                viewData.iconName = existing
+            } else {
+                viewData.iconName = DeckIconOverrides.initialIcon(
+                    deckId: row.id.rawValue,
+                    name: row.name,
+                    fullName: row.fullName
+                )
+            }
+            return viewData
+        }
         state = .loaded(
-            rows: sorted.map { row in
-                var viewData = row.viewData(isArchived: archivedDeckIDs.contains(row.id))
-                if let existing = existingIcons[row.id.rawValue] {
-                    viewData.iconName = existing
-                } else {
-                    viewData.iconName = DeckIconOverrides.initialIcon(
-                        deckId: row.id.rawValue,
-                        name: row.name,
-                        fullName: row.fullName
-                    )
-                }
-                return viewData
-            },
+            rows: viewRows,
             hero: hero,
-            heatmap: heatmap
+            heatmap: heatmap,
+            triage: classifiedTriage(for: viewRows)
+        )
+    }
+
+    /// Single source for the card payload: phase one, phase two, `resort`,
+    /// and icon refinement all classify from the same stored inputs.
+    private func classifiedTriage(for viewRows: [DeckRowViewData]) -> DeckTriageData {
+        DeckTriage.data(
+            rows: viewRows,
+            ranks: usageRanks,
+            archived: archivedDeckIDs,
+            newPerDay: newPerDayLimits
         )
     }
 
     private func republishLoaded() {
-        guard case .loaded(_, let hero, let heatmap) = state else { return }
+        guard case .loaded(_, let hero, let heatmap, _) = state else { return }
         publishLoaded(hero: hero, heatmap: heatmap)
     }
 
@@ -208,6 +243,55 @@ final class DeckListModel {
             for: rows.map { (id: $0.id, fullName: $0.fullName) },
             statsClient: statsClient
         )
+    }
+
+    /// Daily new limits for the new-wall signal. Only decks that already
+    /// pass the count pre-filter are worth a backend round trip, biggest
+    /// first, capped — the bound is the whole point (see the perf guard).
+    /// Best-effort: a failure leaves the limit unknown and the deck simply
+    /// doesn't qualify, rather than inventing a projection.
+    private func newPerDayLimits(for rows: [DeckListRow]) async -> [DeckID: Int] {
+        let limits = DeckTriage.Limits()
+        let candidates = rows
+            .filter {
+                !$0.isFiltered
+                    && !archivedDeckIDs.contains($0.id)
+                    && $0.counts.newCount >= limits.newWallMinimum
+            }
+            .sorted { $0.counts.newCount > $1.counts.newCount }
+            .prefix(limits.maxVisibleItems)
+        let deckClient = self.deckClient
+        return await withTaskGroup(of: (DeckID, Int?).self) { group in
+            for row in candidates {
+                group.addTask {
+                    let perDay = try? await deckClient.getDeckConfig(row.id)
+                    return (row.id, perDay?.config.newPerDay)
+                }
+            }
+            var out: [DeckID: Int] = [:]
+            for await (id, perDay) in group {
+                if let perDay { out[id] = perDay }
+            }
+            return out
+        }
+    }
+
+    /// Fills ranks for rows that lack them without gating any paint. Under
+    /// a non-default sort the phase-two fetch is skipped, which would leave
+    /// the triage card permanently degraded; this backfills in the
+    /// background instead of paying N extra calls on the load path.
+    /// Self-limiting: once every row has a rank there is nothing to do.
+    private func ensureBackgroundRanks(rows: [DeckListRow]) {
+        guard !backgroundRankFetchInFlight else { return }
+        let missing = rows.filter { usageRanks[$0.id.rawValue] == nil }
+        guard !missing.isEmpty else { return }
+        backgroundRankFetchInFlight = true
+        Task {
+            let fetched = await fetchUsageRanks(for: missing)
+            for (key, rank) in fetched { usageRanks[key] = rank }
+            backgroundRankFetchInFlight = false
+            republishLoaded()
+        }
     }
 
     static func buildHeatmap(
@@ -263,11 +347,20 @@ private extension DeckListModel {
             )
         }
         let reviewCounts = graphs.reviews.count
+        let today = graphs.today
+        let trueRetention = graphs.trueRetention.today
         let hero = HeroData(
             totalDue: totalDue,
             deckCount: deckCount,
             streak: StreakCalculator.streak(reviews: reviewCounts, window: graphDays),
-            recentDayTotals: StreakCalculator.lastNDaysTotals(reviews: reviewCounts, days: HeroData.sparklineCapacity)
+            recentDayTotals: StreakCalculator.lastNDaysTotals(reviews: reviewCounts, days: HeroData.sparklineCapacity),
+            today: HeroTodayStats(
+                studied: today.answerCount,
+                timeMillis: today.answerMillis,
+                retentionPassed: trueRetention.youngPassed + trueRetention.maturePassed,
+                retentionTotal: trueRetention.youngPassed + trueRetention.youngFailed
+                    + trueRetention.maturePassed + trueRetention.matureFailed
+            )
         )
         return (hero, Self.buildHeatmap(reviews: reviewCounts))
     }

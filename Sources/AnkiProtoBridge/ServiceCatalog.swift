@@ -94,6 +94,7 @@ enum DeckConfigMethod {
 }
 
 enum NotetypesMethod {
+    static let addNotetype: UInt32 = 0
     static let updateNotetype: UInt32 = 1
     static let getNotetype: UInt32 = 6
     static let getNotetypeNames: UInt32 = 8

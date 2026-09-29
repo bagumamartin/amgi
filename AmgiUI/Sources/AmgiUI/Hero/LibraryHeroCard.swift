@@ -2,21 +2,20 @@ public import SwiftUI
 import AmgiTheme
 
 /// Library hero card. Built on `AmgiHeroSummary`. Wraps it to supply the
-/// streak pill (top-right decoration slot), a quiet jump to the Study
-/// desk (footer), and the 14-day sparkline (sidecar — stacked on
-/// compact, beside copy on regular).
+/// streak pill (top-right decoration slot), today's review stats (footer
+/// strip) and the 14-day sparkline (sidecar — stacked on compact, beside
+/// copy on regular).
 ///
 /// The due numeral and sparkline are collection facts. Starting today's
 /// session belongs to Study, so this card does not play the queue.
 public struct LibraryHeroCard: View {
     let data: HeroData
-    let onOpenToday: () -> Void
-    /// True while the review-history fetch that feeds `streak` and
-    /// `last14Days` is still in flight. `totalDue` and `deckCount` come from
-    /// the deck tree and are real immediately, so the card renders at once and
-    /// only the history-derived decorations are shown as placeholders — a
-    /// confident "0 day streak" that flips to 36 a second later is a worse
-    /// answer than an obvious placeholder.
+    /// True while the review-history fetch that feeds `streak`,
+    /// `last14Days` and `today` is still in flight. `totalDue` and
+    /// `deckCount` come from the deck tree and are real immediately, so the
+    /// card renders at once and only the history-derived decorations are
+    /// shown as placeholders — a confident "0 day streak" that flips to 36
+    /// a second later is a worse answer than an obvious placeholder.
     let activityPending: Bool
 
     @Environment(\.palette) private var palette
@@ -24,24 +23,46 @@ public struct LibraryHeroCard: View {
 
     public init(
         data: HeroData,
-        activityPending: Bool = false,
-        onOpenToday: @escaping () -> Void
+        activityPending: Bool = false
     ) {
         self.data = data
         self.activityPending = activityPending
-        self.onOpenToday = onOpenToday
     }
 
     public var body: some View {
         AmgiHeroSummary(
-            eyebrow: "Due today",
-            bigNumber: "\(data.totalDue)",
-            subtitle: subtitleText,
-            decoration: {
-                StreakBadge(days: data.streak)
+            header: {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Due today".uppercased())
+                            .amgiFont(size: 13, weight: .semibold, tracking: 0.4, relativeTo: .footnote)
+                            .foregroundStyle(palette.textTertiary)
+                        Spacer(minLength: 12)
+                        StreakBadge(days: data.streak)
+                            .redacted(reason: activityPending ? .placeholder : [])
+                    }
+                    HStack(alignment: .top, spacing: 8) {
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text("\(data.totalDue)")
+                                .amgiFont(size: 56, weight: .bold, tracking: -1.2, relativeTo: .largeTitle)
+                                .foregroundStyle(palette.textPrimary)
+                            Text(subtitleText)
+                                .amgiFont(size: 15, weight: .regular, relativeTo: .subheadline)
+                                .foregroundStyle(palette.textSecondary)
+                        }
+                        .layoutPriority(1)
+                        VStack(spacing: 8) {
+                            HeroHeaderStatTiles(today: data.today ?? HeroTodayStats())
+                                .redacted(reason: activityPending ? .placeholder : [])
+                            paceTile
+                        }
+                    }
+                }
+            },
+            footer: {
+                HeroRetentionTile(today: data.today ?? HeroTodayStats())
                     .redacted(reason: activityPending ? .placeholder : [])
             },
-            footer: { openTodayButton },
             sidecar: {
                 sparkline
                     .redacted(reason: activityPending ? .placeholder : [])
@@ -49,17 +70,23 @@ public struct LibraryHeroCard: View {
         )
     }
 
-    private var isRegular: Bool { horizontalSizeClass == .regular }
-
-    private var openTodayButton: some View {
-        Button(action: onOpenToday) {
-            Text("Study today")
-                .amgiFont(size: 16, weight: .semibold, relativeTo: .body)
-                .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.borderless)
-        .foregroundStyle(palette.accent)
+    private var paceTile: some View {
+        let pace = String(
+            format: "%.1f s/card",
+            (data.today ?? HeroTodayStats()).paceSecondsPerCard
+        )
+        return HeroStatTile(
+            eyebrow: "Pace",
+            value: pace,
+            accessibilityLabel: "Pace, \(pace)",
+            valueFontSize: 14,
+            verticalPadding: 6,
+            horizontalPadding: 4
+        )
+        .redacted(reason: activityPending ? .placeholder : [])
     }
+
+    private var isRegular: Bool { horizontalSizeClass == .regular }
 
     private var sparkline: some View {
         SparklineBars(values: data.recentDayTotals)
@@ -67,7 +94,7 @@ public struct LibraryHeroCard: View {
     }
 
     private var subtitleText: String {
-        "cards across \(data.deckCount) deck\(data.deckCount == 1 ? "" : "s")"
+        "across \(data.deckCount) deck\(data.deckCount == 1 ? "" : "s")"
     }
 }
 
@@ -155,9 +182,9 @@ private struct SparklineBars: View {
             totalDue: 680,
             deckCount: 7,
             streak: 36,
-            recentDayTotals: HeroData.sampleDayTotals()
-        ),
-        onOpenToday: {}
+            recentDayTotals: HeroData.sampleDayTotals(),
+            today: .sample
+        )
     )
     .padding(16)
     .background(Color.gray.opacity(0.12))
@@ -170,9 +197,9 @@ private struct SparklineBars: View {
             totalDue: 680,
             deckCount: 7,
             streak: 36,
-            recentDayTotals: HeroData.sampleDayTotals()
-        ),
-        onOpenToday: {}
+            recentDayTotals: HeroData.sampleDayTotals(),
+            today: .sample
+        )
     )
     .padding(16)
     .background(Color.gray.opacity(0.12))
@@ -186,9 +213,9 @@ private struct SparklineBars: View {
             totalDue: 741,
             deckCount: 8,
             streak: 5,
-            recentDayTotals: HeroData.sampleDayTotals()
-        ),
-        onOpenToday: {}
+            recentDayTotals: HeroData.sampleDayTotals(),
+            today: .sample
+        )
     )
     .padding(16)
     .frame(width: 720)
@@ -197,15 +224,15 @@ private struct SparklineBars: View {
     .environment(\.palette, .vividLight)
 }
 
-#Preview("Zero due — opens Today") {
+#Preview("Zero due — unstudied today") {
     LibraryHeroCard(
         data: HeroData(
             totalDue: 0,
             deckCount: 4,
             streak: 12,
-            recentDayTotals: HeroData.sampleDayTotals()
-        ),
-        onOpenToday: {}
+            recentDayTotals: HeroData.sampleDayTotals(),
+            today: HeroTodayStats()
+        )
     )
     .padding(16)
     .background(Color.gray.opacity(0.12))
@@ -218,9 +245,9 @@ private struct SparklineBars: View {
             totalDue: 42,
             deckCount: 3,
             streak: 0,
-            recentDayTotals: Array(repeating: 0, count: HeroData.sparklineCapacity)
-        ),
-        onOpenToday: {}
+            recentDayTotals: Array(repeating: 0, count: HeroData.sparklineCapacity),
+            today: .sample
+        )
     )
     .padding(16)
     .background(Color.gray.opacity(0.12))

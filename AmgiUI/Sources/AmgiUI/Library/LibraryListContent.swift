@@ -18,13 +18,14 @@ public struct LibraryListContent: View {
         /// `heatmap` is nil while the review-history fetch is still in flight.
         /// The rows and the hero's due counts come from the deck tree and do
         /// not wait on it — a year of revlog used to gate the whole screen.
-        case loaded(rows: [DeckRowViewData], hero: HeroData, heatmap: HeatmapCardData?)
+        /// `triage` resolves on the same history; the card shows a
+        /// placeholder until then and hides entirely when nothing qualifies.
+        case loaded(rows: [DeckRowViewData], hero: HeroData, heatmap: HeatmapCardData?, triage: DeckTriageData)
     }
 
     let state: State
     @Binding var sortOrder: DeckSortOrder
     let onRefresh: () async -> Void
-    let onOpenToday: () -> Void
     let onTapDeck: (DeckRowViewData) -> Void
     let onDeleteDeck: (Int64) async -> Void
     let onRenameDeck: (DeckRowViewData) -> Void
@@ -45,7 +46,6 @@ public struct LibraryListContent: View {
         state: State,
         sortOrder: Binding<DeckSortOrder> = .constant(.mostUsed),
         onRefresh: @escaping () async -> Void,
-        onOpenToday: @escaping () -> Void,
         onTapDeck: @escaping (DeckRowViewData) -> Void,
         onDeleteDeck: @escaping (Int64) async -> Void,
         onRenameDeck: @escaping (DeckRowViewData) -> Void,
@@ -56,7 +56,6 @@ public struct LibraryListContent: View {
         self.state = state
         self._sortOrder = sortOrder
         self.onRefresh = onRefresh
-        self.onOpenToday = onOpenToday
         self.onTapDeck = onTapDeck
         self.onDeleteDeck = onDeleteDeck
         self.onRenameDeck = onRenameDeck
@@ -88,8 +87,8 @@ public struct LibraryListContent: View {
                 Button("Try Again") { Task { await onRefresh() } }
                     .buttonStyle(.borderedProminent)
             }
-        case .loaded(let rows, let hero, let heatmap):
-            loadedList(rows: rows, hero: hero, heatmap: heatmap)
+        case .loaded(let rows, let hero, let heatmap, let triage):
+            loadedList(rows: rows, hero: hero, heatmap: heatmap, triage: triage)
                 .alert(
                     "Delete \"\(deleteTarget?.name ?? "")\"?",
                     isPresented: Binding(
@@ -112,17 +111,17 @@ public struct LibraryListContent: View {
     }
 
     @ViewBuilder
-    private func loadedList(rows: [DeckRowViewData], hero: HeroData, heatmap: HeatmapCardData?) -> some View {
+    private func loadedList(rows: [DeckRowViewData], hero: HeroData, heatmap: HeatmapCardData?, triage: DeckTriageData) -> some View {
         #if os(iOS)
         // Sidebar resizing must not replace the scroll surface when the
         // content width crosses the column's maximum width.
         if horizontalSizeClass == .regular {
-            scrollList(rows: rows, hero: hero, heatmap: heatmap)
+            scrollList(rows: rows, hero: hero, heatmap: heatmap, triage: triage)
         } else {
-            deckList(rows: rows, hero: hero, heatmap: heatmap)
+            deckList(rows: rows, hero: hero, heatmap: heatmap, triage: triage)
         }
         #else
-        scrollList(rows: rows, hero: hero, heatmap: heatmap)
+        scrollList(rows: rows, hero: hero, heatmap: heatmap, triage: triage)
         #endif
     }
 
@@ -131,15 +130,14 @@ public struct LibraryListContent: View {
     }
 
     #if os(iOS)
-    private func deckList(rows: [DeckRowViewData], hero: HeroData, heatmap: HeatmapCardData?) -> some View {
+    private func deckList(rows: [DeckRowViewData], hero: HeroData, heatmap: HeatmapCardData?, triage: DeckTriageData) -> some View {
         let active = rows.filter { !$0.isArchived }
         let archived = rows.filter(\.isArchived)
         return List {
             Section {
                 LibraryHeroCard(
                     data: hero,
-                    activityPending: heatmap == nil,
-                    onOpenToday: onOpenToday
+                    activityPending: heatmap == nil
                 )
                     // Full-bleed, same as the heatmap card — no extra inset
                     // that would show the grouped-section plate behind it.
@@ -182,6 +180,18 @@ public struct LibraryListContent: View {
                 }
             }
 
+            // Collection triage sits between the decks it refers to and the
+            // year of history below — same full-bleed treatment as the hero
+            // and heatmap sections.
+            if !triage.isHidden {
+                Section {
+                    DeckTriageCard(data: triage, onTapDeck: onTapDeck)
+                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                }
+            }
+
             Section {
                 ActivityHeatmapCard(data: heatmap ?? .empty, initialDays: heatmapInitialDays)
                     .redacted(reason: heatmap == nil ? .placeholder : [])
@@ -216,15 +226,14 @@ public struct LibraryListContent: View {
     }
     #endif
 
-    private func scrollList(rows: [DeckRowViewData], hero: HeroData, heatmap: HeatmapCardData?) -> some View {
+    private func scrollList(rows: [DeckRowViewData], hero: HeroData, heatmap: HeatmapCardData?, triage: DeckTriageData) -> some View {
         let active = rows.filter { !$0.isArchived }
         let archived = rows.filter(\.isArchived)
         return ScrollView {
             LazyVStack(alignment: .leading, spacing: 18) {
                 LibraryHeroCard(
                     data: hero,
-                    activityPending: heatmap == nil,
-                    onOpenToday: onOpenToday
+                    activityPending: heatmap == nil
                 )
 
                 if !active.isEmpty {
@@ -245,6 +254,10 @@ public struct LibraryListContent: View {
                             deckRowsCard(rows: archived)
                         }
                     }
+                }
+
+                if !triage.isHidden {
+                    DeckTriageCard(data: triage, onTapDeck: onTapDeck)
                 }
 
                 ActivityHeatmapCard(data: heatmap ?? .empty, initialDays: heatmapInitialDays)
@@ -487,7 +500,8 @@ private extension DeckRowViewData {
 private extension HeroData {
     static let samplePopulated = HeroData(
         totalDue: 680, deckCount: 7, streak: 36,
-        recentDayTotals: HeroData.sampleDayTotals()
+        recentDayTotals: HeroData.sampleDayTotals(),
+        today: .sample
     )
 }
 
@@ -497,10 +511,11 @@ private extension HeroData {
             state: .loaded(
                 rows: [.sampleKorean, .sampleEnglish, .sampleCS, .sampleEspanol, .sampleFiltered],
                 hero: .samplePopulated,
-                heatmap: .dense
+                heatmap: .dense,
+                triage: .sample
             ),
             sortOrder: .constant(.mostUsed),
-            onRefresh: {}, onOpenToday: {},
+            onRefresh: {},
             onTapDeck: { _ in }, onDeleteDeck: { _ in }, onRenameDeck: { _ in }, onCreateDeck: {}
         )
         .navigationTitle("Library")
@@ -518,10 +533,11 @@ private extension HeroData {
             state: .loaded(
                 rows: [.sampleKorean, .sampleEnglish, .sampleCS, .sampleEspanol, .sampleFiltered],
                 hero: .samplePopulated,
-                heatmap: .dense
+                heatmap: .dense,
+                triage: .sample
             ),
             sortOrder: .constant(.mostUsed),
-            onRefresh: {}, onOpenToday: {},
+            onRefresh: {},
             onTapDeck: { _ in }, onDeleteDeck: { _ in }, onRenameDeck: { _ in }, onCreateDeck: {}
         )
         .navigationTitle("Library")
@@ -536,10 +552,11 @@ private extension HeroData {
                 rows: [.sampleEspanol],
                 hero: HeroData(totalDue: 0, deckCount: 1, streak: 12,
                                recentDayTotals: Array(repeating: 0, count: HeroData.sparklineCapacity)),
-                heatmap: .sparse
+                heatmap: .sparse,
+                triage: .resolvedEmpty
             ),
             sortOrder: .constant(.mostUsed),
-            onRefresh: {}, onOpenToday: {},
+            onRefresh: {},
             onTapDeck: { _ in }, onDeleteDeck: { _ in }, onRenameDeck: { _ in }, onCreateDeck: {}
         )
         .navigationTitle("Library")
@@ -552,7 +569,7 @@ private extension HeroData {
         LibraryListContent(
             state: .loading,
             sortOrder: .constant(.mostUsed),
-            onRefresh: {}, onOpenToday: {},
+            onRefresh: {},
             onTapDeck: { _ in }, onDeleteDeck: { _ in }, onRenameDeck: { _ in }, onCreateDeck: {}
         )
         .navigationTitle("Library")
@@ -565,7 +582,7 @@ private extension HeroData {
         LibraryListContent(
             state: .empty,
             sortOrder: .constant(.mostUsed),
-            onRefresh: {}, onOpenToday: {},
+            onRefresh: {},
             onTapDeck: { _ in }, onDeleteDeck: { _ in }, onRenameDeck: { _ in }, onCreateDeck: {}
         )
         .navigationTitle("Library")

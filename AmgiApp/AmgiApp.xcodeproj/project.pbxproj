@@ -130,7 +130,7 @@
 		34B25F9D324E0B703F834DC4 /* WatchAssets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = WatchAssets.xcassets; sourceTree = "<group>"; };
 		39C2C9422C9A994272F8C208 /* AmgiIcons */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AmgiIcons; path = ../AmgiIcons; sourceTree = SOURCE_ROOT; };
 		3A9A4E63D51973E133E2DE69 /* ToolSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolSupport.swift; sourceTree = "<group>"; };
-		4885F9B8D778EF6F864BC74F /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		4885F9B8D778EF6F864BC74F /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		53491D7CE1CAE7A63D1DA6EA /* AppRunningCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRunningCheck.swift; sourceTree = "<group>"; };
 		5C4176C8ACB2773678D5905C /* ConfigMediaTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigMediaTools.swift; sourceTree = "<group>"; };
 		669B560BB02A588DCA87B768 /* MCPGuidance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPGuidance.swift; sourceTree = "<group>"; };
@@ -147,7 +147,7 @@
 		8FD2F4C9803F239FBB711F38 /* ReviewContextTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewContextTools.swift; sourceTree = "<group>"; };
 		9508481C0DD815976FA19522 /* AmgiReader */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AmgiReader; path = ../AmgiReader; sourceTree = SOURCE_ROOT; };
 		98C4A1BE226DE11015C01ECE /* SearchTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchTools.swift; sourceTree = "<group>"; };
-		A1260ECF4FE2678C38F6F6FA /* IjukaMCPHelper */ = {isa = PBXFileReference; includeInIndex = 0; path = IjukaMCPHelper; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1260ECF4FE2678C38F6F6FA /* IjukaMCPHelper */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = text; name = IjukaMCPHelper; path = "ijuka-mcp"; sourceTree = BUILT_PRODUCTS_DIR; };
 		A12D2167226A912462BF60EA /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A837EB0A30B6E90B20D5C1CD /* AmgiWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = AmgiWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		BE8DDAC853DEF5B6112EB833 /* AmgiFeatures */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AmgiFeatures; path = ../AmgiFeatures; sourceTree = SOURCE_ROOT; };
@@ -163,7 +163,7 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		1B98150CA7E87F8DFC46FAE3 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+		1B98150CA7E87F8DFC46FAE3 /* Exceptions for "Widgets" folder in "AmgiWidget" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -176,43 +176,23 @@
 		004874923745BECF98EEBD18 /* Widgets */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				1B98150CA7E87F8DFC46FAE3 /* PBXFileSystemSynchronizedBuildFileExceptionSet */,
+				1B98150CA7E87F8DFC46FAE3 /* Exceptions for "Widgets" folder in "AmgiWidget" target */,
 			);
-			explicitFileTypes = {
-			};
-			explicitFolders = (
-			);
-			name = Widgets;
 			path = Widgets;
 			sourceTree = "<group>";
 		};
 		70BB06347ADF26FA0276AD23 /* AmgiAppTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			explicitFileTypes = {
-			};
-			explicitFolders = (
-			);
-			name = AmgiAppTests;
 			path = AmgiAppTests;
 			sourceTree = "<group>";
 		};
 		7608F7C11757FEACED1F7B35 /* AmgiAppAdaptiveUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			explicitFileTypes = {
-			};
-			explicitFolders = (
-			);
-			name = AmgiAppAdaptiveUITests;
 			path = AmgiAppAdaptiveUITests;
 			sourceTree = "<group>";
 		};
 		866AB3935E4B832E1E446D8E /* AmgiAppIntentsUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			explicitFileTypes = {
-			};
-			explicitFolders = (
-			);
-			name = AmgiAppIntentsUITests;
 			path = AmgiAppIntentsUITests;
 			sourceTree = "<group>";
 		};

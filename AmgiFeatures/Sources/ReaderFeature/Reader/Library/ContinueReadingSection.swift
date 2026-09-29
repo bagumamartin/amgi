@@ -24,12 +24,19 @@ struct ContinueReadingSection: View {
                         ForEach(items) { item in
                             if let book = bookForId(item.id) {
                                 NavigationLink {
-                                    ReaderBookDetailView(book: book, progress: progress)
+                                    ReaderOpenView(book: book, progress: progress)
                                         #if os(iOS)
                                         .navigationTransition(.zoom(sourceID: item.id, in: coverTransition))
                                         #endif
                                 } label: {
                                     ContinueReadingCard(item: item)
+                                        .contextMenu {
+                                            NavigationLink {
+                                                ReaderBookDetailView(book: book, progress: progress)
+                                            } label: {
+                                                Label("Book Details & Chapters", systemImage: "info.circle")
+                                            }
+                                        }
                                 }
                                 .buttonStyle(.pressScale)
                                 #if os(iOS)

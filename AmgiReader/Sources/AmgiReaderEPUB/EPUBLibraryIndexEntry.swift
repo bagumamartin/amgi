@@ -1,5 +1,46 @@
 internal import Foundation
 
+/// Why a book in the index can no longer be materialised on disk.
+///
+/// Persisted with the index entry rather than kept in memory so a book that
+/// fails a *cold* rebuild (app relaunch, after a failed restore, missing
+/// source) still reports a reason instead of silently vanishing from the
+/// library list.
+public enum EPUBLibraryEntryFault: String, Codable, Sendable, Hashable, CaseIterable {
+    /// `original.epub` is absent from the managed book directory.
+    case sourceMissing
+    /// The source exists but could not be read (permissions, I/O, truncated).
+    case sourceUnreadable
+    /// EPUBKit could not parse the source (malformed container / OPF).
+    case parseFailed
+}
+
+/// Public, UI-facing health for one managed book.
+public struct EPUBLibraryBookHealth: Sendable, Hashable {
+    public enum State: Sendable, Hashable {
+        case ready
+        case needsRepair(fault: EPUBLibraryEntryFault, detail: String?)
+    }
+
+    public let bookID: String
+    public let state: State
+
+    public var isReady: Bool {
+        if case .ready = state { return true }
+        return false
+    }
+
+    public var fault: EPUBLibraryEntryFault? {
+        if case .needsRepair(let fault, _) = state { return fault }
+        return nil
+    }
+
+    public init(bookID: String, state: State) {
+        self.bookID = bookID
+        self.state = state
+    }
+}
+
 /// On-disk shape persisted in `EPUBLibrary/index.json`.
 internal struct EPUBLibraryIndexEntry: Codable, Sendable, Hashable {
     var bookID: String
@@ -15,6 +56,13 @@ internal struct EPUBLibraryIndexEntry: Codable, Sendable, Hashable {
     /// the additive iCloud restore pass from resurrecting a book on this
     /// device.
     var deletedAt: Date?
+    /// Last known reason this book could not be rebuilt, persisted so the
+    /// library UI can offer a repair action after a cold start. Nil when the
+    /// book is healthy.
+    var fault: EPUBLibraryEntryFault?
+    /// Human-readable detail (underlying error text) for the fault. Shown in
+    /// the repair sheet; not used for control flow.
+    var faultDetail: String?
 
     init(
         bookID: String,
@@ -24,7 +72,9 @@ internal struct EPUBLibraryIndexEntry: Codable, Sendable, Hashable {
         language: String?,
         pageCount: Int,
         updatedAt: Date? = nil,
-        deletedAt: Date? = nil
+        deletedAt: Date? = nil,
+        fault: EPUBLibraryEntryFault? = nil,
+        faultDetail: String? = nil
     ) {
         self.bookID = bookID
         self.title = title
@@ -34,6 +84,8 @@ internal struct EPUBLibraryIndexEntry: Codable, Sendable, Hashable {
         self.pageCount = pageCount
         self.updatedAt = updatedAt
         self.deletedAt = deletedAt
+        self.fault = fault
+        self.faultDetail = faultDetail
     }
 
     var isDeleted: Bool { deletedAt != nil }

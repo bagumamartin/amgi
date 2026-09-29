@@ -101,7 +101,27 @@ extension Request where Response == Void {
     }
 }
 
-// MARK: - updateNotetype / removeNotetype
+// MARK: - addNotetype / updateNotetype / removeNotetype
+
+extension Request where Response == NotetypeID {
+    /// Creates a notetype and returns its assigned id.
+    ///
+    /// Separate from `updateNotetype` because that RPC *requires* an existing
+    /// notetype — the backend looks the original up by id and fails when there
+    /// is none — so there was no way to create one. Anything that wants to
+    /// ship a notetype of its own (the PDF one) had no path until this.
+    public static func addNotetype(_ notetype: Notetype) -> Self {
+        Self(
+            serviceId: ServiceID.notetypes,
+            methodId: NotetypesMethod.addNotetype,
+            encode: { try notetype.toProto().serializedData() },
+            decode: { bytes in
+                let resp = try Anki_Collection_OpChangesWithId(serializedBytes: bytes)
+                return NotetypeID(resp.id)
+            }
+        )
+    }
+}
 
 extension Request where Response == Void {
     /// Persists a modified notetype.

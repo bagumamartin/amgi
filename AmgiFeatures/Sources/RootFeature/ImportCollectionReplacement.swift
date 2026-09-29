@@ -1,10 +1,12 @@
 import AmgiAppCore
-import AmgiAppShared
+public import AmgiAppShared
 import AmgiReviewCore
 import AnkiBackend
+import AnkiClients
 import AnkiServices
 import Dependencies
 import Foundation
+import OSLog
 import SyncFeature
 
 /// Replaces the active profile with a `.colpkg` backup. This lifecycle belongs
@@ -157,6 +159,61 @@ func replaceCurrentCollection(
     collectionStore.invalidateAll(origin: .localUser)
     WidgetSnapshotStore.removeAllSnapshots()
     await WidgetRefreshCoordinator.shared.refreshNow()
+
+    // Restore the reader library carried in the same package, now that the
+    // collection it belongs to is live again. Best-effort: a package without
+    // a reader payload (an older backup, or a desktop-Anki one) is normal and
+    // must not fail an otherwise-successful restore.
+    await restoreReaderLibraryIfPresent(
+        from: stagedPackageURL,
+        profileID: profileID
+    )
+}
+
+/// Re-imports the books from a backup's `ijuka/epub/` entries.
+///
+/// Additive and non-destructive: books already in the library are left alone
+/// (they have their own extraction), and each restored file goes through the
+/// same validated import pipeline as a user-picked EPUB, so a truncated or
+/// mismatched entry cannot corrupt the index.
+@MainActor
+private func restoreReaderLibraryIfPresent(
+    from packageURL: URL,
+    profileID: String
+) async {
+    @Dependency(\.epubLibraryClient) var epubLibrary
+    let scratch = FileManager.default.temporaryDirectory
+        .appendingPathComponent("AmgiReaderRestore-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: scratch) }
+
+    do {
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        try ReaderBackupBundle.extractReaderLibrary(
+            fromPackageAt: packageURL,
+            to: scratch
+        )
+        let sources = try FileManager.default
+            .contentsOfDirectory(
+                at: scratch,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            )
+            .filter { $0.pathExtension.lowercased() == "epub" }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+
+        for source in sources {
+            let accessed = source.startAccessingSecurityScopedResource()
+            defer { if accessed { source.stopAccessingSecurityScopedResource() } }
+            // Import is idempotent: the book ID is a content hash, so a book
+            // already in the library is re-validated and replaced in place
+            // rather than duplicated.
+            _ = try? await epubLibrary.importEPUB(source)
+        }
+    } catch {
+        // The collection restored fine; a missing reader payload is expected
+        // for any backup taken before reader backups existed.
+        Log.reader.error("Reader library restore skipped: \(error.localizedDescription)")
+    }
 }
 
 private func reopenCollection(

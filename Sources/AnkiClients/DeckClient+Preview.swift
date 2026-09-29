@@ -7,6 +7,7 @@ extension DeckClient {
     /// Reads return canned `AnkiKit` fixtures; writes are no-ops.
     public static let previewValue = DeckClient(
         fetchAll: { DeckTreeNode.sampleTree.flattened() },
+        current: { DeckInfo.sample },
         fetchTree: { DeckTreeNode.sampleTree },
         countsForDeck: { _ in .sampleLight },
         create: { _ in DeckCreation(id: DeckID(999), changes: CollectionChanges()) },

@@ -108,6 +108,14 @@ extension NoteClient: DependencyKey {
             },
             delete: { noteId in
                 try await backendOffload { try notes.deleteNote(noteId) }
+            },
+            add: { notetypeID, deckID, fields, tags in
+                try await backendOffload {
+                    var template = try notes.newNote(notetypeID)
+                    template.fields = fields
+                    template.tags = tags
+                    try notes.addNote(template, deckID)
+                }
             }
         )
     }()

@@ -18,6 +18,10 @@ public struct ReaderLookupNotePayload: Sendable, Hashable {
     public var matched: String?
     public var source: String?
     public var rules: String?
+    /// Durable pointer back to the tapped words, when the reader produced one.
+    /// Carried through so a template can map it to a field and a later feature
+    /// can re-open the note at its source. Nil for a plain selection.
+    public var sourceAnchor: ReaderSourceAnchor?
 
     public init(
         term: String,
@@ -30,7 +34,8 @@ public struct ReaderLookupNotePayload: Sendable, Hashable {
         deinflection: String? = nil,
         matched: String? = nil,
         source: String? = nil,
-        rules: String? = nil
+        rules: String? = nil,
+        sourceAnchor: ReaderSourceAnchor? = nil
     ) {
         self.term = term
         self.reading = reading
@@ -43,6 +48,7 @@ public struct ReaderLookupNotePayload: Sendable, Hashable {
         self.matched = matched
         self.source = source
         self.rules = rules
+        self.sourceAnchor = sourceAnchor
     }
 
     public var normalizedDefinitions: [String] {
@@ -99,6 +105,11 @@ public struct ReaderLookupNoteTemplate: Codable, Hashable, Sendable {
     public var matchedField: String
     public var sourceField: String
     public var rulesField: String
+    /// Optional field that receives the encoded source anchor, so a note made
+    /// from a tap can be traced back to the exact words. Empty by default:
+    /// existing templates decode unchanged and the anchor is simply not
+    /// persisted until the user maps a field for it.
+    public var anchorField: String
 
     public static let empty = Self()
 
@@ -117,7 +128,8 @@ public struct ReaderLookupNoteTemplate: Codable, Hashable, Sendable {
         deinflectionField: String = "",
         matchedField: String = "",
         sourceField: String = "",
-        rulesField: String = ""
+        rulesField: String = "",
+        anchorField: String = ""
     ) {
         self.deckID = deckID
         self.notetypeID = notetypeID
@@ -134,6 +146,7 @@ public struct ReaderLookupNoteTemplate: Codable, Hashable, Sendable {
         self.matchedField = matchedField
         self.sourceField = sourceField
         self.rulesField = rulesField
+        self.anchorField = anchorField
     }
 
     enum CodingKeys: String, CodingKey {
@@ -142,6 +155,7 @@ public struct ReaderLookupNoteTemplate: Codable, Hashable, Sendable {
         case definition1Field, definition2Field, definition3Field
         case dictionariesField, frequencyField, pitchField
         case deinflectionField, matchedField, sourceField, rulesField
+        case anchorField
     }
 
     public init(from decoder: any Decoder) throws {
@@ -161,6 +175,7 @@ public struct ReaderLookupNoteTemplate: Codable, Hashable, Sendable {
         matchedField = try c.decodeIfPresent(String.self, forKey: .matchedField) ?? ""
         sourceField = try c.decodeIfPresent(String.self, forKey: .sourceField) ?? ""
         rulesField = try c.decodeIfPresent(String.self, forKey: .rulesField) ?? ""
+        anchorField = try c.decodeIfPresent(String.self, forKey: .anchorField) ?? ""
     }
 
     public func encodedString() -> String {
@@ -193,6 +208,16 @@ public struct ReaderLookupNoteTemplate: Codable, Hashable, Sendable {
         if !valid.contains(matchedField) { matchedField = "" }
         if !valid.contains(sourceField) { sourceField = "" }
         if !valid.contains(rulesField) { rulesField = "" }
+        if !valid.contains(anchorField) { anchorField = "" }
+    }
+
+    /// Serialised anchor for the mapped field. `nil` when there is no anchor
+    /// (a plain selection) or no field mapped, so `assign` skips it and the
+    /// user's note is not polluted with an empty value.
+    static func encodedAnchor(_ anchor: ReaderSourceAnchor?) -> String? {
+        guard let anchor,
+              let data = try? JSONEncoder().encode(anchor) else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 
     public func makeDraft(
@@ -223,6 +248,13 @@ public struct ReaderLookupNoteTemplate: Codable, Hashable, Sendable {
         assign(matchedField, payload.matched)
         assign(sourceField, payload.source)
         assign(rulesField, payload.rules)
+        // The anchor goes last, so if the user has mapped it onto a field
+        // another mapping already claimed, the first writer wins. Overwriting
+        // here would silently replace, say, the dictionary source with a JSON
+        // blob and lose the value the user actually configured.
+        if fieldValues[anchorField] == nil {
+            assign(anchorField, Self.encodedAnchor(payload.sourceAnchor))
+        }
 
         // No mapping configured yet: best-effort fallback to common
         // basic-notetype field names so the user still gets *some* note,

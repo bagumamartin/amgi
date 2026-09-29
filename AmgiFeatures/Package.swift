@@ -360,6 +360,16 @@ let package = Package(
         // Keeping the Cxx chain contained here is the point: any target in it
         // loses explicit modules and therefore compilation caching
         // (rdar://122829880), so it must not spread back into the app.
+        //
+        // Unrelated to Cxx, but bites here first: as of 2026-09-26 (Swift 6.4,
+        // SPM) adding a *new* source file that imports `AnkiClients` fails this
+        // target's Clang dependency scan outright — "unable to resolve module
+        // dependency: 'AnkiClients'" — and the driver then swallows every real
+        // diagnostic behind that line, so an unrelated typo in an unrelated file
+        // reports as this. It reproduces from a clean `.build`, on `xcodebuild`,
+        // and in other targets, so it is not a property of this one. Until it is
+        // fixed, `Reader/PDF/PDFCardBuilder.swift` is the only file in this
+        // target that may import `AnkiClients`; that file documents why.
         .target(
             name: "ReaderFeature",
             dependencies: [

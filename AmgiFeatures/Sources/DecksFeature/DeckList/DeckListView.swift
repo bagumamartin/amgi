@@ -24,19 +24,15 @@ package struct DeckListView: View {
     /// in from the trailing edge — the row and the screen are the same thing.
     @Namespace private var deckTransition
 
-    private let onOpenToday: () -> Void
-
     /// Profile switching lives on the root sidebar footer (iPad / Mac) or the
     /// toolbar account menu (iPhone), not here — applying it twice doubled
     /// the leading profile pill.
-    package init(onOpenToday: @escaping () -> Void = {}) {
-        self.onOpenToday = onOpenToday
+    package init() {
         _model = State(initialValue: DeckListModel())
     }
 
     /// Preview / test seam — internal so the model stays module-private.
-    init(model: DeckListModel, onOpenToday: @escaping () -> Void = {}) {
-        self.onOpenToday = onOpenToday
+    init(model: DeckListModel) {
         _model = State(initialValue: model)
     }
 
@@ -56,14 +52,13 @@ package struct DeckListView: View {
             state: model.state,
             sortOrder: sortOrderBinding,
             onRefresh: { await model.load(sortOrder: sortOrderBinding.wrappedValue) },
-            onOpenToday: onOpenToday,
             onTapDeck: { row in pendingDeck = row.asDeckInfo },
             onDeleteDeck: { rawID in await model.delete(DeckID(rawID)) },
             onRenameDeck: { row in renameTarget = row },
             onCreateDeck: { showCreateSheet = true },
             deckTransition: deckTransition
         )
-        // `LibraryListContent` stores seven closures, which makes it
+        // `LibraryListContent` stores six closures, which makes it
         // incomparable to AttributeGraph by default — see the Equatable
         // conformance in AmgiUI. It declares equality over `state`, so this
         // turns a field walk into a value compare.

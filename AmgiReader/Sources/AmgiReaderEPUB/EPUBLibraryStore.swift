@@ -27,6 +27,8 @@ public actor EPUBLibraryStore {
         case bookNotFound
         case missingExtractedDirectory
         case importFailed(underlying: String)
+        /// The file chosen to repair a book hashed to a different book ID.
+        case relinkMismatch(expected: String, found: String)
     }
 
     private let rootDirectory: URL
@@ -461,16 +463,88 @@ public actor EPUBLibraryStore {
     public func books() async -> [ReaderBook] {
         var out: [ReaderBook] = []
         for entry in index.entries where !entry.isDeleted {
+            // A cold rebuild that fails must not make the book disappear from
+            // the library: surface a placeholder carrying the persisted fault
+            // so the UI can render a repair affordance. Only drop the book if
+            // it was deleted.
             if let cached = bookCache[entry.bookID] {
                 out.append(cached)
                 continue
             }
-            if let rebuilt = await rebuildBook(from: entry) {
-                bookCache[entry.bookID] = rebuilt
-                out.append(rebuilt)
+            let rebuilt = await rebuildBook(from: entry)
+            if let book = rebuilt.book {
+                bookCache[entry.bookID] = book
             }
+            out.append(rebuilt.book ?? Self.placeholderBook(for: entry))
         }
         return out
+    }
+
+    /// Current repair state for every non-deleted book, keyed by book ID.
+    ///
+    /// This verifies each book rather than only echoing the persisted field,
+    /// so a source that disappeared (or started failing to parse) since the
+    /// last launch is reported even if nothing has touched the reader yet. A
+    /// fault it discovers is persisted, so a later cold launch still sees it.
+    public func bookHealth() async -> [String: EPUBLibraryBookHealth] {
+        var out: [String: EPUBLibraryBookHealth] = [:]
+        for entry in index.entries where !entry.isDeleted {
+            if bookCache[entry.bookID] == nil {
+                let outcome = await rebuildBook(from: entry)
+                if let book = outcome.book {
+                    bookCache[entry.bookID] = book
+                }
+            }
+            // Re-read: rebuildBook may have just recorded a fault.
+            let current = index.entries.first(where: { $0.bookID == entry.bookID }) ?? entry
+            out[entry.bookID] = Self.health(for: current)
+        }
+        return out
+    }
+
+    /// Clear a fault and re-parse a single book without a full library reload.
+    /// Returns the recovered book, or nil if the source is still unusable.
+    @discardableResult
+    public func retryBook(bookID: String) async -> ReaderBook? {
+        guard let position = index.entries.firstIndex(where: { $0.bookID == bookID }),
+              !index.entries[position].isDeleted else { return nil }
+        bookCache.removeValue(forKey: bookID)
+        chapterURLCache.removeValue(forKey: bookID)
+        contentRootCache.removeValue(forKey: bookID)
+        let entry = index.entries[position]
+        let rebuilt = await rebuildBook(from: entry)
+        if let book = rebuilt.book {
+            bookCache[bookID] = book
+            return book
+        }
+        return nil
+    }
+
+    /// Adopt a user-picked replacement file for a book whose stored source is
+    /// missing or corrupt. The replacement is imported through the same
+    /// validated staging pipeline as a fresh import, and the existing entry is
+    /// repaired in place.
+    @discardableResult
+    public func relinkBook(bookID: String, to replacementURL: URL) async throws -> ReaderBook {
+        let needsScope = replacementURL.isFileURL && replacementURL.startAccessingSecurityScopedResource()
+        defer { if needsScope { replacementURL.stopAccessingSecurityScopedResource() } }
+
+        guard index.entries.contains(where: { $0.bookID == bookID }) else {
+            throw StoreError.bookNotFound
+        }
+        // The replacement must hash to the same book ID, otherwise the user
+        // picked a different publication. Reject rather than silently
+        // replacing content the index still points at.
+        let replacementID = try EPUBBookParser.deriveBookID(forFileAt: replacementURL)
+        guard replacementID == bookID else {
+            throw StoreError.relinkMismatch(expected: bookID, found: replacementID)
+        }
+
+        let book = try await importEPUB(from: replacementURL)
+        // importEPUB wrote a clean entry (no fault); normalise the caches so a
+        // repaired book is immediately readable.
+        bookCache[bookID] = book
+        return book
     }
 
     public func delete(bookID: String) async throws {
@@ -587,24 +661,119 @@ public actor EPUBLibraryStore {
         }
     }
 
+    /// Outcome of a cold rebuild: the recovered book, or nil together with
+    /// the fault that should be persisted against the index entry.
+    private struct RebuildOutcome {
+        var book: ReaderBook?
+        var fault: EPUBLibraryEntryFault?
+        var detail: String?
+    }
+
     /// Re-parse the on-disk EPUB to recover chapter HTML URLs. We keep
     /// `original.epub` so EPUBKit can re-extract on demand; the resulting
     /// extracted directory is owned by EPUBKit's temp space, which is fine
     /// for read-only access during a session.
-    private func rebuildBook(from entry: EPUBLibraryIndexEntry) async -> ReaderBook? {
-        guard !entry.isDeleted else { return nil }
-        let epubURL = rootDirectory
-            .appendingPathComponent(entry.bookID, isDirectory: true)
-            .appendingPathComponent("original.epub")
-        guard FileManager.default.fileExists(atPath: epubURL.path) else { return nil }
+    ///
+    /// Unlike the previous `ReaderBook?`-returning version, a failure here is
+    /// recorded on the index entry and persisted. That is what stops a failed
+    /// cold rebuild from looking identical to "the book was never imported".
+    private func rebuildBook(from entry: EPUBLibraryIndexEntry) async -> RebuildOutcome {
+        guard !entry.isDeleted else { return RebuildOutcome(book: nil, fault: nil, detail: nil) }
+        let epubURL = localEntrySourceURL(entry.bookID)
+
+        guard FileManager.default.fileExists(atPath: epubURL.path) else {
+            return await record(
+                fault: .sourceMissing,
+                detail: "The stored EPUB for this book is missing on disk.",
+                for: entry.bookID,
+                outcomeBook: nil
+            )
+        }
+
+        // EPUBKit's archive service reuses an existing extraction directory
+        // instead of re-reading the archive (EPUBArchiveService.unarchive
+        // returns early when `{id}/original` already exists). Left alone, a
+        // source that was replaced or corrupted underneath us keeps serving
+        // the *previous* extraction, so a broken file parses "successfully"
+        // with stale metadata and no fault is ever reported. Clearing the
+        // disposable extraction first makes a cold rebuild mean what it says.
+        // It is safe here because this path only runs on a cache miss, and
+        // `chapterURLCache` / `contentRootCache` are repopulated below.
+        try? FileManager.default.removeItem(
+            at: rootDirectory
+                .appendingPathComponent(entry.bookID, isDirectory: true)
+                .appendingPathComponent("original", isDirectory: true)
+        )
+
         do {
             let parsed = try await parser.parse(fileURL: epubURL)
             chapterURLCache[entry.bookID] = parsed.chapterContentURLs
             contentRootCache[entry.bookID] = parsed.contentDirectory
-            return parsed.book
+            await clearFault(for: entry.bookID)
+            return RebuildOutcome(book: parsed.book, fault: nil, detail: nil)
         } catch {
-            return nil
+            return await record(
+                fault: .parseFailed,
+                detail: error.localizedDescription,
+                for: entry.bookID,
+                outcomeBook: nil
+            )
         }
+    }
+
+    /// Persist a fault against an index entry and return the rebuild outcome.
+    @discardableResult
+    private func record(
+        fault: EPUBLibraryEntryFault,
+        detail: String?,
+        for bookID: String,
+        outcomeBook: ReaderBook?
+    ) async -> RebuildOutcome {
+        guard let position = index.entries.firstIndex(where: { $0.bookID == bookID }) else {
+            return RebuildOutcome(book: outcomeBook, fault: fault, detail: detail)
+        }
+        // Avoid rewriting the index on every cold read once the same fault is
+        // already recorded with the same detail.
+        if index.entries[position].fault != fault || index.entries[position].faultDetail != detail {
+            index.entries[position].fault = fault
+            index.entries[position].faultDetail = detail
+            try? writeIndex()
+        }
+        return RebuildOutcome(book: outcomeBook, fault: fault, detail: detail)
+    }
+
+    private func clearFault(for bookID: String) async {
+        guard let position = index.entries.firstIndex(where: { $0.bookID == bookID }),
+              index.entries[position].fault != nil else { return }
+        index.entries[position].fault = nil
+        index.entries[position].faultDetail = nil
+        try? writeIndex()
+    }
+
+    private static func health(for entry: EPUBLibraryIndexEntry) -> EPUBLibraryBookHealth {
+        if let fault = entry.fault {
+            return EPUBLibraryBookHealth(
+                bookID: entry.bookID,
+                state: .needsRepair(fault: fault, detail: entry.faultDetail)
+            )
+        }
+        return EPUBLibraryBookHealth(bookID: entry.bookID, state: .ready)
+    }
+
+    /// Minimal stand-in so a faulted book still occupies a row in the library
+    /// and can be tapped to open a repair sheet. Chapters are empty because
+    /// there is nothing readable to show.
+    private static func placeholderBook(for entry: EPUBLibraryIndexEntry) -> ReaderBook {
+        ReaderBook(
+            id: entry.bookID,
+            title: entry.title,
+            author: entry.author,
+            coverImagePath: nil,
+            language: entry.language,
+            chapters: [],
+            pageCount: nil,
+            source: .epub(localURL: URL(fileURLWithPath: "/"))
+        )
     }
 
     private func writeIndex() throws {

@@ -14,6 +14,7 @@ struct SyncSettingsView: View {
     @State private var isLoggedIn: Bool = KeychainHelper.loadHostKey() != nil
     @State private var showServerSetup = false
     @State private var showDisableConfirm = false
+    @State private var showLogin = false
 
     @Dependency(\.syncCoordinator) private var coordinator
     @Environment(\.palette) private var palette
@@ -34,7 +35,21 @@ struct SyncSettingsView: View {
                 username = KeychainHelper.loadUsername()
                 isLoggedIn = KeychainHelper.loadHostKey() != nil
                 coordinator.cancel()
-                coordinator.resumeAutomaticSyncIfNeeded(reason: "Sync server configured")
+                // Saving a server always clears auth (see ServerSetupView),
+                // so credentials are missing by definition here. Ask
+                // immediately instead of failing the next sync.
+                showLogin = KeychainHelper.loadHostKey() == nil
+                if !showLogin {
+                    coordinator.resumeAutomaticSyncIfNeeded(reason: "Sync server configured")
+                }
+            }
+        }
+        .sheet(isPresented: $showLogin) {
+            LoginSheet(isPresented: $showLogin) {
+                endpoint = KeychainHelper.loadEndpoint()
+                username = KeychainHelper.loadUsername()
+                isLoggedIn = KeychainHelper.loadHostKey() != nil
+                Task { await coordinator.startSync() }
             }
         }
         .confirmationDialog(
@@ -91,6 +106,16 @@ struct SyncSettingsView: View {
 
         SettingsSectionHeader(title: "Actions")
         SettingsGroup {
+            if !isLoggedIn {
+                SettingsButtonRow(
+                    title: "Sign In",
+                    systemImage: "person.crop.circle",
+                    tone: .accent
+                ) {
+                    showLogin = true
+                }
+                SettingsSeparator()
+            }
             SettingsButtonRow(
                 title: "Change Server",
                 systemImage: "arrow.triangle.2.circlepath",

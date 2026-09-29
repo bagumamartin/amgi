@@ -46,7 +46,7 @@ import Testing
 
     @MainActor
     private func loadedNames(_ model: DeckListModel) -> [String] {
-        guard case .loaded(let rows, _, _) = model.state else {
+        guard case .loaded(let rows, _, _, _) = model.state else {
             Issue.record("expected .loaded, got \(model.state)")
             return []
         }

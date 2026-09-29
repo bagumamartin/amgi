@@ -27,10 +27,22 @@ final class EPUBChapterReaderModel {
         let contentRoot = await epubLibraryClient.contentRootURL(book.id)
         for (index, chapter) in book.chapters.enumerated() {
             guard let url = await epubLibraryClient.chapterContentURL(book.id, chapter.id) else { continue }
+            // Relative-to-root href, so a stored anchor still resolves after the
+            // book moves to another device, profile, or iCloud container.
+            let href: String? = {
+                guard let contentRoot else { return nil }
+                let rootPath = contentRoot.standardizedFileURL.path
+                let filePath = url.standardizedFileURL.path
+                let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+                guard filePath.hasPrefix(prefix) else { return nil }
+                return String(filePath.dropFirst(prefix.count))
+            }()
             resolved[index] = EPUBChapterContent(
                 chapterID: chapter.id,
                 contentURL: url,
-                readAccessURL: contentRoot ?? url.deletingLastPathComponent()
+                readAccessURL: contentRoot ?? url.deletingLastPathComponent(),
+                bookID: book.id,
+                chapterHref: href
             )
         }
         chapterContents = resolved

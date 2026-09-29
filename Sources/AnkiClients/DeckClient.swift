@@ -5,6 +5,13 @@ import DependenciesMacros
 @DependencyClient
 public struct DeckClient: Sendable {
     public var fetchAll: @Sendable () async throws -> [DeckInfo]
+    /// The deck the collection is currently on.
+    ///
+    /// Not derivable from `fetchAll`, which is an unordered listing: the
+    /// "current" deck is a single setting the user changes, and a feature that
+    /// needs somewhere to put a note by default has to ask for it rather than
+    /// take whichever deck happens to sort first.
+    public var current: @Sendable () async throws -> DeckInfo
     public var fetchTree: @Sendable () async throws -> [DeckTreeNode]
     public var countsForDeck: @Sendable (_ deckId: DeckID) async throws -> DeckCounts
     public var create: @Sendable (_ name: String) async throws -> DeckCreation

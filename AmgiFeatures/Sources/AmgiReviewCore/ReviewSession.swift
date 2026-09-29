@@ -541,12 +541,25 @@ public final class ReviewSession {
                     remainingAllDeckCounts.removeValue(forKey: pickedID)
                     cardQueue = queue.cards
                     remainingCounts = countsIncludingUnselectedDecks(queue)
-                    await refineRemainingLearning(statsClient: statsClient)
                     sessionInitialCounts = remainingCounts
                     publishLiveCounts()
                     Log.review.info("Started with \(self.cardQueue.count) cards, counts: new=\(queue.newCount) learn=\(queue.learningCount) review=\(queue.reviewCount)")
-                    await loadDailyProgress(statsClient: statsClient)
-                    await advanceToNextCard(notes: notes, notetypes: notetypes, notetypesClient: notetypesClient, cardRendering: cardRendering, statsClient: statsClient)
+                    // First paint ASAP: everything below refines counts or
+                    // fills progress UI that can land a beat after the first
+                    // card. Each is a backend round trip behind the same
+                    // global lock an in-flight sync may hold, so awaiting them
+                    // here used to park the "Preparing cards" screen.
+                    await AppSignpost.measure("ReviewStartFirstCard") {
+                        await advanceToNextCard(notes: notes, notetypes: notetypes, notetypesClient: notetypesClient, cardRendering: cardRendering, statsClient: statsClient)
+                    }
+                    await AppSignpost.measure("ReviewStartRefine") {
+                        await refineRemainingLearning(statsClient: statsClient)
+                    }
+                    sessionInitialCounts = remainingCounts
+                    publishLiveCounts()
+                    await AppSignpost.measure("ReviewStartDailyProgress") {
+                        await loadDailyProgress(statsClient: statsClient)
+                    }
                 } else {
                     let scopeSearch = allDeckScope ? "" : DeckSearch.term(foundName)
                     let learnDue = (try? await statsClient.learningDueToday(search: scopeSearch)) ?? 0

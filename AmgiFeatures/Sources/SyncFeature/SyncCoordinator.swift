@@ -2,9 +2,12 @@ public import Foundation
 import SwiftUI
 #if os(iOS)
 import UIKit
+#elseif os(macOS)
+import AppKit
 #endif
 import AmgiAppCore
 import AmgiAppShared
+import AmgiReviewCore
 import AnkiClients
 import AnkiKit
 import AnkiSync
@@ -49,6 +52,17 @@ package final class SyncCoordinator {
     /// status. Injectable so tests don't pay the real interval.
     @ObservationIgnored private let mediaPollInterval: Duration
     @ObservationIgnored private var automaticSyncDebounce: Task<Void, Never>?
+    /// Fences concurrent debounce waiters so a superseded task can never
+    /// clear a newer waiter's handle on completion.
+    @ObservationIgnored private var automaticSyncEpisode: UInt64 = 0
+    /// When the current dirty episode began (in-memory; the dirty generation
+    /// itself is persisted). Bounds staleness: continuous mutations keep
+    /// resetting the 5s debounce, which would otherwise starve sync for the
+    /// whole editing marathon.
+    @ObservationIgnored private var firstUnsyncedMutationAt: Date?
+    /// Scheduler for automatic sync launches; see `AutomaticSyncTuning`.
+    /// Stored (not static) so tests can shrink every delay.
+    @ObservationIgnored private let automaticSyncTuning: AutomaticSyncTuning
     @ObservationIgnored private var scheduledSyncTask: Task<Void, Never>?
     @ObservationIgnored private var mediaAbortTask: Task<Void, Never>?
     @ObservationIgnored private var mergeProgressID: UUID?
@@ -79,13 +93,51 @@ package final class SyncCoordinator {
 
     private static let logCap = 100
 
+    /// Injectable timing for the automatic-sync scheduler, following the
+    /// existing `mediaPollInterval` pattern so tests don't pay real delays.
+    package struct AutomaticSyncTuning: Sendable {
+        /// Quiet period after a mutation before an automatic sync launches.
+        var debounceAfterMutation: Duration = .seconds(5)
+        /// Quiet period before a resumed (foreground/network/profile) sync.
+        var debounceOnResume: Duration = .milliseconds(250)
+        /// Longest continuous editing stretch before an automatic sync fires
+        /// without waiting for a pause. Collection deltas stay small either
+        /// way (Anki syncs only what changed since the last sync); the cap
+        /// just bounds how stale the server copy can get mid-marathon.
+        var maxWaitContinuousEditing: TimeInterval = 60
+        /// Longest an automatic sync waits for a clear window (no active
+        /// review, stable network) before giving up until the next trigger.
+        /// Dirty state is persisted, so giving up never loses work — while a
+        /// doomed attempt on a flapping link costs radio, battery, server
+        /// load, and (via the backend lock) frozen review answers.
+        var syncWindowWaitCap: Duration = .seconds(120)
+        /// Connectivity must report satisfied across this whole span before an
+        /// automatic sync starts. `NWPathMonitor` says "reachable" while TCP
+        /// blackholes in tunnels, so a point check launches syncs whose HTTP
+        /// hangs until timeout. Manual syncs skip this gate: an intentional
+        /// tap must never be second-guessed.
+        var networkStabilityWindow: Duration = .seconds(3)
+        /// Re-check cadence inside the sync-window wait. Sleeps, not polls —
+        /// a waiting task costs nothing while suspended.
+        var syncWindowPollInterval: Duration = .seconds(2)
+        /// Test seam: when true, the gates apply as if the app were
+        /// frontmost. The test host usually reports itself inactive, which
+        /// would otherwise bypass every gate under test. Production always
+        /// leaves this false.
+        var assumeInteractiveApp = false
+    }
+
     /// Nonisolated so `SyncCoordinatorKey`'s lazy statics can be initialized
     /// from any thread — a `static let` is initialized by whichever thread
     /// touches it first, so the old `MainActor.assumeIsolated` would abort
     /// the process on first resolution from a detached task or background
     /// test. Observer registration is main-actor work, so it hops.
-    package nonisolated init(mediaPollInterval: Duration = .milliseconds(250)) {
+    package nonisolated init(
+        mediaPollInterval: Duration = .milliseconds(250),
+        automaticSyncTuning: AutomaticSyncTuning = AutomaticSyncTuning()
+    ) {
         self.mediaPollInterval = mediaPollInterval
+        self.automaticSyncTuning = automaticSyncTuning
         Task { @MainActor [self] in registerLifecycleObservers() }
     }
 
@@ -182,6 +234,16 @@ package final class SyncCoordinator {
         }
 
         NetworkMonitor.shared.start()
+        if automatic, ReviewSessionCoordinator.shared.hasActiveSession {
+            // Cheapest check first, ahead of the network/credential guards:
+            // a review owns the scheduler, and rating RPCs serialize on the
+            // backend lock behind sync HTTP, so launching now would freeze
+            // answers on a poor link. Re-arm the waiter; the review-end nudge
+            // (or the next trigger) retries once the session closes.
+            appendLog("Automatic sync deferred: review in progress")
+            resumeAutomaticSyncIfNeeded(reason: "Review in progress")
+            return Task<SyncExecutionResult, Never> { .cancelled }
+        }
         if automatic && !NetworkMonitor.shared.isSatisfied {
             appendLog("Automatic sync skipped: network unavailable", level: .warning)
             return Task<SyncExecutionResult, Never> { .failed("Network unavailable") }
@@ -533,23 +595,57 @@ package final class SyncCoordinator {
     /// Debounced collection-only sync after a confirmed local mutation.
     /// The dirty marker is recorded even when no server is configured, so a
     /// later sign-in or foreground pass can still catch up safely.
+    ///
+    /// Two bounds keep the debounce honest: the launch waits for a clear
+    /// window (no active review, stable network) instead of firing into a
+    /// flap, and continuous mutations force a launch after
+    /// `maxWaitContinuousEditing` instead of starving sync for the whole session.
     package func requestAutomaticSync(reason: String) {
         let profileID = AccountStore.shared.selectedID
         dirtyGeneration &+= 1
         guard !(KeychainHelper.loadEndpoint() ?? "").isEmpty else { return }
         guard !needsFullSyncFlag, !isCollectionLifecycleBlocked else { return }
 
+        // A new dirty episode (no open staleness window) restarts the cap.
+        // While mutations keep arriving the waiter below is cancelled and
+        // recreated, so the episode — and its start time — persists until a
+        // launch or an explicit cancel.
+        let now = Date()
+        if firstUnsyncedMutationAt == nil {
+            firstUnsyncedMutationAt = now
+        }
+        let episodeAge = firstUnsyncedMutationAt.map { now.timeIntervalSince($0) } ?? 0
+        let fireImmediately = episodeAge > automaticSyncTuning.maxWaitContinuousEditing
+
+        automaticSyncEpisode &+= 1
+        let episode = automaticSyncEpisode
+        let tuning = automaticSyncTuning
         automaticSyncDebounce?.cancel()
         automaticSyncDebounce = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(for: .seconds(5))
-            } catch {
-                return
+            defer {
+                if self?.automaticSyncEpisode == episode {
+                    self?.automaticSyncDebounce = nil
+                }
+            }
+            if !fireImmediately {
+                do {
+                    try await Task.sleep(for: tuning.debounceAfterMutation)
+                } catch {
+                    return
+                }
             }
             guard !Task.isCancelled,
                   let self,
                   AccountStore.shared.selectedID == profileID
             else { return }
+            guard await self.waitForSyncWindow(profileID: profileID) else {
+                self.appendLog("Automatic sync deferred — no clear window (\(reason))", level: .warning)
+                return
+            }
+            guard !Task.isCancelled,
+                  AccountStore.shared.selectedID == profileID
+            else { return }
+            self.firstUnsyncedMutationAt = nil
             self.appendLog("Automatic sync requested: \(reason)")
             _ = await self.startSyncAndWait(includeMedia: false)
         }
@@ -557,6 +653,8 @@ package final class SyncCoordinator {
 
     /// Resumes a pending collection sync without creating a new dirty event.
     /// Used when the app returns to the foreground or a profile is reopened.
+    /// Like `requestAutomaticSync`, the launch waits for a clear window
+    /// rather than firing into flapping connectivity.
     package func resumeAutomaticSyncIfNeeded(reason: String) {
         guard dirtyGeneration > 0,
               !isCollectionLifecycleBlocked,
@@ -566,10 +664,18 @@ package final class SyncCoordinator {
         else { return }
 
         let profileID = AccountStore.shared.selectedID
+        automaticSyncEpisode &+= 1
+        let episode = automaticSyncEpisode
+        let tuning = automaticSyncTuning
         automaticSyncDebounce?.cancel()
         automaticSyncDebounce = Task { @MainActor [weak self] in
+            defer {
+                if self?.automaticSyncEpisode == episode {
+                    self?.automaticSyncDebounce = nil
+                }
+            }
             do {
-                try await Task.sleep(for: .milliseconds(250))
+                try await Task.sleep(for: tuning.debounceOnResume)
             } catch {
                 return
             }
@@ -577,9 +683,91 @@ package final class SyncCoordinator {
                   let self,
                   AccountStore.shared.selectedID == profileID
             else { return }
+            guard await self.waitForSyncWindow(profileID: profileID) else {
+                self.appendLog("Pending automatic sync deferred — no clear window (\(reason))", level: .warning)
+                return
+            }
+            guard !Task.isCancelled,
+                  AccountStore.shared.selectedID == profileID
+            else { return }
+            self.firstUnsyncedMutationAt = nil
             self.appendLog("Pending automatic sync resumed: \(reason)")
             _ = await self.startSyncAndWait(includeMedia: false)
         }
+    }
+
+    /// Waits for a window in which an automatic sync is both safe and likely
+    /// to succeed: no review session owns the scheduler, and connectivity has
+    /// held steady across `networkStabilityWindow`. Returns false when the
+    /// wait is cancelled, the profile changes, or `syncWindowWaitCap`
+    /// expires — the caller logs and yields; dirty state persists, so the
+    /// next trigger retries. No timeout is attempted on the sync itself:
+    /// cancellation is advisory and the backend lock stays held until the
+    /// Rust FFI returns, so abandoning the wait would not unblock anything.
+    private func waitForSyncWindow(profileID: String) async -> Bool {
+        // A backgrounded/hidden app can't rate cards, so there is nothing to
+        // protect from the backend lock — and on iOS the process may be
+        // suspended at any moment, which would kill the waiter before it
+        // fires. Launch on the point checks in beginSync, exactly as before.
+        // This is also what serves device continuity: backgrounding mid-review
+        // flushes the sitting so another device picks it up.
+        guard appAcceptsReviewInput else { return true }
+        let deadline = ContinuousClock.now + automaticSyncTuning.syncWindowWaitCap
+        while ContinuousClock.now < deadline {
+            guard !Task.isCancelled,
+                  AccountStore.shared.selectedID == profileID
+            else { return false }
+            if !ReviewSessionCoordinator.shared.hasActiveSession,
+               await networkStable(for: automaticSyncTuning.networkStabilityWindow, profileID: profileID) {
+                return true
+            }
+            try? await Task.sleep(for: automaticSyncTuning.syncWindowPollInterval)
+        }
+        return !ReviewSessionCoordinator.shared.hasActiveSession
+            && NetworkMonitor.shared.isSatisfied
+            && !Task.isCancelled
+            && AccountStore.shared.selectedID == profileID
+    }
+
+    /// True while the app can receive review input. Ratings require a
+    /// frontmost app, so a hidden/backgrounded app has no answers to freeze
+    /// and no reason to defer its sync.
+    private var appAcceptsReviewInput: Bool {
+        if automaticSyncTuning.assumeInteractiveApp { return true }
+        #if os(iOS)
+        return UIApplication.shared.applicationState == .active
+        #elseif os(macOS)
+        return NSApplication.shared.isActive
+        #else
+        return true
+        #endif
+    }
+
+    /// Point check, a full stability window of quiet, then a re-check: a flap
+    /// anywhere inside restarts the wait instead of launching a doomed sync.
+    private func networkStable(for window: Duration, profileID: String) async -> Bool {
+        guard NetworkMonitor.shared.isSatisfied,
+              !Task.isCancelled,
+              AccountStore.shared.selectedID == profileID
+        else { return false }
+        do {
+            try await Task.sleep(for: window)
+        } catch {
+            return false
+        }
+        return NetworkMonitor.shared.isSatisfied
+            && !Task.isCancelled
+            && AccountStore.shared.selectedID == profileID
+    }
+
+    /// Drops a pending automatic launch (a debounce sleeper) without touching
+    /// an in-flight sync and without clearing the dirty marker. Review starts
+    /// call this so a post-review flush queued seconds earlier can't serialize
+    /// ahead of the session's first cards on the backend lock; the dirty
+    /// state persists, and the review itself re-arms the next attempt.
+    package func cancelPendingAutomaticSync() {
+        automaticSyncDebounce?.cancel()
+        automaticSyncDebounce = nil
     }
 
     /// Prevents new sync operations while the caller closes, replaces, or
@@ -632,6 +820,7 @@ package final class SyncCoordinator {
     package func cancel() {
         automaticSyncDebounce?.cancel()
         automaticSyncDebounce = nil
+        firstUnsyncedMutationAt = nil
         scheduledSyncTask?.cancel()
         mergeProgressID = nil
         guard activeTask != nil, !isCancelling else { return }

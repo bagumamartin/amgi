@@ -319,6 +319,9 @@ private extension ChapterReaderView {
             LookupPopupView(
                 initialQuery: text,
                 languageHint: book.language,
+                // A selection or a tapped phrase is its own context; a
+                // bare typed query has none.
+                contextSentence: pendingNoteText != nil ? pendingNoteText : text,
                 extraTags: sourceTags,
                 onAddedNote: postCardAdded,
                 onDismiss: dismissLookup

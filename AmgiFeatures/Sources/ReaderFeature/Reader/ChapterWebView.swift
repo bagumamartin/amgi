@@ -40,7 +40,20 @@ struct ChapterWebView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
+        // On iOS `dataDetectorTypes` lives on the configuration, not the view
+        // (it is a view property only on macOS). Book text must not be
+        // auto-linked into `tel:`/`address` links that would then hit the
+        // navigation policy on a stray tap.
+        config.dataDetectorTypes = []
         let userContent = WKUserContentController()
+        // First script: the CSP has to be in place before the book's markup
+        // is parsed. These pages are `loadHTMLString` with book HTML spliced
+        // straight into <body>, so there is no file scope to lean on.
+        userContent.addUserScript(WKUserScript(
+            source: EPUBNavigationPolicy.contentSecurityPolicyScript,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        ))
         if onTapLookup != nil {
             userContent.add(context.coordinator, name: "amgiLookup")
             userContent.addUserScript(WKUserScript(
@@ -310,6 +323,37 @@ struct ChapterWebView: UIViewRepresentable {
             consumePageTurnRequestIfNeeded()
         }
 
+        /// Gate every navigation the book attempts. These pages are built by
+        /// splicing book HTML into a `loadHTMLString` document, so a link or
+        /// script in the book would otherwise be free to navigate the reader
+        /// off the page entirely.
+        ///
+        /// The `decisionHandler` type must match WebKit's declaration exactly
+        /// (`@escaping @MainActor @Sendable`). Plain `@escaping` compiles to a
+        /// "nearly matches" *warning* and the method is then never called.
+        func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationAction: WKNavigationAction,
+            decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void
+        ) {
+            let decision = EPUBNavigationPolicy.decide(
+                url: navigationAction.request.url,
+                isMainFrame: navigationAction.targetFrame?.isMainFrame ?? false,
+                // No file scope is granted here — baseURL is nil, so every
+                // `file:` URL is refused.
+                readAccessURL: nil
+            )
+            switch decision {
+            case .allow:
+                decisionHandler(.allow)
+            case .openExternally(let url):
+                decisionHandler(.cancel)
+                EPUBNavigationPolicy.openInSystem(url)
+            case .cancel:
+                decisionHandler(.cancel)
+            }
+        }
+
         /// Restore prior scroll position once the page reports a real
         /// content size; without this the scrollView height is still
         /// the initial frame size and our offset would be clamped.
@@ -379,7 +423,11 @@ struct ChapterWebView: UIViewRepresentable {
             _ userContentController: WKUserContentController,
             didReceive message: WKScriptMessage
         ) {
-            guard message.name == "amgiLookup",
+            // A book can author its own <iframe>, and anything inside it
+            // shares the page's script world. Only the main frame's own
+            // document is trusted to drive the reader.
+            guard message.frameInfo.isMainFrame,
+                  message.name == "amgiLookup",
                   let phrase = message.body as? String,
                   !phrase.isEmpty else { return }
             onTapLookup?(phrase)
@@ -435,6 +483,14 @@ struct ChapterWebView: NSViewRepresentable {
     func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         let userContent = WKUserContentController()
+        // First script: the CSP has to be in place before the book's markup
+        // is parsed. These pages are `loadHTMLString` with book HTML spliced
+        // straight into <body>, so there is no file scope to lean on.
+        userContent.addUserScript(WKUserScript(
+            source: EPUBNavigationPolicy.contentSecurityPolicyScript,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        ))
         userContent.add(context.coordinator, name: "amgiScroll")
         userContent.addUserScript(WKUserScript(
             source: Self.scrollScript,
@@ -681,6 +737,37 @@ struct ChapterWebView: NSViewRepresentable {
             consumePageTurnRequestIfNeeded()
         }
 
+        /// Gate every navigation the book attempts. These pages are built by
+        /// splicing book HTML into a `loadHTMLString` document, so a link or
+        /// script in the book would otherwise be free to navigate the reader
+        /// off the page entirely.
+        ///
+        /// The `decisionHandler` type must match WebKit's declaration exactly
+        /// (`@escaping @MainActor @Sendable`). Plain `@escaping` compiles to a
+        /// "nearly matches" *warning* and the method is then never called.
+        func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationAction: WKNavigationAction,
+            decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void
+        ) {
+            let decision = EPUBNavigationPolicy.decide(
+                url: navigationAction.request.url,
+                isMainFrame: navigationAction.targetFrame?.isMainFrame ?? false,
+                // No file scope is granted here — baseURL is nil, so every
+                // `file:` URL is refused.
+                readAccessURL: nil
+            )
+            switch decision {
+            case .allow:
+                decisionHandler(.allow)
+            case .openExternally(let url):
+                decisionHandler(.cancel)
+                EPUBNavigationPolicy.openInSystem(url)
+            case .cancel:
+                decisionHandler(.cancel)
+            }
+        }
+
         func applyPendingInitialProgressIfLoaded() {
             guard didFinishLoad, !didApplyInitialProgress,
                   let target = pendingInitialProgress else { return }
@@ -702,6 +789,10 @@ struct ChapterWebView: NSViewRepresentable {
             _ userContentController: WKUserContentController,
             didReceive message: WKScriptMessage
         ) {
+            // A book can author its own <iframe>, and anything inside it
+            // shares the page's script world. Only the main frame's own
+            // document is trusted to drive the reader.
+            guard message.frameInfo.isMainFrame else { return }
             if message.name == "amgiScroll", let value = message.body as? Double {
                 progress = min(max(value, 0), 1)
                 return

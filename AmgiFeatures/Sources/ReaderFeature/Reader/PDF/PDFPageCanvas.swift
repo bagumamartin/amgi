@@ -1,34 +1,29 @@
+import AmgiReader
 import AmgiReaderPDF
 import PDFKit
 import SwiftUI
 
 /// Keeps `PDFView` in step with `PDFReaderNavigation`.
-///
-/// The direction of synchronisation matters, and is the whole reason this is a
-/// coordinator rather than a plain binding. Two flows exist:
-///
-/// - **Model → view**: the user tapped a thumbnail, an outline row, a search hit
-///   or a page number. `navigation` has already changed and this asks the view
-///   to go there.
-/// - **View → model**: the user scrolled, swiped, or used a hardware control.
-///   `PDFView` has already moved and this reports where.
-///
-/// Collapsing the two into one "did it change?" check produces a feedback loop:
-/// the view moves, the model is told, the model tells the view to move, and
-/// `PDFView` scrolls again. The `isApplyingModelChange` guard is not an
-/// optimisation — without it the reader fights itself, and the symptom is a page
-/// that jumps on every turn.
 @MainActor
 @Observable
 final class PDFViewCoordinator: NSObject {
     private var navigation: PDFReaderNavigation
     private var isApplyingModelChange = false
-    private weak var view: PDFView?
+    private(set) weak var view: PDFView?
 
-    /// Called when the view reports a new current page.
     var onPageChanged: ((Int) -> Void)?
-    /// Called when the view reports a new match count for the search term.
     var onSearchResultsChanged: ((Int) -> Void)?
+    var onSelectionChanged: ((PDFSelectionContext?) -> Void)?
+    var onTapCenter: (() -> Void)?
+    var onTapPrevPage: (() -> Void)?
+    var onTapNextPage: (() -> Void)?
+
+    var contextProvider: ((
+        _ source: PDFSelectionContext.Source,
+        _ draggedRect: PDFNormalizedRect?
+    ) -> PDFSelectionContext?)?
+
+    private var savedSelection: PDFSelection?
 
     init(navigation: PDFReaderNavigation) {
         self.navigation = navigation
@@ -36,9 +31,7 @@ final class PDFViewCoordinator: NSObject {
 
     func attach(_ view: PDFView) {
         self.view = view
-        // PDFKit's notification is the reliable signal for "the user moved". Its
-        // delegate callbacks fire for programmatic changes too, which is exactly
-        // the half of the traffic that must not be treated as a page turn.
+        PDFViewCoordinatorRegistry.shared.coordinator = self
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(pageChanged),
@@ -47,19 +40,26 @@ final class PDFViewCoordinator: NSObject {
         )
         NotificationCenter.default.addObserver(
             self,
-            selector: #selector(searchChanged),
+            selector: #selector(selectionChanged),
             name: .PDFViewSelectionChanged,
             object: view
         )
     }
 
     func detach() {
-        // Removing by notification centre rather than by selector: the
-        // selector-taking overload is AppKit-only, so using it fails to compile
-        // for iOS — and the whole file is built for both.
         NotificationCenter.default.removeObserver(self, name: .PDFViewPageChanged, object: view)
         NotificationCenter.default.removeObserver(self, name: .PDFViewSelectionChanged, object: view)
+        if PDFViewCoordinatorRegistry.shared.coordinator === self {
+            PDFViewCoordinatorRegistry.shared.coordinator = nil
+        }
         view = nil
+        savedSelection = nil
+    }
+
+    @objc private func selectionChanged() {
+        onSearchResultsChanged?(view?.highlightedSelections?.count ?? 0)
+        savedSelection = view?.currentSelection
+        onSelectionChanged?(contextProvider?(.textSelection, nil))
     }
 
     @objc private func pageChanged() {
@@ -68,8 +68,95 @@ final class PDFViewCoordinator: NSObject {
         onPageChanged?(view.document?.index(for: page) ?? 0)
     }
 
-    @objc private func searchChanged() {
-        onSearchResultsChanged?(view?.highlightedSelections?.count ?? 0)
+    func restoreSelection() {
+        guard let view, let saved = savedSelection else { return }
+        view.setCurrentSelection(saved, animate: false)
+    }
+
+    func pageRect(for viewRect: CGRect) -> (rect: PDFNormalizedRect, pageIndex: Int)? {
+        guard let view, let page = view.currentPage,
+              let document = view.document else { return nil }
+        let index = document.index(for: page)
+        let pageRect = view.convert(viewRect, to: page)
+        guard let normalised = PDFRegionCapture.normalizedRect(from: pageRect, on: page)
+        else { return nil }
+        return (normalised, index)
+    }
+
+    func selectionContext(
+        source: PDFSelectionContext.Source,
+        draggedRect: PDFNormalizedRect?,
+        details: PDFSelectionContext.Details
+    ) -> PDFSelectionContext? {
+        guard let view, let page = view.currentPage, let document = view.document else {
+            return nil
+        }
+        let index = document.index(for: page)
+        let label = details.pageLabel(index)
+
+        switch source {
+        case .textSelection:
+            guard let selection = view.currentSelection,
+                  let quote = selection.string, !quote.isEmpty
+            else { return nil }
+            let lines = selection.selectionsByLine()
+            let bounds = lines.reduce(CGRect.null) { $0.union($1.bounds(for: page)) }
+            guard !bounds.isNull,
+                  let rect = PDFRegionCapture.normalizedRect(from: bounds, on: page)
+            else { return nil }
+            let neighbours = Self.neighbouringText(quote: quote, on: page)
+            return PDFSelectionContext(
+                text: quote,
+                anchor: PDFSourceAnchor(
+                    bookID: details.bookID,
+                    pageIndex: index,
+                    pageLabel: label,
+                    rect: rect,
+                    quote: quote,
+                    contextBefore: neighbours.before,
+                    contextAfter: neighbours.after,
+                    documentFingerprint: details.documentFingerprint
+                ),
+                regionRect: rect,
+                pageBounds: bounds,
+                pageIndex: index,
+                pageLabel: label,
+                source: source
+            )
+        case .region(let dragRect):
+            return PDFSelectionContext(
+                text: "",
+                anchor: PDFSourceAnchor(
+                    bookID: details.bookID,
+                    pageIndex: index,
+                    pageLabel: label,
+                    rect: draggedRect ?? dragRect,
+                    quote: "",
+                    documentFingerprint: details.documentFingerprint
+                ),
+                regionRect: draggedRect ?? dragRect,
+                pageBounds: nil,
+                pageIndex: index,
+                pageLabel: label,
+                source: source
+            )
+        }
+    }
+
+    private static func neighbouringText(
+        quote: String,
+        on page: PDFPage
+    ) -> (before: String?, after: String?) {
+        guard let pageText = page.string,
+              let range = pageText.range(of: quote)
+        else { return (nil, nil) }
+        let count = PDFSourceAnchor.contextCharacterCount
+        let before = pageText[pageText.startIndex..<range.lowerBound]
+        let after = pageText[range.upperBound...]
+        return (
+            String(before.suffix(count)).isEmpty ? nil : String(before.suffix(count)),
+            String(after.prefix(count)).isEmpty ? nil : String(after.prefix(count))
+        )
     }
 
     /// Applies the navigation state to the view.
@@ -82,19 +169,20 @@ final class PDFViewCoordinator: NSObject {
         let wantedMode = Self.displayMode(for: navigation.transition)
         if view.displayMode != wantedMode {
             view.displayMode = wantedMode
-            // Changing display mode sends the view back to the first page, which
-            // is never what the user asked for. Putting it back is not a
-            // workaround: the mode change genuinely discards the position, and
-            // leaving it discarded is a visible jump.
             if let target = document.page(at: navigation.pageIndex) {
                 view.go(to: target)
             }
         }
 
-        // Two-up is horizontal, single-page is vertical. Getting this backwards
-        // makes a two-up spread scroll the wrong way, which reads as the
-        // navigation being broken rather than as a layout setting.
-        let wantedDirection: PDFDisplayDirection = navigation.isTwoUp ? .horizontal : .vertical
+        #if os(iOS)
+        if navigation.transition == .pageCurl {
+            view.usePageViewController(true, withViewOptions: nil)
+        } else {
+            view.usePageViewController(false, withViewOptions: nil)
+        }
+        #endif
+
+        let wantedDirection: PDFDisplayDirection = (navigation.isTwoUp || navigation.transition != .continuous) ? .horizontal : .vertical
         if view.displayDirection != wantedDirection {
             view.displayDirection = wantedDirection
         }
@@ -102,10 +190,6 @@ final class PDFViewCoordinator: NSObject {
             view.displaysAsBook = navigation.isTwoUp
         }
         if navigation.isTwoUp, view.pageBreakMargins.top != 0 {
-            // `PDFEdgeInsets` is `NSEdgeInsets`/`UIEdgeInsets`, whose memberwise
-            // order is top, left, bottom, right — not the reading order. The
-            // compiler catches the mistake, but the error names neither
-            // "top" nor "right", so the asymmetry is worth a comment.
             view.pageBreakMargins = .init(top: 0, left: 0, bottom: 0, right: 0)
         }
 
@@ -119,7 +203,6 @@ final class PDFViewCoordinator: NSObject {
         applyZoom(navigation.zoom, to: view)
     }
 
-    /// A jump requested by the user: page field, thumbnail, outline, search hit.
     func go(toPageIndex index: Int) {
         guard let view, let document = view.document,
               let page = document.page(at: index) else { return }
@@ -128,11 +211,6 @@ final class PDFViewCoordinator: NSObject {
         view.go(to: page)
     }
 
-    /// Runs a search and moves to the first match.
-    ///
-    /// - Returns: how many matches there are, so the UI can say "3 of 12" or
-    ///   "No results" rather than leaving the user tapping a next button that
-    ///   does nothing.
     @discardableResult
     func search(_ term: String?) -> Int {
         guard let view, let document = view.document else { return 0 }
@@ -153,7 +231,6 @@ final class PDFViewCoordinator: NSObject {
         return selections.count
     }
 
-    /// Moves to the next or previous match.
     func stepSearchResult(by delta: Int) {
         guard let view, let selections = view.highlightedSelections, !selections.isEmpty
         else { return }
@@ -163,8 +240,6 @@ final class PDFViewCoordinator: NSObject {
             goToSearchResult(at: delta > 0 ? 0 : selections.count - 1, in: selections)
             return
         }
-        // Wraps, because a search box that stops at the last match leaves the
-        // user tapping a dead button with results still on screen.
         let next = (index + delta + selections.count) % selections.count
         goToSearchResult(at: next, in: selections)
     }
@@ -178,21 +253,18 @@ final class PDFViewCoordinator: NSObject {
     }
 
     private func applyZoom(_ zoom: PDFReaderNavigation.Zoom, to view: PDFView) {
+        view.minScaleFactor = 0.25
+        view.maxScaleFactor = 5.0
         switch zoom {
         case .fitWidth, .fitPage:
-            // `scaleFactorForSizeToFit` is the only measure of "fits", and
-            // setting both ends of the scale range to it is what actually pins
-            // the zoom. Setting only `scaleFactor` lets the next relayout undo it.
+            view.autoScales = true
             let fit = view.scaleFactorForSizeToFit
-            guard fit > 0 else { return }
-            view.minScaleFactor = fit
-            view.maxScaleFactor = fit
-            view.scaleFactor = fit
+            if fit > 0 {
+                view.scaleFactor = fit
+            }
         case .actualSize:
-            let fit = max(view.scaleFactorForSizeToFit, 0.01)
-            view.minScaleFactor = fit / 4
-            view.maxScaleFactor = 4
-            view.scaleFactor = 1
+            view.autoScales = false
+            view.scaleFactor = 1.0
         }
     }
 
@@ -201,9 +273,6 @@ final class PDFViewCoordinator: NSObject {
         to view: PDFView,
         document: PDFDocument
     ) {
-        // PDFKit's `rotation` is absolute, so the wanted value is computed from
-        // the turn count rather than incremented — incrementing would compound
-        // with whatever rotation the page already carried.
         let degrees = quarterTurns * 90
         for index in 0..<document.pageCount {
             guard let page = document.page(at: index) else { continue }
@@ -219,6 +288,40 @@ final class PDFViewCoordinator: NSObject {
         case .continuous: .singlePageContinuous
         }
     }
+
+    #if os(iOS)
+    @objc func handleTap(_ recognizer: UITapGestureRecognizer) {
+        guard let view else { return }
+        if view.currentSelection != nil { return }
+        let point = recognizer.location(in: view)
+        let width = view.bounds.width
+        if navigation.transition != .continuous {
+            if point.x < width * 0.18 {
+                onTapPrevPage?()
+                return
+            } else if point.x > width * 0.82 {
+                onTapNextPage?()
+                return
+            }
+        }
+        onTapCenter?()
+    }
+
+    @objc func handleDoubleTap(_ recognizer: UITapGestureRecognizer) {
+        guard let view else { return }
+        let fit = view.scaleFactorForSizeToFit
+        let target = (view.scaleFactor > fit * 1.2) ? fit : min(fit * 2.2, view.maxScaleFactor)
+        UIView.animate(withDuration: 0.25) {
+            view.scaleFactor = target
+        }
+    }
+    #endif
+}
+
+@MainActor
+final class PDFViewCoordinatorRegistry {
+    static let shared = PDFViewCoordinatorRegistry()
+    weak var coordinator: PDFViewCoordinator?
 }
 
 /// A region the user is dragging out, not yet an annotation.
@@ -226,12 +329,6 @@ struct PDFDraftRegion: Equatable {
     var start: CGPoint
     var current: CGPoint
 
-    /// The rectangle, normalised so a drag in any direction gives a positive size.
-    ///
-    /// Not cosmetic: a rectangle built from two arbitrary points has a negative
-    /// width when the drag runs right-to-left or bottom-to-top, and a negative
-    /// width is not a valid annotation rectangle — the file would record it and
-    /// no reader would draw it.
     var rect: CGRect {
         CGRect(
             x: min(start.x, current.x),
@@ -241,43 +338,37 @@ struct PDFDraftRegion: Equatable {
         )
     }
 
-    /// Whether the drag is far enough to be an annotation.
-    ///
-    /// A one-pixel drag is almost always an accidental touch, and writing a
-    /// zero-area annotation for one is how a page fills with invisible marks.
     var isMeaningful: Bool {
         rect.width >= 4 && rect.height >= 4
     }
 }
 
-/// The `PDFView` itself.
-///
-/// Wrapped rather than subclassed: `PDFView`'s own gesture recognisers already
-/// handle scrolling, selection and zoom, and adding a pan recogniser on top
-/// would fight them. The one gesture this adds is the annotation drag, and it
-/// lives in `PDFPageCanvasContainer` and is installed only while a tool is
-/// active — otherwise it would swallow every touch in the document and make the
-/// page impossible to scroll.
-///
-/// Split by platform because `UIViewRepresentable` and `NSViewRepresentable`
-/// are distinct protocols with no common supertype. The bodies are otherwise
-/// identical, and the divergence is confined to the type name.
+/// The `PDFView` itself with gesture support and theme styling.
 struct PDFPageCanvas: View {
     let model: PDFReaderModel
     let navigation: PDFReaderNavigation
     let searchTerm: String?
+    var theme: ReaderTypographyPreferences.Theme = .default
     let onPageChanged: (Int) -> Void
     let onSearchResultsChanged: (Int) -> Void
-    /// Called with a match count when the user asks for the next or previous one.
     var onStepSearchResult: ((Int) -> Void)?
+    var onSelectionChanged: ((PDFSelectionContext?) -> Void)?
+    var onTapCenter: (() -> Void)? = nil
+    var onTapPrevPage: (() -> Void)? = nil
+    var onTapNextPage: (() -> Void)? = nil
 
     var body: some View {
         PlatformCanvas(
             model: model,
             navigation: navigation,
             searchTerm: searchTerm,
+            theme: theme,
             onPageChanged: onPageChanged,
-            onSearchResultsChanged: onSearchResultsChanged
+            onSearchResultsChanged: onSearchResultsChanged,
+            onSelectionChanged: onSelectionChanged ?? { _ in },
+            onTapCenter: onTapCenter,
+            onTapPrevPage: onTapPrevPage,
+            onTapNextPage: onTapNextPage
         )
     }
 }
@@ -288,20 +379,50 @@ private struct PlatformCanvas: UIViewRepresentable {
     let model: PDFReaderModel
     let navigation: PDFReaderNavigation
     let searchTerm: String?
+    let theme: ReaderTypographyPreferences.Theme
     let onPageChanged: (Int) -> Void
     let onSearchResultsChanged: (Int) -> Void
+    let onSelectionChanged: (PDFSelectionContext?) -> Void
+    let onTapCenter: (() -> Void)?
+    let onTapPrevPage: (() -> Void)?
+    let onTapNextPage: (() -> Void)?
 
-    func makeCoordinator() -> PDFViewCoordinator { PDFViewCoordinator(navigation: navigation) }
+    func makeCoordinator() -> PDFViewCoordinator {
+        let coordinator = PDFViewCoordinator(navigation: navigation)
+        coordinator.onTapCenter = onTapCenter
+        coordinator.onTapPrevPage = onTapPrevPage
+        coordinator.onTapNextPage = onTapNextPage
+        return coordinator
+    }
 
     func makeUIView(context: Context) -> PDFView {
-        PDFPageCanvasSupport.configure(context.coordinator, model: model, navigation: navigation)
+        let view = PDFPageCanvasSupport.configure(
+            context.coordinator,
+            model: model,
+            navigation: navigation,
+            theme: theme
+        )
+        let coordinator = context.coordinator
+        let singleTap = UITapGestureRecognizer(target: coordinator, action: #selector(PDFViewCoordinator.handleTap(_:)))
+        singleTap.numberOfTapsRequired = 1
+        let doubleTap = UITapGestureRecognizer(target: coordinator, action: #selector(PDFViewCoordinator.handleDoubleTap(_:)))
+        doubleTap.numberOfTapsRequired = 2
+        singleTap.require(toFail: doubleTap)
+        view.addGestureRecognizer(singleTap)
+        view.addGestureRecognizer(doubleTap)
+        return view
     }
 
     func updateUIView(_ view: PDFView, context: Context) {
+        context.coordinator.onTapCenter = onTapCenter
+        context.coordinator.onTapPrevPage = onTapPrevPage
+        context.coordinator.onTapNextPage = onTapNextPage
         PDFPageCanvasSupport.refresh(
             context.coordinator, view: view, model: model,
-            navigation: navigation, onPageChanged: onPageChanged,
-            onSearchResultsChanged: onSearchResultsChanged
+            navigation: navigation, theme: theme,
+            onPageChanged: onPageChanged,
+            onSearchResultsChanged: onSearchResultsChanged,
+            onSelectionChanged: onSelectionChanged
         )
     }
 
@@ -315,20 +436,41 @@ private struct PlatformCanvas: NSViewRepresentable {
     let model: PDFReaderModel
     let navigation: PDFReaderNavigation
     let searchTerm: String?
+    let theme: ReaderTypographyPreferences.Theme
     let onPageChanged: (Int) -> Void
     let onSearchResultsChanged: (Int) -> Void
+    let onSelectionChanged: (PDFSelectionContext?) -> Void
+    let onTapCenter: (() -> Void)?
+    let onTapPrevPage: (() -> Void)?
+    let onTapNextPage: (() -> Void)?
 
-    func makeCoordinator() -> PDFViewCoordinator { PDFViewCoordinator(navigation: navigation) }
+    func makeCoordinator() -> PDFViewCoordinator {
+        let coordinator = PDFViewCoordinator(navigation: navigation)
+        coordinator.onTapCenter = onTapCenter
+        coordinator.onTapPrevPage = onTapPrevPage
+        coordinator.onTapNextPage = onTapNextPage
+        return coordinator
+    }
 
     func makeNSView(context: Context) -> PDFView {
-        PDFPageCanvasSupport.configure(context.coordinator, model: model, navigation: navigation)
+        PDFPageCanvasSupport.configure(
+            context.coordinator,
+            model: model,
+            navigation: navigation,
+            theme: theme
+        )
     }
 
     func updateNSView(_ view: PDFView, context: Context) {
+        context.coordinator.onTapCenter = onTapCenter
+        context.coordinator.onTapPrevPage = onTapPrevPage
+        context.coordinator.onTapNextPage = onTapNextPage
         PDFPageCanvasSupport.refresh(
             context.coordinator, view: view, model: model,
-            navigation: navigation, onPageChanged: onPageChanged,
-            onSearchResultsChanged: onSearchResultsChanged
+            navigation: navigation, theme: theme,
+            onPageChanged: onPageChanged,
+            onSearchResultsChanged: onSearchResultsChanged,
+            onSelectionChanged: onSelectionChanged
         )
     }
 
@@ -338,33 +480,36 @@ private struct PlatformCanvas: NSViewRepresentable {
 }
 #endif
 
-/// The platform-independent half of the canvas.
-///
-/// Shared because the two representables differ only in their protocol name,
-/// and duplicating the setup would be two places to fix for one bug.
 @MainActor
 enum PDFPageCanvasSupport {
-    /// The colour behind the page.
-    ///
-    /// Different names on the two platforms for the same intent, so it is
-    /// resolved once here rather than at each use.
-    static var pageBackgroundColour: PlatformColor {
+    static func pageBackgroundColour(for theme: ReaderTypographyPreferences.Theme) -> PlatformColor {
         #if canImport(UIKit) && !os(macOS)
-        PlatformColor.secondarySystemBackground
+        switch theme {
+        case .default: return UIColor(red: 0.98, green: 0.97, blue: 0.95, alpha: 1.0)
+        case .sepia: return UIColor(red: 0.96, green: 0.93, blue: 0.85, alpha: 1.0)
+        case .dark: return UIColor(red: 0.11, green: 0.11, blue: 0.12, alpha: 1.0)
+        }
         #else
-        PlatformColor.windowBackgroundColor
+        switch theme {
+        case .default: return NSColor(red: 0.98, green: 0.97, blue: 0.95, alpha: 1.0)
+        case .sepia: return NSColor(red: 0.96, green: 0.93, blue: 0.85, alpha: 1.0)
+        case .dark: return NSColor(red: 0.11, green: 0.11, blue: 0.12, alpha: 1.0)
+        }
         #endif
     }
 
     static func configure(
         _ coordinator: PDFViewCoordinator,
         model: PDFReaderModel,
-        navigation: PDFReaderNavigation
+        navigation: PDFReaderNavigation,
+        theme: ReaderTypographyPreferences.Theme
     ) -> PDFView {
         let view = PDFView()
-        view.autoScales = false
+        view.autoScales = true
+        view.minScaleFactor = 0.25
+        view.maxScaleFactor = 5.0
         view.displayBox = .mediaBox
-        view.backgroundColor = PDFPageCanvasSupport.pageBackgroundColour
+        view.backgroundColor = PDFPageCanvasSupport.pageBackgroundColour(for: theme)
         view.document = model.document
         coordinator.attach(view)
         coordinator.apply(navigation)
@@ -376,14 +521,31 @@ enum PDFPageCanvasSupport {
         view: PDFView,
         model: PDFReaderModel,
         navigation: PDFReaderNavigation,
+        theme: ReaderTypographyPreferences.Theme,
         onPageChanged: @escaping (Int) -> Void,
-        onSearchResultsChanged: @escaping (Int) -> Void
+        onSearchResultsChanged: @escaping (Int) -> Void,
+        onSelectionChanged: @escaping (PDFSelectionContext?) -> Void
     ) {
         if view.document !== model.document {
             view.document = model.document
         }
+        view.backgroundColor = PDFPageCanvasSupport.pageBackgroundColour(for: theme)
         coordinator.onPageChanged = onPageChanged
         coordinator.onSearchResultsChanged = onSearchResultsChanged
+        coordinator.onSelectionChanged = onSelectionChanged
+        coordinator.contextProvider = { source, draggedRect in
+            coordinator.selectionContext(
+                source: source,
+                draggedRect: draggedRect,
+                details: PDFSelectionContext.Details(
+                    bookID: model.book.id,
+                    documentFingerprint: model.descriptor?.documentFingerprint ?? "",
+                    pageLabel: { index in
+                        MainActor.assumeIsolated { model.label(forPage: index) }
+                    }
+                )
+            )
+        }
         coordinator.apply(navigation)
     }
 }

@@ -24,12 +24,21 @@ enum ReaderTypographyPreferences {
     }
 
     enum FontFamily: String, CaseIterable, Identifiable {
+        /// Use whatever face the book embeds. The default, and what Apple
+        /// Books does: a textbook or a novel carries its own typography, and
+        /// substituting the system sans flattens it.
+        case book
         case system, serif, sansSerif, mono
         var id: String { rawValue }
 
         /// CSS font-family stack pushed into `--reader-font-family`.
+        ///
+        /// Empty for `.book`, which is the signal the stylesheet uses to leave
+        /// the book's own `font-family` alone — see the
+        /// `--reader-honour-book-font` gate in EPUBReaderStyles.css.
         var cssStack: String {
             switch self {
+            case .book:      return ""
             case .system:    return "-apple-system, BlinkMacSystemFont, \"Helvetica Neue\", sans-serif"
             case .serif:     return "\"New York\", Georgia, \"Times New Roman\", serif"
             case .sansSerif: return "\"Helvetica Neue\", \"Avenir Next\", sans-serif"
@@ -39,6 +48,7 @@ enum ReaderTypographyPreferences {
 
         var label: String {
             switch self {
+            case .book: return "Book"
             case .system: return "System"
             case .serif: return "Serif"
             case .sansSerif: return "Sans"
@@ -97,11 +107,14 @@ enum ReaderTypographyPreferences {
             }
         }
 
-        var tokenUnderlineHex: String {
+        /// Press tint for a token, shown only while a finger is on the word.
+        /// There is deliberately no persistent underline: a decoration on every
+        /// word makes the page unreadable.
+        var pressTintCSS: String {
             switch self {
-            case .default: return "rgba(80, 80, 80, 0.55)"
-            case .sepia:   return "rgba(123, 84, 60, 0.55)"
-            case .dark:    return "rgba(200, 200, 210, 0.55)"
+            case .default: return "rgba(90, 90, 90, 0.20)"
+            case .sepia:   return "rgba(123, 84, 60, 0.20)"
+            case .dark:    return "rgba(210, 210, 220, 0.24)"
             }
         }
 

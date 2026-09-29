@@ -14,6 +14,7 @@ typealias PlatformColor = NSColor
 #endif
 
 import PDFKit
+import SwiftUI
 
 extension PDFAnnotationColour {
     /// The colour as PDFKit wants it.
@@ -32,3 +33,5 @@ extension PDFAnnotationColour {
         #endif
     }
 }
+
+

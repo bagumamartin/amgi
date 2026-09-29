@@ -3,6 +3,7 @@ import AmgiTheme
 import AmgiUI
 import AmgiAppCore
 import AnkiSync
+import Dependencies
 import Sharing
 #if canImport(UIKit)
 import UIKit
@@ -14,8 +15,11 @@ package struct OnboardingView: View {
     @Shared(.onboardingCompleted) private var onboardingCompleted
     @Shared(.syncMode) private var syncMode
     @State private var showServerSetup = false
+    @State private var showLogin = false
     @State private var serverURL = ""
     @State private var endpointError: String?
+
+    @Dependency(\.syncCoordinator) private var coordinator
 
     package init() {}
 
@@ -83,6 +87,14 @@ package struct OnboardingView: View {
             }
         }
         .background(palette.background.ignoresSafeArea())
+        .sheet(isPresented: $showLogin) {
+            // Fresh installs have no host key by definition; ask for
+            // credentials now rather than failing the first sync later.
+            // Cancel stays available — the app works fully unsigned-in.
+            LoginSheet(isPresented: $showLogin) {
+                Task { await coordinator.startSync() }
+            }
+        }
     }
 
     @ViewBuilder
@@ -329,7 +341,13 @@ private extension OnboardingView {
             try KeychainHelper.saveEndpoint(url)
             endpointError = nil
             $syncMode.withLock { $0 = .custom }
+            // A fresh server has no credentials by definition. Complete
+            // onboarding first (a failed login must never trap the user
+            // outside the app), then ask for credentials immediately.
+            KeychainHelper.deleteHostKey()
+            KeychainHelper.deleteUsername()
             $onboardingCompleted.withLock { $0 = true }
+            showLogin = KeychainHelper.loadHostKey() == nil
         } catch {
             endpointError = error.localizedDescription
         }
