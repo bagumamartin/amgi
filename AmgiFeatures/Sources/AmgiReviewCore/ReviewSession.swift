@@ -614,7 +614,8 @@ public final class ReviewSession {
             dailyBaseGraduatedToday = 0
             // Conservative rollover fallback: with the boundary unknown,
             // sub-day intervals must NOT count as graduated (0 would make
-            // every learning step `secs >= 0` → instant graduation).
+            // every learning step `secs >= 0` → instant graduation). A full
+            // 24h is the longest a day can be, so nothing graduates early.
             secondsUntilNextDayStart = 86_400
         }
     }

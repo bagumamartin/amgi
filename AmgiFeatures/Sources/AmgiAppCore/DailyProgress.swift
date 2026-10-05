@@ -42,8 +42,19 @@ package enum DailyProgressCalculator {
         calendar: Calendar = .current
     ) -> UInt32 {
         let todayStart = ankiDayStart(rolloverHour: rolloverHour, now: now, calendar: calendar)
-        let nextStart = todayStart + 86_400
-        return UInt32(max(0, nextStart - Int64(now.timeIntervalSince1970)))
+        let today = Date(timeIntervalSince1970: TimeInterval(todayStart))
+        // Calendar arithmetic, not `+ 86_400`. An Anki day is a *local*
+        // calendar day, and a local day is 23 or 25 hours long across a DST
+        // transition — twice a year the fixed addition put the next rollover
+        // an hour out. A card due at 23:30 the evening before a spring-forward
+        // then failed to count as graduated until 00:30.
+        guard let nextDay = calendar.date(byAdding: .day, value: 1, to: today) else {
+            // Calendar failure: the rollover hour is outside this calendar's
+            // valid range. Prefer being an hour early (graduating a card
+            // slightly early) over an hour late.
+            return UInt32(max(0, 86_400 - (now.timeIntervalSince1970 - TimeInterval(todayStart))))
+        }
+        return UInt32(max(0, nextDay.timeIntervalSince(now)))
     }
 
     /// A card counts as "completed" for the day when the chosen rating's next

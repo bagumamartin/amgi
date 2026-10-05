@@ -54,6 +54,47 @@ import AnkiKit
         #expect(DailyProgressCalculator.secondsUntilNextDayStart(rolloverHour: 4, now: now, calendar: calendar) == 2 * 3600)
     }
 
+    @Test func nextDayStartShortensOnASpringForwardDay() {
+        // 2026-03-08 loses an hour at 02:00 local, so the Anki day running
+        // 00:00 on the 8th is 23h long. From 00:30 the next rollover is 22h30m
+        // away; the old fixed `+ 86_400` said 23h30m — an hour late, which is
+        // exactly when a sub-day step scheduled for 23:30 should have counted
+        // as graduated.
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "America/New_York")!
+        let now = cal.date(from: DateComponents(year: 2026, month: 3, day: 8, hour: 0, minute: 30))!
+        #expect(
+            DailyProgressCalculator.secondsUntilNextDayStart(
+                rolloverHour: 0, now: now, calendar: cal
+            ) == 22 * 3600 + 1800
+        )
+    }
+
+    @Test func nextDayStartLengthensOnAFallBackDay() {
+        // 2026-11-01 gains an hour at 02:00 local, so that Anki day is 25h
+        // long and the next rollover is further away, not nearer.
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "America/New_York")!
+        let now = cal.date(from: DateComponents(year: 2026, month: 11, day: 1, hour: 0, minute: 30))!
+        #expect(
+            DailyProgressCalculator.secondsUntilNextDayStart(
+                rolloverHour: 0, now: now, calendar: cal
+            ) == 24 * 3600 + 1800
+        )
+    }
+
+    @Test func nextDayStartIsUnchangedAwayFromTransitions() {
+        // The common case still behaves: same local time next day.
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "America/New_York")!
+        let now = cal.date(from: DateComponents(year: 2026, month: 6, day: 15, hour: 9, minute: 15))!
+        #expect(
+            DailyProgressCalculator.secondsUntilNextDayStart(
+                rolloverHour: 4, now: now, calendar: cal
+            ) == 18 * 3600 + 45 * 60
+        )
+    }
+
     // MARK: - isGraduated
 
     @Test func wholeDayReviewGraduatesAtOneOrMoreDays() {
