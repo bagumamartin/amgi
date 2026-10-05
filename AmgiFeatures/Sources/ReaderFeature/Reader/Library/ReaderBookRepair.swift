@@ -1,6 +1,6 @@
-public import AmgiReader
-public import AmgiReaderEPUB
-public import AmgiReaderPDF
+import AmgiReader
+import AmgiReaderEPUB
+import AmgiReaderPDF
 import Foundation
 
 /// Which reader format a book comes from.

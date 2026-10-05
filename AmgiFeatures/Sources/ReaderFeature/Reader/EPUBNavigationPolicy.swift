@@ -136,11 +136,15 @@ enum EPUBNavigationPolicy: Equatable {
     /// here — the policy cancels every other scheme — so there is no scheme
     /// allowlist to bypass and no way for a book to reach a custom app scheme.
     static func openInSystem(_ url: URL) {
-        #if os(iOS)
-        UIApplication.shared.open(url)
-        #elseif os(macOS)
-        NSWorkspace.shared.open(url)
-        #endif
+        // WebKit navigation delegates are nonisolated sync contexts, so hop
+        // to the main actor for the shared app/workspace open call.
+        Task { @MainActor in
+            #if os(iOS)
+            UIApplication.shared.open(url)
+            #elseif os(macOS)
+            NSWorkspace.shared.open(url)
+            #endif
+        }
     }
 }
 

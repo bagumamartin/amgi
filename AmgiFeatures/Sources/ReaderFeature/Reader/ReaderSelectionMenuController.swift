@@ -14,13 +14,13 @@ final class ReaderSelectionMenuController: NSObject, UIEditMenuInteractionDelega
     /// `UIEditMenuInteraction.delegate` is get-only, so the interaction has to
     /// be constructed *after* `super.init()` with `self` already available.
     private var interaction: UIEditMenuInteraction!
-    private weak var presenter: ReaderSelectionMenuPresenting?
+    private weak var presenter: (any ReaderSelectionMenuPresenting)?
     private var payload: ReaderSelectionPayload?
     private weak var anchorView: UIView?
 
     /// - Parameter anchorView: the view the menu is presented on, i.e. the
     ///   web view the selection lives in.
-    init(presenter: ReaderSelectionMenuPresenting, anchorView: UIView) {
+    init(presenter: any ReaderSelectionMenuPresenting, anchorView: UIView) {
         self.presenter = presenter
         self.anchorView = anchorView
         super.init()

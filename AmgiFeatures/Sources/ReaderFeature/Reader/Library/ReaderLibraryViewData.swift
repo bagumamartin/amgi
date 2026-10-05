@@ -1,5 +1,5 @@
 import AmgiReader
-public import AmgiReaderEPUB
+import AmgiReaderEPUB
 import AmgiUI
 import Foundation
 

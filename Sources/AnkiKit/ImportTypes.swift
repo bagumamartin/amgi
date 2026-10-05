@@ -218,7 +218,7 @@ public struct ImportPackageInspection: Sendable, Equatable, Codable {
         case isCollectionBackup
     }
 
-    public init(from decoder: Decoder) throws {
+    public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         formatVersion = try container.decode(Int.self, forKey: .formatVersion)
         noteCount = try container.decode(Int.self, forKey: .noteCount)

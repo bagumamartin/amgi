@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 
 /// User-controlled privacy and availability choices shared by App Intents,
 /// Spotlight, and the in-app Study Assistant. Defaults are deliberately

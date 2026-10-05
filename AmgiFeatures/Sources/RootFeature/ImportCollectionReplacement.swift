@@ -1,5 +1,5 @@
 import AmgiAppCore
-public import AmgiAppShared
+import AmgiAppShared
 import AmgiReviewCore
 import AnkiBackend
 import AnkiClients

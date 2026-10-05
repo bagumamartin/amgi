@@ -67,7 +67,10 @@ public enum ReaderBackupBundle {
             )
         }
 
-        guard let archive = Archive(url: packageURL, accessMode: .update) else {
+        let archive: Archive
+        do {
+            archive = try Archive(url: packageURL, accessMode: .update)
+        } catch {
             throw Failure.unreadablePackage(packageURL.lastPathComponent)
         }
 
@@ -112,7 +115,10 @@ public enum ReaderBackupBundle {
         fromPackageAt packageURL: URL,
         to directory: URL
     ) throws -> [URL] {
-        guard let archive = Archive(url: packageURL, accessMode: .read) else {
+        let archive: Archive
+        do {
+            archive = try Archive(url: packageURL, accessMode: .read)
+        } catch {
             throw Failure.unreadablePackage(packageURL.lastPathComponent)
         }
         let fileManager = FileManager.default
@@ -135,7 +141,7 @@ public enum ReaderBackupBundle {
             // `extract(_:to:)` streams the entry straight to disk and
             // CRC-checks it, so a truncated payload is caught here rather than
             // half-imported into the library.
-            try archive.extract(entry, to: destination, skipCRC32: true)
+            _ = try archive.extract(entry, to: destination, skipCRC32: true)
             extracted.append(destination)
         }
         return extracted.sorted { $0.lastPathComponent < $1.lastPathComponent }
