@@ -8,11 +8,20 @@ public struct ReaderSavedProgress: Codable, Equatable, Sendable {
     public var chapterID: Int64
     public var progress: Double
     public var updatedAt: Date
+    /// Optional text location for reflowable EPUBs. Other reader types keep
+    /// using their established fractional/page restoration paths.
+    public var anchor: ReaderSourceAnchor?
 
-    public init(chapterID: Int64, progress: Double, updatedAt: Date) {
+    public init(
+        chapterID: Int64,
+        progress: Double,
+        updatedAt: Date,
+        anchor: ReaderSourceAnchor? = nil
+    ) {
         self.chapterID = chapterID
         self.progress = progress
         self.updatedAt = updatedAt
+        self.anchor = anchor
     }
 }
 
@@ -112,7 +121,8 @@ public struct ReaderProgressStore: @unchecked Sendable {
             // Clamp to [0,1] so callers can pass raw scroll fractions
             // without having to range-check.
             progress: min(max(progress, 0), 1),
-            updatedAt: now
+            updatedAt: now,
+            anchor: nil
         )
         save(bookID: bookID, payload: payload)
     }

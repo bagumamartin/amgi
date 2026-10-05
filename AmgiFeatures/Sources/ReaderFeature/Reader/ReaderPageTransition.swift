@@ -40,16 +40,11 @@ enum ReaderPageTransition: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// Whether the effect can follow a finger.
-    ///
-    /// Curl cannot: `UIPageViewController(.pageCurl)` drops its interactive
-    /// pan, because the gesture that drives a page curl is not a scroll. The
-    /// reader compensates — chapter edges are already tap-to-turn, and
-    /// intra-chapter turns are the web view's own paging scroll, which is
-    /// unaffected — but the user should know why a drag does not turn a
-    /// chapter here.
+    /// Whether the selected transition can follow a finger. EPUB curl uses
+    /// UIPageViewController's native interactive page turn; the other modes
+    /// use the reader's horizontal pan recognizer.
     var supportsInteractivePan: Bool {
-        self != .curl
+        true
     }
 
     /// Duration of a non-interactive turn. Curl is fixed by UIKit; the others

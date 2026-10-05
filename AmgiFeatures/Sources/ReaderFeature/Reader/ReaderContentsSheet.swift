@@ -94,6 +94,11 @@ struct ReaderContentsSheet: View {
     }
 
     let bookTitle: String
+    let contentsTabTitle: String
+    let notesTabTitle: String
+    let headerSubtitle: String?
+    let onHeaderSubtitleTap: (() -> Void)?
+    let doneUsesCheckmark: Bool
     let outlineItems: [OutlineItem]
     let bookmarks: [BookmarkItem]
     let notes: [NoteItem]
@@ -112,12 +117,22 @@ struct ReaderContentsSheet: View {
         bookmarks: [BookmarkItem] = [],
         notes: [NoteItem] = [],
         initialTab: Tab = .contents,
+        contentsTabTitle: String = Tab.contents.rawValue,
+        notesTabTitle: String = Tab.notes.rawValue,
+        headerSubtitle: String? = nil,
+        onHeaderSubtitleTap: (() -> Void)? = nil,
+        doneUsesCheckmark: Bool = false,
         onSelectOutline: @escaping (OutlineItem) -> Void,
         onSelectBookmark: @escaping (BookmarkItem) -> Void,
         onDeleteBookmark: ((BookmarkItem) -> Void)? = nil,
         onSelectNote: @escaping (NoteItem) -> Void
     ) {
         self.bookTitle = bookTitle
+        self.contentsTabTitle = contentsTabTitle
+        self.notesTabTitle = notesTabTitle
+        self.headerSubtitle = headerSubtitle
+        self.onHeaderSubtitleTap = onHeaderSubtitleTap
+        self.doneUsesCheckmark = doneUsesCheckmark
         self.outlineItems = outlineItems
         self.bookmarks = bookmarks
         self.notes = notes
@@ -131,10 +146,31 @@ struct ReaderContentsSheet: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
+                if let headerSubtitle {
+                    Group {
+                        if let onHeaderSubtitleTap {
+                            Button(action: onHeaderSubtitleTap) {
+                                HStack(spacing: 6) {
+                                    Text(headerSubtitle)
+                                    Image(systemName: "chevron.down")
+                                        .font(.system(size: 12, weight: .semibold))
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        } else {
+                            Text(headerSubtitle)
+                        }
+                    }
+                    .font(.system(size: 16, weight: .medium).monospacedDigit())
+                    .foregroundStyle(palette.textSecondary)
+                    .padding(.top, 10)
+                    .padding(.bottom, 5)
+                }
+
                 // Segmented picker
                 Picker("Section", selection: $selectedTab) {
                     ForEach(Tab.allCases) { tab in
-                        Text(tab.rawValue).tag(tab)
+                        Text(tabTitle(for: tab)).tag(tab)
                     }
                 }
                 .pickerStyle(.segmented)
@@ -158,10 +194,33 @@ struct ReaderContentsSheet: View {
             .navigationTitle(bookTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
+                if doneUsesCheckmark {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button {
+                            dismiss()
+                        } label: {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 19, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 44, height: 44)
+                                .background(Color.primary.opacity(0.84), in: Circle())
+                        }
+                        .accessibilityLabel("Done")
+                    }
+                } else {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Done") { dismiss() }
+                    }
                 }
             }
+        }
+    }
+
+    private func tabTitle(for tab: Tab) -> String {
+        switch tab {
+        case .contents: contentsTabTitle
+        case .bookmarks: Tab.bookmarks.rawValue
+        case .notes: notesTabTitle
         }
     }
 

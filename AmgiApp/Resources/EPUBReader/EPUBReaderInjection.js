@@ -621,11 +621,9 @@
       head.textContent = state.head;
     }
     if (number) {
-      // Only the page number belongs on the page, exactly as a printed book:
-      // "96", not "96 of 4024". The total is a library fact rather than a
-      // page fact, and it moves as the index fills in, so showing it here
-      // would make the page appear to change on its own.
-      number.textContent = String(state.page);
+      number.textContent = typeof state.total === 'number'
+        ? String(state.page) + ' of ' + String(state.total)
+        : String(state.page);
     }
   };
 
@@ -897,7 +895,9 @@
 
   window.__amgiScrollToPage = function (pageIndex) {
     const w = window.innerWidth || document.documentElement.clientWidth || 1;
-    document.documentElement.scrollLeft = pageIndex * w;
+    const lastPage = Math.max(0, measurePages() - 1);
+    const requestedPage = pageIndex < 0 ? lastPage : Math.min(lastPage, Math.max(0, pageIndex));
+    document.documentElement.scrollLeft = requestedPage * w;
     reportPageInfo();
   };
 

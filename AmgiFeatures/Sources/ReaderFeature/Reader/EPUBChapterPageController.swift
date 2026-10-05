@@ -29,58 +29,6 @@ struct EPUBChapterContent: Equatable {
 }
 
 #if os(iOS)
-/// One page, flattened, for the curl transition.
-///
-/// A `UIPageViewController` can only curl between view controllers, and the
-/// chapter controller holds a whole chapter, so the curl runs over page images
-/// instead. This is that image's controller.
-@MainActor
-final class ReaderPageImageController: UIViewController {
-    private let image: UIImage
-
-    init(image: UIImage) {
-        self.image = image
-        super.init(nibName: nil, bundle: nil)
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    override func loadView() {
-        let imageView = UIImageView(image: image)
-        imageView.contentMode = .scaleToFill
-        imageView.frame = CGRect(origin: .zero, size: UIScreen.main.bounds.size)
-        imageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        imageView.isUserInteractionEnabled = false
-        view = imageView
-    }
-}
-
-/// Vends the single destination page the one-shot curl needs.
-///
-/// The data source returns the same controller instance every time, which is
-/// all UIKit asks for when only one turn is ever performed: there is nothing
-/// before the start or after the end.
-final class ReaderPageImagePagerDataSource: NSObject, UIPageViewControllerDataSource {
-    private let first: UIViewController
-
-    init(first: UIViewController) {
-        self.first = first
-    }
-
-    func pageViewController(
-        _ pageViewController: UIPageViewController,
-        viewControllerBefore viewController: UIViewController
-    ) -> UIViewController? {
-        nil
-    }
-
-    func pageViewController(
-        _ pageViewController: UIPageViewController,
-        viewControllerAfter viewController: UIViewController
-    ) -> UIViewController? {
-        first
-    }
-}
 #endif
 
 /// CSS tokens passed from SwiftUI prefs into the injected stylesheet.
@@ -91,6 +39,7 @@ final class ReaderPageImagePagerDataSource: NSObject, UIPageViewControllerDataSo
 struct EPUBReaderStyleTokens: Equatable {
     var foreground: String = "#1f2a26"
     var background: String = "#faf7f2"
+    var theme: String = "original"
     var fontSizePx: Int = 17
     var lineHeight: Double = 1.55
     var paddingPx: Int = 22
@@ -249,6 +198,11 @@ final class EPUBChapterPageController: UIViewController, ReaderSelectionMenuPres
     /// 0..1 fraction to scroll to once a freshly-loaded chapter reports
     /// its page count. Consumed and cleared inside the bridge.
     private(set) var pendingRestoreFraction: Double?
+    /// Absolute column target for a page controller supplied by UIKit's
+    /// interactive curl. `-1` requests the final page in the chapter.
+    private(set) var pendingPageIndex: Int?
+    let isPageCurlManaged: Bool
+    private var pendingAnchor: ReaderSourceAnchor?
 
     weak var pageDelegate: (any EPUBChapterPageControllerDelegate)?
 
@@ -272,12 +226,16 @@ final class EPUBChapterPageController: UIViewController, ReaderSelectionMenuPres
         chapterIndex: Int,
         content: EPUBChapterContent,
         styleTokens: EPUBReaderStyleTokens,
-        pendingRestoreFraction: Double?
+        pendingRestoreFraction: Double?,
+        pendingPageIndex: Int? = nil,
+        isPageCurlManaged: Bool = false
     ) {
         self.chapterIndex = chapterIndex
         self.content = content
         self.styleTokens = styleTokens
         self.pendingRestoreFraction = pendingRestoreFraction
+        self.pendingPageIndex = pendingPageIndex
+        self.isPageCurlManaged = isPageCurlManaged
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -351,6 +309,7 @@ final class EPUBChapterPageController: UIViewController, ReaderSelectionMenuPres
         // a chapter and across a boundary — and the chosen effect applies to
         // all of them.
         webView.scrollView.isPagingEnabled = false
+        webView.scrollView.isScrollEnabled = !isPageCurlManaged
         webView.scrollView.decelerationRate = .fast
         // Bounces stay on so a drag past the edge still feels alive, but the
         // deceleration is disabled: a fling should not slide a page, it should
@@ -371,7 +330,7 @@ final class EPUBChapterPageController: UIViewController, ReaderSelectionMenuPres
 
         self.webView = webView
         self.view = webView
-        installSwipeRecogniser()
+        if !isPageCurlManaged { installSwipeRecogniser() }
         // Long press is WebKit's own selection gesture; the menu sits on top
         // of it so the system callout and the Anki actions coexist.
         selectionMenu = ReaderSelectionMenuController(
@@ -403,6 +362,7 @@ final class EPUBChapterPageController: UIViewController, ReaderSelectionMenuPres
         if !force, size == lastPushedPageSize { return }
 
         let previousPageWidth = lastPushedPageSize.width
+        let hasPendingPosition = pendingPageIndex != nil || pendingRestoreFraction != nil
         let currentOffsetX = webView.scrollView.contentOffset.x
         let previousIndex: Int
         if previousPageWidth > 0 {
@@ -431,6 +391,7 @@ final class EPUBChapterPageController: UIViewController, ReaderSelectionMenuPres
             DispatchQueue.main.async {
                 let newWidth = self.webView.scrollView.bounds.width
                 guard newWidth > 0 else { return }
+                guard !hasPendingPosition else { return }
                 let target = CGFloat(previousIndex) * newWidth
                 let maxX = max(0, self.webView.scrollView.contentSize.width - newWidth)
                 self.webView.scrollView.setContentOffset(
@@ -459,10 +420,28 @@ final class EPUBChapterPageController: UIViewController, ReaderSelectionMenuPres
     var runningHead: String = ""
 
     /// Prints the current page number onto the page.
-    func refreshPageFurniture() {
+    func refreshPageFurniture(page: Int? = nil, total: Int? = nil) {
         applyPageFurniture(
-            page: currentPageIndex + 1,
-            runningHead: runningHead
+            page: page ?? currentPageIndex + 1,
+            runningHead: runningHead,
+            total: total
+        )
+    }
+
+    /// Resolve a stored text location after this chapter has finished laying
+    /// out. The DOM range owns the exact location; page numbers are only a
+    /// visual estimate and do not survive a font-size or rotation change.
+    func scroll(to anchor: ReaderSourceAnchor) {
+        guard anchor.chapterID == content.chapterID else { return }
+        guard didFinishInitialLoad else {
+            pendingAnchor = anchor
+            return
+        }
+        guard let data = try? JSONEncoder().encode(anchor),
+              let json = String(data: data, encoding: .utf8) else { return }
+        webView.evaluateJavaScript(
+            "window.__amgiResolveAnchor && window.__amgiResolveAnchor(\(json));",
+            completionHandler: nil
         )
     }
 
@@ -537,14 +516,12 @@ final class EPUBChapterPageController: UIViewController, ReaderSelectionMenuPres
         }
     }
 
-    /// A flattened image of one page, for the transitions that animate
-    /// between page images (curl) rather than scrolling the document.
-    ///
-    /// Rendered from the live web view at the page's scroll offset, so the
-    /// image and the text cannot disagree.
+    /// A snapshot of the WebView page, used for the fade transition. Keeping
+    /// the capture inside the page controller avoids duplicating fixed SwiftUI
+    /// controls during the animation.
     func snapshot(ofPage index: Int) -> UIImage? {
         let width = pageWidth
-        guard width > 1, let window = webView.window else { return nil }
+        guard width > 1 else { return nil }
         let previousOffset = webView.scrollView.contentOffset
         let target = CGPoint(x: CGFloat(min(max(index, 0), max(0, pageCount - 1))) * width, y: 0)
         // Snapping first and sampling after a layout pass is the only way to
@@ -552,11 +529,9 @@ final class EPUBChapterPageController: UIViewController, ReaderSelectionMenuPres
         webView.scrollView.setContentOffset(target, animated: false)
         webView.layoutIfNeeded()
         defer { webView.scrollView.setContentOffset(previousOffset, animated: false) }
-        let renderer = UIGraphicsImageRenderer(bounds: CGRect(origin: .zero, size: window.bounds.size))
+        let renderer = UIGraphicsImageRenderer(bounds: webView.bounds)
         return renderer.image { _ in
-            // Draw the window's layer so nested scroll offsets and the chrome
-            // the web view owns are all captured.
-            window.layer.render(in: UIGraphicsGetCurrentContext()!)
+            webView.layer.render(in: UIGraphicsGetCurrentContext()!)
         }
     }
 
@@ -586,7 +561,7 @@ final class EPUBChapterPageController: UIViewController, ReaderSelectionMenuPres
     /// quietly stop being drawn rather than block the page.
     /// Supplies the marks for this chapter. Set by the host from the view's
     /// command bus, because the controller cannot reach the annotation store.
-    var annotationProvider: (@MainActor () async -> [[String: Any]])?
+    var annotationProvider: (@MainActor (Int64) async -> [[String: Any]])?
 
     /// Forwards a selection-menu action to the host. The controller owns the
     /// menu but not the book or the annotation store, so it relays rather
@@ -685,11 +660,12 @@ final class EPUBChapterPageController: UIViewController, ReaderSelectionMenuPres
     /// Drawn in the document rather than in native chrome so it uses the
     /// book's own face and sits on the page's own margins. That is what makes
     /// it read as part of the book instead of a control floating over it.
-    func applyPageFurniture(page: Int, runningHead: String) {
+    func applyPageFurniture(page: Int, runningHead: String, total: Int? = nil) {
         let json: String
-        if let data = try? JSONSerialization.data(
-            withJSONObject: ["page": page, "head": runningHead]
-        ), let text = String(data: data, encoding: .utf8) {
+        var payload: [String: Any] = ["page": page, "head": runningHead]
+        if let total { payload["total"] = total }
+        if let data = try? JSONSerialization.data(withJSONObject: payload),
+           let text = String(data: data, encoding: .utf8) {
             json = text
         } else {
             return
@@ -725,8 +701,9 @@ final class EPUBChapterPageController: UIViewController, ReaderSelectionMenuPres
     /// simply gets no marks, rather than an error.
     func applyAnnotationsForCurrentChapter() {
         guard let annotationProvider else { return }
+        let chapterID = content.chapterID
         Task { [weak self] in
-            let marks = await annotationProvider()
+            let marks = await annotationProvider(chapterID)
             guard let self, !Task.isCancelled else { return }
             applyMarks(marks)
         }
@@ -789,6 +766,7 @@ final class EPUBChapterPageController: UIViewController, ReaderSelectionMenuPres
           var r = document.documentElement;
           r.style.setProperty('--reader-fg', '\(styleTokens.foreground)');
           r.style.setProperty('--reader-bg', '\(styleTokens.background)');
+          r.setAttribute('data-amgi-theme', '\(styleTokens.theme)');
           r.style.setProperty('--reader-font-size', '\(styleTokens.fontSizePx)px');
           r.style.setProperty('--reader-line-height', '\(styleTokens.lineHeight)');
           r.style.setProperty('--reader-padding', '\(styleTokens.paddingPx)px');
@@ -835,8 +813,11 @@ final class EPUBChapterPageController: UIViewController, ReaderSelectionMenuPres
     }
 
     fileprivate func consumePendingRestore() {
-        guard let fraction = pendingRestoreFraction else { return }
+        let fraction = pendingRestoreFraction
+        let pageIndex = pendingPageIndex
+        guard fraction != nil || pageIndex != nil else { return }
         pendingRestoreFraction = nil
+        pendingPageIndex = nil
         // Wait for the page's own layout pass rather than guessing at 250ms.
         // Two nested requestAnimationFrames: the first fires before the
         // pending layout is committed, the second after — at which point the
@@ -848,8 +829,10 @@ final class EPUBChapterPageController: UIViewController, ReaderSelectionMenuPres
           requestAnimationFrame(function() {
             requestAnimationFrame(function() {
               if (typeof window.__amgiRelayout === 'function') { window.__amgiRelayout(); }
-              if (typeof window.__amgiScrollToFraction === 'function') {
-                window.__amgiScrollToFraction(\(fraction));
+              if (typeof window.__amgiScrollToPage === 'function' && \(pageIndex == nil ? "false" : "true")) {
+                window.__amgiScrollToPage(\(pageIndex ?? 0));
+              } else if (typeof window.__amgiScrollToFraction === 'function') {
+                window.__amgiScrollToFraction(\(fraction ?? 0));
               }
             });
           });
@@ -857,6 +840,13 @@ final class EPUBChapterPageController: UIViewController, ReaderSelectionMenuPres
         """
         webView.evaluateJavaScript(js) { _, error in
             if let error { Log.reader.error("scrollToFraction script failed: \(error)") }
+        }
+    }
+
+    fileprivate func consumePendingAnchor() {
+        if let anchor = pendingAnchor {
+            pendingAnchor = nil
+            scroll(to: anchor)
         }
     }
 
@@ -953,6 +943,7 @@ final class ScriptBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         // applied before tokenisation would silently match nothing.
         owner?.applyAnnotationsForCurrentChapter()
         owner?.consumePendingRestore()
+        owner?.consumePendingAnchor()
     }
 
     // MARK: WKScriptMessageHandler

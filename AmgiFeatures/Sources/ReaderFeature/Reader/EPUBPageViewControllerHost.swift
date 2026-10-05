@@ -6,14 +6,10 @@ import SwiftUI
 #if os(iOS)
 import UIKit
 
-/// `UIViewControllerRepresentable` wrapping a `UIPageViewController`
-/// (`.scroll`, `.horizontal`). The outer controller animates chapter
-/// transitions; each chapter VC owns one `WKWebView` whose internal
-/// scroll view handles intra-chapter paging via `isPagingEnabled`.
-///
-/// Cross-chapter handoff relies on default UIKit gesture arbitration:
-/// the inner scroll view yields its pan once at maxOffset, the outer
-/// page controller's recogniser takes over for the chapter swipe.
+/// `UIViewControllerRepresentable` wrapping the EPUB's full-screen page
+/// controller. In curl mode each adjacent logical page has a live chapter
+/// WebView positioned at its own column, so UIKit owns the finger-following
+/// page turn from the start of the gesture.
 struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
     let book: ReaderBook
     /// Resolved content URLs keyed by chapter index. Pre-fetched on the
@@ -26,6 +22,7 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
     /// Consumed by the inner VC; cleared by the host once handed off.
     let pendingRestoreFraction: Double?
     let pageTurnRequest: ReaderPageTurnRequest?
+    let navigationRequestID: Int
     let selectionRequestID: Int
     /// Suppresses the page controller's dataSource so dictionary sheets
     /// can absorb horizontal gestures (UX spec edge case).
@@ -39,6 +36,9 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
     let onSelectionForNote: (String) -> Void
     let onTapEmpty: (CGFloat) -> Void
     let onReachedEnd: () -> Void
+    /// Native controls fade away during a curl so the page's running head and
+    /// folio participate in the full-screen sheet turn.
+    let onPageTurnAnimation: (Bool) -> Void
     /// A highlight or bookmark created from the selection menu. Separate from
     /// `onSelectionForNote` because these are local marks, not lookups.
     var onSelectionMark: ((ReaderAnnotation.Kind, ReaderSourceAnchor?, String) -> Void)?
@@ -67,14 +67,16 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
             navigationOrientation: .horizontal,
             options: nil
         )
-        pageVC.dataSource = context.coordinator
+        pageVC.dataSource = nil
         pageVC.delegate = context.coordinator
         pageVC.view.backgroundColor = .clear
+        context.coordinator.register(pageViewController: pageVC)
 
         let initial = context.coordinator.makeChapterVC(at: chapterIndex, restoreFraction: pendingRestoreFraction)
         if let initial {
             pageVC.setViewControllers([initial], direction: .forward, animated: false)
             context.coordinator.didInstallInitial = true
+            context.coordinator.trackCurrentController(in: pageVC)
         }
         return pageVC
     }
@@ -87,7 +89,6 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
         // Track what is actually on screen before servicing commands, so an
         // anchor request is answered by the chapter the user is reading.
         context.coordinator.trackCurrentController(in: uiViewController)
-        context.coordinator.fulfilPendingAnchorRequest()
         context.coordinator.fulfilSelectionMarkRequest()
         if context.coordinator.consumePageTurnRequestIfNeeded(in: uiViewController) {
             return
@@ -107,6 +108,9 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
                 context.coordinator.trackCurrentController(in: uiViewController)
             }
         }
+        context.coordinator.fulfilPendingAnchorRequest()
+        context.coordinator.consumePageIndexRequest()
+        context.coordinator.fulfilPendingNavigationAnchor()
         // Marks last, so a chapter switch repaints with the new chapter's
         // annotations rather than the outgoing one's.
         if context.coordinator.consumeMarksRefresh() {
@@ -123,6 +127,13 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
         var didInstallInitial = false
         private var handledPageTurnSequence = 0
         private var handledSelectionRequestID = 0
+        private weak var pageViewController: UIPageViewController?
+        private var didMeasureVisiblePage = false
+        private struct PageAddress: Hashable {
+            let chapter: Int
+            let page: Int
+        }
+        private var prefetchedPages: [PageAddress: EPUBChapterPageController] = [:]
         /// The chapter controller currently on screen. Tracked here because the
         /// data source may vend an adjacent controller for a swipe that never
         /// completes, so the page view controller's own `viewControllers` is
@@ -133,12 +144,19 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
             self.host = host
         }
 
+        func register(pageViewController: UIPageViewController) {
+            self.pageViewController = pageViewController
+            didMeasureVisiblePage = false
+            pageViewController.dataSource = nil
+        }
+
         /// Records which chapter controller is on screen so commands are
         /// answered by the right one.
         func trackCurrentController(in pageVC: UIPageViewController) {
             if let current = pageVC.viewControllers?.first as? EPUBChapterPageController {
                 if currentController !== current {
                     currentController = current
+                    prefetchedPages[PageAddress(chapter: current.chapterIndex, page: current.currentPageIndex)] = current
                 }
             }
         }
@@ -173,8 +191,9 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
         /// on screen.
         func fulfilPendingAnchorRequest() {
             guard let request = host.commands.anchorRequest else { return }
+            host.commands.anchorRequest = nil
             guard let currentController else {
-                host.commands.fulfilAnchorRequest(with: nil)
+                request(nil)
                 return
             }
             currentController.requestCurrentAnchor { anchor in
@@ -182,14 +201,39 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
             }
         }
 
-        func makeChapterVC(at index: Int, restoreFraction: Double?) -> EPUBChapterPageController? {
+        func fulfilPendingNavigationAnchor() {
+            guard let anchor = host.commands.navigationAnchor,
+                  let currentController,
+                  anchor.chapterID == currentController.content.chapterID else { return }
+            host.commands.navigationAnchor = nil
+            currentController.scroll(to: anchor)
+        }
+
+        func consumePageIndexRequest() {
+            guard let target = host.commands.pageIndexRequest,
+                  let currentController else { return }
+            host.commands.pageIndexRequest = nil
+            let reached = currentController.setPage(target, animated: false)
+            if reached != target {
+                currentController.setPage(reached, animated: false)
+            }
+            emitPageInfo(of: currentController)
+        }
+
+        func makeChapterVC(
+            at index: Int,
+            restoreFraction: Double?,
+            pageIndex: Int? = nil
+        ) -> EPUBChapterPageController? {
             guard index >= 0, index < host.book.chapters.count else { return nil }
             guard let content = host.chapterContents[index] else { return nil }
             let vc = EPUBChapterPageController(
                 chapterIndex: index,
                 content: content,
                 styleTokens: host.styleTokens,
-                pendingRestoreFraction: restoreFraction
+                pendingRestoreFraction: restoreFraction,
+                pendingPageIndex: pageIndex,
+                isPageCurlManaged: host.pageTransition == .curl
             )
             vc.pageDelegate = self
             // Highlight and Bookmark from the selection menu are local marks;
@@ -210,28 +254,35 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
             }
             // Resolve marks through the bus rather than the store: the
             // controller is framework-owned and has no path to the profile.
-            vc.annotationProvider = { [commands = host.commands] in
-                await commands.markProvider?() ?? []
+            vc.annotationProvider = { [commands = host.commands] chapterID in
+                await commands.markProvider?(chapterID) ?? []
             }
             vc.runningHead = host.runningHead
-            // Swipe is the only gesture that turns a page, and it works
-            // identically for every transition — including curl, which
-            // `UIPageViewController` cannot pan itself.
+            let usesNativeCurl = host.pageTransition == .curl
+            // Non-curl transitions use the chapter controller's recogniser.
+            // Curl turns are driven by UIPageViewController's own interactive
+            // pan and its before/after data source.
             vc.onSwipeTurn = { [weak self] direction in
+                guard !usesNativeCurl else { return }
                 guard let self,
                       let pageVC = vc.parent as? UIPageViewController
                 else { return }
                 _ = self.navigate(direction, from: vc, in: pageVC)
             }
+            vc.loadViewIfNeeded()
             return vc
         }
 
         func applyStyleTokensToVisibleChapters(in pageVC: UIPageViewController) {
-            for vc in pageVC.viewControllers ?? [] {
-                if let chapter = vc as? EPUBChapterPageController, chapter.styleTokens != host.styleTokens {
-                    chapter.update(styleTokens: host.styleTokens)
-                }
+            let visibleChapters = (pageVC.viewControllers ?? []).compactMap {
+                $0 as? EPUBChapterPageController
             }
+            guard visibleChapters.contains(where: { $0.styleTokens != host.styleTokens }) else { return }
+            // A prefetched page index belongs to its old font, margin, and
+            // spread geometry. Recreate neighbours after a reflow instead of
+            // curling to a controller positioned using stale measurements.
+            prefetchedPages.removeAll()
+            visibleChapters.forEach { $0.update(styleTokens: host.styleTokens) }
         }
 
         @discardableResult
@@ -241,6 +292,9 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
             in pageVC: UIPageViewController
         ) -> Bool {
             guard host.pagingEnabled, controller.isReadyForPaging else { return false }
+            if host.pageTransition == .curl {
+                return turnWithNativeCurl(direction, from: controller, in: pageVC)
+            }
             // A turn stays inside the chapter while the chapter has pages to
             // show, and only crosses a boundary at its edge. This is the
             // single place that decision is made, which is what stops a
@@ -292,89 +346,92 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
                     completion: { _ in overlay.removeFromSuperview() }
                 )
             case .curl:
-                curlFrom(controller, from: from, to: to, forward: forward, in: viewFor(controller))
-            }
-        }
-
-        private func viewFor(_ controller: EPUBChapterPageController) -> UIView? {
-            controller.parent?.view ?? controller.view.superview
-        }
-
-        /// A real page curl, using `UIPageViewController`'s own curl over
-        /// snapshots of the two pages.
-        ///
-        /// UIKit can only curl between view controllers, and one controller
-        /// here holds a whole chapter rather than a page, so the curl is run
-        /// over page images and the document is snapped to the destination
-        /// underneath. That is what gives a genuine peel, a matching shadow,
-        /// and the same easing as every other Apple reader — rather than a
-        /// horizontal nudge wearing curl's name.
-        private func curlFrom(
-            _ controller: EPUBChapterPageController,
-            from: Int,
-            to: Int,
-            forward: Bool,
-            in container: UIView?
-        ) {
-            guard !AmgiMotion.prefersReducedMotion,
-                  let container,
-                  let outgoing = controller.snapshot(ofPage: from),
-                  let incoming = controller.snapshot(ofPage: to)
-            else {
-                controller.setPage(to, animated: true)
-                emitPageInfo(of: controller)
-                return
-            }
-            withPageCurl(from: outgoing, to: incoming, forward: forward, in: container) {
+                // Curl transitions are routed through the page controller's
+                // adjacent-page data source before reaching this switch.
                 controller.setPage(to, animated: false)
-                self.emitPageInfo(of: controller)
+                emitPageInfo(of: controller)
             }
         }
 
-        /// Runs a one-shot `UIPageViewController(.pageCurl)` between two page
-        /// images and tears it down when it settles.
-        private func withPageCurl(
-            from outgoing: UIImage,
-            to incoming: UIImage,
-            forward: Bool,
-            in container: UIView,
-            completion: @escaping () -> Void
-        ) {
-            let pager = UIPageViewController(
-                transitionStyle: .pageCurl,
-                navigationOrientation: .horizontal,
-                options: nil
-            )
-            pager.view.frame = container.bounds
-            pager.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-            pager.view.backgroundColor = .clear
-            // The curl reveals the *back* of the turning page, so the page
-            // behind it has to be the destination.
-            let start = forward ? outgoing : incoming
-            let end = forward ? incoming : outgoing
-            pager.setViewControllers(
-                [ReaderPageImageController(image: start)],
-                direction: forward ? .forward : .reverse,
-                animated: false
-            )
-            container.addSubview(pager.view)
-
-            let finish: (Bool) -> Void = { _ in
-                completion()
-                pager.view.removeFromSuperview()
+        /// Sends both finger-driven and button-driven turns through the same
+        /// full-screen UIKit page-curl transition. Each adjacent controller
+        /// already displays the destination column, so neither the text nor
+        /// its running head/page number slides underneath the curl.
+        private func turnWithNativeCurl(
+            _ direction: EPUBChapterPageController.PageDirection,
+            from controller: EPUBChapterPageController,
+            in pageVC: UIPageViewController
+        ) -> Bool {
+            guard let destination = adjacentPageController(from: controller, direction: direction) else {
+                if direction == .forward { host.onReachedEnd() }
+                return false
             }
-            pager.dataSource = ReaderPageImagePagerDataSource(
-                first: ReaderPageImageController(image: end)
-            )
-            pager.setViewControllers(
-                [ReaderPageImageController(image: end)],
-                direction: forward ? .forward : .reverse,
-                animated: true,
-                completion: finish
-            )
-            // UIKit's page-curl pan is not interactive here, which is
-            // intentional: the swipe is handled by the chapter's own
-            // recogniser so that every transition is reachable the same way.
+            let navigationDirection: UIPageViewController.NavigationDirection =
+                direction == .forward ? .forward : .reverse
+            host.onPageTurnAnimation(true)
+            pageVC.setViewControllers(
+                [destination],
+                direction: navigationDirection,
+                animated: !AmgiMotion.prefersReducedMotion
+            ) { [weak self] completed in
+                guard let self else { return }
+                self.host.onPageTurnAnimation(false)
+                guard completed else { return }
+                self.host.chapterIndex = destination.chapterIndex
+                self.currentController = destination
+                self.emitPageInfo(of: destination)
+            }
+            return true
+        }
+
+        private func adjacentPageController(
+            from controller: EPUBChapterPageController,
+            direction: EPUBChapterPageController.PageDirection
+        ) -> EPUBChapterPageController? {
+            guard host.pagingEnabled, controller.isReadyForPaging else { return nil }
+            let address: PageAddress
+            if controller.canTurn(direction) {
+                let targetPage = controller.currentPageIndex + (direction == .forward ? 1 : -1)
+                address = PageAddress(chapter: controller.chapterIndex, page: targetPage)
+            } else {
+                let nextChapter = controller.chapterIndex + (direction == .forward ? 1 : -1)
+                guard host.book.chapters.indices.contains(nextChapter) else { return nil }
+                address = PageAddress(
+                    chapter: nextChapter,
+                    page: direction == .forward ? 0 : -1
+                )
+            }
+            if let cached = prefetchedPages[address] { return cached }
+            guard let created = makeChapterVC(
+                at: address.chapter,
+                restoreFraction: nil,
+                pageIndex: address.page
+            ) else { return nil }
+            prefetchedPages[address] = created
+            return created
+        }
+
+        private func prewarmAdjacentPages(of current: EPUBChapterPageController) {
+            guard host.pageTransition == .curl else { return }
+            let currentAddress = PageAddress(chapter: current.chapterIndex, page: current.currentPageIndex)
+            prefetchedPages[currentAddress] = current
+            _ = adjacentPageController(from: current, direction: .backward)
+            _ = adjacentPageController(from: current, direction: .forward)
+            var keep: Set<PageAddress> = [currentAddress]
+            for direction in [EPUBChapterPageController.PageDirection.backward, .forward] {
+                if current.canTurn(direction) {
+                    keep.insert(PageAddress(
+                        chapter: current.chapterIndex,
+                        page: current.currentPageIndex + (direction == .forward ? 1 : -1)
+                    ))
+                } else {
+                    let chapter = current.chapterIndex + (direction == .forward ? 1 : -1)
+                    if host.book.chapters.indices.contains(chapter) {
+                        keep.insert(PageAddress(chapter: chapter, page: direction == .forward ? 0 : -1))
+                    }
+                }
+            }
+            prefetchedPages = prefetchedPages.filter { keep.contains($0.key) }
         }
 
         private func emitPageInfo(of controller: EPUBChapterPageController) {
@@ -386,8 +443,32 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
                 updated.record(chapter: controller.chapterIndex, pageCount: controller.pageCount)
                 host.paginationIndex = updated
             }
-            controller.refreshPageFurniture()
+            let position = bookPaginationPosition(
+                chapter: controller.chapterIndex,
+                page: controller.currentPageIndex,
+                pageCount: controller.pageCount
+            )
+            controller.refreshPageFurniture(page: position.page, total: position.total)
+            let fraction = controller.pageCount <= 1
+                ? 1
+                : Double(controller.currentPageIndex) / Double(controller.pageCount - 1)
             host.onPageInfo(controller.currentPageIndex, controller.pageCount)
+            host.onProgress(fraction, controller.currentPageIndex)
+            prewarmAdjacentPages(of: controller)
+        }
+
+        private func bookPaginationPosition(
+            chapter: Int,
+            page: Int,
+            pageCount: Int
+        ) -> (page: Int, total: Int) {
+            let counts = host.book.chapters.indices.map { index in
+                if index == chapter { return max(1, pageCount) }
+                return max(1, host.paginationIndex?.pageCount(forChapter: index)
+                    ?? host.book.chapters[index].pageCount ?? 1)
+            }
+            let before = counts.prefix(max(0, min(chapter, counts.count))).reduce(0, +)
+            return (before + max(0, page) + 1, max(1, counts.reduce(0, +)))
         }
 
         /// Moves across a chapter boundary.
@@ -551,32 +632,26 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
 
         // MARK: UIPageViewControllerDataSource
         //
-        // Deliberately empty.
-        //
-        // This used to vend the adjacent chapter, which is what made the
-        // reader feel like it was jumping around: UIKit would pre-load a
-        // neighbouring chapter and, with `.pageCurl` in play, the ordering
-        // between that and the chapter's own scroll offset was unpredictable.
-        // Every turn now goes through `navigate`, which decides
-        // intra-chapter vs. chapter-boundary from the page index alone, so
-        // there is nothing for UIKit to pre-load and nothing to race.
-        //
-        // Vending nothing also means the pager no longer has an interactive
-        // pan of its own, which is what was leaving a curl-mode user with no
-        // way to go back.
+        // Adjacent pages are prepared as the current page settles. This keeps
+        // the UIKit data-source methods synchronous while giving each target
+        // WebView a head start on rendering before the next curl begins.
 
         func pageViewController(
             _ pageViewController: UIPageViewController,
             viewControllerBefore viewController: UIViewController
         ) -> UIViewController? {
-            nil
+            guard host.pageTransition == .curl,
+                  let chapter = viewController as? EPUBChapterPageController else { return nil }
+            return adjacentPageController(from: chapter, direction: .backward)
         }
 
         func pageViewController(
             _ pageViewController: UIPageViewController,
             viewControllerAfter viewController: UIViewController
         ) -> UIViewController? {
-            nil
+            guard host.pageTransition == .curl,
+                  let chapter = viewController as? EPUBChapterPageController else { return nil }
+            return adjacentPageController(from: chapter, direction: .forward)
         }
 
         // MARK: UIPageViewControllerDelegate
@@ -587,12 +662,20 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
             previousViewControllers: [UIViewController],
             transitionCompleted completed: Bool
         ) {
+            host.onPageTurnAnimation(false)
             guard completed,
                   let current = pageViewController.viewControllers?.first as? EPUBChapterPageController
             else { return }
-            if host.chapterIndex != current.chapterIndex {
-                host.chapterIndex = current.chapterIndex
-            }
+            currentController = current
+            host.chapterIndex = current.chapterIndex
+            emitPageInfo(of: current)
+        }
+
+        func pageViewController(
+            _ pageViewController: UIPageViewController,
+            willTransitionTo pendingViewControllers: [UIViewController]
+        ) {
+            host.onPageTurnAnimation(true)
         }
 
         // MARK: EPUBChapterPageControllerDelegate
@@ -604,8 +687,26 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
         ) {
             // Only forward updates from the currently-visible chapter so
             // prefetched VCs don't clobber the page strip.
+            if controller !== currentController {
+                let totals = bookPaginationPosition(
+                    chapter: controller.chapterIndex,
+                    page: pageIndex,
+                    pageCount: pageCount
+                )
+                controller.refreshPageFurniture(page: totals.page, total: totals.total)
+                return
+            }
             guard controller.chapterIndex == host.chapterIndex else { return }
-            host.onPageInfo(pageIndex, pageCount)
+            if !didMeasureVisiblePage {
+                didMeasureVisiblePage = true
+                if host.pageTransition == .curl {
+                    pageViewController?.dataSource = self
+                }
+            }
+            if controller.currentPageIndex != pageIndex || controller.pageCount != pageCount {
+                controller.setPage(pageIndex, animated: false)
+            }
+            emitPageInfo(of: controller)
             // No navigation is started from here. This fires on every scroll
             // settle, so consuming a queued page-turn request from inside it
             // could turn the page *and* re-enter the transition that was
@@ -619,7 +720,8 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
             didReportProgressFraction fraction: Double,
             pageIndex: Int
         ) {
-            guard controller.chapterIndex == host.chapterIndex else { return }
+            guard controller === currentController,
+                  controller.chapterIndex == host.chapterIndex else { return }
             host.onProgress(fraction, pageIndex)
         }
 

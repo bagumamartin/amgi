@@ -2,19 +2,12 @@ import AmgiReader
 import AmgiTheme
 import AmgiUI
 import AmgiAppCore
-import Sharing
 import SwiftUI
 
-/// Top-level screen for EPUB chapters. Hosts a `UIPageViewController`
-/// (`.scroll`, `.horizontal`) via `EPUBPageViewControllerHost`; each
-/// chapter is one `WKWebView` whose internal scroll view drives
-/// intra-chapter paging. Cross-chapter transitions ride the outer
-/// page controller's gesture — one continuous swipe.
-///
-/// Chrome (top bar + bottom progress strip) is hidden on a tap to an
-/// empty area, mirroring Apple Books. Edge-tap zones (left/right 15%)
-/// page forward/back without a swipe (`EPUBPageViewControllerHost`
-/// routes those internally).
+/// Top-level EPUB reading screen. The iOS host uses native UIKit page-curl
+/// controllers for interactive turns; each controller displays one logical
+/// EPUB page from its chapter. Compact controls and the compact reader menu
+/// are available on both iPhone and iPad.
 struct EPUBChapterReaderView: View {
     let book: ReaderBook
     /// Index into `book.chapters` of the chapter currently displayed.
@@ -38,9 +31,19 @@ struct EPUBChapterReaderView: View {
     @State private var pageCommands = ReaderPageCommands()
     @State private var annotationsSheetVisible = false
     @State private var contentsSheetVisible = false
+    @State private var searchSheetVisible = false
+    @State private var pageJumpVisible = false
+    @State private var pageJumpInput = ""
+    @State private var compactMenuVisible = false
+    @State private var readingHistory: [ReaderReadingPosition] = []
+    @State private var previousPosition: ReaderReadingPosition?
+    @State private var skipNextHistoryRecord = false
+    @State private var currentViewportAnchor: ReaderSourceAnchor?
+    @State private var anchorCapturePosition: ReaderReadingPosition?
+    @State private var searchModel = EPUBBookSearchModel()
 
     /// Page-turn effect. Curl by default, like Apple Books.
-    @AppStorage(ReaderPreferenceKeys.pageTransition)
+    @AppStorage(EPUBReaderPreferences.Keys.pageTransition)
     private var pageTransitionRaw: String = ReaderPageTransition.curl.rawValue
 
     private var pageTransition: ReaderPageTransition {
@@ -57,23 +60,16 @@ struct EPUBChapterReaderView: View {
 
     /// Book-wide page number, printed on the page itself.
     private var bookPageNumber: Int {
-        pagination.position(
-            chapter: chapterIndex,
-            pageIndex: pageIndex,
-            pageCountInChapter: pageCount
-        ).page
+        let beforeCurrentChapter = book.chapters.indices
+            .filter { $0 < chapterIndex }
+            .reduce(0) { total, index in
+                total + (pagination.pageCounts[index] ?? book.chapters[index].pageCount ?? 1)
+            }
+        return beforeCurrentChapter + pageIndex + 1
     }
 
     /// Total pages known so far. A lower bound until every chapter has been
     /// measured, which is why it is not printed on the page.
-    private var knownPageTotal: Int {
-        pagination.position(
-            chapter: chapterIndex,
-            pageIndex: pageIndex,
-            pageCountInChapter: pageCount
-        ).total
-    }
-
     @State private var pageIndex: Int = 0
     @State private var pageCount: Int = 1
     /// Last index spoken to VoiceOver, so a restore or an edge bounce does not
@@ -84,8 +80,10 @@ struct EPUBChapterReaderView: View {
     @State private var lookupRequest: LookupRequest?
     @State private var selectionRequestID = 0
     @State private var pageTurnRequest: ReaderPageTurnRequest?
+    @State private var navigationRequestID = 0
     @State private var didRequestInitialRestore = false
     @State private var chromeVisible: Bool = true
+    @State private var pageTurnAnimationActive = false
     @State private var endOfBookToastVisible: Bool = false
     @State private var didShowEndOfBookToast: Bool = false
     @State private var endOfBookToastDismiss: Task<Void, Never>?
@@ -97,29 +95,28 @@ struct EPUBChapterReaderView: View {
     @FocusState private var keyboardFocused: Bool
     #endif
 
-    @Shared(.appStorage(ReaderPreferences.Keys.verticalLayout))
+    @AppStorage(EPUBReaderPreferences.Keys.verticalWriting)
     private var verticalLayout: Bool = false
-    @Shared(.appStorage(ReaderPreferences.Keys.horizontalPadding))
-    private var horizontalPadding: Double = 22
-
     // Typography sheet preferences. These supersede the legacy per-book
     // colour pickers — once the user picks a theme it drives fg/bg
     // directly. Font family / size / line-height / page-margin / justify
     // come from the Apple Books-style sheet.
-    @Shared(.appStorage(ReaderTypographyPreferences.Keys.fontFamily))
-    private var typoFontFamilyRaw: String = ReaderTypographyPreferences.FontFamily.system.rawValue
-    @Shared(.appStorage(ReaderTypographyPreferences.Keys.fontSize))
+    @AppStorage(EPUBReaderPreferences.Keys.fontFamily)
+    private var typoFontFamilyRaw: String = ReaderTypographyPreferences.FontFamily.book.rawValue
+    @AppStorage(EPUBReaderPreferences.Keys.fontSize)
     private var typoFontSize: Int = 17
-    @Shared(.appStorage(ReaderTypographyPreferences.Keys.lineHeight))
+    @AppStorage(EPUBReaderPreferences.Keys.lineHeight)
     private var typoLineHeight: Double = 1.55
-    @Shared(.appStorage(ReaderTypographyPreferences.Keys.pageMargin))
+    @AppStorage(EPUBReaderPreferences.Keys.pageMargin)
     private var typoPageMarginRaw: String = ReaderTypographyPreferences.PageMargin.defaultMargin.rawValue
-    @Shared(.appStorage(ReaderTypographyPreferences.Keys.theme))
-    private var typoThemeRaw: String = ReaderTypographyPreferences.Theme.default.rawValue
-    @Shared(.appStorage(ReaderTypographyPreferences.Keys.justify))
+    @AppStorage(EPUBReaderPreferences.Keys.theme)
+    private var typoThemeRaw: String = EPUBReaderPreferences.Theme.original.rawValue
+    @AppStorage(EPUBReaderPreferences.Keys.justify)
     private var typoJustify: Bool = true
-    @Shared(.appStorage(ReaderTypographyPreferences.Keys.twoPageLayout))
-    private var twoPageLayout: Bool = false
+    @AppStorage(EPUBReaderPreferences.Keys.twoPageLayout)
+    private var twoPageLayout: Bool = true
+    @AppStorage(EPUBReaderPreferences.Keys.orientationLocked)
+    private var orientationLocked: Bool = false
 
     @State private var typographySheetVisible: Bool = false
 
@@ -128,8 +125,16 @@ struct EPUBChapterReaderView: View {
         return book.chapters[chapterIndex]
     }
 
-    private var typoTheme: ReaderTypographyPreferences.Theme {
-        ReaderTypographyPreferences.Theme(rawValue: typoThemeRaw) ?? .default
+    private var typoTheme: EPUBReaderPreferences.Theme {
+#if os(macOS)
+        switch typoThemeRaw {
+        case ReaderTypographyPreferences.Theme.sepia.rawValue: .calm
+        case ReaderTypographyPreferences.Theme.dark.rawValue: .quiet
+        default: .paper
+        }
+#else
+        EPUBReaderPreferences.Theme(rawValue: typoThemeRaw) ?? .original
+#endif
     }
 
     private var typoFontFamily: ReaderTypographyPreferences.FontFamily {
@@ -140,20 +145,33 @@ struct EPUBChapterReaderView: View {
         ReaderTypographyPreferences.PageMargin(rawValue: typoPageMarginRaw) ?? .defaultMargin
     }
 
+    private var paginationLayoutSignature: String {
+        [
+            typoFontFamilyRaw,
+            "\(typoFontSize)",
+            "\(typoLineHeight)",
+            typoPageMarginRaw,
+            "\(typoJustify)",
+            "\(twoPageLayout)",
+            "\(verticalLayout)"
+        ].joined(separator: "|")
+    }
+
     private func styleTokens(pageColumns: Int) -> EPUBReaderStyleTokens {
         let theme = typoTheme
         return EPUBReaderStyleTokens(
             foreground: theme.foregroundHex,
             background: theme.backgroundHex,
+            theme: theme.rawValue,
             fontSizePx: typoFontSize,
             lineHeight: typoLineHeight,
-            paddingPx: Int(horizontalPadding),
+            paddingPx: typoPageMargin.pixels,
             verticalMode: verticalLayout,
             // Empty stack means "use the book's own font", which is the default:
             // a book that embeds a serif face should keep it, exactly as Apple
             // Books does. Choosing a family in Reading Style overrides it.
             fontFamilyCSS: typoFontFamily.cssStack,
-            pageMarginPx: typoPageMargin.pixels,
+            pageMarginPx: typoPageMargin.pixels + 12,
             textAlign: typoJustify ? "justify" : "left",
             pressTintCSS: theme.pressTintCSS,
             // The chrome floats over the page, so the text needs room to clear
@@ -168,8 +186,8 @@ struct EPUBChapterReaderView: View {
     /// Vertical space the floating chrome occupies. The page count pill and
     /// the bottom bar overlay the text, so the column box is inset by this
     /// much on every page.
-    private static let chromeInsetTop: Int = 58
-    private static let chromeInsetBottom: Int = 72
+    private static let chromeInsetTop: Int = 96
+    private static let chromeInsetBottom: Int = 92
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -177,19 +195,29 @@ struct EPUBChapterReaderView: View {
             pagerLayer
             endOfBookToast
         }
-        .overlay(alignment: .topTrailing) { closeCapsule }
-        .overlay(alignment: .topLeading) { pagesLeftCapsule }
-        .overlay(alignment: .top) { runningHead }
+        .overlay(alignment: .top) { topChrome }
         .overlay(alignment: .bottom) { bottomChromeBar }
+        .overlay(alignment: .bottomTrailing) { compactMenu }
         .navigationBarBackButtonHidden(true)
         #if os(iOS)
         .toolbarVisibility(.hidden, for: .navigationBar)
         .toolbarVisibility(.hidden, for: .tabBar)
         #endif
-        .task { await model.preloadChapterContents(for: book) }
-        .task(id: chapterIndex) { await prepareRestoreIfNeeded() }
+        .task {
+            prepareAnnotations()
+            await model.preloadChapterContents(for: book)
+        }
+        .task(id: chapterIndex) {
+            await annotations.load(bookID: book.id)
+            await prepareRestoreIfNeeded()
+            await loadCurrentChapterMarks()
+        }
         .sheet(isPresented: $typographySheetVisible) {
+#if os(iOS)
+            EPUBReadingStylePanel()
+#else
             ReaderStyleSheet(isPDF: false)
+#endif
         }
         .sheet(isPresented: $contentsSheetVisible) {
             epubContentsSheet
@@ -203,6 +231,31 @@ struct EPUBChapterReaderView: View {
                     jump(to: annotation)
                 }
             )
+        }
+        .sheet(isPresented: $searchSheetVisible) {
+            EPUBBookSearchPanel(
+                bookTitle: book.title,
+                model: searchModel,
+                onSearch: { query in
+                    await searchModel.search(query, in: book, contents: model.chapterContents)
+                },
+                onSelect: { hit in
+                    searchSheetVisible = false
+                    navigate(to: hit.anchor)
+                }
+            )
+        }
+        .alert("Go to Page", isPresented: $pageJumpVisible) {
+            TextField("Page number", text: $pageJumpInput)
+#if os(iOS)
+                .keyboardType(.numberPad)
+#endif
+            Button("Go") {
+                if let target = Int(pageJumpInput) { seekToBookPage(target) }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Enter a page from 1 to \(estimatedBookPageCount).")
         }
         .sheet(isPresented: lookupSheetPresented) {
             lookupPopupContent
@@ -243,6 +296,7 @@ struct EPUBChapterReaderView: View {
         .onAppear {
             #if os(iOS)
             keyboardFocused = true
+            EPUBOrientationLock.setLocked(orientationLocked)
             #endif
             // Start the running total from scratch: page counts are a
             // property of this rendering, so entering the reader with
@@ -250,12 +304,18 @@ struct EPUBChapterReaderView: View {
             if pagination.chapterCount != book.chapters.count {
                 pagination = ReaderPaginationIndex(chapterCount: book.chapters.count)
             }
-            prepareAnnotations()
         }
         .onDisappear {
             endOfBookToastDismiss?.cancel()
             progressSaveDebounce?.cancel()
             flushProgress()
+            #if os(iOS)
+            orientationLocked = false
+            EPUBOrientationLock.restoreAppOrientation()
+            #endif
+        }
+        .onChange(of: paginationLayoutSignature) { _, _ in
+            pagination = ReaderPaginationIndex(chapterCount: book.chapters.count)
         }
     }
 
@@ -271,7 +331,7 @@ struct EPUBChapterReaderView: View {
             GeometryReader { proxy in
                 let layout = ReaderPageLayout.resolve(
                     availableSize: proxy.size,
-                    allowsTwoPageLayout: twoPageLayout && !verticalLayout
+                    allowsTwoPageLayout: twoPageLayout && !verticalLayout && proxy.size.width >= 700
                 )
                 EPUBPageViewControllerHost(
                     book: book,
@@ -280,15 +340,22 @@ struct EPUBChapterReaderView: View {
                     styleTokens: styleTokens(pageColumns: layout.columnCount),
                     pendingRestoreFraction: pendingRestoreFraction,
                     pageTurnRequest: pageTurnRequest,
+                    navigationRequestID: navigationRequestID,
                     selectionRequestID: selectionRequestID,
                     pagingEnabled: lookupRequest == nil,
                     onPageInfo: { idx, count in
+                        recordReadingPosition(chapter: chapterIndex, page: idx)
+                        var updated = pagination
+                        updated.record(chapter: chapterIndex, pageCount: count)
+                        pagination = updated
                         pageIndex = idx
                         pageCount = max(count, 1)
                         pendingRestoreFraction = nil
+                        captureViewportAnchor(chapter: chapterIndex, page: idx)
                         announcePageChangeIfNeeded()
                     },
                     onProgress: { fraction, idx in
+                        recordReadingPosition(chapter: chapterIndex, page: idx)
                         pageIndex = idx
                         progressFraction = fraction
                         saveProgress()
@@ -312,6 +379,11 @@ struct EPUBChapterReaderView: View {
                     },
                     onTapEmpty: { _ in toggleChrome() },
                     onReachedEnd: { showEndOfBookToast() },
+                    onPageTurnAnimation: { active in
+                        withAnimation(.easeOut(duration: 0.16)) {
+                            pageTurnAnimationActive = active
+                        }
+                    },
                     onSelectionMark: handleSelectionMark,
                     pageTransition: pageTransition,
                     paginationIndex: pagination,
@@ -321,8 +393,11 @@ struct EPUBChapterReaderView: View {
                 // The transition style is fixed when the page controller is
                 // built, so changing it has to rebuild rather than mutate.
                 .id(pageTransition)
-                .frame(width: layout.contentWidth)
-                .frame(maxWidth: .infinity)
+                .onChange(of: proxy.size) { _, _ in
+                    pagination = ReaderPaginationIndex(chapterCount: book.chapters.count)
+                }
+                .ignoresSafeArea()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 // VoiceOver has no gesture for "turn the page" in a paginated
                 // reader — the web view's scroll view is the only thing it
                 // knows how to swipe. Expose the same turn the keyboard and
@@ -384,199 +459,324 @@ struct EPUBChapterReaderView: View {
         return "\(remaining) pages left in chapter"
     }
 
-    /// Both top capsules are removed from the tree when the chrome is hidden
-    /// rather than faded to `opacity(0)`. They are translucent material — and
-    /// on iOS 26, Liquid Glass — floating over a live WKWebView, so a
-    /// zero-opacity layer that stays in the render tree is a backdrop sample
-    /// per frame for something the reader can't see. They live in their own
-    /// `.overlay`s and share layout with nothing, so removal costs no
-    /// alignment; `.transition(.opacity)` keeps the fade `toggleChrome`
-    /// animates.
-    @ViewBuilder
-    private var closeCapsule: some View {
-        if chromeVisible {
-            Button {
-                closeReader()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(palette.textSecondary)
-                    .frame(width: 44, height: 44)
-                    .amgiMaterial(.regular, in: Circle(), interactive: true)
-                    .amgiMaterialElevation(Circle())
+    private func recordReadingPosition(chapter: Int, page: Int) {
+        let next = ReaderReadingPosition(chapterIndex: chapter, pageIndex: page)
+        if skipNextHistoryRecord {
+            skipNextHistoryRecord = false
+            previousPosition = next
+            return
+        }
+        if let lastPosition = previousPosition, lastPosition != next {
+            if readingHistory.last != lastPosition {
+                readingHistory.append(lastPosition)
+                if readingHistory.count > 20 { readingHistory.removeFirst(readingHistory.count - 20) }
             }
-            .accessibilityLabel("Close")
+        }
+        previousPosition = next
+    }
+
+    private func captureViewportAnchor(chapter: Int, page: Int) {
+        let position = ReaderReadingPosition(chapterIndex: chapter, pageIndex: page)
+        guard anchorCapturePosition != position else { return }
+        anchorCapturePosition = position
+        pageCommands.requestAnchor { anchor in
+            guard previousPosition == position else { return }
+            currentViewportAnchor = anchor
+        }
+    }
+
+    private func returnToPreviousPosition() {
+        guard let position = readingHistory.popLast() else { return }
+        skipNextHistoryRecord = true
+        navigate(to: position)
+    }
+
+    private func navigate(to position: ReaderReadingPosition) {
+        guard book.chapters.indices.contains(position.chapterIndex) else { return }
+        if position.chapterIndex == chapterIndex {
+            pageCommands.pageIndexRequest = position.pageIndex
+            navigationRequestID &+= 1
+        } else {
+            skipNextHistoryRecord = true
+            let estimatedCount = max(1, pagination.pageCounts[position.chapterIndex]
+                ?? book.chapters[position.chapterIndex].pageCount ?? 1)
+            pendingRestoreFraction = estimatedCount <= 1
+                ? 0
+                : Double(position.pageIndex) / Double(estimatedCount - 1)
+            chapterIndex = position.chapterIndex
+        }
+    }
+
+    private func navigate(to anchor: ReaderSourceAnchor) {
+        guard let chapterID = anchor.chapterID,
+              let index = book.chapters.firstIndex(where: { $0.id == chapterID }) else { return }
+        pageCommands.navigationAnchor = anchor
+        if index != chapterIndex {
+            chapterIndex = index
+        } else {
+            navigationRequestID &+= 1
+        }
+    }
+
+    /// The EPUB title and printed page number are injected into the document,
+    /// so UIKit curls them with the text. This fixed top row matches the
+    /// compact iPhone and iPad controls in the reference.
+    @ViewBuilder
+    private var topChrome: some View {
+        if chromeVisible && !pageTurnAnimationActive {
+            HStack(spacing: 12) {
+                Button(action: returnToPreviousPosition) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrow.uturn.backward.circle.fill")
+                            .font(.system(size: 17, weight: .semibold))
+                        Text(readingHistory.count, format: .number)
+                            .font(.system(size: 15, weight: .medium, design: .rounded).monospacedDigit())
+                    }
+                    .foregroundStyle(palette.textPrimary)
+                    .padding(.horizontal, 12)
+                    .frame(height: 44)
+                    .amgiMaterial(.regular, in: Capsule(), interactive: true)
+                    .amgiMaterialElevation(Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(readingHistory.isEmpty)
+                .accessibilityLabel("Back through reading history, \(readingHistory.count) saved positions")
+
+                Spacer(minLength: 4)
+                Text(pagesLeftText)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(palette.textSecondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .accessibilityAddTraits(.updatesFrequently)
+                Spacer(minLength: 4)
+
+                Button(action: closeReader) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(palette.textSecondary)
+                        .frame(width: 44, height: 44)
+                        .amgiMaterial(.regular, in: Circle(), interactive: true)
+                        .amgiMaterialElevation(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close book")
+            }
+            .padding(.horizontal, 16)
             .padding(.top, 8)
-            .padding(.trailing, 16)
             .transition(.opacity)
-        }
-    }
-
-    /// The header row, matching Apple Books' arrangement.
-    ///
-    /// At rest the centre slot shows the *book title* — that is a running
-    /// head, and it is what belongs in that position permanently. Tapping to
-    /// reveal the tools swaps it for the chapter's own position: the page
-    /// number within the chapter on the leading side, "N pages left in
-    /// chapter" in the middle, close on the trailing side.
-    ///
-    /// The previous layout showed "N pages left in chapter" permanently and
-    /// put the page number in a floating pill at the bottom, which is why the
-    /// two were easy to confuse: neither matched a printed book.
-    @ViewBuilder
-    private var pagesLeftCapsule: some View {
-        if chromeVisible {
-            Text(pagesLeftText)
-                .amgiFont(.captionBold)
-                .foregroundStyle(palette.textSecondary)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 6)
-                .amgiMaterial(.regular, in: Capsule())
-                .amgiMaterialElevation(Capsule())
-                .padding(.top, 8)
-                .padding(.leading, 16)
-                .allowsHitTesting(false)
-                .transition(.opacity)
-        }
-    }
-
-    @ViewBuilder
-    private var runningHead: some View {
-        if !chromeVisible {
-            Text(book.title)
-                .amgiFont(.caption)
-                .foregroundStyle(palette.textSecondary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .padding(.top, 8)
-                .allowsHitTesting(false)
-                .transition(.opacity)
         }
     }
 
     @ViewBuilder
     private var bottomChromeBar: some View {
-        if chromeVisible {
+        if chromeVisible && !pageTurnAnimationActive {
             HStack(alignment: .center) {
-                // Leading: Bookmark toggle
-                Button {
-                    toggleBookmark()
-                } label: {
-                    Image(systemName: isCurrentPageBookmarked ? "bookmark.fill" : "bookmark")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(isCurrentPageBookmarked ? palette.accent : palette.textPrimary)
-                        .frame(width: 44, height: 44)
-                        .amgiMaterial(.regular, in: Circle(), interactive: true)
-                        .amgiMaterialElevation(Circle())
-                }
-                .accessibilityLabel(isCurrentPageBookmarked ? "Remove Bookmark" : "Bookmark")
-
                 Spacer(minLength: 0)
-
-                // Centred: Page X of Y
-                pageNumberCapsule
-
+                Text("\(bookPageNumber) of \(estimatedBookPageCount)")
+                    .font(.system(size: 14, weight: .medium).monospacedDigit())
+                    .foregroundStyle(palette.textSecondary)
+                    .contentTransition(.numericText())
+                    .accessibilityLabel("Page \(bookPageNumber) of approximately \(estimatedBookPageCount)")
                 Spacer(minLength: 0)
-
-                // Trailing: Menu / Reading Style / Contents
-                menuCapsule
+                menuButton
             }
             .padding(.horizontal, 16)
-            .padding(.bottom, 12)
+            .padding(.bottom, 14)
             .transition(.opacity)
         }
     }
 
-    @ViewBuilder
-    private var pageNumberCapsule: some View {
-        Text("\(chapterPageNumber) of \(pageCount)")
-            .amgiFont(.caption, .monospacedDigits)
-            .foregroundStyle(palette.textSecondary)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 4)
-            .amgiMaterial(.regular, in: Capsule())
-            .amgiMaterialElevation(Capsule())
-            .allowsHitTesting(false)
-    }
-
-    @ViewBuilder
-    private var menuCapsule: some View {
-        Menu {
-            Button {
-                typographySheetVisible = true
-            } label: {
-                Label("Themes & Settings", systemImage: "textformat.size")
-            }
-            Button {
-                contentsSheetVisible = true
-            } label: {
-                Label("Contents & Bookmarks", systemImage: "list.bullet")
-            }
-            Button {
-                annotationsSheetVisible = true
-            } label: {
-                Label("Highlights & Notes", systemImage: "highlighter")
+    private var menuButton: some View {
+        Button {
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                compactMenuVisible.toggle()
             }
         } label: {
-            Image(systemName: "line.3.horizontal")
-                .font(.system(size: 17, weight: .semibold))
+            Image(systemName: compactMenuVisible ? "xmark" : "list.bullet")
+                .font(.system(size: 20, weight: .medium))
                 .foregroundStyle(palette.textPrimary)
-                .frame(width: 44, height: 44)
+                .frame(width: 48, height: 48)
                 .amgiMaterial(.regular, in: Circle(), interactive: true)
                 .amgiMaterialElevation(Circle())
         }
-        .accessibilityLabel("Options")
+        .buttonStyle(.plain)
+        .accessibilityLabel(compactMenuVisible ? "Close reader menu" : "Open reader menu")
+    }
+
+    @ViewBuilder
+    private var compactMenu: some View {
+        if chromeVisible && !pageTurnAnimationActive && compactMenuVisible {
+            VStack(spacing: 7) {
+                compactMenuRow("Contents · \(readingProgressPercent)%", systemImage: "list.bullet") {
+                    compactMenuVisible = false
+                    contentsSheetVisible = true
+                }
+                compactMenuRow("Search Book", systemImage: "magnifyingglass") {
+                    compactMenuVisible = false
+                    searchSheetVisible = true
+                }
+                compactMenuRow("Themes & Settings", systemImage: "textformat.size") {
+                    compactMenuVisible = false
+                    typographySheetVisible = true
+                }
+                HStack(spacing: 8) {
+                    if let epubURL {
+                        ShareLink(item: epubURL) {
+                            compactMenuIcon("square.and.arrow.up", title: "Share Book")
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    Button {
+                        orientationLocked.toggle()
+                        #if os(iOS)
+                        EPUBOrientationLock.setLocked(orientationLocked)
+                        #endif
+                    } label: {
+                        compactMenuIcon(orientationLocked ? "lock.rotation" : "lock.rotation.open", title: "Lock Rotation")
+                    }
+                    .buttonStyle(.plain)
+                    Button {
+                        compactMenuVisible = false
+                        annotationsSheetVisible = true
+                    } label: {
+                        compactMenuIcon("text.alignleft", title: "Highlights and Notes")
+                    }
+                    .buttonStyle(.plain)
+                    Button {
+                        compactMenuVisible = false
+                        toggleBookmark()
+                    } label: {
+                        compactMenuIcon(isCurrentPageBookmarked ? "bookmark.fill" : "bookmark", title: "Bookmark Page")
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.top, 2)
+            }
+            .frame(maxWidth: 340)
+            .padding(8)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 30, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 30, style: .continuous).strokeBorder(.white.opacity(0.24)))
+            .shadow(color: .black.opacity(0.15), radius: 24, y: 10)
+            .padding(.trailing, 16)
+            .padding(.bottom, 76)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+    }
+
+    private func compactMenuRow(
+        _ title: String,
+        systemImage: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 16) {
+                Text(title)
+                    .font(.system(size: 17, weight: .regular))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Spacer(minLength: 0)
+                Image(systemName: systemImage)
+                    .font(.system(size: 20, weight: .medium))
+                    .frame(width: 30)
+            }
+            .foregroundStyle(palette.textPrimary)
+            .padding(.horizontal, 16)
+            .frame(height: 53)
+            .background(.regularMaterial, in: Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func compactMenuIcon(_ systemImage: String, title: String) -> some View {
+        Image(systemName: systemImage)
+            .font(.system(size: 21, weight: .medium))
+            .foregroundStyle(palette.textPrimary)
+            .frame(maxWidth: .infinity, minHeight: 52)
+            .background(.regularMaterial, in: Capsule())
+            .accessibilityLabel(title)
+    }
+
+    private var epubURL: URL? {
+        guard case let .epub(localURL) = book.source else { return nil }
+        return localURL
+    }
+
+    private var readingProgressPercent: Int {
+        guard estimatedBookPageCount > 0 else { return 0 }
+        return min(100, max(0, Int((Double(bookPageNumber) / Double(estimatedBookPageCount) * 100).rounded())))
+    }
+
+    private var estimatedBookPageCount: Int {
+        book.chapters.enumerated().reduce(0) { total, entry in
+            let (index, chapter) = entry
+            return total + (pagination.pageCounts[index] ?? chapter.pageCount ?? 1)
+        }
     }
 
     private var isCurrentPageBookmarked: Bool {
-        guard let currentChapter else { return false }
-        return annotations.bookmarks.contains { bm in
-            bm.anchor.chapterID == currentChapter.id && (bm.anchor.cfi == pageIndex || bm.anchor.cfi == nil)
+        guard let anchor = currentViewportAnchor else { return false }
+        return annotations.bookmarks.contains { bookmark in
+            bookmark.anchor.chapterID == anchor.chapterID
+                && bookmark.anchor.cfi == anchor.cfi
+                && bookmark.anchor.path == anchor.path
+                && ReaderSourceAnchor.normalize(bookmark.anchor.quote) == ReaderSourceAnchor.normalize(anchor.quote)
         }
     }
 
     private func toggleBookmark() {
         guard let currentChapter else { return }
-        if let existing = annotations.bookmarks.first(where: {
-            $0.anchor.chapterID == currentChapter.id && ($0.anchor.cfi == pageIndex || $0.anchor.cfi == nil)
-        }) {
-            Task { await annotations.delete(existing) }
-        } else {
-            let anchor = ReaderSourceAnchor(
+        pageCommands.requestAnchor { captured in
+            let anchor = captured ?? currentViewportAnchor ?? ReaderSourceAnchor(
                 bookID: book.id,
                 chapterID: currentChapter.id,
-                cfi: pageIndex,
-                quote: "Page \(chapterPageNumber)",
-                contextBefore: currentChapter.title
+                quote: currentChapter.title
             )
+            if let existing = annotations.bookmarks.first(where: { bookmark in
+                bookmark.anchor.chapterID == anchor.chapterID
+                    && bookmark.anchor.cfi == anchor.cfi
+                    && bookmark.anchor.path == anchor.path
+                    && ReaderSourceAnchor.normalize(bookmark.anchor.quote) == ReaderSourceAnchor.normalize(anchor.quote)
+            }) {
+                Task {
+                    await annotations.delete(existing)
+                    refreshPaintedMarks()
+                }
+            } else {
             Task {
                 await annotations.addBookmark(
                     in: book.id,
                     anchor: anchor,
-                    excerpt: "\(currentChapter.title) — Page \(chapterPageNumber)"
+                    excerpt: anchor.quote.isEmpty ? currentChapter.title : anchor.quote
                 )
+                refreshPaintedMarks()
+            }
             }
         }
     }
 
     private func seekToBookPage(_ targetPage: Int) {
-        let delta = targetPage - bookPageNumber
-        if delta != 0 {
-            let targetIdx = max(0, min(pageCount - 1, pageIndex + delta))
-            if targetIdx != pageIndex {
-                pageIndex = targetIdx
-                requestPageTurn(delta > 0 ? .forward : .backward)
+        var remaining = min(max(targetPage, 1), estimatedBookPageCount) - 1
+        for index in book.chapters.indices {
+            let count = max(1, pagination.pageCounts[index] ?? book.chapters[index].pageCount ?? 1)
+            if remaining < count {
+                navigate(to: ReaderReadingPosition(chapterIndex: index, pageIndex: remaining))
+                return
             }
+            remaining -= count
         }
     }
 
     private var epubContentsSheet: some View {
         let outlineItems: [ReaderContentsSheet.OutlineItem] = book.chapters.enumerated().map { idx, chapter in
-            ReaderContentsSheet.OutlineItem(
+            let startPage = book.chapters.prefix(idx).enumerated().reduce(0) { total, entry in
+                total + (pagination.pageCounts[entry.offset] ?? entry.element.pageCount ?? 1)
+            } + 1
+            return ReaderContentsSheet.OutlineItem(
                 id: "\(chapter.id)",
                 title: chapter.title,
                 pageIndex: idx,
-                pageLabel: nil,
+                pageLabel: "\(startPage)",
                 depth: 0,
                 isCurrent: idx == chapterIndex
             )
@@ -584,11 +784,13 @@ struct EPUBChapterReaderView: View {
 
         let bookmarkItems: [ReaderContentsSheet.BookmarkItem] = annotations.bookmarks.map { bm in
             let chap = book.chapters.first(where: { $0.id == bm.anchor.chapterID })
-            let pNum = (bm.anchor.cfi ?? 0) + 1
+            let chapterNumber = chap.flatMap { chapter in
+                book.chapters.firstIndex(where: { $0.id == chapter.id }).map { $0 + 1 }
+            } ?? 0
             return ReaderContentsSheet.BookmarkItem(
                 id: bm.id.uuidString,
-                pageIndex: bm.anchor.cfi ?? 0,
-                pageLabel: "\(pNum)",
+                pageIndex: max(0, chapterNumber - 1),
+                pageLabel: chapterNumber == 0 ? "" : "Ch. \(chapterNumber)",
                 title: bm.excerpt,
                 subtitle: chap?.title,
                 date: bm.createdAt
@@ -598,8 +800,10 @@ struct EPUBChapterReaderView: View {
         let noteItems: [ReaderContentsSheet.NoteItem] = annotations.highlights.map { hl in
             ReaderContentsSheet.NoteItem(
                 id: hl.id.uuidString,
-                pageIndex: hl.anchor.cfi ?? 0,
-                pageLabel: "\( (hl.anchor.cfi ?? 0) + 1 )",
+                pageIndex: 0,
+                pageLabel: hl.anchor.chapterID.flatMap { id in
+                    book.chapters.firstIndex(where: { $0.id == id }).map { "Ch. \($0 + 1)" }
+                } ?? "",
                 quote: hl.excerpt,
                 colorHex: hl.colorHex
             )
@@ -610,9 +814,16 @@ struct EPUBChapterReaderView: View {
             outlineItems: outlineItems,
             bookmarks: bookmarkItems,
             notes: noteItems,
+            contentsTabTitle: "Chapters",
+            notesTabTitle: "Highlights",
+            headerSubtitle: "Page \(bookPageNumber) of \(estimatedBookPageCount)",
+            onHeaderSubtitleTap: {
+                pageJumpInput = "\(bookPageNumber)"
+                pageJumpVisible = true
+            },
+            doneUsesCheckmark: true,
             onSelectOutline: { item in
-                chapterIndex = item.pageIndex
-                pageIndex = 0
+                navigate(to: ReaderReadingPosition(chapterIndex: item.pageIndex, pageIndex: 0))
             },
             onSelectBookmark: { item in
                 if let bm = annotations.bookmarks.first(where: { $0.id.uuidString == item.id }) {
@@ -784,6 +995,7 @@ private extension EPUBChapterReaderView {
         // `AmgiMotion` already collapses to a cross-fade under Reduce Motion,
         // so this no longer branches on `reduceMotion` itself.
         withAnimation(AmgiMotion.standard) {
+            if chromeVisible { compactMenuVisible = false }
             chromeVisible.toggle()
         }
     }
@@ -818,15 +1030,21 @@ private extension EPUBChapterReaderView {
     /// The provider is installed before the first chapter loads so a mark is
     /// painted as part of that load rather than requiring a second pass.
     private func prepareAnnotations() {
-        pageCommands.markProvider = { [annotations] in
+        pageCommands.markProvider = { [annotations, bookID = book.id] chapterID in
             await annotations.markDescriptors(
-                for: book.id,
-                chapterID: book.chapters.indices.contains(chapterIndex)
-                    ? book.chapters[chapterIndex].id
-                    : 0
+                for: bookID,
+                chapterID: chapterID
             )
         }
-        Task { await annotations.load(bookID: book.id) }
+    }
+
+    private func loadCurrentChapterMarks() async {
+        guard let currentChapter else { return }
+        pageCommands.lastAppliedMarks = await annotations.markDescriptors(
+            for: book.id,
+            chapterID: currentChapter.id
+        )
+        pageCommands.marksRefresh = {}
     }
 
     /// Captures an anchor for the current viewport and stores a mark on it.
@@ -915,20 +1133,21 @@ private extension EPUBChapterReaderView {
     /// in-chapter positioning once the chapter finishes loading, so only the
     /// chapter is switched here.
     private func jump(to annotation: ReaderAnnotation) {
-        guard let chapterID = annotation.anchor.chapterID,
-              let index = book.chapters.firstIndex(where: { $0.id == chapterID })
-        else { return }
-        guard index != chapterIndex else { return }
-        chapterIndex = index
+        navigate(to: annotation.anchor)
     }
 
     func prepareRestoreIfNeeded() async {
         guard let chapter = currentChapter else { return }
         if !didRequestInitialRestore,
-           let saved = await progressCoordinator.resolved(bookID: book.id),
-           saved.chapterID == chapter.id,
-           saved.progress > 0.01 {
-            pendingRestoreFraction = saved.progress
+            let saved = await progressCoordinator.resolved(bookID: book.id),
+            saved.chapterID == chapter.id,
+            saved.anchor != nil || saved.progress > 0.01 {
+            if let anchor = saved.anchor {
+                pageCommands.navigationAnchor = anchor
+                navigationRequestID &+= 1
+            } else {
+                pendingRestoreFraction = saved.progress
+            }
         }
         didRequestInitialRestore = true
     }
@@ -951,7 +1170,8 @@ private extension EPUBChapterReaderView {
         progressCoordinator.save(
             bookID: book.id,
             chapterID: chapter.id,
-            progress: progressFraction
+            progress: progressFraction,
+            anchor: currentViewportAnchor
         )
     }
 
@@ -989,4 +1209,9 @@ struct LookupRequest: Identifiable {
     /// Durable pointer back to the tapped words, when the page could produce
     /// one. Nil for a plain selection or an older injected script.
     let anchor: ReaderSourceAnchor?
+}
+
+private struct ReaderReadingPosition: Equatable {
+    let chapterIndex: Int
+    let pageIndex: Int
 }

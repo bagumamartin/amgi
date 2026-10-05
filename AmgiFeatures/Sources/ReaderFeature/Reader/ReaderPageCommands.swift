@@ -20,6 +20,13 @@ final class ReaderPageCommands {
     /// current viewport, or nil when the page cannot produce one.
     var anchorRequest: (@MainActor (ReaderSourceAnchor?) -> Void)?
 
+    /// One-shot position jump requested by a chapter list or reading history.
+    var pageIndexRequest: Int?
+
+    /// One-shot EPUB text location requested by search, a bookmark, or a
+    /// highlight. Kept until the corresponding chapter is visible.
+    var navigationAnchor: ReaderSourceAnchor?
+
     /// Set by the view; the coordinator pushes the stored marks for the newly
     /// shown chapter.
     var marksRefresh: (() -> Void)?
@@ -30,7 +37,7 @@ final class ReaderPageCommands {
     /// controller is created by the framework and has no way to reach the
     /// annotation store. Applied on `didFinish` — the token spans do not exist
     /// before then, so an earlier call would silently match nothing.
-    var markProvider: (@MainActor () async -> [[String: Any]])?
+    var markProvider: (@MainActor (Int64) async -> [[String: Any]])?
 
     /// A mark requested from the selection menu. One-shot: consumed by the
     /// next `updateUIViewController` pass so it cannot be applied twice.

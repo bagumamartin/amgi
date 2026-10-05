@@ -23,6 +23,7 @@ struct EPUBPageViewControllerHost: NSViewRepresentable {
     /// 0..1 fraction to scroll to on the first chapter load only.
     let pendingRestoreFraction: Double?
     let pageTurnRequest: ReaderPageTurnRequest?
+    let navigationRequestID: Int
     let selectionRequestID: Int
     /// Suppresses paging while dictionary sheets absorb input (UX spec
     /// edge case), mirroring the iOS host's dataSource suppression.
@@ -36,6 +37,7 @@ struct EPUBPageViewControllerHost: NSViewRepresentable {
     let onSelectionForNote: (String) -> Void
     let onTapEmpty: (CGFloat) -> Void
     let onReachedEnd: () -> Void
+    let onPageTurnAnimation: (Bool) -> Void
     /// A highlight or bookmark created from the selection menu. Separate from
     /// `onSelectionForNote` because these are local marks, not lookups.
     var onSelectionMark: ((ReaderAnnotation.Kind, ReaderSourceAnchor?, String) -> Void)?

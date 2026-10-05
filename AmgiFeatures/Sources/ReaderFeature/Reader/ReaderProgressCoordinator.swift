@@ -54,12 +54,18 @@ struct ReaderProgressCoordinator: Sendable {
     /// Saves locally first, then mirrors to the Anki collection config in
     /// the background. Both sides receive the same payload so collisions
     /// resolve identically on every device.
-    func save(bookID: String, chapterID: Int64, progress: Double) {
+    func save(
+        bookID: String,
+        chapterID: Int64,
+        progress: Double,
+        anchor: ReaderSourceAnchor? = nil
+    ) {
         let now = Date.now
         let payload = ReaderSavedProgress(
             chapterID: chapterID,
             progress: min(max(progress, 0), 1),
-            updatedAt: now
+            updatedAt: now,
+            anchor: anchor
         )
         store.save(bookID: bookID, payload: payload)
         Task.detached(priority: .background) {

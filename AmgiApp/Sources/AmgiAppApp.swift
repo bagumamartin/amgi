@@ -7,6 +7,9 @@ import AppIntentsFeature
 #if os(macOS)
 import AppKit
 #endif
+#if os(iOS)
+import UIKit
+#endif
 
 struct IjukaAppIntents: AppIntentsPackage {
     static var includedPackages: [any AppIntentsPackage.Type] {
@@ -27,10 +30,52 @@ struct AnkiAppApp: App {
     #if os(macOS)
     @NSApplicationDelegateAdaptor(AmgiAppDelegate.self) private var appDelegate
     #endif
+    #if os(iOS)
+    @UIApplicationDelegateAdaptor(AmgiIOSAppDelegate.self) private var appDelegate
+    #endif
 
     init() { AmgiRoot.bootstrap() }
     var body: some Scene { AmgiRoot.scenes }
 }
+
+#if os(iOS)
+@MainActor
+private final class AmgiIOSAppDelegate: NSObject, UIApplicationDelegate {
+    private static var orientationMask: UIInterfaceOrientationMask =
+        UIDevice.current.userInterfaceIdiom == .pad ? .all : .portrait
+    private var orientationObserver: NSObjectProtocol?
+
+    func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+    ) -> Bool {
+        orientationObserver = NotificationCenter.default.addObserver(
+            forName: Notification.Name("amgi.epub.orientationLockChanged"),
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let rawValue = notification.userInfo?["orientationMask"] as? UInt else { return }
+            Task { @MainActor in self?.applyOrientationMask(UIInterfaceOrientationMask(rawValue: rawValue)) }
+        }
+        return true
+    }
+
+    func application(
+        _ application: UIApplication,
+        supportedInterfaceOrientationsFor window: UIWindow?
+    ) -> UIInterfaceOrientationMask {
+        Self.orientationMask
+    }
+
+    private func applyOrientationMask(_ mask: UIInterfaceOrientationMask) {
+        Self.orientationMask = mask
+        for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
+            scene.keyWindow?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+            scene.requestGeometryUpdate(.iOS(interfaceOrientations: mask)) { _ in }
+        }
+    }
+}
+#endif
 
 #if os(macOS)
 /// macOS single-instance guard for URL and document launches.
