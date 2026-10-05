@@ -1,18 +1,16 @@
 import Foundation
-import AmgiReader
 
-/// Configuration for the app-owned iCloud Drive container used by the EPUB
+/// Configuration for the app-owned iCloud Drive container used by the PDF
 /// library. The container itself is shared with the rest of the reader — see
 /// `ReaderICloudConfiguration` — so book files and reading progress sync
 /// through one home and neither touches the Anki collection.
-public enum EPUBICloudConfiguration {
-    public static let defaultContainerIdentifier = ReaderICloudConfiguration.defaultContainerIdentifier
-    public static let libraryDirectoryName = "EPUB"
+public enum PDFICloudConfiguration {
+    public static let libraryDirectoryName = "PDF"
 }
 
 /// Errors raised by an explicit cloud restore. Ordinary background mirroring
-/// is best effort and reports failures through ``EPUBICloudSyncResult``.
-public enum EPUBLibraryCloudError: Error, Sendable {
+/// is best effort and reports failures through ``PDFICloudSyncResult``.
+public enum PDFLibraryCloudError: Error, Sendable {
     case invalidBookID
     case bookNotFound
     case sourceUnavailable
@@ -22,7 +20,7 @@ public enum EPUBLibraryCloudError: Error, Sendable {
 /// remains fully usable when iCloud is unavailable or a remote file cannot be
 /// materialized. Cloud-only books are restored additively; cloud deletions are
 /// never propagated.
-public struct EPUBICloudSyncResult: Sendable, Equatable {
+public struct PDFICloudSyncResult: Sendable, Equatable {
     public enum Status: String, Sendable, Equatable {
         case unavailable
         case completed
@@ -52,7 +50,7 @@ public struct EPUBICloudSyncResult: Sendable, Equatable {
 /// Metadata stored beside each content-addressed cloud book. There is no
 /// shared mutable catalog: each book owns its own file, so independent device
 /// additions cannot overwrite one another's manifest.
-internal struct EPUBCloudBookMetadata: Codable, Sendable, Hashable {
+internal struct PDFCloudBookMetadata: Codable, Sendable, Hashable {
     var version: Int
     var bookID: String
     var title: String
@@ -67,8 +65,8 @@ internal struct EPUBCloudBookMetadata: Codable, Sendable, Hashable {
         bookID: String,
         title: String,
         author: String?,
-        coverFileName: String?,
-        language: String?,
+        coverFileName: String? = nil,
+        language: String? = nil,
         pageCount: Int,
         updatedAt: Date?
     ) {
@@ -83,7 +81,7 @@ internal struct EPUBCloudBookMetadata: Codable, Sendable, Hashable {
     }
 }
 
-internal enum EPUBICloudStorage {
+internal enum PDFICloudStorage {
     static func libraryURL(
         containerIdentifier: String,
         overrideRoot: URL?
@@ -103,13 +101,13 @@ internal enum EPUBICloudStorage {
         return base
             .appendingPathComponent("Documents", isDirectory: true)
             .appendingPathComponent(
-                EPUBICloudConfiguration.libraryDirectoryName,
+                PDFICloudConfiguration.libraryDirectoryName,
                 isDirectory: true
             )
     }
 
     static func isSafeBookID(_ bookID: String) -> Bool {
-        bookID.hasPrefix("epub-")
+        bookID.hasPrefix("pdf-")
             && bookID.count <= 128
             && bookID.allSatisfy {
                 $0.isLetter || $0.isNumber || "-_.".contains($0)
@@ -130,21 +128,21 @@ internal enum EPUBICloudStorage {
         bookDirectory.appendingPathComponent("metadata.json")
     }
 
-    static func readMetadata(at bookDirectory: URL) throws -> EPUBCloudBookMetadata {
+    static func readMetadata(at bookDirectory: URL) throws -> PDFCloudBookMetadata {
         let data = try Data(contentsOf: metadataURL(for: bookDirectory))
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .millisecondsSince1970
-        if let metadata = try? decoder.decode(EPUBCloudBookMetadata.self, from: data) {
+        if let metadata = try? decoder.decode(PDFCloudBookMetadata.self, from: data) {
             return metadata
         }
 
         let legacyDecoder = JSONDecoder()
         legacyDecoder.dateDecodingStrategy = .iso8601
-        return try legacyDecoder.decode(EPUBCloudBookMetadata.self, from: data)
+        return try legacyDecoder.decode(PDFCloudBookMetadata.self, from: data)
     }
 
     static func writeMetadata(
-        _ metadata: EPUBCloudBookMetadata,
+        _ metadata: PDFCloudBookMetadata,
         at bookDirectory: URL
     ) async throws {
         try await Task.detached(priority: .utility) {
@@ -256,7 +254,7 @@ internal enum EPUBICloudStorage {
             if current.ubiquitousItemDownloadingStatus == .current { return }
         }
 
-        throw EPUBLibraryCloudError.sourceUnavailable
+        throw PDFLibraryCloudError.sourceUnavailable
     }
 
     private static func coordinatedCopy(from source: URL, to destination: URL) throws {

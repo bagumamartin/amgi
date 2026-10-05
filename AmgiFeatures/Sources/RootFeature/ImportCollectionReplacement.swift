@@ -170,18 +170,21 @@ func replaceCurrentCollection(
     )
 }
 
-/// Re-imports the books from a backup's `ijuka/epub/` entries.
+/// Re-imports the books from a backup's `ijuka/epub/` and `ijuka/pdf/`
+/// entries.
 ///
 /// Additive and non-destructive: books already in the library are left alone
 /// (they have their own extraction), and each restored file goes through the
-/// same validated import pipeline as a user-picked EPUB, so a truncated or
-/// mismatched entry cannot corrupt the index.
+/// same validated import pipeline as a user-picked file — routed by extension
+/// so a PDF is never offered to the EPUB importer or vice versa — so a
+/// truncated or mismatched entry cannot corrupt the index.
 @MainActor
 private func restoreReaderLibraryIfPresent(
     from packageURL: URL,
     profileID: String
 ) async {
     @Dependency(\.epubLibraryClient) var epubLibrary
+    @Dependency(\.pdfLibraryClient) var pdfLibrary
     let scratch = FileManager.default.temporaryDirectory
         .appendingPathComponent("AmgiReaderRestore-\(UUID().uuidString)", isDirectory: true)
     defer { try? FileManager.default.removeItem(at: scratch) }
@@ -198,7 +201,7 @@ private func restoreReaderLibraryIfPresent(
                 includingPropertiesForKeys: nil,
                 options: [.skipsHiddenFiles]
             )
-            .filter { $0.pathExtension.lowercased() == "epub" }
+            .filter { ["epub", "pdf"].contains($0.pathExtension.lowercased()) }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
 
         for source in sources {
@@ -207,7 +210,12 @@ private func restoreReaderLibraryIfPresent(
             // Import is idempotent: the book ID is a content hash, so a book
             // already in the library is re-validated and replaced in place
             // rather than duplicated.
-            _ = try? await epubLibrary.importEPUB(source)
+            switch source.pathExtension.lowercased() {
+            case "pdf":
+                _ = try? await pdfLibrary.importPDF(source)
+            default:
+                _ = try? await epubLibrary.importEPUB(source)
+            }
         }
     } catch {
         // The collection restored fine; a missing reader payload is expected

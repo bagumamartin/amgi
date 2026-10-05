@@ -5,8 +5,12 @@ import SwiftUI
 struct ContinueReadingCard: View {
     let item: ContinueReadingItem
 
-    private static let coverWidth: CGFloat = 220
-    private static let coverAspect: CGFloat = 100.0 / 136.0
+    /// Wide enough to read as a featured card, narrow enough that the next
+    /// card peeks in and advertises the horizontal scroll.
+    private static let coverWidth: CGFloat = 196
+    /// Standard trade-book ratio, shared with the grid so the two sections
+    /// read as one shelf rather than two different cover shapes.
+    private static let coverAspect: CGFloat = 2.0 / 3.0
 
     @Environment(\.palette) private var palette
 
@@ -16,9 +20,11 @@ struct ContinueReadingCard: View {
             Text(item.title)
                 .amgiFont(.cardTitle)
                 .lineLimit(2)
+                .multilineTextAlignment(.leading)
                 .foregroundStyle(palette.textPrimary)
+                .frame(height: 44, alignment: .topLeading)
             Text(subtitle)
-                .amgiFont(.body)
+                .amgiFont(.caption)
                 .foregroundStyle(palette.textSecondary)
                 .lineLimit(1)
             ProgressView(value: item.progress)
@@ -29,6 +35,9 @@ struct ContinueReadingCard: View {
     }
 
     private var cover: some View {
+        // The format badge lives inside BookCoverView (top-trailing). The old
+        // bookmark overlay sat on the same corner and covered the badge, so
+        // it is gone: progress + "23% · Today" already says "in progress".
         BookCoverView(
             coverArt: item.coverArt,
             title: item.title,
@@ -36,13 +45,12 @@ struct ContinueReadingCard: View {
             seed: item.id
         )
         .aspectRatio(Self.coverAspect, contentMode: .fit)
-        .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.control))
-        .overlay(alignment: .topTrailing) {
-            Image(systemName: "bookmark.fill")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(.tint)
-                .padding(10)
+        .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.control, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: AmgiRadius.control, style: .continuous)
+                .strokeBorder(.primary.opacity(0.12), lineWidth: 0.5)
         }
+        .shadow(color: .black.opacity(0.12), radius: 8, x: 0, y: 4)
     }
 
     private var subtitle: String {

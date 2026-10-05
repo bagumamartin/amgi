@@ -66,6 +66,11 @@ private struct ReaderBookDetailContent: View {
         return false
     }
 
+    private var isPDF: Bool {
+        if case .pdf = book.source { return true }
+        return false
+    }
+
     private var overallProgressPercent: Int {
         let total = book.chapters.count
         guard total > 0 else { return 0 }
@@ -89,7 +94,8 @@ private struct ReaderBookDetailContent: View {
                 BookHeaderView(
                     book: book,
                     coverURL: coverURL,
-                    isEPUB: isEPUB
+                    isEPUB: isEPUB,
+                    isPDF: isPDF
                 )
                 ContinueBlock(
                     percent: overallProgressPercent,
@@ -173,6 +179,7 @@ private struct BookHeaderView: View {
     let book: ReaderBook
     let coverURL: URL?
     let isEPUB: Bool
+    let isPDF: Bool
 
     @Environment(\.palette) private var palette
 
@@ -211,7 +218,17 @@ private struct BookHeaderView: View {
     @ViewBuilder
     private var cover: some View {
         if isEPUB {
-            ReaderCoverImage(fileURL: coverURL, isEPUB: true) { placeholder }
+            ReaderCoverImage(fileURL: coverURL, format: .epub) { placeholder }
+        } else if isPDF {
+            let documentURL: URL? = {
+                if case .pdf(let url) = book.source { return url }
+                return nil
+            }()
+            ReaderCoverImage(fileURL: coverURL, format: .pdf) {
+                PDFCoverThumbnail(documentURL: documentURL) {
+                    placeholder
+                }
+            }
         } else {
             ReaderCoverImage(path: book.coverImagePath) { placeholder }
         }

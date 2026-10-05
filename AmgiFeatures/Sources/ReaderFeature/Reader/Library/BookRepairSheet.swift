@@ -9,7 +9,7 @@ import UniformTypeIdentifiers
 ///
 /// The two paths mirror the two faults: a corrupt-but-present file can be
 /// re-read in place, while a missing file can only be fixed by pointing the
-/// library at a replacement EPUB.
+/// library at a replacement file.
 struct BookRepairSheet: View {
     let bookID: String
     let title: String
@@ -102,7 +102,7 @@ private extension BookRepairSheet {
             Button {
                 isChoosingFile = true
             } label: {
-                Text(repair.canRetryInPlace ? "Choose a Different File…" : "Choose Replacement EPUB…")
+                Text(repair.canRetryInPlace ? "Choose a Different File…" : "Choose Replacement \(repair.format.displayName)…")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
@@ -125,7 +125,7 @@ private extension BookRepairSheet {
         if await onRetry() {
             onDismiss()
         } else {
-            failure = "Still can't read the file. Choose a replacement EPUB."
+            failure = "Still can't read the file. Choose a replacement \(repair.format.displayName)."
         }
     }
 

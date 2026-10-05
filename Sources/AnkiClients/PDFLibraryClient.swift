@@ -16,6 +16,18 @@ import DependenciesMacros
 public struct PDFLibraryClient: Sendable {
     public var importPDF: @Sendable (_ sourceURL: URL) async throws -> ReaderBook
     public var listBooks: @Sendable () async -> [ReaderBook] = { [] }
+    /// Best-effort background backup mirror for the managed PDF library.
+    /// Reading progress continues through the iCloud Drive progress manifest;
+    /// this mirror owns source files and library metadata.
+    public var syncWithICloud: @Sendable () async -> PDFICloudSyncResult = { .unavailable }
+    /// IDs available in the private iCloud backup, for an explicit restore
+    /// surface. Background synchronization also restores additive entries.
+    public var remoteBookIDs: @Sendable () async -> [String] = { [] }
+    /// Restore one explicitly selected cloud book through the local PDF
+    /// validation/import pipeline.
+    public var restoreFromICloud: @Sendable (_ bookID: String) async throws -> ReaderBook = { _ in
+        throw PDFLibraryStore.StoreError.bookNotFound
+    }
     public var deleteBook: @Sendable (_ bookID: String) async throws -> Void
     /// Repair state for every managed book, keyed by book ID. A book whose
     /// source went missing or stopped parsing is reported here instead of
@@ -65,11 +77,25 @@ extension PDFLibraryClient: DependencyKey {
         // hand the previous profile's books to freshly-built UI after a switch.
         Self(
             importPDF: { url in
-                try await SharedPDFLibraryStore.store().importPDF(from: url)
+                let store = SharedPDFLibraryStore.store()
+                let book = try await store.importPDF(from: url)
+                await store.scheduleICloudSync()
+                return book
             },
-            listBooks: { await SharedPDFLibraryStore.store().books() },
+            listBooks: {
+                let store = SharedPDFLibraryStore.store()
+                await store.scheduleICloudSync()
+                return await store.books()
+            },
+            syncWithICloud: { await SharedPDFLibraryStore.store().synchronizeWithICloud() },
+            remoteBookIDs: { await SharedPDFLibraryStore.store().remoteBookIDs() },
+            restoreFromICloud: { bookID in
+                try await SharedPDFLibraryStore.store().restoreFromICloud(bookID: bookID)
+            },
             deleteBook: { bookID in
-                try await SharedPDFLibraryStore.store().delete(bookID: bookID)
+                let store = SharedPDFLibraryStore.store()
+                try await store.delete(bookID: bookID)
+                await store.scheduleICloudSync()
             },
             bookHealth: { await SharedPDFLibraryStore.store().bookHealth() },
             retryBook: { bookID in await SharedPDFLibraryStore.store().retryBook(bookID: bookID) },
@@ -83,9 +109,11 @@ extension PDFLibraryClient: DependencyKey {
             },
             reload: { bookID in try await SharedPDFLibraryStore.store().reload(bookID: bookID) },
             coverURL: { bookID in
-                await SharedPDFLibraryStore.store().sourceURL(bookID: bookID)?
+                guard let url = await SharedPDFLibraryStore.store().sourceURL(bookID: bookID)?
                     .deletingLastPathComponent()
-                    .appendingPathComponent("cover.jpg")
+                    .appendingPathComponent("cover.jpg"),
+                      FileManager.default.fileExists(atPath: url.path) else { return nil }
+                return url
             }
         )
     }()

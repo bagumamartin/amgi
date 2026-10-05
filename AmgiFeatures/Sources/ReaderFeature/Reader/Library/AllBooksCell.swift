@@ -5,7 +5,8 @@ import SwiftUI
 struct AllBooksCell: View {
     let item: BookCellItem
 
-    private static let coverAspect: CGFloat = 100.0 / 136.0
+    /// Matches the featured cards so both sections share one cover shape.
+    private static let coverAspect: CGFloat = 2.0 / 3.0
 
     @Environment(\.palette) private var palette
 
@@ -18,7 +19,11 @@ struct AllBooksCell: View {
                 seed: item.id
             )
             .aspectRatio(Self.coverAspect, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.small))
+            .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.small, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: AmgiRadius.small, style: .continuous)
+                    .strokeBorder(.primary.opacity(0.1), lineWidth: 0.5)
+            }
             .overlay(alignment: .topTrailing) {
                 if let repair = item.repair {
                     repairBadge(repair)
@@ -28,7 +33,11 @@ struct AllBooksCell: View {
             Text(item.title)
                 .amgiFont(.bodyEmphasis)
                 .lineLimit(2)
+                .multilineTextAlignment(.leading)
                 .foregroundStyle(palette.textPrimary)
+                // Reserve two lines so neighbouring titles stay aligned even
+                // when one wraps and the other does not.
+                .frame(minHeight: 38, alignment: .topLeading)
 
             if let author = item.author {
                 Text(author)

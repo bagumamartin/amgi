@@ -56,8 +56,16 @@ public actor PDFLibraryStore {
     private var index: PDFLibraryIndexFile
     private var bookCache: [String: ReaderBook] = [:]
     private var descriptorCache: [String: PDFDocumentDescriptor] = [:]
+    private let cloudContainerIdentifier: String
+    private let cloudRootOverride: URL?
+    private var backgroundSyncTask: Task<Void, Never>?
+    private var backgroundSyncRequested = false
 
-    public init(rootDirectory: URL? = nil, parser: PDFDocumentParser = PDFDocumentParser()) {
+    public init(
+        rootDirectory: URL? = nil,
+        parser: PDFDocumentParser = PDFDocumentParser(),
+        cloudContainerIdentifier: String = ReaderICloudConfiguration.defaultContainerIdentifier
+    ) {
         self.parser = parser
         if let rootDirectory {
             self.rootDirectory = rootDirectory
@@ -68,7 +76,24 @@ public actor PDFLibraryStore {
                 .appendingPathComponent("Amgi", isDirectory: true)
                 .appendingPathComponent("PDFLibrary", isDirectory: true)
         }
+        self.cloudContainerIdentifier = cloudContainerIdentifier
+        self.cloudRootOverride = nil
         self.index = Self.readIndex(at: self.rootDirectory)
+    }
+
+    /// Test seam for a local directory standing in for the iCloud container.
+    /// Production callers use the public initializer and the real container
+    /// identifier.
+    init(testingRootDirectory: URL, cloudRoot: URL) {
+        self.rootDirectory = testingRootDirectory
+        self.parser = PDFDocumentParser()
+        self.cloudContainerIdentifier = ReaderICloudConfiguration.defaultContainerIdentifier
+        self.cloudRootOverride = cloudRoot
+        try? FileManager.default.createDirectory(
+            at: testingRootDirectory,
+            withIntermediateDirectories: true
+        )
+        self.index = Self.readIndex(at: testingRootDirectory)
     }
 
     // MARK: - Import
@@ -191,6 +216,268 @@ public actor PDFLibraryStore {
             )
             try fileManager.moveItem(at: stagingDirectory, to: finalDirectory)
         }
+    }
+
+    // MARK: - iCloud mirror
+
+    /// Schedule a coalesced background upload of the local library. Cloud
+    /// work must never make the library screen or reader wait on a provider.
+    public func scheduleICloudSync() {
+        guard backgroundSyncTask == nil else {
+            backgroundSyncRequested = true
+            return
+        }
+        backgroundSyncTask = Task(priority: .utility) { [weak self] in
+            guard let self else { return }
+            _ = await self.synchronizeWithICloud()
+            await self.finishScheduledICloudSync()
+        }
+    }
+
+    private func finishScheduledICloudSync() {
+        backgroundSyncTask = nil
+        if backgroundSyncRequested {
+            backgroundSyncRequested = false
+            scheduleICloudSync()
+        }
+    }
+
+    private func localEntrySourceURL(_ bookID: String) -> URL {
+        rootDirectory
+            .appendingPathComponent(bookID, isDirectory: true)
+            .appendingPathComponent(Self.sourceFileName)
+    }
+
+    private func cloudMetadata(
+        from local: PDFLibraryIndexEntry
+    ) -> PDFCloudBookMetadata {
+        PDFCloudBookMetadata(
+            bookID: local.bookID,
+            title: local.title,
+            author: local.author,
+            coverFileName: local.coverRelativePath.map {
+                URL(fileURLWithPath: $0).lastPathComponent
+            },
+            language: local.language,
+            pageCount: local.pageCount,
+            updatedAt: local.updatedAt
+        )
+    }
+
+    private func uploadBook(
+        localEntry: PDFLibraryIndexEntry,
+        to cloudDirectory: URL
+    ) async throws -> Bool {
+        let sourceURL = localEntrySourceURL(localEntry.bookID)
+        guard FileManager.default.fileExists(atPath: sourceURL.path) else {
+            return false
+        }
+        try await PDFICloudStorage.replaceItem(
+            at: sourceURL,
+            with: cloudDirectory.appendingPathComponent(Self.sourceFileName)
+        )
+
+        if let relativeCover = localEntry.coverRelativePath {
+            // The index is trusted storage, but a damaged index must not turn
+            // into a path traversal: only accept paths that stay inside the
+            // library root.
+            let coverURL = rootDirectory.appendingPathComponent(relativeCover).standardizedFileURL
+            let prefix = rootDirectory.standardizedFileURL.path + "/"
+            if coverURL.path.hasPrefix(prefix),
+               FileManager.default.fileExists(atPath: coverURL.path) {
+                try await PDFICloudStorage.replaceItem(
+                    at: coverURL,
+                    with: cloudDirectory.appendingPathComponent(coverURL.lastPathComponent)
+                )
+            }
+        }
+        try await PDFICloudStorage.writeMetadata(
+            cloudMetadata(from: localEntry),
+            at: cloudDirectory
+        )
+        return true
+    }
+
+    /// Upload local books and their per-book metadata to the app-owned iCloud
+    /// Drive container, then restore cloud-only books that are absent locally.
+    /// There is no shared catalog and no cloud deletion propagation; local
+    /// tombstones keep a deleted book deleted on the device that deleted it.
+    public func synchronizeWithICloud() async -> PDFICloudSyncResult {
+        guard let cloudLibraryURL = PDFICloudStorage.libraryURL(
+            containerIdentifier: cloudContainerIdentifier,
+            overrideRoot: cloudRootOverride
+        ) else {
+            return .unavailable
+        }
+
+        do {
+            let fileManager = FileManager.default
+            try fileManager.createDirectory(
+                at: cloudLibraryURL.appendingPathComponent("books", isDirectory: true),
+                withIntermediateDirectories: true
+            )
+
+            var uploadedBookIDs: [String] = []
+            for entry in index.entries where !entry.isDeleted {
+                guard let cloudDirectory = PDFICloudStorage.bookDirectory(
+                    entry.bookID,
+                    under: cloudLibraryURL
+                ) else { continue }
+                let cloudSource = cloudDirectory.appendingPathComponent(Self.sourceFileName)
+                let metadata = cloudMetadata(from: entry)
+                let alreadyMirrored: Bool
+                if let existing = try? PDFICloudStorage.readMetadata(
+                    at: cloudDirectory
+                ), existing.bookID == entry.bookID,
+                    existing.updatedAt == metadata.updatedAt {
+                    alreadyMirrored = fileManager.fileExists(atPath: cloudSource.path)
+                } else {
+                    alreadyMirrored = false
+                }
+                guard !alreadyMirrored else { continue }
+
+                if try await uploadBook(localEntry: entry, to: cloudDirectory) {
+                    uploadedBookIDs.append(entry.bookID)
+                }
+            }
+
+            // Cloud books are independent content-addressed entries rather
+            // than a shared catalog. Restore only books absent from this local
+            // index; a local tombstone intentionally wins forever on this
+            // device, so deleting locally never resurrects a cloud backup.
+            var restoredBookIDs: [String] = []
+            var restoreFailure: (any Error)?
+            let localBookIDs = Set(
+                index.entries
+                    .filter {
+                        $0.isDeleted
+                            || fileManager.fileExists(
+                                atPath: localEntrySourceURL($0.bookID).path
+                            )
+                    }
+                    .map(\.bookID)
+            )
+            let remoteBookIDs = try PDFICloudStorage.remoteBookIDs(in: cloudLibraryURL)
+            for remoteBookID in remoteBookIDs where !localBookIDs.contains(remoteBookID) {
+                do {
+                    _ = try await restoreFromICloud(bookID: remoteBookID)
+                    restoredBookIDs.append(remoteBookID)
+                } catch {
+                    restoreFailure = restoreFailure ?? error
+                }
+            }
+
+            if let restoreFailure {
+                return PDFICloudSyncResult(
+                    status: .failed,
+                    uploadedBookIDs: uploadedBookIDs.sorted(),
+                    restoredBookIDs: restoredBookIDs.sorted(),
+                    message: restoreFailure.localizedDescription
+                )
+            }
+            return PDFICloudSyncResult(
+                status: .completed,
+                uploadedBookIDs: uploadedBookIDs.sorted(),
+                restoredBookIDs: restoredBookIDs.sorted()
+            )
+        } catch {
+            return PDFICloudSyncResult(
+                status: .failed,
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    /// IDs of books currently visible in the iCloud backup, for a future
+    /// explicit restore surface. Normal background sync restores additive
+    /// entries while retaining local deletion tombstones.
+    public func remoteBookIDs() async -> [String] {
+        guard let cloudLibraryURL = PDFICloudStorage.libraryURL(
+            containerIdentifier: cloudContainerIdentifier,
+            overrideRoot: cloudRootOverride
+        ) else { return [] }
+        return (try? PDFICloudStorage.remoteBookIDs(in: cloudLibraryURL)) ?? []
+    }
+
+    /// Explicitly restore one cloud book through the same validated local
+    /// import pipeline used for user-selected files.
+    public func restoreFromICloud(bookID: String) async throws -> ReaderBook {
+        guard let cloudLibraryURL = PDFICloudStorage.libraryURL(
+            containerIdentifier: cloudContainerIdentifier,
+            overrideRoot: cloudRootOverride
+        ) else {
+            throw PDFLibraryCloudError.sourceUnavailable
+        }
+        guard let cloudDirectory = PDFICloudStorage.bookDirectory(
+            bookID,
+            under: cloudLibraryURL
+        ) else {
+            throw PDFLibraryCloudError.invalidBookID
+        }
+
+        let cloudSource = cloudDirectory.appendingPathComponent(Self.sourceFileName)
+        let metadata = (try? PDFICloudStorage.readMetadata(at: cloudDirectory))
+            .flatMap { $0.bookID == bookID ? $0 : nil }
+        guard FileManager.default.fileExists(atPath: cloudSource.path) else {
+            throw PDFLibraryCloudError.bookNotFound
+        }
+        try await PDFICloudStorage.ensureDownloaded(at: cloudSource)
+        let downloadedBookID = try Self.deriveBookID(forFileAt: cloudSource)
+        guard downloadedBookID == bookID else {
+            throw PDFLibraryCloudError.sourceUnavailable
+        }
+
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AmgiPDFCloud-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: temporaryDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let localSource = temporaryDirectory.appendingPathComponent(Self.sourceFileName)
+        try await PDFICloudStorage.replaceItem(at: cloudSource, with: localSource)
+        let book = try await importPDF(from: localSource)
+        guard book.id == bookID else {
+            throw PDFLibraryCloudError.sourceUnavailable
+        }
+        if let metadata,
+           let position = index.entries.firstIndex(where: { $0.bookID == bookID }) {
+            var restoredEntry = index.entries[position]
+            if let coverFileName = metadata.coverFileName,
+               !coverFileName.contains("/"),
+               !coverFileName.contains("\\"),
+               coverFileName != ".",
+               coverFileName != ".." {
+                let cloudCover = cloudDirectory.appendingPathComponent(coverFileName)
+                if FileManager.default.fileExists(atPath: cloudCover.path) {
+                    do {
+                        try await PDFICloudStorage.ensureDownloaded(at: cloudCover)
+                        let localCover = rootDirectory
+                            .appendingPathComponent(bookID, isDirectory: true)
+                            .appendingPathComponent(coverFileName)
+                        try await PDFICloudStorage.replaceItem(
+                            at: cloudCover,
+                            with: localCover
+                        )
+                        restoredEntry.coverRelativePath = "\(bookID)/\(coverFileName)"
+                    } catch {
+                        // Covers are optional; the document remains readable with
+                        // whatever the local parser extracted — or the first-page
+                        // thumbnail the library falls back to.
+                    }
+                }
+            }
+            restoredEntry.title = metadata.title
+            restoredEntry.author = metadata.author
+            restoredEntry.language = metadata.language
+            restoredEntry.pageCount = metadata.pageCount
+            restoredEntry.updatedAt = metadata.updatedAt
+            restoredEntry.deletedAt = nil
+            index.entries[position] = restoredEntry
+            try writeIndex()
+        }
+        return book
     }
 
     // MARK: - Reading
@@ -376,6 +663,14 @@ public actor PDFLibraryStore {
         try Data(bytes).write(to: temporary, options: .atomic)
         let fileManager = FileManager.default
         _ = try fileManager.replaceItemAt(url, withItemAt: temporary)
+        // Annotations live in the file itself, so an edit changes what the
+        // next iCloud upload must carry. Bumping the timestamp is what marks
+        // the book dirty for the mirror; without it an annotated file would
+        // look already-mirrored forever.
+        if let position = index.entries.firstIndex(where: { $0.bookID == bookID }) {
+            index.entries[position].updatedAt = nextSyncDate(after: index.entries[position].updatedAt)
+            try? writeIndex()
+        }
         return bytes
     }
 
@@ -393,7 +688,7 @@ public actor PDFLibraryStore {
             index.entries[position].author = descriptor.author
             index.entries[position].fault = nil
             index.entries[position].faultDetail = nil
-            index.entries[position].updatedAt = Date()
+            index.entries[position].updatedAt = nextSyncDate(after: index.entries[position].updatedAt)
             try? writeIndex()
         }
         return descriptor

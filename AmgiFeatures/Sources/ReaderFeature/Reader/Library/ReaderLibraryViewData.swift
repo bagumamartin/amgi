@@ -32,8 +32,21 @@ struct BookCellItem: Identifiable, Equatable {
 
 enum CoverArtSource: Equatable {
     case epub(localFileURL: URL?)
+    case epubFirstPage(EPUBFirstPageSource)
+    case pdf(coverURL: URL?, documentURL: URL?)
     case anki(filePath: String?)
     case none
+}
+
+/// Where to render an EPUB's first-page cover thumbnail from.
+///
+/// Carried (rather than resolved in the view) so the model pays the store
+/// lookups once per reload instead of every cell paying them per body pass.
+struct EPUBFirstPageSource: Equatable, Sendable {
+    /// The first chapter's content file.
+    let contentURL: URL
+    /// The WebView read-access scope (the book's content root).
+    let readAccessURL: URL
 }
 
 enum ReaderLibraryViewDataBuilder {
@@ -43,6 +56,7 @@ enum ReaderLibraryViewDataBuilder {
         books: [ReaderBook],
         progressFor: (String) -> ReaderSavedProgress?,
         epubCoverURLFor: (String) -> URL?,
+        epubFirstPageFor: (String) -> EPUBFirstPageSource? = { _ in nil },
         repairFor: (String) -> ReaderBookRepair? = { _ in nil },
         searchText: String,
         sortMode: BookshelfSortMode,
@@ -74,7 +88,7 @@ enum ReaderLibraryViewDataBuilder {
                     surname: BookMetaFormatters.surname(from: book.author),
                     progress: p.progress,
                     updatedAt: p.updatedAt,
-                    coverArt: coverArt(for: book, epubCoverURLFor: epubCoverURLFor)
+                    coverArt: coverArt(for: book, epubCoverURLFor: epubCoverURLFor, epubFirstPageFor: epubFirstPageFor)
                 )
             }
             .sorted { $0.updatedAt > $1.updatedAt }
@@ -110,7 +124,7 @@ enum ReaderLibraryViewDataBuilder {
                     title: book.title,
                     author: book.author,
                     surname: BookMetaFormatters.surname(from: book.author),
-                    coverArt: coverArt(for: book, epubCoverURLFor: epubCoverURLFor),
+                    coverArt: coverArt(for: book, epubCoverURLFor: epubCoverURLFor, epubFirstPageFor: epubFirstPageFor),
                     repair: repairFor(book.id)
                 )
             }
@@ -126,16 +140,28 @@ enum ReaderLibraryViewDataBuilder {
 private extension ReaderLibraryViewDataBuilder {
     static func coverArt(
         for book: ReaderBook,
-        epubCoverURLFor: (String) -> URL?
+        epubCoverURLFor: (String) -> URL?,
+        epubFirstPageFor: (String) -> EPUBFirstPageSource?
     ) -> CoverArtSource {
         switch book.source {
         case .ankiDeck:
             return .anki(filePath: book.coverImagePath)
-        case .epub, .pdf:
-            // A PDF's cover is resolved from the same library path as an
-            // EPUB's, because both are a file on disk owned by the reader
-            // library rather than an Anki media entry.
-            return .epub(localFileURL: epubCoverURLFor(book.id))
+        case .epub:
+            if let coverURL = epubCoverURLFor(book.id) {
+                return .epub(localFileURL: coverURL)
+            }
+            // No embedded cover art. Most EPUBs still open onto their cover,
+            // so the first page usually *is* the cover — render it rather
+            // than falling back to a generic tile.
+            if let firstPage = epubFirstPageFor(book.id) {
+                return .epubFirstPage(firstPage)
+            }
+            return .epub(localFileURL: nil)
+        case .pdf(let localURL):
+            // The cover file is optional — many PDFs have no embedded cover.
+            // Carry the managed document URL alongside so the view can fall
+            // back to a first-page thumbnail instead of a generic placeholder.
+            return .pdf(coverURL: epubCoverURLFor(book.id), documentURL: localURL)
         }
     }
 }

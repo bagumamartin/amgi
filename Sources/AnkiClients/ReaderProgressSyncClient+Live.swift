@@ -1,40 +1,20 @@
 import AmgiReader
-import AnkiBackend
+import AnkiKit
 public import Dependencies
-import DependenciesMacros
 import Foundation
 
 extension ReaderProgressSyncClient: DependencyKey {
-    /// Anki collection-config key matching DreamAfar's. Keep stable so a
-    /// collection that has been read from either fork sees the same
-    /// progress data.
-    private static let collectionConfigKey = "amgi.reader.progress"
-
     public static let liveValue: Self = {
-        @Dependency(\.ankiBackend) var backend
-
-        return Self(
+        Self(
             loadManifest: {
-                try await backendOffload {
-                    try backend.getConfigJSONValue(for: collectionConfigKey)
-                }
+                await ReaderProgressICloudStore.loadManifest(profileID: ProfileScope.current())
             },
             pushBookProgress: { bookID, payload in
-                try await backendOffload {
-                    var manifest: ReaderProgressManifest = (try backend.getConfigJSONValue(for: collectionConfigKey))
-                        ?? ReaderProgressManifest()
-
-                    // Last-write-wins per book. The caller stamps `updatedAt`
-                    // so this routine doesn't need its own clock.
-                    if let existing = manifest.entries[bookID],
-                       existing.updatedAt > payload.updatedAt {
-                        return manifest
-                    }
-
-                    manifest.entries[bookID] = payload
-                    try backend.setConfigJSONValue(manifest, for: collectionConfigKey)
-                    return manifest
-                }
+                try await ReaderProgressICloudStore.pushBookProgress(
+                    profileID: ProfileScope.current(),
+                    bookID: bookID,
+                    payload: payload
+                )
             }
         )
     }()

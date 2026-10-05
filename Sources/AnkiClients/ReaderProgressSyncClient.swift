@@ -4,12 +4,16 @@ import DependenciesMacros
 
 /// Cross-device sync adapter for `ReaderProgressStore`. The store persists
 /// per-book progress locally to UserDefaults; this client mirrors writes
-/// into the Anki collection config so the same progress reaches other
-/// devices via Anki sync.
+/// into the app's iCloud Drive container so the same progress reaches the
+/// user's other devices without ever touching the Anki collection.
 ///
-/// Lives in `AnkiClients` rather than `AmgiReader` because the bridge
-/// to Anki's `setConfigJSONValue` is an Anki concern. `AmgiReader` itself
-/// stays Anki-free.
+/// Book data syncs through iCloud, Anki notes through AnkiWeb, and the two
+/// never mix: reading a book must not dirty the collection or trigger an
+/// Anki sync on its own. (Cards made from books are Anki notes like any
+/// other, and keep syncing through AnkiWeb.)
+///
+/// Lives in `AnkiClients` for history — it began as an Anki collection-config
+/// bridge — rather than in `AmgiReader`, which stays free of sync concerns.
 @DependencyClient
 public struct ReaderProgressSyncClient: Sendable {
     /// Returns the merged manifest of book → progress entries that the
@@ -35,9 +39,9 @@ extension DependencyValues {
     }
 }
 
-/// JSON-encoded shape stored in the Anki collection config under the
-/// `amgi.reader.progress` key. Mirrors DreamAfar's manifest schema so a
-/// collection synced between forks can interoperate.
+/// JSON-encoded shape of the per-profile iCloud Drive progress manifest.
+/// One file per profile under `Documents/ReaderProgress/`; each maps book ID
+/// to its latest payload, merged last-write-wins per book.
 public struct ReaderProgressManifest: Codable, Sendable, Equatable {
     public var version: Int
     public var entries: [String: ReaderSavedProgress]

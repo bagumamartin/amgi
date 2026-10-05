@@ -22,12 +22,18 @@ final class ReaderBookDetailModel {
     var state: ViewState = .loading
 
     @ObservationIgnored @Dependency(\.epubLibraryClient) private var epubLibraryClient
+    @ObservationIgnored @Dependency(\.pdfLibraryClient) private var pdfLibraryClient
     @ObservationIgnored @Dependency(\.readerCardCountClient) private var readerCardCountClient
 
     func load(book: ReaderBook) async {
         var coverURL: URL?
-        if case .epub = book.source {
+        switch book.source {
+        case .epub:
             coverURL = await epubLibraryClient.coverURL(book.id)
+        case .pdf:
+            coverURL = await pdfLibraryClient.coverURL(book.id)
+        case .ankiDeck:
+            break
         }
 
         var counts: [Int64: Int] = [:]

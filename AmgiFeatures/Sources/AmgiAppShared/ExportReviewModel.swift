@@ -346,14 +346,16 @@ package final class ExportReviewModel {
                         mediaDatabasePath
                     )
                 }.value
-                // The engine writes the colpkg, so the reader library has to be
-                // appended afterwards. Without this a backup restores the notes
-                // and the reading progress but not the books they point at.
-                // The extension is unchanged and the extra entries live under
-                // an `ijuka/` prefix, so Anki still imports this normally.
+                // The engine writes the colpkg, so the reader libraries have to
+                // be appended afterwards. Without this a backup restores the
+                // notes but not the books they point at (reading positions
+                // travel separately through iCloud). The extension is unchanged
+                // and the extra entries live under an `ijuka/` prefix, so Anki
+                // still imports this normally.
                 _ = try ReaderBackupBundle.addReaderLibrary(
                     toPackageAt: destination,
-                    libraryRoot: profileDirectory.appendingPathComponent("EPUB", isDirectory: true)
+                    epubRoot: profileDirectory.appendingPathComponent("EPUB", isDirectory: true),
+                    pdfRoot: profileDirectory.appendingPathComponent("PDF", isDirectory: true)
                 )
                 itemCount = nil
             case .deckPackage:

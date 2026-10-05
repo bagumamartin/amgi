@@ -86,12 +86,12 @@ private extension ReaderLibraryContent {
         } description: {
             switch reason {
             case .noBooksAndNoConfig:
-                Text("Import an EPUB or configure a deck of notes to start reading.")
+                Text("Import an EPUB or PDF, or configure a deck of notes to start reading.")
             case .noBooksConfigured:
-                Text("Your configured deck doesn't have any books yet. Import an EPUB or reconfigure your reader source.")
+                Text("Your configured deck doesn't have any books yet. Import a book or reconfigure your reader source.")
             }
         } actions: {
-            Button(action: onImport) { Label("Import EPUB", systemImage: "plus") }
+            Button(action: onImport) { Label("Import Book", systemImage: "plus") }
                 .buttonStyle(.borderedProminent)
             Button(reason == .noBooksConfigured ? "Reconfigure Reader" : "Set Up Anki Library",
                    action: onConfigure)
@@ -112,7 +112,6 @@ private extension ReaderLibraryContent {
                         repairTarget = RepairTarget(id: id, title: title, repair: repair)
                     }
                 )
-                ImportBookCTA(action: onImport)
                 Color.clear.frame(height: 8)
             }
             .frame(maxWidth: ReaderLibraryColumn.maxWidth)

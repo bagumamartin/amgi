@@ -1,5 +1,4 @@
 import AmgiAppCore
-import AmgiAppShared
 import OSLog
 import AmgiReader
 import AnkiClients
@@ -7,9 +6,14 @@ import Dependencies
 import Foundation
 
 /// Bridges the local `ReaderProgressStore` (UserDefaults) and the
-/// `ReaderProgressSyncClient` (Anki collection config). The library and
-/// chapter views talk to this single API so save/load semantics stay
+/// `ReaderProgressSyncClient` (per-profile iCloud Drive manifest). The library
+/// and chapter views talk to this single API so save/load semantics stay
 /// consistent — last-write-wins per book using `updatedAt`.
+///
+/// Book data stays out of the Anki collection entirely: saving a position
+/// never marks the collection mutated and never triggers an Anki sync.
+/// Positions reach other devices through iCloud; only cards made from books
+/// travel through AnkiWeb.
 ///
 /// All sync writes are async and fire-and-forget. A failed network round
 /// trip never blocks the local save, and a failed merge never breaks the
@@ -30,15 +34,14 @@ struct ReaderProgressCoordinator: Sendable {
     }
 
     /// Returns the resolved progress for a book, preferring the more
-    /// recent of local vs. collection. If the collection has the newer
-    /// payload, it's also written back to local so subsequent reads
-    /// don't have to round-trip.
+    /// recent of local vs. iCloud. If iCloud holds the newer payload, it's
+    /// also written back locally so subsequent reads don't round-trip.
     func resolved(bookID: String) async -> ReaderSavedProgress? {
         let local = store.load(bookID: bookID)
-        let collection = (try? await sync.loadManifest()?.entries[bookID]) ?? nil
+        let cloud = (try? await sync.loadManifest()?.entries[bookID]) ?? nil
 
         let winner: ReaderSavedProgress?
-        switch (local, collection) {
+        switch (local, cloud) {
         case let (l?, c?): winner = c.updatedAt > l.updatedAt ? c : l
         case let (l?, nil): winner = l
         case let (nil, c?): winner = c
@@ -51,7 +54,7 @@ struct ReaderProgressCoordinator: Sendable {
         return winner
     }
 
-    /// Saves locally first, then mirrors to the Anki collection config in
+    /// Saves locally first, then mirrors to the iCloud Drive manifest in
     /// the background. Both sides receive the same payload so collisions
     /// resolve identically on every device.
     func save(
@@ -72,11 +75,10 @@ struct ReaderProgressCoordinator: Sendable {
             do {
                 _ = try await sync.pushBookProgress(bookID, payload)
                 store.clearPendingPush(bookID: bookID)
-                markCollectionMutation()
             } catch {
                 // Fire-and-forget with `try?` meant that backgrounding or
                 // force-quitting right after closing a chapter dropped the
-                // collection-side write with no retry and no log, so
+                // cloud-side write with no retry and no log, so
                 // cross-device progress silently diverged. The local write
                 // above always lands; mark the push pending so the next
                 // launch can flush it.
@@ -86,7 +88,7 @@ struct ReaderProgressCoordinator: Sendable {
         }
     }
 
-    /// Re-pushes any progress whose collection-side write never landed.
+    /// Re-pushes any progress whose cloud-side write never landed.
     /// Called at reader-library appear.
     func flushPendingPushes() async {
         for bookID in store.pendingPushBookIDs() {
@@ -97,17 +99,9 @@ struct ReaderProgressCoordinator: Sendable {
             do {
                 _ = try await sync.pushBookProgress(bookID, payload)
                 store.clearPendingPush(bookID: bookID)
-                markCollectionMutation()
             } catch {
                 Log.reader.error("Deferred progress push still failing for \(bookID, privacy: .public): \(error)")
             }
-        }
-    }
-
-    private func markCollectionMutation() {
-        Task { @MainActor in
-            @Dependency(\.collectionStore) var store
-            store.markLocalMutation()
         }
     }
 }

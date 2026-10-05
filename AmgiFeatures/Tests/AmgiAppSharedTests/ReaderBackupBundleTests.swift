@@ -38,12 +38,12 @@ struct ReaderBackupBundleTests {
         }
     }
 
-    private func makeLibrary(at root: URL, bookIDs: [String]) throws {
+    private func makeLibrary(at root: URL, bookIDs: [String], sourceFileName: String = "original.epub") throws {
         for bookID in bookIDs {
             let directory = root.appendingPathComponent(bookID, isDirectory: true)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            try Data("epub-bytes-\(bookID)".utf8)
-                .write(to: directory.appendingPathComponent("original.epub"))
+            try Data("book-bytes-\(bookID)".utf8)
+                .write(to: directory.appendingPathComponent(sourceFileName))
             try Data("cover-\(bookID)".utf8)
                 .write(to: directory.appendingPathComponent("cover.jpg"))
             // A disposable extraction directory that must NOT be packaged.
@@ -56,6 +56,10 @@ struct ReaderBackupBundleTests {
         }
     }
 
+    private func makeEmptyLibrary(at root: URL) throws {
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    }
+
     @Test("a backup gains the books and keeps every Anki entry")
     func roundTripPreservesAnkiEntries() throws {
         let scratch = try makeScratch()
@@ -63,14 +67,17 @@ struct ReaderBackupBundleTests {
 
         let package = scratch.appendingPathComponent("backup.colpkg")
         try makeColpkg(at: package)
-        let library = scratch.appendingPathComponent("library", isDirectory: true)
-        try makeLibrary(at: library, bookIDs: ["epub-a", "epub-b"])
+        let epubLibrary = scratch.appendingPathComponent("epub-library", isDirectory: true)
+        try makeLibrary(at: epubLibrary, bookIDs: ["epub-a", "epub-b"])
+        let pdfLibrary = scratch.appendingPathComponent("pdf-library", isDirectory: true)
+        try makeLibrary(at: pdfLibrary, bookIDs: ["pdf-a"], sourceFileName: "original.pdf")
 
         let outcome = try ReaderBackupBundle.addReaderLibrary(
             toPackageAt: package,
-            libraryRoot: library
+            epubRoot: epubLibrary,
+            pdfRoot: pdfLibrary
         )
-        #expect(outcome.bookCount == 2)
+        #expect(outcome.bookCount == 3)
         #expect(outcome.didAddReaderPayload)
 
         let archive = try #require(Archive(url: package, accessMode: .read))
@@ -80,10 +87,12 @@ struct ReaderBackupBundleTests {
         for required in ["meta", "collection.anki2", "0"] {
             #expect(paths.contains(required), "expected \(required) to survive")
         }
-        // Our payload is present and namespaced.
+        // Both libraries' payloads are present and namespaced.
         #expect(paths.contains("ijuka/epub/epub-a/original.epub"))
         #expect(paths.contains("ijuka/epub/epub-b/original.epub"))
         #expect(paths.contains("ijuka/epub/epub-a/cover.jpg"))
+        #expect(paths.contains("ijuka/pdf/pdf-a/original.pdf"))
+        #expect(paths.contains("ijuka/pdf/pdf-a/cover.jpg"))
         // The disposable extraction cache is never packaged.
         #expect(!paths.contains(where: { $0.contains("original/") && $0.hasSuffix(".xhtml") }))
     }
@@ -95,12 +104,15 @@ struct ReaderBackupBundleTests {
 
         let package = scratch.appendingPathComponent("backup.colpkg")
         try makeColpkg(at: package)
-        let library = scratch.appendingPathComponent("library", isDirectory: true)
-        try makeLibrary(at: library, bookIDs: ["epub-a"])
+        let epubLibrary = scratch.appendingPathComponent("epub-library", isDirectory: true)
+        try makeLibrary(at: epubLibrary, bookIDs: ["epub-a"])
+        let pdfLibrary = scratch.appendingPathComponent("pdf-library", isDirectory: true)
+        try makeLibrary(at: pdfLibrary, bookIDs: ["pdf-a"], sourceFileName: "original.pdf")
 
         try ReaderBackupBundle.addReaderLibrary(
             toPackageAt: package,
-            libraryRoot: library
+            epubRoot: epubLibrary,
+            pdfRoot: pdfLibrary
         )
 
         let extracted = scratch.appendingPathComponent("extracted", isDirectory: true)
@@ -108,10 +120,11 @@ struct ReaderBackupBundleTests {
             fromPackageAt: package,
             to: extracted
         )
-        #expect(files.count == 1)
-        #expect(files[0].lastPathComponent == "epub-a.epub")
-        let data = try Data(contentsOf: files[0])
-        #expect(data == Data("epub-bytes-epub-a".utf8))
+        #expect(files.map(\.lastPathComponent) == ["epub-a.epub", "pdf-a.pdf"])
+        let epubData = try Data(contentsOf: extracted.appendingPathComponent("epub-a.epub"))
+        #expect(epubData == Data("book-bytes-epub-a".utf8))
+        let pdfData = try Data(contentsOf: extracted.appendingPathComponent("pdf-a.pdf"))
+        #expect(pdfData == Data("book-bytes-pdf-a".utf8))
     }
 
     @Test("a package with no reader payload extracts cleanly as empty")
@@ -140,11 +153,14 @@ struct ReaderBackupBundleTests {
         try makeColpkg(at: package)
         let before = try Data(contentsOf: package)
 
-        let library = scratch.appendingPathComponent("empty", isDirectory: true)
-        try FileManager.default.createDirectory(at: library, withIntermediateDirectories: true)
+        let epubLibrary = scratch.appendingPathComponent("empty-epub", isDirectory: true)
+        try makeEmptyLibrary(at: epubLibrary)
+        let pdfLibrary = scratch.appendingPathComponent("empty-pdf", isDirectory: true)
+        try makeEmptyLibrary(at: pdfLibrary)
         let outcome = try ReaderBackupBundle.addReaderLibrary(
             toPackageAt: package,
-            libraryRoot: library
+            epubRoot: epubLibrary,
+            pdfRoot: pdfLibrary
         )
         #expect(outcome.bookCount == 0)
         #expect(outcome.didAddReaderPayload == false)
@@ -158,21 +174,103 @@ struct ReaderBackupBundleTests {
 
         let package = scratch.appendingPathComponent("backup.colpkg")
         try makeColpkg(at: package)
-        let library = scratch.appendingPathComponent("library", isDirectory: true)
+        let epubLibrary = scratch.appendingPathComponent("epub-library", isDirectory: true)
         // A directory with no original.epub: exactly the state the repair UI
         // exists for. Silently dropping it would produce a backup that looks
         // complete but is not.
         try FileManager.default.createDirectory(
-            at: library.appendingPathComponent("epub-broken", isDirectory: true),
+            at: epubLibrary.appendingPathComponent("epub-broken", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        let pdfLibrary = scratch.appendingPathComponent("empty-pdf", isDirectory: true)
+        try makeEmptyLibrary(at: pdfLibrary)
+
+        #expect(throws: ReaderBackupBundle.Failure.self) {
+            try ReaderBackupBundle.addReaderLibrary(
+                toPackageAt: package,
+                epubRoot: epubLibrary,
+                pdfRoot: pdfLibrary
+            )
+        }
+    }
+
+    @Test("a PDF whose source vanished fails loudly rather than being skipped")
+    func missingPDFSourceFailsLoudly() throws {
+        let scratch = try makeScratch()
+        defer { try? FileManager.default.removeItem(at: scratch) }
+
+        let package = scratch.appendingPathComponent("backup.colpkg")
+        try makeColpkg(at: package)
+        let epubLibrary = scratch.appendingPathComponent("empty-epub", isDirectory: true)
+        try makeEmptyLibrary(at: epubLibrary)
+        let pdfLibrary = scratch.appendingPathComponent("pdf-library", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: pdfLibrary.appendingPathComponent("pdf-broken", isDirectory: true),
             withIntermediateDirectories: true
         )
 
         #expect(throws: ReaderBackupBundle.Failure.self) {
             try ReaderBackupBundle.addReaderLibrary(
                 toPackageAt: package,
-                libraryRoot: library
+                epubRoot: epubLibrary,
+                pdfRoot: pdfLibrary
             )
         }
+    }
+
+    @Test("a tombstoned PDF is left out of the backup")
+    func tombstonedPDFIsExcluded() throws {
+        let scratch = try makeScratch()
+        defer { try? FileManager.default.removeItem(at: scratch) }
+
+        let package = scratch.appendingPathComponent("backup.colpkg")
+        try makeColpkg(at: package)
+        let epubLibrary = scratch.appendingPathComponent("empty-epub", isDirectory: true)
+        try makeEmptyLibrary(at: epubLibrary)
+        let pdfLibrary = scratch.appendingPathComponent("pdf-library", isDirectory: true)
+        try makeLibrary(at: pdfLibrary, bookIDs: ["pdf-live", "pdf-dead"], sourceFileName: "original.pdf")
+        // A deleted PDF keeps its file on disk with a tombstone in the index.
+        // Backing it up anyway would resurrect it on restore.
+        let index = """
+            {"version":1,"entries":[\
+            {"bookID":"pdf-live","title":"Live","pageCount":2},\
+            {"bookID":"pdf-dead","title":"Gone","pageCount":2,"updatedAt":1700000000000,"deletedAt":1700000000000}\
+            ]}
+            """
+        try Data(index.utf8).write(to: pdfLibrary.appendingPathComponent("index.json"))
+
+        let outcome = try ReaderBackupBundle.addReaderLibrary(
+            toPackageAt: package,
+            epubRoot: epubLibrary,
+            pdfRoot: pdfLibrary
+        )
+        #expect(outcome.bookCount == 1)
+
+        let archive = try #require(Archive(url: package, accessMode: .read))
+        let paths = Set(archive.map(\.path))
+        #expect(paths.contains("ijuka/pdf/pdf-live/original.pdf"))
+        #expect(!paths.contains(where: { $0.contains("pdf-dead") }))
+    }
+
+    @Test("an unreadable PDF index backs up everything rather than dropping books")
+    func unreadablePDFIndexBacksUpEverything() throws {
+        let scratch = try makeScratch()
+        defer { try? FileManager.default.removeItem(at: scratch) }
+
+        let package = scratch.appendingPathComponent("backup.colpkg")
+        try makeColpkg(at: package)
+        let epubLibrary = scratch.appendingPathComponent("empty-epub", isDirectory: true)
+        try makeEmptyLibrary(at: epubLibrary)
+        let pdfLibrary = scratch.appendingPathComponent("pdf-library", isDirectory: true)
+        try makeLibrary(at: pdfLibrary, bookIDs: ["pdf-a"], sourceFileName: "original.pdf")
+        try Data("not json".utf8).write(to: pdfLibrary.appendingPathComponent("index.json"))
+
+        let outcome = try ReaderBackupBundle.addReaderLibrary(
+            toPackageAt: package,
+            epubRoot: epubLibrary,
+            pdfRoot: pdfLibrary
+        )
+        #expect(outcome.bookCount == 1)
     }
 
     @Test("the archive prefix cannot collide with an Anki media name")

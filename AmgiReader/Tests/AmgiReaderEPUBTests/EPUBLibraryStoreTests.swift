@@ -255,6 +255,46 @@ struct EPUBLibraryHealthTests {
         let health = await coldStore.bookHealth()
         #expect(health[book.id]?.fault == .sourceMissing)
     }
+
+    @Test("a failed rebuild keeps the previous extraction instead of wiping it")
+    func failedRebuildPreservesExtraction() async throws {
+        let fixtureRoot = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+
+        let sourceURL = fixtureRoot.appendingPathComponent("source.epub")
+        try makeValidEPUB(at: sourceURL)
+        let libraryRoot = fixtureRoot.appendingPathComponent("library", isDirectory: true)
+
+        let store = EPUBLibraryStore(rootDirectory: libraryRoot)
+        let book = try await store.importEPUB(from: sourceURL)
+
+        // A last-good extraction alongside a source that has since been
+        // corrupted underneath it.
+        let bookDirectory = libraryRoot.appendingPathComponent(book.id, isDirectory: true)
+        let extractionDirectory = bookDirectory.appendingPathComponent("original", isDirectory: true)
+        try FileManager.default.createDirectory(at: extractionDirectory, withIntermediateDirectories: true)
+        let sentinel = extractionDirectory.appendingPathComponent("sentinel.txt")
+        try Data("last good extraction".utf8).write(to: sentinel)
+        try Data("corrupted, not a zip".utf8).write(
+            to: bookDirectory.appendingPathComponent("original.epub")
+        )
+
+        let coldStore = EPUBLibraryStore(rootDirectory: libraryRoot)
+        let health = await coldStore.bookHealth()
+        #expect(health[book.id]?.fault == .parseFailed)
+
+        // The failed re-parse must not have destroyed the last-good
+        // extraction: wiping it is what left the reader opening zero chapters
+        // (blank page) on every launch after a crash mid-rebuild.
+        #expect(FileManager.default.fileExists(atPath: sentinel.path))
+        // And no crash-residue backup may be left behind.
+        let leftovers = try FileManager.default.contentsOfDirectory(
+            at: bookDirectory,
+            includingPropertiesForKeys: nil,
+            options: []
+        )
+        #expect(!leftovers.contains(where: { $0.lastPathComponent.hasPrefix(".original-backup-") }))
+    }
 }
 #endif
 

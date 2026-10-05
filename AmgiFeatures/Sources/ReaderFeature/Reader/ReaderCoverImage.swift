@@ -20,35 +20,57 @@ import AppKit
 ///
 /// When nothing resolves, fall through to `placeholder`.
 struct ReaderCoverImage<Placeholder: View>: View {
+    /// Which file format the badge names. Nil hides the badge (Anki books).
+    enum CoverFormat: Equatable {
+        case epub
+        case pdf
+
+        var badgeText: String {
+            switch self {
+            case .epub: "EPUB"
+            case .pdf: "PDF"
+            }
+        }
+    }
+
     enum Source {
         case ankiMediaPath(String?)
         case fileURL(URL?)
     }
 
     let source: Source
-    let isEPUB: Bool
+    let format: CoverFormat?
     @ViewBuilder let placeholder: () -> Placeholder
 
     @Environment(\.palette) private var palette
     @Environment(\.colorScheme) private var colorScheme
 
-    init(path: String?, isEPUB: Bool = false, @ViewBuilder placeholder: @escaping () -> Placeholder) {
+    init(path: String?, format: CoverFormat? = nil, @ViewBuilder placeholder: @escaping () -> Placeholder) {
         self.source = .ankiMediaPath(path)
-        self.isEPUB = isEPUB
+        self.format = format
         self.placeholder = placeholder
     }
 
-    init(fileURL: URL?, isEPUB: Bool = false, @ViewBuilder placeholder: @escaping () -> Placeholder) {
+    init(fileURL: URL?, format: CoverFormat? = nil, @ViewBuilder placeholder: @escaping () -> Placeholder) {
         self.source = .fileURL(fileURL)
-        self.isEPUB = isEPUB
+        self.format = format
         self.placeholder = placeholder
+    }
+
+    /// Back-compat for the EPUB-only call sites that predate PDF badges.
+    init(path: String?, isEPUB: Bool, @ViewBuilder placeholder: @escaping () -> Placeholder) {
+        self.init(path: path, format: isEPUB ? .epub : nil, placeholder: placeholder)
+    }
+
+    init(fileURL: URL?, isEPUB: Bool, @ViewBuilder placeholder: @escaping () -> Placeholder) {
+        self.init(fileURL: fileURL, format: isEPUB ? .epub : nil, placeholder: placeholder)
     }
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
             content
-            if isEPUB {
-                Text("EPUB")
+            if let format {
+                Text(format.badgeText)
                     .font(.system(size: 9, weight: .heavy))
                     .padding(.horizontal, 5)
                     .padding(.vertical, 2)

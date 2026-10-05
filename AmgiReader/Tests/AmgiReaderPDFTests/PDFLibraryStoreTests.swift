@@ -343,4 +343,61 @@ struct PDFLibraryStoreTests {
         #expect(second.title == "Second Title")
         #expect((await store.books()).count == 2)
     }
+
+    @Test("iCloud mirror uploads and additively restores without deleting local state")
+    func iCloudMirrorRoundTrip() async throws {
+        let temporary = TemporaryLibrary()
+        defer { temporary.cleanUp() }
+        let source = try temporary.write(PDFDocumentFixture.outlined(), named: "book.pdf")
+
+        let cloudRoot = temporary.root.appendingPathComponent("icloud", isDirectory: true)
+        let firstStore = PDFLibraryStore(
+            testingRootDirectory: temporary.root.appendingPathComponent("first", isDirectory: true),
+            cloudRoot: cloudRoot
+        )
+        let secondStore = PDFLibraryStore(
+            testingRootDirectory: temporary.root.appendingPathComponent("second", isDirectory: true),
+            cloudRoot: cloudRoot
+        )
+
+        let imported = try await firstStore.importPDF(from: source)
+        let firstSync = await firstStore.synchronizeWithICloud()
+        #expect(firstSync.status == .completed)
+        #expect(firstSync.uploadedBookIDs == [imported.id])
+        let cloudBookDirectory = cloudRoot
+            .appendingPathComponent("Documents", isDirectory: true)
+            .appendingPathComponent("PDF", isDirectory: true)
+            .appendingPathComponent("books", isDirectory: true)
+            .appendingPathComponent(imported.id, isDirectory: true)
+        #expect(FileManager.default.fileExists(
+            atPath: cloudBookDirectory.appendingPathComponent("metadata.json").path
+        ))
+        #expect(FileManager.default.fileExists(
+            atPath: cloudBookDirectory.appendingPathComponent("original.pdf").path
+        ))
+
+        let secondSync = await secondStore.synchronizeWithICloud()
+        #expect(secondSync.status == .completed)
+        #expect(secondSync.uploadedBookIDs.isEmpty)
+        #expect(secondSync.restoredBookIDs == [imported.id])
+        #expect(await secondStore.books().map(\.id) == [imported.id])
+        #expect(await secondStore.remoteBookIDs() == [imported.id])
+
+        // A local deletion is local-only; an explicit restore can bring the
+        // retained cloud backup back through the validated import pipeline.
+        try await secondStore.delete(bookID: imported.id)
+        let afterDeleteSync = await secondStore.synchronizeWithICloud()
+        #expect(afterDeleteSync.restoredBookIDs.isEmpty)
+        #expect(await secondStore.books().isEmpty)
+        let restored = try await secondStore.restoreFromICloud(bookID: imported.id)
+        #expect(restored.id == imported.id)
+        #expect(await secondStore.books().map(\.id) == [imported.id])
+
+        try await firstStore.delete(bookID: imported.id)
+        let deleteSync = await firstStore.synchronizeWithICloud()
+        #expect(deleteSync.status == .completed)
+        #expect(FileManager.default.fileExists(
+            atPath: cloudBookDirectory.appendingPathComponent("original.pdf").path
+        ))
+    }
 }

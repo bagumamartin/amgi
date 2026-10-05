@@ -103,4 +103,41 @@ struct ReaderLibraryViewDataTests {
         #expect(ReaderBookRepair(fault: .sourceUnreadable, detail: nil).canRetryInPlace)
         #expect(ReaderBookRepair(fault: .sourceMissing, detail: nil).canRetryInPlace == false)
     }
+
+    @Test("a coverless EPUB renders its first page before the placeholder")
+    func coverlessEPUBUsesFirstPage() {
+        let firstPage = EPUBFirstPageSource(
+            contentURL: URL(fileURLWithPath: "/tmp/ch1.html"),
+            readAccessURL: URL(fileURLWithPath: "/tmp/")
+        )
+        let data = ReaderLibraryViewDataBuilder.build(
+            books: [book("a")],
+            progressFor: { _ in nil },
+            epubCoverURLFor: { _ in nil },
+            epubFirstPageFor: { _ in firstPage },
+            searchText: "",
+            sortMode: .title,
+            hasAnkiConfig: true
+        )
+        #expect(data.allBooks.first?.coverArt == .epubFirstPage(firstPage))
+    }
+
+    @Test("an embedded cover wins over the first page")
+    func embeddedCoverWinsOverFirstPage() {
+        let cover = URL(fileURLWithPath: "/tmp/cover.jpg")
+        let firstPage = EPUBFirstPageSource(
+            contentURL: URL(fileURLWithPath: "/tmp/ch1.html"),
+            readAccessURL: URL(fileURLWithPath: "/tmp/")
+        )
+        let data = ReaderLibraryViewDataBuilder.build(
+            books: [book("a")],
+            progressFor: { _ in nil },
+            epubCoverURLFor: { _ in cover },
+            epubFirstPageFor: { _ in firstPage },
+            searchText: "",
+            sortMode: .title,
+            hasAnkiConfig: true
+        )
+        #expect(data.allBooks.first?.coverArt == .epub(localFileURL: cover))
+    }
 }

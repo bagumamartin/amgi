@@ -20,6 +20,9 @@ final class ReaderLibraryModel {
     private var bookIndex: [String: ReaderBook] = [:]
     /// Covers resolved from the two file-backed stores, keyed by book ID.
     private var localCoverURLs: [String: URL] = [:]
+    /// First-page render sources for coverless EPUBs, keyed by book ID.
+    /// Resolved alongside covers so the fallback costs no per-cell store I/O.
+    private var localFirstPages: [String: EPUBFirstPageSource] = [:]
     /// Books that are present but unreadable. Kept so the row can render a
     /// repair affordance instead of the book silently vanishing.
     ///
@@ -113,6 +116,43 @@ final class ReaderLibraryModel {
         if Task.isCancelled { return }
         localCoverURLs = resolved
 
+        // EPUBs without embedded cover art fall back in two stages: first a
+        // cover image lifted from the first chapter (which usually *is* the
+        // cover), then a first-page render. Resolve both here, once per
+        // reload, so cells never hit the store or the filesystem per body
+        // pass. Only coverless EPUBs pay for the extra lookups.
+        var firstPages: [String: EPUBFirstPageSource] = [:]
+        await withTaskGroup(of: (String, URL?, EPUBFirstPageSource?).self) { group in
+            for book in merged {
+                guard case .epub = book.source,
+                      resolved[book.id] == nil,
+                      let firstChapter = book.chapters.first else { continue }
+                group.addTask {
+                    guard let readAccess = await epubClient.contentRootURL(book.id),
+                          let content = await epubClient.chapterContentURL(book.id, firstChapter.id) else {
+                        return (book.id, nil, nil)
+                    }
+                    // Pure file work off the main actor: SAX scan plus image
+                    // header reads, no WebKit, no store access.
+                    if let image = await Task.detached(priority: .utility, operation: {
+                        EPUBCoverImageExtractor.firstCoverImageURL(
+                            chapterURL: content,
+                            contentRootURL: readAccess
+                        )
+                    }).value {
+                        return (book.id, image, nil)
+                    }
+                    return (book.id, nil, EPUBFirstPageSource(contentURL: content, readAccessURL: readAccess))
+                }
+            }
+            for await (id, cover, firstPage) in group {
+                if let cover { resolved[id] = cover }
+                if let firstPage { firstPages[id] = firstPage }
+            }
+        }
+        if Task.isCancelled { return }
+        localFirstPages = firstPages
+
         // Ask the stores which books need repair. This is the authoritative
         // check, so a book whose source vanished since the last launch is
         // flagged here instead of quietly dropping out of the list.
@@ -158,11 +198,13 @@ final class ReaderLibraryModel {
     func rebuildViewData(searchText: String, sortMode: BookshelfSortMode) {
         guard !books.isEmpty else { return }
         let coverURLs = localCoverURLs
+        let firstPages = localFirstPages
         let repairSnapshot = repairs
         let data = ReaderLibraryViewDataBuilder.build(
             books: books,
             progressFor: { [progressByBook] in progressByBook[$0] },
             epubCoverURLFor: { coverURLs[$0] },
+            epubFirstPageFor: { firstPages[$0] },
             repairFor: { repairSnapshot[$0] },
             searchText: searchText,
             sortMode: sortMode,

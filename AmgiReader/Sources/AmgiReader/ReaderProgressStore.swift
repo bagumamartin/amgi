@@ -30,10 +30,9 @@ public struct ReaderSavedProgress: Codable, Equatable, Sendable {
 /// `UserDefaults` instance under a sanitized key.
 ///
 /// Deliberately scoped to local persistence only. Cross-device sync via
-/// the Anki collection config — and any legacy media-folder migrations —
-/// belong in an Anki-side adapter that wraps this store; keeping them
-/// out of `AmgiReader` is what lets this package stay free of Anki
-/// dependencies.
+/// the iCloud Drive progress manifest belongs in a sync adapter outside
+/// this package; keeping it out of `AmgiReader` is what lets this package
+/// stay free of sync-backend dependencies.
 // `UserDefaults` is thread-safe but not formally `Sendable`. The struct is
 // otherwise value-only, so `@unchecked Sendable` is honest here.
 public struct ReaderProgressStore: @unchecked Sendable {
@@ -132,10 +131,10 @@ public struct ReaderProgressStore: @unchecked Sendable {
         userDefaults.set(data, forKey: storageKey(for: bookID))
     }
 
-    // MARK: - Deferred collection-side pushes
+    // MARK: - Deferred cloud-side pushes
     //
-    // The local write always lands, but the mirror into the Anki collection
-    // config is a background task that can be lost to a backgrounding or a
+    // The local write always lands, but the mirror into the iCloud Drive
+    // manifest is a background task that can be lost to a backgrounding or a
     // force-quit. Book ids whose push has not landed are recorded here so a
     // later launch can retry, instead of letting cross-device progress
     // silently diverge.

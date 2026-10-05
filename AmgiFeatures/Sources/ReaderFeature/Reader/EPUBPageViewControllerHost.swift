@@ -94,8 +94,12 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
             return
         }
         // If the host's chapterIndex Binding diverged from what the page
-        // controller currently shows (programmatic jump), re-seed.
-        if let current = uiViewController.viewControllers?.first as? EPUBChapterPageController,
+        // controller currently shows (programmatic jump), re-seed — but never
+        // mid-transition: re-seeding under an interactive curl is one of the
+        // collisions behind UIKit's "0 view controllers" exception. The next
+        // update after the transition ends picks it up instead.
+        if !context.coordinator.isTransitioning,
+           let current = uiViewController.viewControllers?.first as? EPUBChapterPageController,
            current.chapterIndex != chapterIndex {
             if let next = context.coordinator.makeChapterVC(at: chapterIndex, restoreFraction: pendingRestoreFraction) {
                 let direction: UIPageViewController.NavigationDirection =
@@ -125,6 +129,17 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
                              UIPageViewControllerDelegate, EPUBChapterPageControllerDelegate {
         var host: EPUBPageViewControllerHost
         var didInstallInitial = false
+        /// True while a page transition (gesture-driven or programmatic) is
+        /// in flight. Programmatic `setViewControllers` calls made during an
+        /// interactive curl collided with UIKit's own transition machinery —
+        /// the "number of view controllers provided (0) doesn't match the
+        /// number required (1)" crash — so turns requested mid-transition are
+        /// queued and serviced when the running one finishes instead.
+        var isTransitioning = false
+        /// A page-turn request that arrived mid-transition, serviced once the
+        /// running transition finishes. Single slot: turns are user-paced and
+        /// only the latest outstanding one matters.
+        private var queuedTurnRequest: ReaderPageTurnRequest?
         private var handledPageTurnSequence = 0
         private var handledSelectionRequestID = 0
         private weak var pageViewController: UIPageViewController?
@@ -158,7 +173,40 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
                     currentController = current
                     prefetchedPages[PageAddress(chapter: current.chapterIndex, page: current.currentPageIndex)] = current
                 }
+                prunePrefetches(around: current)
             }
+        }
+
+        /// Keeps only the current page and its immediate neighbours. Each
+        /// entry retains a chapter controller and its WebView, so an uncapped
+        /// cache is how a long session accumulated dozens of live WebViews
+        /// until the system started killing WebContent processes and the main
+        /// thread stalled. Skipped mid-transition: evicting the page UIKit is
+        /// curling to would make the data source answer inconsistently within
+        /// a single gesture.
+        private func prunePrefetches(around current: EPUBChapterPageController) {
+            guard !isTransitioning else { return }
+            prefetchedPages = prefetchedPages.filter { keepAddresses(of: current).contains($0.key) }
+        }
+
+        /// The addresses `prunePrefetches` and the curl prewarm agree on: the
+        /// current page plus the boundary page of each adjacent chapter.
+        private func keepAddresses(of current: EPUBChapterPageController) -> Set<PageAddress> {
+            var keep: Set<PageAddress> = [PageAddress(chapter: current.chapterIndex, page: current.currentPageIndex)]
+            for direction in [EPUBChapterPageController.PageDirection.backward, .forward] {
+                if current.canTurn(direction) {
+                    keep.insert(PageAddress(
+                        chapter: current.chapterIndex,
+                        page: current.currentPageIndex + (direction == .forward ? 1 : -1)
+                    ))
+                } else {
+                    let chapter = current.chapterIndex + (direction == .forward ? 1 : -1)
+                    if host.book.chapters.indices.contains(chapter) {
+                        keep.insert(PageAddress(chapter: chapter, page: direction == .forward ? 0 : -1))
+                    }
+                }
+            }
+            return keep
         }
 
         /// Whether the view asked for the chapter's marks to be repainted.
@@ -362,12 +410,14 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
             from controller: EPUBChapterPageController,
             in pageVC: UIPageViewController
         ) -> Bool {
-            guard let destination = adjacentPageController(from: controller, direction: direction) else {
-                if direction == .forward { host.onReachedEnd() }
+            guard !isTransitioning,
+                  let destination = adjacentPageController(from: controller, direction: direction) else {
+                if direction == .forward, !isTransitioning { host.onReachedEnd() }
                 return false
             }
             let navigationDirection: UIPageViewController.NavigationDirection =
                 direction == .forward ? .forward : .reverse
+            isTransitioning = true
             host.onPageTurnAnimation(true)
             pageVC.setViewControllers(
                 [destination],
@@ -375,13 +425,33 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
                 animated: !AmgiMotion.prefersReducedMotion
             ) { [weak self] completed in
                 guard let self else { return }
+                self.isTransitioning = false
                 self.host.onPageTurnAnimation(false)
                 guard completed else { return }
                 self.host.chapterIndex = destination.chapterIndex
                 self.currentController = destination
                 self.emitPageInfo(of: destination)
+                self.serviceQueuedTurnIfNeeded()
             }
             return true
+        }
+
+        /// Services a turn request that arrived mid-transition. Called when a
+        /// transition ends; safe to call elsewhere too — an empty queue is a
+        /// no-op, and starting a turn re-arms the guard before any re-entry.
+        private func serviceQueuedTurnIfNeeded() {
+            guard !isTransitioning,
+                  let request = queuedTurnRequest,
+                  let pageVC = pageViewController,
+                  let current = currentController
+                    ?? pageVC.viewControllers?.first as? EPUBChapterPageController,
+                  current.isReadyForPaging else { return }
+            queuedTurnRequest = nil
+            _ = navigate(
+                request.direction == .forward ? .forward : .backward,
+                from: current,
+                in: pageVC
+            )
         }
 
         private func adjacentPageController(
@@ -417,21 +487,7 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
             prefetchedPages[currentAddress] = current
             _ = adjacentPageController(from: current, direction: .backward)
             _ = adjacentPageController(from: current, direction: .forward)
-            var keep: Set<PageAddress> = [currentAddress]
-            for direction in [EPUBChapterPageController.PageDirection.backward, .forward] {
-                if current.canTurn(direction) {
-                    keep.insert(PageAddress(
-                        chapter: current.chapterIndex,
-                        page: current.currentPageIndex + (direction == .forward ? 1 : -1)
-                    ))
-                } else {
-                    let chapter = current.chapterIndex + (direction == .forward ? 1 : -1)
-                    if host.book.chapters.indices.contains(chapter) {
-                        keep.insert(PageAddress(chapter: chapter, page: direction == .forward ? 0 : -1))
-                    }
-                }
-            }
-            prefetchedPages = prefetchedPages.filter { keep.contains($0.key) }
+            prefetchedPages = prefetchedPages.filter { keepAddresses(of: current).contains($0.key) }
         }
 
         private func emitPageInfo(of controller: EPUBChapterPageController) {
@@ -511,8 +567,13 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
             let forward = direction == .forward
             let navigationDirection: UIPageViewController.NavigationDirection = forward ? .forward : .reverse
             let targetIndex = next.chapterIndex
+            guard !isTransitioning else { return }
+            isTransitioning = true
             let finish: (Bool) -> Void = { [weak self] _ in
-                self?.host.chapterIndex = targetIndex
+                guard let self else { return }
+                self.isTransitioning = false
+                self.host.chapterIndex = targetIndex
+                self.serviceQueuedTurnIfNeeded()
             }
 
             if AmgiMotion.prefersReducedMotion {
@@ -616,6 +677,12 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
                   let current = pageVC.viewControllers?.first as? EPUBChapterPageController,
                   current.isReadyForPaging else { return false }
             handledPageTurnSequence = request.sequence
+            guard !isTransitioning else {
+                // A button tap that lands mid-transition waits for the running
+                // one instead of stacking a second setViewControllers on it.
+                queuedTurnRequest = request
+                return true
+            }
             return navigate(
                 request.direction == .forward ? .forward : .backward,
                 from: current,
@@ -662,19 +729,27 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
             previousViewControllers: [UIViewController],
             transitionCompleted completed: Bool
         ) {
+            isTransitioning = false
             host.onPageTurnAnimation(false)
             guard completed,
                   let current = pageViewController.viewControllers?.first as? EPUBChapterPageController
-            else { return }
+            else {
+                // A cancelled gesture still releases a queued turn: the tap
+                // behind it remains a valid user intent.
+                serviceQueuedTurnIfNeeded()
+                return
+            }
             currentController = current
             host.chapterIndex = current.chapterIndex
             emitPageInfo(of: current)
+            serviceQueuedTurnIfNeeded()
         }
 
         func pageViewController(
             _ pageViewController: UIPageViewController,
             willTransitionTo pendingViewControllers: [UIViewController]
         ) {
+            isTransitioning = true
             host.onPageTurnAnimation(true)
         }
 

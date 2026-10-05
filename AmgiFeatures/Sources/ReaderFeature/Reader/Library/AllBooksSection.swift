@@ -10,10 +10,13 @@ struct AllBooksSection: View {
     /// Nil hides the affordance and every book behaves as before.
     var onRepair: ((String, ReaderBookRepair) -> Void)?
 
-    private let columns: [GridItem] = Array(
-        repeating: GridItem(.flexible(minimum: 0, maximum: .infinity), spacing: 14, alignment: .top),
-        count: 3
-    )
+    /// Three-up on iPhone, more columns as width allows. Fixed at three the
+    /// grid goes sparse on iPad; fully adaptive it goes cramped on iPhone
+    /// SE. The minimum keeps cells readable while the column count follows
+    /// the 800pt content column.
+    private let columns: [GridItem] = [
+        GridItem(.adaptive(minimum: 108, maximum: 180), spacing: 14, alignment: .top)
+    ]
 
     @Environment(\.palette) private var palette
     /// Anchors each book's detail push to the cover the user tapped, so the

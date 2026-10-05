@@ -677,6 +677,18 @@ public actor EPUBLibraryStore {
     /// Unlike the previous `ReaderBook?`-returning version, a failure here is
     /// recorded on the index entry and persisted. That is what stops a failed
     /// cold rebuild from looking identical to "the book was never imported".
+    ///
+    /// Two hardening rules keep one bad book from wedging the whole library:
+    ///
+    /// - The parse runs with a timeout. A file that hangs the parser (rather
+    ///   than failing fast) used to stall `books()` forever — and `books()`
+    ///   gates the library screen, so every cold launch white-screened on the
+    ///   same book. A timeout records an ordinary `parseFailed` instead, which
+    ///   the repair UI already knows how to offer retry/relink for.
+    /// - The existing extraction is moved aside, not deleted, and restored
+    ///   when the re-parse fails. Deleting first meant a crash or failure
+    ///   mid-parse left the book with zero chapters even though its previous
+    ///   extraction was fine — a blank reader on every subsequent open.
     private func rebuildBook(from entry: EPUBLibraryIndexEntry) async -> RebuildOutcome {
         guard !entry.isDeleted else { return RebuildOutcome(book: nil, fault: nil, detail: nil) }
         let epubURL = localEntrySourceURL(entry.bookID)
@@ -690,35 +702,115 @@ public actor EPUBLibraryStore {
             )
         }
 
-        // EPUBKit's archive service reuses an existing extraction directory
-        // instead of re-reading the archive (EPUBArchiveService.unarchive
-        // returns early when `{id}/original` already exists). Left alone, a
-        // source that was replaced or corrupted underneath us keeps serving
-        // the *previous* extraction, so a broken file parses "successfully"
-        // with stale metadata and no fault is ever reported. Clearing the
-        // disposable extraction first makes a cold rebuild mean what it says.
-        // It is safe here because this path only runs on a cache miss, and
-        // `chapterURLCache` / `contentRootCache` are repopulated below.
-        try? FileManager.default.removeItem(
-            at: rootDirectory
-                .appendingPathComponent(entry.bookID, isDirectory: true)
-                .appendingPathComponent("original", isDirectory: true)
-        )
+        let bookDirectory = rootDirectory.appendingPathComponent(entry.bookID, isDirectory: true)
+        let extractionDirectory = bookDirectory.appendingPathComponent("original", isDirectory: true)
+        restoreStaleExtractionBackupIfNeeded(in: bookDirectory, extractionDirectory: extractionDirectory)
+        let extractionBackup = stashExtractionDirectory(extractionDirectory)
 
         do {
-            let parsed = try await parser.parse(fileURL: epubURL)
+            let parsed = try await parseWithTimeout(fileURL: epubURL)
             chapterURLCache[entry.bookID] = parsed.chapterContentURLs
             contentRootCache[entry.bookID] = parsed.contentDirectory
             await clearFault(for: entry.bookID)
+            if let extractionBackup {
+                try? FileManager.default.removeItem(at: extractionBackup)
+            }
             return RebuildOutcome(book: parsed.book, fault: nil, detail: nil)
         } catch {
+            // The re-parse failed: put the previous extraction back so the
+            // book keeps its last-good chapters instead of dropping to zero.
+            if let extractionBackup,
+               !FileManager.default.fileExists(atPath: extractionDirectory.path) {
+                try? FileManager.default.moveItem(at: extractionBackup, to: extractionDirectory)
+            }
+            let detail = (error as? RebuildTimeoutError) == .timedOut
+                ? "Rebuilding this book timed out. It may be readable after a retry."
+                : error.localizedDescription
             return await record(
                 fault: .parseFailed,
-                detail: error.localizedDescription,
+                detail: detail,
                 for: entry.bookID,
                 outcomeBook: nil
             )
         }
+    }
+
+    /// A parse that never returns must not stall the library. Normal books
+    /// parse in seconds; anything beyond the window is recorded as a failure
+    /// the repair UI can retry, and the library keeps loading around it.
+    ///
+    /// Runs in books()'s existing sequential loop on purpose: EPUBKit's
+    /// archive service carries shared mutable state, so parallel parses trade
+    /// a faster cold start for races inside the parser.
+    private static let rebuildTimeoutNanoseconds: UInt64 = 20 * 1_000_000_000
+
+    private enum RebuildTimeoutError: Error {
+        case timedOut
+    }
+
+    private func parseWithTimeout(fileURL: URL) async throws -> ParsedEPUBBook {
+        try await withThrowingTaskGroup(of: ParsedEPUBBook.self) { group in
+            group.addTask {
+                try await self.parser.parse(fileURL: fileURL)
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: Self.rebuildTimeoutNanoseconds)
+                throw RebuildTimeoutError.timedOut
+            }
+            guard let result = try await group.next() else {
+                throw RebuildTimeoutError.timedOut
+            }
+            group.cancelAll()
+            return result
+        }
+    }
+
+    /// Moves the disposable extraction aside and returns where it went, so a
+    /// failed re-parse can put it back.
+    ///
+    /// EPUBKit's archive service reuses an existing extraction directory
+    /// instead of re-reading the archive (it returns early when
+    /// `{id}/original` already exists). Left alone, a source that was
+    /// replaced or corrupted underneath us keeps serving the *previous*
+    /// extraction, so a broken file parses "successfully" with stale metadata
+    /// and no fault is ever reported. Clearing the disposable extraction
+    /// first makes a cold rebuild mean what it says — but unlike deleting it
+    /// outright, moving it aside keeps the last-good chapters recoverable.
+    /// The backup name is dot-prefixed so directory scans skip it.
+    private func stashExtractionDirectory(_ extractionDirectory: URL) -> URL? {
+        guard FileManager.default.fileExists(atPath: extractionDirectory.path) else {
+            return nil
+        }
+        let backup = extractionDirectory.deletingLastPathComponent()
+            .appendingPathComponent(".original-backup-\(UUID().uuidString)", isDirectory: true)
+        do {
+            try FileManager.default.moveItem(at: extractionDirectory, to: backup)
+            return backup
+        } catch {
+            return nil
+        }
+    }
+
+    /// Restores a backup left behind by a crash between stash and
+    /// restore-or-delete. Without this, a book whose rebuild was interrupted
+    /// opens with no chapters even though its last-good extraction survived.
+    private func restoreStaleExtractionBackupIfNeeded(
+        in bookDirectory: URL,
+        extractionDirectory: URL
+    ) {
+        guard !FileManager.default.fileExists(atPath: extractionDirectory.path),
+              let backups = try? FileManager.default.contentsOfDirectory(
+                  at: bookDirectory,
+                  includingPropertiesForKeys: nil,
+                  options: [.skipsHiddenFiles]
+              ),
+              let backup = backups.first(where: {
+                  $0.lastPathComponent.hasPrefix(".original-backup-")
+              })
+        else {
+            return
+        }
+        try? FileManager.default.moveItem(at: backup, to: extractionDirectory)
     }
 
     /// Persist a fault against an index entry and return the rebuild outcome.
