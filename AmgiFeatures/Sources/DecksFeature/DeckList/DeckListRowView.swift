@@ -16,6 +16,8 @@ struct DeckListRow: Identifiable, Equatable, Hashable {
     let counts: DeckCounts
     let isFiltered: Bool
     let subdeckCount: Int
+    var cardCount: Int? = nil
+    var uncappedCounts: DeckCounts? = nil
 }
 
 extension DeckListRow {
@@ -28,7 +30,9 @@ extension DeckListRow {
             fullName: node.fullName,
             counts: node.counts,
             isFiltered: node.isFiltered,
-            subdeckCount: node.children.count
+            subdeckCount: node.children.count,
+            cardCount: node.cardCount,
+            uncappedCounts: node.uncappedCounts
         )
     }
 
@@ -50,7 +54,10 @@ extension DeckListRow {
             reviewCount: counts.reviewCount,
             isFiltered: isFiltered,
             subdeckCount: subdeckCount,
-            isArchived: isArchived
+            isArchived: isArchived,
+            cardCount: cardCount,
+            availableNewCount: uncappedCounts?.newCount,
+            waitingCount: uncappedCounts?.total
         )
     }
 }

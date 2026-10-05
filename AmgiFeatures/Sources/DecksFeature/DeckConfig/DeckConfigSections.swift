@@ -111,6 +111,9 @@ struct NewCardsSection: View {
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
             }
+            // The `d` is step *syntax* the field accepts, not prose, so it
+            // stays ASCII. The sentence around it is a `LocalizedStringKey`
+            // and extracts normally.
             Stepper("Graduating interval: \(graduatingGoodDays)d", value: $graduatingGoodDays, in: 0...365)
             Stepper("Easy interval: \(graduatingEasyDays)d", value: $graduatingEasyDays, in: 0...365)
         }

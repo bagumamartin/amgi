@@ -4,6 +4,7 @@ import AmgiAppShared
 import AmgiUI
 package import AnkiKit
 import AnkiClients
+import AnkiBackend
 import AnkiServices
 import Dependencies
 import AmgiTheme
@@ -71,6 +72,8 @@ package struct BrowseView: View {
 
     /// Present only on macOS, where Browse replaces the root sidebar.
     private let exit: BrowseExit?
+    private let onCardsRestored: () -> Void
+    private let requiredActivationID: UUID?
 
     package init(exit: BrowseExit? = nil) {
         self.init(model: BrowseModel(), exit: exit)
@@ -78,13 +81,18 @@ package struct BrowseView: View {
 
     /// Modal entry from deck detail. The deck source is installed before the
     /// first search, so the sheet never flashes collection-wide results.
-    package init(deck: DeckInfo) {
-        self.init(model: BrowseModel(rootDeck: deck), exit: nil)
+    package init(deck: DeckInfo, initialFilter: String = "", requiredActivationID: UUID? = nil,
+                 onCardsRestored: @escaping () -> Void = {}) {
+        self.init(model: BrowseModel(rootDeck: deck, initialFilter: initialFilter), exit: nil,
+            requiredActivationID: requiredActivationID, onCardsRestored: onCardsRestored)
     }
 
-    init(model: BrowseModel, exit: BrowseExit? = nil) {
+    init(model: BrowseModel, exit: BrowseExit? = nil, requiredActivationID: UUID? = nil,
+         onCardsRestored: @escaping () -> Void = {}) {
         _model = State(initialValue: model)
         self.exit = exit
+        self.requiredActivationID = requiredActivationID
+        self.onCardsRestored = onCardsRestored
         #if os(iOS)
         _preferredColumn = State(initialValue: model.rootDeck != nil ? .content : .sidebar)
         #endif
@@ -1277,7 +1285,12 @@ package struct BrowseView: View {
         let notes = selectionState.selectedNoteIDs
         let cards = Array(selectionState.selectedCardIDs)
         selectionState.exitSelectMode()
-        Task { await model.unSuspendSelected(notes, cardIDs: cards) }
+        Task {
+            let restored = await AnkiBackend.$requiredCollectionActivationID.withValue(requiredActivationID) {
+                await model.unSuspendSelected(notes, cardIDs: cards)
+            }
+            if restored { onCardsRestored() }
+        }
     }
 
     private func burySelected() {

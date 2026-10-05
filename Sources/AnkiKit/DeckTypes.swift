@@ -87,6 +87,10 @@ public struct DeckTreeNode: Sendable, Equatable, Identifiable {
     public var counts: DeckCounts
     public var isFiltered: Bool
     public var children: [DeckTreeNode]
+    /// Inventory is absent on count-free tree requests. Unlike `counts`,
+    /// these values include descendants without applying daily study limits.
+    public var cardCount: Int?
+    public var uncappedCounts: DeckCounts?
 
     public init(
         id: DeckID,
@@ -94,7 +98,9 @@ public struct DeckTreeNode: Sendable, Equatable, Identifiable {
         fullName: String,
         counts: DeckCounts = .zero,
         isFiltered: Bool = false,
-        children: [DeckTreeNode] = []
+        children: [DeckTreeNode] = [],
+        cardCount: Int? = nil,
+        uncappedCounts: DeckCounts? = nil
     ) {
         self.id = id
         self.name = name
@@ -102,6 +108,8 @@ public struct DeckTreeNode: Sendable, Equatable, Identifiable {
         self.counts = counts
         self.isFiltered = isFiltered
         self.children = children
+        self.cardCount = cardCount
+        self.uncappedCounts = uncappedCounts
     }
 }
 

@@ -9,7 +9,7 @@ extension DeckConfigModel {
         isPresetMutating = true
         defer { isPresetMutating = false }
         do {
-            try await deckClient.selectDeckPreset(deckId, target, applyToChildren)
+            try await collectionAccess { try await deckClient.selectDeckPreset(deckId, target, applyToChildren) }
             collectionStore.markLocalMutation()
             await loadConfig()
         } catch {
@@ -23,7 +23,7 @@ extension DeckConfigModel {
         isPresetMutating = true
         defer { isPresetMutating = false }
         do {
-            try await deckClient.createDeckPreset(deckId, base, uniqueName(name), applyToChildren)
+            try await collectionAccess { try await deckClient.createDeckPreset(deckId, base, uniqueName(name), applyToChildren) }
             collectionStore.markLocalMutation()
             newPresetName = ""
             await loadConfig()
@@ -42,7 +42,7 @@ extension DeckConfigModel {
             base.name = trimmed
             // Reuse selectDeckPreset which writes the existing config's row in
             // place — same RPC the Anki Desktop "rename preset" flow uses.
-            try await deckClient.selectDeckPreset(deckId, base, applyToChildren)
+            try await collectionAccess { try await deckClient.selectDeckPreset(deckId, base, applyToChildren) }
             collectionStore.markLocalMutation()
             await loadConfig()
         } catch {
@@ -55,7 +55,7 @@ extension DeckConfigModel {
         isPresetMutating = true
         defer { isPresetMutating = false }
         do {
-            try await deckClient.deleteDeckPreset(deckId, current.id, fallback, applyToChildren)
+            try await collectionAccess { try await deckClient.deleteDeckPreset(deckId, current.id, fallback, applyToChildren) }
             collectionStore.markLocalMutation()
             await loadConfig()
         } catch {
@@ -88,7 +88,7 @@ extension DeckConfigModel {
                 runHealthCheck: fsrsHealthCheck
             )
 
-            let result = try await deckClient.computeFsrsParams(request)
+            let result = try await collectionAccess { try await deckClient.computeFsrsParams(request) }
             guard !result.weights.isEmpty else {
                 destination = .alert(.fsrsError("Not enough review history to optimize. Try lowering historical retention or expanding the search."))
                 return
@@ -108,7 +108,7 @@ extension DeckConfigModel {
         defer { isOptimizingFsrs = false }
 
         do {
-            try await deckClient.optimizeFsrsPresets(deckId, loaded.config)
+            try await collectionAccess { try await deckClient.optimizeFsrsPresets(deckId, loaded.config) }
             collectionStore.markLocalMutation()
             await loadConfig()
         } catch {

@@ -30,6 +30,9 @@ public struct LibraryListContent: View {
     let onDeleteDeck: (Int64) async -> Void
     let onRenameDeck: (DeckRowViewData) -> Void
     let onCreateDeck: () -> Void
+    let onDecision: (DeckTriageItem, DeckTriageAction) -> Void
+    let onReviewDecisions: () -> Void
+    let onReviewPausedDecks: () -> Void
     let onChangeIconDeck: (DeckRowViewData) -> Void
     /// Namespace the container's deck-detail push zooms from. Optional
     /// because the row rendering is useful in previews and tests that have
@@ -50,6 +53,9 @@ public struct LibraryListContent: View {
         onDeleteDeck: @escaping (Int64) async -> Void,
         onRenameDeck: @escaping (DeckRowViewData) -> Void,
         onCreateDeck: @escaping () -> Void,
+        onDecision: @escaping (DeckTriageItem, DeckTriageAction) -> Void = { _, _ in },
+        onReviewDecisions: @escaping () -> Void = {},
+        onReviewPausedDecks: @escaping () -> Void = {},
         onChangeIconDeck: @escaping (DeckRowViewData) -> Void = { _ in },
         deckTransition: Namespace.ID? = nil
     ) {
@@ -60,6 +66,9 @@ public struct LibraryListContent: View {
         self.onDeleteDeck = onDeleteDeck
         self.onRenameDeck = onRenameDeck
         self.onCreateDeck = onCreateDeck
+        self.onDecision = onDecision
+        self.onReviewDecisions = onReviewDecisions
+        self.onReviewPausedDecks = onReviewPausedDecks
         self.onChangeIconDeck = onChangeIconDeck
         self.deckTransition = deckTransition
     }
@@ -172,11 +181,7 @@ public struct LibraryListContent: View {
                         }
                     }
                 } header: {
-                    ArchivedSectionHeader(
-                        count: archived.count,
-                        itemNoun: "decks",
-                        isExpanded: $archivedExpanded
-                    )
+                    archivedHeader(count: archived.count)
                 }
             }
 
@@ -185,7 +190,12 @@ public struct LibraryListContent: View {
             // and heatmap sections.
             if !triage.isHidden {
                 Section {
-                    DeckTriageCard(data: triage, onTapDeck: onTapDeck)
+                    DeckTriageCard(
+                        data: triage,
+                        onAction: onDecision,
+                        onReviewAll: onReviewDecisions,
+                        onReviewPaused: onReviewPausedDecks
+                    )
                         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
@@ -245,11 +255,7 @@ public struct LibraryListContent: View {
 
                 if !archived.isEmpty {
                     VStack(alignment: .leading, spacing: 6) {
-                        ArchivedSectionHeader(
-                            count: archived.count,
-                            itemNoun: "decks",
-                            isExpanded: $archivedExpanded
-                        )
+                        archivedHeader(count: archived.count)
                         if archivedExpanded {
                             deckRowsCard(rows: archived)
                         }
@@ -257,7 +263,12 @@ public struct LibraryListContent: View {
                 }
 
                 if !triage.isHidden {
-                    DeckTriageCard(data: triage, onTapDeck: onTapDeck)
+                    DeckTriageCard(
+                        data: triage,
+                        onAction: onDecision,
+                        onReviewAll: onReviewDecisions,
+                        onReviewPaused: onReviewPausedDecks
+                    )
                 }
 
                 ActivityHeatmapCard(data: heatmap ?? .empty, initialDays: heatmapInitialDays)
@@ -270,6 +281,10 @@ public struct LibraryListContent: View {
             .padding(.bottom, 32)
         }
         .refreshable { await onRefresh() }
+    }
+
+    private func archivedHeader(count: Int) -> some View {
+        ArchivedSectionHeader(count: count, itemNoun: "decks", isExpanded: $archivedExpanded)
     }
 
     private func deckRowsCard(rows: [DeckRowViewData]) -> some View {

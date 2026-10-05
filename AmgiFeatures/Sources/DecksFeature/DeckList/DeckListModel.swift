@@ -3,6 +3,7 @@ import AmgiUI
 import AmgiAppCore
 import AmgiAppShared
 import AnkiClients
+import AnkiBackend
 import AnkiKit
 import Dependencies
 import Foundation
@@ -23,15 +24,28 @@ final class DeckListModel {
     private var lastSortOrder: DeckSortOrder = .mostUsed
     private var usageRanks: [Int64: DeckUsageRank] = [:]
     /// Per-deck daily new limits for the new-wall signal, keyed by deck.
-    /// Best-effort enrichment fetched off the critical path (at most 4
-    /// decks per load); absent means unknown, never zero.
+    /// Best-effort enrichment off the critical path, with four concurrent
+    /// reads. Absent means unknown, never zero.
     private var newPerDayLimits: [DeckID: Int] = [:]
-    /// Guards the fill-missing background rank fetch so concurrent loads
-    /// don't stack duplicate fetches.
-    private var backgroundRankFetchInFlight = false
     /// Top-level decks whose every card is suspended. Default and filtered
     /// decks are never included, even when parked.
     private var archivedDeckIDs: Set<DeckID> = []
+
+    private var decisionMetadata = DeckDecisionMetadata()
+    private var decisionScope: DeckDecisionScope?
+    private var triageReadiness: DeckTriageData.Readiness = .loading
+    private var focusedDecisionID: Int64?
+    private var loadIdentity = UUID()
+    private var resolvedPausedIDs: Set<Int64> = []
+    private struct FailedDecision {
+        let item: DeckTriageItem
+        let error: String
+        let needsRecovery: Bool
+    }
+    private var failedDecision: FailedDecision?
+    var decisionBusyID: Int64?
+    var decisionError: String?
+    @ObservationIgnored @Dependency(\.deckDecisionClient) private var decisionClient
 
     @ObservationIgnored @Dependency(\.deckClient) private var deckClient
     @ObservationIgnored @Dependency(\.statsClient) private var statsClient
@@ -58,9 +72,12 @@ final class DeckListModel {
         lastSortOrder = sortOrder
         guard !deckRows.isEmpty, case .loaded(_, let hero, let heatmap, _) = state else { return }
         if sortOrder == .mostUsed && usageRanks.isEmpty {
+            let identity = loadIdentity
+            let rows = deckRows
             Task {
-                usageRanks = await fetchUsageRanks(for: deckRows)
-                guard lastSortOrder == .mostUsed else { return }
+                let fetched = await fetchUsageRanks(for: rows)
+                guard identity == loadIdentity, lastSortOrder == .mostUsed else { return }
+                usageRanks = fetched
                 republishLoaded()
             }
         }
@@ -68,10 +85,15 @@ final class DeckListModel {
     }
 
     private func loadBody() async {
+        let identity = UUID()
+        loadIdentity = identity
+        let profile = AccountStore.shared.selectedContext
+        decisionScope = decisionClient.scope()
+        triageReadiness = .loading
         // Carry the previous activity data through a refresh rather than
         // flashing placeholders over numbers that are still on screen.
-        // Triage needs no carrying: phase one recomputes it from the
-        // stored ranks, which persist across loads.
+        // Decisions stay non-interactive until this load's inventory,
+        // history, and persisted choices have been reconciled.
         let carried: (hero: HeroData, heatmap: HeatmapCardData?)?
         if case .loaded(_, let hero, let heatmap, _) = state {
             carried = (hero, heatmap)
@@ -89,6 +111,7 @@ final class DeckListModel {
             let tree = try await AppSignpost.measure("DeckTreeFetch") {
                 try await store.tree()
             }
+            guard identity == loadIdentity, profile.isCurrent(AccountStore.shared.selectedContext), !Task.isCancelled else { return }
             if tree.isEmpty {
                 deckRows = []
                 usageRanks = [:]
@@ -96,8 +119,9 @@ final class DeckListModel {
                 state = .empty
                 return
             }
+            guard identity == loadIdentity, profile.isCurrent(AccountStore.shared.selectedContext), !Task.isCancelled else { return }
             deckRows = tree.map(DeckListRow.init(node:))
-            archivedDeckIDs = await fetchArchivedDeckIDs(for: deckRows)
+            archivedDeckIDs.formIntersection(Set(deckRows.map(\.id)))
             let totalDue = deckRows.reduce(0) { $0 + $1.counts.total }
             publishLoaded(
                 hero: HeroData(
@@ -115,22 +139,48 @@ final class DeckListModel {
             // different costs, and a single interval hides which one the
             // launch path is actually waiting on. Usage ranks for Most used
             // ride alongside so the first paint is not gated on them. The
-            // new-limit reads are bounded (top 4 wall candidates) and land
-            // here for the same reason.
+            // settings reads use bounded concurrency and land here for
+            // the same reason; the queue itself has no result cap.
             let rows = deckRows
             async let activity = AppSignpost.measure("DeckListActivity") {
                 await self.buildHeroAndHeatmap(rows: rows)
             }
-            async let ranks = usageRanks(neededFor: lastSortOrder, rows: rows)
+            async let ranks = fetchUsageRanks(for: rows)
             async let limits = newPerDayLimits(for: rows)
+            async let archived = fetchArchivedDeckIDs(for: rows)
+            async let metadata = readDecisionMetadata()
             let (hero, heatmap) = await activity
-            usageRanks = await ranks
-            newPerDayLimits = await limits
-            guard !Task.isCancelled else { return }
+            let fetchedRanks = await ranks
+            let fetchedLimits = await limits
+            let fetchedArchived = await archived
+            let fetchedMetadata = await metadata
+            guard identity == loadIdentity, profile.isCurrent(AccountStore.shared.selectedContext), !Task.isCancelled else { return }
+            usageRanks = fetchedRanks
+            newPerDayLimits = fetchedLimits
+            archivedDeckIDs = fetchedArchived
+            if let fetchedMetadata, let scope = decisionScope {
+                decisionMetadata = fetchedMetadata
+                let viewRows = rows.map { $0.viewData(isArchived: fetchedArchived.contains($0.id)) }
+                let observations = DeckTriage.observations(rows: viewRows, ranks: fetchedRanks,
+                    newPerDay: fetchedLimits, metadata: fetchedMetadata)
+                do {
+                    let result = try await decisionClient.mutate(scope, .observe(observations,
+                        existingIDs: Set(tree.flatMap { [$0.id.rawValue] + $0.flattened().map { $0.id.rawValue } }), now: Date()))
+                    guard identity == loadIdentity, profile.isCurrent(AccountStore.shared.selectedContext) else { return }
+                    decisionMetadata = result.metadata
+                    if result.metadataChanged { store.markLocalMutation() }
+                } catch {
+                    Log.decks.error("Decision observation failed: \(error)")
+                }
+                guard identity == loadIdentity, profile.isCurrent(AccountStore.shared.selectedContext), !Task.isCancelled else { return }
+                triageReadiness = .ready
+            } else {
+                triageReadiness = .unavailable
+            }
             publishLoaded(hero: hero, heatmap: heatmap)
-            ensureBackgroundRanks(rows: rows)
             Task { await refineRowIcons() }
         } catch {
+            guard identity == loadIdentity, profile.isCurrent(AccountStore.shared.selectedContext), !Task.isCancelled else { return }
             Log.decks.error("Error loading decks: \(error)")
             // NOT .empty — that is the genuine no-decks state, and rendering a
             // failure as it told users with a full collection they had none.
@@ -140,16 +190,18 @@ final class DeckListModel {
 
     /// Semantic suggestions stream in per row after first paint.
     func refineRowIcons() async {
+        let identity = loadIdentity
+        let profile = AccountStore.shared.selectedContext
+        let activationID = decisionScope?.activationID
         guard case .loaded(let rows, let hero, let heatmap, _) = state else { return }
         var updated = rows
         var changed = false
         for index in updated.indices {
             let row = updated[index]
-            let resolved = await DeckIconOverrides.resolvedIcon(
-                deckId: row.id,
-                name: row.name,
-                fullName: row.fullName
-            )
+            let resolved = await AnkiBackend.$requiredCollectionActivationID.withValue(activationID) {
+                await DeckIconOverrides.resolvedIcon(deckId: row.id, name: row.name, fullName: row.fullName)
+            }
+            guard identity == loadIdentity, profile.isCurrent(AccountStore.shared.selectedContext), !Task.isCancelled else { return }
             guard resolved != row.iconName else { continue }
             updated[index] = row.updatingIconName(resolved)
             changed = true
@@ -206,36 +258,61 @@ final class DeckListModel {
             }
             return viewData
         }
+        let triage = classifiedTriage(for: viewRows)
+        focusedDecisionID = triage.focusedItem?.id
         state = .loaded(
             rows: viewRows,
             hero: hero,
             heatmap: heatmap,
-            triage: classifiedTriage(for: viewRows)
+            triage: DeckTriageData(items: triage.items, readiness: triage.readiness,
+                focusedID: focusedDecisionID, busyID: decisionBusyID, errorMessage: triage.errorMessage,
+                manualReviewCount: triage.manualReviewCount)
         )
     }
 
     /// Single source for the card payload: phase one, phase two, `resort`,
     /// and icon refinement all classify from the same stored inputs.
     private func classifiedTriage(for viewRows: [DeckRowViewData]) -> DeckTriageData {
-        DeckTriage.data(
+        let classified = DeckTriage.data(
             rows: viewRows,
             ranks: usageRanks,
             archived: archivedDeckIDs,
-            newPerDay: newPerDayLimits
+            newPerDay: newPerDayLimits,
+            metadata: decisionMetadata,
+            readiness: triageReadiness,
+            focusedID: focusedDecisionID,
+            busyID: decisionBusyID,
+            errorMessage: decisionError
         )
+        let items = retainingFailure(in: classified.items, rows: viewRows, paused: false)
+        let manualReviewCount = viewRows.filter {
+            $0.isArchived && !decisionMetadata.isSuppressed(id: $0.id, issue: "paused", now: Date())
+        }.count
+        return DeckTriageData(items: items, readiness: classified.readiness, focusedID: focusedDecisionID,
+            busyID: decisionBusyID, errorMessage: decisionError ?? failedDecision?.error,
+            manualReviewCount: manualReviewCount)
+    }
+
+    /// An incomplete mutation remains reviewable even when its partial
+    /// effect changes the classifier. Recovery uses Browse rather than
+    /// repeating an uncertain suspension/restore operation.
+    private func retainingFailure(in items: [DeckTriageItem], rows: [DeckRowViewData], paused: Bool) -> [DeckTriageItem] {
+        guard let failure = failedDecision, (failure.item.issue == .parked) == paused,
+              let row = rows.first(where: { $0.id == failure.item.id }),
+              !decisionMetadata.isSuppressed(id: row.id, issue: failure.item.issue.key, now: Date()) else { return items }
+        var result = items
+        let retained = failure.needsRecovery
+            ? DeckTriageItem(row: row, issue: failure.item.issue, question: failure.item.question,
+                evidence: L10n.text("Review the affected cards in Browse."), actions: [.chooseCards, .viewDeck])
+            : failure.item
+        if let index = result.firstIndex(where: { $0.id == row.id }) { result[index] = retained }
+        else { result.insert(retained, at: 0) }
+        return result
     }
 
     private func republishLoaded() {
         guard case .loaded(_, let hero, let heatmap, _) = state else { return }
         publishLoaded(hero: hero, heatmap: heatmap)
-    }
-
-    private func usageRanks(
-        neededFor sortOrder: DeckSortOrder,
-        rows: [DeckListRow]
-    ) async -> [Int64: DeckUsageRank] {
-        guard sortOrder == .mostUsed else { return usageRanks }
-        return await fetchUsageRanks(for: rows)
     }
 
     private func fetchUsageRanks(for rows: [DeckListRow]) async -> [Int64: DeckUsageRank] {
@@ -245,9 +322,8 @@ final class DeckListModel {
         )
     }
 
-    /// Daily new limits for the new-wall signal. Only decks that already
-    /// pass the count pre-filter are worth a backend round trip, biggest
-    /// first, capped — the bound is the whole point (see the perf guard).
+    /// Only actual large backlogs need settings enrichment. Fetch all of
+    /// them with bounded concurrency so Review all never loses candidates.
     /// Best-effort: a failure leaves the limit unknown and the deck simply
     /// doesn't qualify, rather than inventing a projection.
     private func newPerDayLimits(for rows: [DeckListRow]) async -> [DeckID: Int] {
@@ -255,42 +331,158 @@ final class DeckListModel {
         let candidates = rows
             .filter {
                 !$0.isFiltered
-                    && !archivedDeckIDs.contains($0.id)
-                    && $0.counts.newCount >= limits.newWallMinimum
+                    && ($0.uncappedCounts?.newCount ?? 0) >= limits.newWallMinimum
             }
-            .sorted { $0.counts.newCount > $1.counts.newCount }
-            .prefix(limits.maxVisibleItems)
+            .sorted { ($0.uncappedCounts?.newCount ?? 0) > ($1.uncappedCounts?.newCount ?? 0) }
         let deckClient = self.deckClient
         return await withTaskGroup(of: (DeckID, Int?).self) { group in
-            for row in candidates {
+            var iterator = candidates.makeIterator()
+            func enqueue() {
+                guard let row = iterator.next() else { return }
                 group.addTask {
                     let perDay = try? await deckClient.getDeckConfig(row.id)
                     return (row.id, perDay?.config.newPerDay)
                 }
             }
+            for _ in 0..<min(limits.maxConcurrentReads, candidates.count) { enqueue() }
             var out: [DeckID: Int] = [:]
             for await (id, perDay) in group {
                 if let perDay { out[id] = perDay }
+                enqueue()
             }
             return out
         }
     }
 
-    /// Fills ranks for rows that lack them without gating any paint. Under
-    /// a non-default sort the phase-two fetch is skipped, which would leave
-    /// the triage card permanently degraded; this backfills in the
-    /// background instead of paying N extra calls on the load path.
-    /// Self-limiting: once every row has a rank there is nothing to do.
-    private func ensureBackgroundRanks(rows: [DeckListRow]) {
-        guard !backgroundRankFetchInFlight else { return }
-        let missing = rows.filter { usageRanks[$0.id.rawValue] == nil }
-        guard !missing.isEmpty else { return }
-        backgroundRankFetchInFlight = true
-        Task {
-            let fetched = await fetchUsageRanks(for: missing)
-            for (key, rank) in fetched { usageRanks[key] = rank }
-            backgroundRankFetchInFlight = false
-            republishLoaded()
+    private func readDecisionMetadata() async -> DeckDecisionMetadata? {
+        guard let scope = decisionScope else { return nil }
+        return try? await decisionClient.read(scope)
+    }
+
+    func beginDecisionReview() { resolvedPausedIDs = [] }
+
+    func decisionData(paused: Bool, focusedID: Int64? = nil, skipped: Set<Int64> = []) -> DeckTriageData {
+        guard case .loaded(let rows, _, _, let triage) = state else { return .unresolved }
+        let items: [DeckTriageItem]
+        if paused {
+            let pausedItems = rows.filter { $0.isArchived && !resolvedPausedIDs.contains($0.id)
+                    && !decisionMetadata.isSuppressed(id: $0.id, issue: "paused", now: Date()) }
+                .map { DeckTriage.item(row: $0, issue: .parked, canResume: triageReadiness == .ready && decisionMetadata.canResume(id: $0.id)) }
+            items = retainingFailure(in: pausedItems, rows: rows, paused: true)
+        } else {
+            items = triage.items
+        }
+        return DeckTriageData(items: items.filter { !skipped.contains($0.id) }, readiness: paused && triage.readiness == .unavailable ? .ready : triage.readiness,
+            focusedID: focusedID, busyID: decisionBusyID, errorMessage: decisionError ?? failedDecision?.error)
+    }
+
+    func freshDecisionTarget(_ item: DeckTriageItem) async -> DecisionTarget? {
+        guard decisionBusyID == nil, let scope = decisionScope else { return nil }
+        let profile = AccountStore.shared.selectedContext
+        decisionBusyID = item.id
+        decisionError = nil
+        republishLoaded()
+        defer { decisionBusyID = nil; republishLoaded() }
+        do {
+            let target = try await decisionClient.target(scope, DeckID(item.id))
+            guard profile.isCurrent(AccountStore.shared.selectedContext), decisionClient.scope() == scope,
+                  !Task.isCancelled else { return nil }
+            return DecisionTarget(deck: target, profile: profile, scope: scope)
+        } catch {
+            if error is CancellationError { return nil }
+            if profile.isCurrent(AccountStore.shared.selectedContext) { decisionError = error.localizedDescription }
+            return nil
+        }
+    }
+
+    /// false is also the safe Resume fallback: the presenter then opens
+    /// suspended-card selection rather than enabling an untracked deck.
+    @discardableResult
+    func decide(_ item: DeckTriageItem, action: DeckTriageAction) async -> Bool {
+        guard decisionBusyID == nil else { return false }
+        if action == .keepPaused {
+            resolvedPausedIDs.insert(item.id)
+            if failedDecision?.item.id == item.id { failedDecision = nil }
+            decisionError = nil
+            return true
+        }
+        let mutation: DeckDecisionMutation
+        switch action {
+        case .deferDecision:
+            mutation = .suppress(DeckID(item.id), issue: item.issue.key, until: Date().addingTimeInterval(7 * 86_400))
+        case .keepPace:
+            mutation = .suppress(DeckID(item.id), issue: item.issue.key, until: Date().addingTimeInterval(90 * 86_400))
+        case .pause: mutation = .pause(DeckID(item.id))
+        case .resume: mutation = .resume(DeckID(item.id))
+        default: return false
+        }
+        return await performDecision(mutation, id: item.id, item: item)
+    }
+
+    func acknowledgeSavedSettings(_ item: DeckTriageItem, target: DecisionTarget? = nil) async {
+        if let target {
+            guard target.profile.isCurrent(AccountStore.shared.selectedContext),
+                  decisionClient.scope() == target.scope else { return }
+        }
+        _ = await performDecision(.suppress(DeckID(item.id), issue: item.issue.key,
+            until: Date().addingTimeInterval(90 * 86_400)), id: item.id, requiredScope: target?.scope, item: item)
+    }
+
+    func acknowledgeChosenCards(_ item: DeckTriageItem, target: DecisionTarget) async {
+        guard target.profile.isCurrent(AccountStore.shared.selectedContext),
+              decisionClient.scope() == target.scope else { return }
+        _ = await performDecision(.suppress(DeckID(item.id), issue: item.issue.key,
+            until: Date().addingTimeInterval(7 * 86_400)), id: item.id, requiredScope: target.scope, item: item)
+        if item.issue == .parked {
+            _ = await performDecision(.suppress(DeckID(item.id), issue: "inactive",
+                until: Date().addingTimeInterval(7 * 86_400)), id: item.id, requiredScope: target.scope)
+        }
+    }
+
+    func deleteDecision(_ deletion: Deletion) async {
+        guard deletion.profile.isCurrent(AccountStore.shared.selectedContext), let count = deletion.deck.cardCount else { return }
+        _ = await performDecision(.delete(deletion.id, expectedName: deletion.deck.fullName,
+            expectedCardCount: count, expectedDescendantIDs: deletion.deck.flattened().map(\.id)),
+            id: deletion.id.rawValue, requiredScope: deletion.scope)
+    }
+
+    private func performDecision(_ mutation: DeckDecisionMutation, id: Int64,
+                                 requiredScope: DeckDecisionScope? = nil, item: DeckTriageItem? = nil) async -> Bool {
+        guard decisionBusyID == nil, let scope = decisionScope else { return false }
+        guard requiredScope == nil || requiredScope == scope else { return false }
+        let profile = AccountStore.shared.selectedContext
+        decisionBusyID = id
+        decisionError = nil
+        republishLoaded()
+        defer { decisionBusyID = nil; republishLoaded() }
+        do {
+            let result = try await decisionClient.mutate(scope, mutation)
+            guard profile.isCurrent(AccountStore.shared.selectedContext) else { return false }
+            decisionMetadata = result.metadata
+            if result.chooseCards { return false }
+            if failedDecision?.item.id == id { failedDecision = nil }
+            if case .resume = mutation { resolvedPausedIDs.insert(id) }
+            focusedDecisionID = nil
+            if result.collectionChanged {
+                store.apply(CollectionChanges(card: true, deck: true, studyQueues: true))
+                await load()
+            } else if result.metadataChanged {
+                store.markLocalMutation()
+            }
+            return true
+        } catch {
+            guard profile.isCurrent(AccountStore.shared.selectedContext) else { return false }
+            if error is CancellationError { return false }
+            decisionError = error.localizedDescription
+            if let item {
+                failedDecision = FailedDecision(item: item, error: error.localizedDescription,
+                    needsRecovery: (error as? DeckDecisionFailure)?.collectionChanged == true)
+            }
+            if let failure = error as? DeckDecisionFailure, failure.collectionChanged {
+                store.apply(CollectionChanges(card: true, deck: true, studyQueues: true))
+                await load()
+            }
+            return false
         }
     }
 

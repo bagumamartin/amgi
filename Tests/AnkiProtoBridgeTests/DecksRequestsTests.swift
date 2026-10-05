@@ -150,6 +150,28 @@ private import SwiftProtobuf
         #expect(decoded[1].name == "Korean")
     }
 
+    @Test func inventoryKeepsUncappedCountsAndAggregatesDescendants() throws {
+        var child = Anki_Decks_DeckTreeNode()
+        child.deckID = 3; child.name = "Child"
+        child.newCount = 10; child.newUncapped = 120
+        child.reviewUncapped = 15; child.totalInDeck = 300; child.totalIncludingChildren = 300
+        var parent = Anki_Decks_DeckTreeNode()
+        parent.deckID = 2; parent.name = "Parent"
+        parent.newCount = 20; parent.newUncapped = 80
+        parent.reviewUncapped = 5; parent.totalInDeck = 100; parent.totalIncludingChildren = 400
+        parent.children = [child]
+        var root = Anki_Decks_DeckTreeNode(); root.children = [parent]
+        let bytes = try root.serializedData()
+        let node = try #require(Request<[DeckTreeNode]>.deckTree().decode(bytes).first)
+        #expect(node.counts.newCount == 20)
+        #expect(node.cardCount == 400)
+        #expect(node.uncappedCounts?.newCount == 200)
+        #expect(node.uncappedCounts?.reviewCount == 20)
+        let countFree = try #require(Request<[DeckTreeNode]>.deckTree(at: Date(timeIntervalSince1970: 0)).decode(bytes).first)
+        #expect(countFree.cardCount == nil)
+        #expect(countFree.uncappedCounts == nil)
+    }
+
     // MARK: - deckTree
 
     @Test func deckTree_dispatches_to_decks_service_getDeckTree_method() {

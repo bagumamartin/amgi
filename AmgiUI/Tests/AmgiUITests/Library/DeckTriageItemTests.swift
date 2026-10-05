@@ -1,68 +1,45 @@
 import Testing
 @testable import AmgiUI
 
-/// Copy derivations for the Library triage card. Engine-free by design —
-/// `DeckTriageItem.subtitle` formats the classifier's output, the way
-/// `HeroData`'s derivations format the hero's.
-@Suite("DeckTriageItem")
-struct DeckTriageItemTests {
-    private func item(
-        new: Int = 0,
-        learn: Int = 0,
-        review: Int = 0,
-        issue: DeckTriageIssue
-    ) -> DeckTriageItem {
-        DeckTriageItem(
-            row: DeckRowViewData(
-                id: 7, name: "한국어", fullName: "Languages::한국어",
-                newCount: new, learnCount: learn, reviewCount: review,
-                isFiltered: false, subdeckCount: 0
-            ),
-            issue: issue
-        )
+@Suite struct DeckTriageItemTests {
+    private func item(issue: DeckTriageIssue, due: Int = 20, id: Int64 = 7, resume: Bool = false) -> DeckTriageItem {
+        DeckTriageItem(row: DeckRowViewData(id: id, name: "한국어", fullName: "Languages::한국어",
+            newCount: due, learnCount: 0, reviewCount: 0, isFiltered: false, subdeckCount: 0,
+            cardCount: 400, availableNewCount: 340, waitingCount: 340), issue: issue, canResumeDirectly: resume)
     }
-
-    @Test func neglectedSubtitleCountsTotalDue() {
-        #expect(item(new: 12, learn: 8, review: 42, issue: .neglected(daysAgo: 47)).subtitle
-            == "Not studied in 47 days · 62 due")
+    @Test func inactiveOffersAnActualChoice() {
+        let value = item(issue: .neglected(daysAgo: 47))
+        #expect(value.actions == [.study, .pause])
+        #expect(value.evidence == "Last studied 47 days ago · 340 cards waiting")
     }
-
-    @Test func neglectedWithoutWindowReadsOverAYear() {
-        #expect(item(review: 200, issue: .neglected(daysAgo: nil)).subtitle
-            == "Not studied in over a year · 200 due")
+    @Test func blockedStudyOffersSettings() {
+        #expect(item(issue: .neverStarted, due: 0).actions == [.pace, .pause])
     }
-
-    @Test func neverStartedSubtitleCountsNew() {
-        #expect(item(new: 340, issue: .neverStarted).subtitle == "Never started · 340 new")
+    @Test func defaultCannotBePausedOrDeleted() {
+        #expect(item(issue: .neglected(daysAgo: 40), id: 1).actions == [.study])
+        #expect(item(issue: .empty, id: 1).actions == [.addCards])
     }
-
-    @Test func newBacklogSubtitleProjectsWeeks() {
-        #expect(item(new: 412, issue: .newBacklog(perDay: 20, daysToClear: 21)).subtitle
-            == "412 new · about 3 weeks at 20/day")
+    @Test func backlogOffersPaceAndAcknowledgment() {
+        #expect(item(issue: .newBacklog(perDay: 20, daysToClear: 17)).actions == [.pace, .keepPace])
     }
-
-    @Test func emptySubtitle() {
-        #expect(item(issue: .empty).subtitle == "Nothing due · never reviewed")
+    @Test func pausedNeedsProvenanceForDirectResume() {
+        #expect(item(issue: .parked).actions == [.chooseCards, .keepPaused])
+        #expect(item(issue: .parked, resume: true).actions == [.resume, .keepPaused])
+        #expect(item(issue: .parked).evidence == "All cards suspended")
     }
-
-    @Test func parkedSubtitleCountsDaysParked() {
-        #expect(item(issue: .parked(daysAgo: 129)).subtitle == "Parked 129 days ago · all cards suspended")
+    @Test func noLifetimeClaimsForUnusedCards() {
+        #expect(item(issue: .neverStarted).evidence == "340 new cards waiting")
     }
-
-    @Test func parkedWithoutWindowOmitsAge() {
-        #expect(item(issue: .parked(daysAgo: nil)).subtitle == "Parked · all cards suspended")
+    @Test func focusSurvivesEnrichmentAndFallsBackAfterResolution() {
+        let first = item(issue: .empty, id: 7)
+        let second = item(issue: .empty, id: 8)
+        #expect(DeckTriageData(items: [second, first], focusedID: 7).focusedItem?.id == 7)
+        #expect(DeckTriageData(items: [second], focusedID: 7).focusedItem?.id == 8)
     }
-
-    @Test func identityFollowsRow() {
-        #expect(item(issue: .empty).id == 7)
-    }
-}
-
-@Suite("DeckTriageData")
-struct DeckTriageDataTests {
-    @Test func hidesOnlyWhenResolvedAndEmpty() {
-        #expect(DeckTriageData.resolvedEmpty.isHidden)
+    @Test func readinessAndEmptyAreIndependent() {
         #expect(!DeckTriageData.unresolved.isHidden)
+        #expect(DeckTriageData.resolvedEmpty.isHidden)
+        #expect(DeckTriageData(items: [], readiness: .unavailable).isHidden)
         #expect(!DeckTriageData.sample.isHidden)
     }
 }

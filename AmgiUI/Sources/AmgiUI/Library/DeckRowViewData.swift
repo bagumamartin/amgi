@@ -17,6 +17,9 @@ public struct DeckRowViewData: Identifiable, Equatable, Hashable, Sendable {
     public var iconName: String?
     /// Fully suspended (every card parked). Library hides these in Archived.
     public let isArchived: Bool
+    public let cardCount: Int?
+    public let availableNewCount: Int?
+    public let waitingCount: Int?
 
     public init(
         id: Int64,
@@ -28,7 +31,10 @@ public struct DeckRowViewData: Identifiable, Equatable, Hashable, Sendable {
         isFiltered: Bool,
         subdeckCount: Int,
         iconName: String? = nil,
-        isArchived: Bool = false
+        isArchived: Bool = false,
+        cardCount: Int? = nil,
+        availableNewCount: Int? = nil,
+        waitingCount: Int? = nil
     ) {
         self.id = id
         self.name = name
@@ -40,6 +46,9 @@ public struct DeckRowViewData: Identifiable, Equatable, Hashable, Sendable {
         self.subdeckCount = subdeckCount
         self.iconName = iconName
         self.isArchived = isArchived
+        self.cardCount = cardCount
+        self.availableNewCount = availableNewCount
+        self.waitingCount = waitingCount
     }
 
     public func updatingIconName(_ newName: String?) -> DeckRowViewData {

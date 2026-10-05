@@ -43,19 +43,23 @@ enum DeckUsageRanking {
         for decks: [(id: DeckID, fullName: String)],
         statsClient: StatsClient
     ) async -> [Int64: DeckUsageRank] {
-        await withTaskGroup(of: (Int64, DeckUsageRank).self) { group in
-            for deck in decks {
+        await withTaskGroup(of: (Int64, DeckUsageRank)?.self) { group in
+            var iterator = decks.makeIterator()
+            func enqueue() {
+                guard let deck = iterator.next() else { return }
                 group.addTask {
-                    let graphs = try? await statsClient.fetchGraphs(
+                    guard let graphs = try? await statsClient.fetchGraphs(
                         deckSearch(fullName: deck.fullName),
                         lookbackDays
-                    )
+                    ) else { return nil }
                     return (deck.id.rawValue, rank(from: graphs))
                 }
             }
+            for _ in 0..<min(4, decks.count) { enqueue() }
             var out: [Int64: DeckUsageRank] = [:]
             for await pair in group {
-                out[pair.0] = pair.1
+                if let pair { out[pair.0] = pair.1 }
+                enqueue()
             }
             return out
         }

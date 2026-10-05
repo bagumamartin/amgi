@@ -1,356 +1,100 @@
 import AmgiUI
 import AnkiKit
+import Foundation
 import Testing
 @testable import DecksFeature
 
 @Suite struct DeckTriageTests {
-    // MARK: - Fixtures
-
-    private func row(
-        id: Int64,
-        name: String = "Deck",
-        new: Int = 0,
-        learn: Int = 0,
-        review: Int = 0,
-        isFiltered: Bool = false
-    ) -> DeckRowViewData {
-        DeckRowViewData(
-            id: id, name: name, fullName: name,
-            newCount: new, learnCount: learn, reviewCount: review,
-            isFiltered: isFiltered, subdeckCount: 0
-        )
+    private let now = Date(timeIntervalSince1970: 1_700_000_000)
+    private func row(id: Int64 = 7, due: Int = 20, cards: Int? = 500, new: Int? = 20,
+                     waiting: Int? = 50, archived: Bool = false, filtered: Bool = false) -> DeckRowViewData {
+        DeckRowViewData(id: id, name: "Deck", fullName: "Deck", newCount: due,
+            learnCount: 0, reviewCount: 0, isFiltered: filtered, subdeckCount: 0,
+            isArchived: archived, cardCount: cards, availableNewCount: new, waitingCount: waiting)
     }
-
-    private func rank(total: Int = 0, lastActive: Int = .min) -> DeckUsageRank {
-        DeckUsageRank(reviewTotal: total, lastActiveOffset: lastActive, weightedScore: 0)
+    private func rank(days: Int? = nil) -> DeckUsageRank {
+        DeckUsageRank(reviewTotal: days == nil ? 0 : 100, lastActiveOffset: days.map { -$0 } ?? .min, weightedScore: 0)
     }
-
-    private func classified(
-        rows: [DeckRowViewData],
-        ranks: [Int64: DeckUsageRank],
-        archived: Set<DeckID> = [],
-        newPerDay: [DeckID: Int] = [:]
-    ) -> (items: [DeckTriageItem], overflow: Int) {
-        DeckTriage.items(rows: rows, ranks: ranks, archived: archived, newPerDay: newPerDay)
+    private func matured(_ id: Int64, issue: String) -> DeckDecisionMetadata {
+        var metadata = DeckDecisionMetadata()
+        metadata.observe([id: issue], existingIDs: [id], now: now.addingTimeInterval(-7 * 86_400))
+        return metadata
     }
-
-    // MARK: - Neglected
-
-    @Test func neglectedWithStaleHistory() {
-        let rows = [row(id: 1, new: 12, learn: 8, review: 42)]
-        let (items, overflow) = classified(rows: rows, ranks: [1: rank(total: 900, lastActive: -47)])
-        #expect(items.count == 1)
-        #expect(items[0].issue == .neglected(daysAgo: 47))
-        #expect(items[0].subtitle == "Not studied in 47 days · 62 due")
-        #expect(overflow == 0)
+    @Test func inactivityBoundaryUsesUncappedWaitingCounts() {
+        let value = row(due: 0, waiting: 200)
+        #expect(DeckTriage.issue(for: value, rank: rank(days: 30), newPerDay: nil) == .neglected(daysAgo: 30))
+        #expect(DeckTriage.issue(for: value, rank: rank(days: 29), newPerDay: nil) == nil)
     }
-
-    @Test func neglectThresholdIsInclusive() {
-        let rows = [row(id: 1, review: 10)]
-        let atThreshold = classified(rows: rows, ranks: [1: rank(total: 50, lastActive: -30)])
-        #expect(atThreshold.items.count == 1)
-        let justUnder = classified(rows: rows, ranks: [1: rank(total: 50, lastActive: -29)])
-        #expect(justUnder.items.isEmpty)
+    @Test func nothingDueDoesNotMeanEmpty() {
+        #expect(DeckTriage.issue(for: row(due: 0, cards: 500, new: 0, waiting: 0), rank: rank(), newPerDay: nil) == nil)
+        #expect(DeckTriage.issue(for: row(due: 0, cards: nil), rank: rank(), newPerDay: nil) == nil)
+        #expect(DeckTriage.issue(for: row(due: 0, cards: 0), rank: nil, newPerDay: nil) == .empty)
     }
-
-    @Test func neglectedBeyondRankWindowReadsOverAYear() {
-        // Reviewed long ago — outside the 365-day rank window — with cards
-        // due again. No history on record, but not a new deck either.
-        let rows = [row(id: 1, review: 200)]
-        let (items, _) = classified(rows: rows, ranks: [1: rank()])
-        #expect(items.count == 1)
-        #expect(items[0].issue == .neglected(daysAgo: nil))
-        #expect(items[0].subtitle == "Not studied in over a year · 200 due")
+    @Test func unusedAndEmptyWaitSevenDays() {
+        let value = row(cards: 340, new: 340, waiting: 340)
+        #expect(DeckTriage.items(rows: [value], ranks: [7: rank()], archived: [], newPerDay: [:], now: now).isEmpty)
+        let metadata = matured(7, issue: "unused")
+        let items = DeckTriage.items(rows: [value], ranks: [7: rank()], archived: [], newPerDay: [:], metadata: metadata, now: now)
+        #expect(items.first?.issue == .neverStarted)
+        let empty = row(due: 0, cards: 0)
+        #expect(DeckTriage.items(rows: [empty], ranks: [:], archived: [], newPerDay: [:], metadata: matured(7, issue: "empty"), now: now).first?.issue == .empty)
     }
-
-    @Test func recentlyActiveDeckIsNotNeglected() {
-        let rows = [row(id: 1, new: 10, review: 40)]
-        let (items, _) = classified(rows: rows, ranks: [1: rank(total: 500, lastActive: -5)])
-        #expect(items.isEmpty)
+    @Test func failedHistoryIsUnknown() {
+        #expect(DeckTriage.issue(for: row(), rank: nil, newPerDay: nil) == nil)
+        #expect(DeckTriage.observations(rows: [row()], ranks: [:], newPerDay: [:]).isEmpty)
     }
-
-    // MARK: - Never started
-
-    @Test func untouchedNewDeckIsNeverStarted() {
-        let rows = [row(id: 1, name: "TOPIK", new: 340)]
-        let (items, _) = classified(rows: rows, ranks: [1: rank()])
-        #expect(items.count == 1)
-        #expect(items[0].issue == .neverStarted)
-        #expect(items[0].subtitle == "Never started · 340 new")
+    @Test func backlogUsesActualNewCardsInsteadOfTodaysTwenty() {
+        let value = row(due: 20, new: 401)
+        #expect(DeckTriage.issue(for: value, rank: rank(days: 1), newPerDay: 20) == .newBacklog(perDay: 20, daysToClear: 21))
+        #expect(DeckTriage.issue(for: value, rank: nil, newPerDay: 20) == .newBacklog(perDay: 20, daysToClear: 21))
     }
-
-    @Test func neverStartedBeatsNeglectedForNewDecks() {
-        // Due new cards and zero history is a new deck, not a neglected one.
-        let rows = [row(id: 1, new: 340, review: 10)]
-        let (items, _) = classified(rows: rows, ranks: [1: rank()])
-        #expect(items.count == 1)
-        #expect(items[0].issue == .neverStarted)
+    @Test func zeroUnknownAndSmallPacesDoNotInventProjections() {
+        let value = row(new: 500)
+        #expect(DeckTriage.issue(for: value, rank: rank(days: 1), newPerDay: 0) == nil)
+        #expect(DeckTriage.issue(for: value, rank: rank(days: 1), newPerDay: nil) == nil)
+        #expect(DeckTriage.issue(for: row(new: 100), rank: rank(days: 1), newPerDay: 20) == nil)
+        #expect(DeckTriage.issue(for: row(new: 60), rank: rank(days: 1), newPerDay: 1) == nil)
     }
-
-    // MARK: - New backlog
-
-    @Test func wallSizedBacklogProjectsWeeks() {
-        let rows = [row(id: 1, name: "Anatomy", new: 412, review: 30)]
-        let (items, _) = classified(
-            rows: rows,
-            ranks: [1: rank(total: 2000, lastActive: -1)],
-            newPerDay: [DeckID(1): 20]
-        )
-        #expect(items.count == 1)
-        #expect(items[0].issue == .newBacklog(perDay: 20, daysToClear: 21))
-        #expect(items[0].subtitle == "412 new · about 3 weeks at 20/day")
+    @Test func noAutomaticPausedFilteredOrDefaultCleanup() {
+        #expect(DeckTriage.issue(for: row(archived: true), rank: rank(days: 100), newPerDay: nil) == nil)
+        #expect(DeckTriage.issue(for: row(filtered: true), rank: rank(days: 100), newPerDay: nil) == nil)
+        #expect(DeckTriage.issue(for: row(id: 1, cards: 0), rank: rank(), newPerDay: nil) == nil)
+        #expect(DeckTriage.items(rows: [row()], ranks: [7: rank(days: 100)], archived: [DeckID(7)], newPerDay: [:]).isEmpty)
     }
-
-    @Test func daysToClearRoundsUp() {
-        let rows = [row(id: 1, new: 401)]
-        let (items, _) = classified(
-            rows: rows,
-            ranks: [1: rank(total: 100, lastActive: -2)],
-            newPerDay: [DeckID(1): 20]
-        )
-        #expect(items[0].issue == .newBacklog(perDay: 20, daysToClear: 21))
+    @Test func queueIsCompleteAndSortedDeterministically() {
+        let rows = (2...11).map { row(id: Int64($0)) }
+        let ranks = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, rank(days: Int($0.id) + 30)) })
+        let items = DeckTriage.items(rows: rows, ranks: ranks, archived: [], newPerDay: [:])
+        #expect(items.count == 10)
+        #expect(items.map(\.id) == Array((2...11).reversed()).map { Int64($0) })
     }
-
-    @Test func backlogBelowHorizonIsNotAWall() {
-        // 100 new at 20/day clears in 5 days — a queue, not a wall.
-        let rows = [row(id: 1, new: 100)]
-        let (items, _) = classified(
-            rows: rows,
-            ranks: [1: rank(total: 100, lastActive: -2)],
-            newPerDay: [DeckID(1): 20]
-        )
-        #expect(items.isEmpty)
+    @Test func deferralExpiresAtItsExactBoundary() {
+        var metadata = DeckDecisionMetadata()
+        metadata.entries["7"] = .init(suppressedUntil: ["inactive": now.addingTimeInterval(7 * 86_400)])
+        #expect(DeckTriage.items(rows: [row()], ranks: [7: rank(days: 100)], archived: [], newPerDay: [:], metadata: metadata, now: now).isEmpty)
+        #expect(!DeckTriage.items(rows: [row()], ranks: [7: rank(days: 100)], archived: [], newPerDay: [:], metadata: metadata, now: now.addingTimeInterval(7 * 86_400)).isEmpty)
     }
-
-    @Test func backlogBelowMinimumIsNotAWall() {
-        let rows = [row(id: 1, new: 60)]
-        let (items, _) = classified(
-            rows: rows,
-            ranks: [1: rank(total: 100, lastActive: -2)],
-            newPerDay: [DeckID(1): 1]
-        )
-        #expect(items.isEmpty)
+    @Test func graceResetsWhenConditionEnds() {
+        var metadata = matured(7, issue: "empty")
+        metadata.observe([7: ""], existingIDs: [7], now: now)
+        metadata.observe([7: "empty"], existingIDs: [7], now: now.addingTimeInterval(1))
+        #expect(!metadata.pastGrace(id: 7, issue: "empty", now: now.addingTimeInterval(2)))
     }
-
-    @Test func unlimitedNewLimitHasNoWall() {
-        // `newPerDay == 0` is Anki for "no limit" — nothing to project.
-        let rows = [row(id: 1, new: 500)]
-        let (items, _) = classified(
-            rows: rows,
-            ranks: [1: rank(total: 100, lastActive: -2)],
-            newPerDay: [DeckID(1): 0]
-        )
-        #expect(items.isEmpty)
+    @Test func inventoryResetsEmptyGraceEvenWhenHistoryFails() {
+        var metadata = matured(7, issue: "empty")
+        let observations = DeckTriage.observations(rows: [row()], ranks: [:], newPerDay: [:], metadata: metadata)
+        metadata.observe(observations, existingIDs: [7], now: now)
+        metadata.observe([7: "empty"], existingIDs: [7], now: now.addingTimeInterval(1))
+        #expect(!metadata.pastGrace(id: 7, issue: "empty", now: now.addingTimeInterval(2)))
+        let unused = matured(7, issue: "unused")
+        #expect(DeckTriage.observations(rows: [row(cards: 340, new: 340)], ranks: [:], newPerDay: [:], metadata: unused).isEmpty)
     }
-
-    @Test func unknownLimitDropsTheRow() {
-        // Config fetch failed: no projection is invented.
-        let rows = [row(id: 1, new: 500)]
-        let (items, _) = classified(rows: rows, ranks: [1: rank(total: 100, lastActive: -2)])
-        #expect(items.isEmpty)
-    }
-
-    // MARK: - Empty
-
-    @Test func neverReviewedAndNothingDueIsEmpty() {
-        let rows = [row(id: 1, name: "Stale")]
-        let (items, _) = classified(rows: rows, ranks: [1: rank()])
-        #expect(items.count == 1)
-        #expect(items[0].issue == .empty)
-        #expect(items[0].subtitle == "Nothing due · never reviewed")
-    }
-
-    @Test func reviewedAndCaughtUpIsNotEmpty() {
-        let rows = [row(id: 1, name: "Done")]
-        let (items, _) = classified(rows: rows, ranks: [1: rank(total: 300, lastActive: -1)])
-        #expect(items.isEmpty)
-    }
-
-    // MARK: - Exclusions
-
-    @Test func archivedDecksAreExcluded() {
-        let rows = [row(id: 1, review: 60)]
-        let (items, _) = classified(
-            rows: rows,
-            ranks: [1: rank(total: 900, lastActive: -47)],
-            archived: [DeckID(1)]
-        )
-        #expect(items.isEmpty)
-    }
-
-    @Test func filteredDecksAreExcluded() {
-        let rows = [row(id: 1, review: 24, isFiltered: true)]
-        let (items, _) = classified(rows: rows, ranks: [1: rank(total: 900, lastActive: -47)])
-        #expect(items.isEmpty)
-    }
-
-    // MARK: - Parked
-
-    @Test func staleParkedDeckAsksResumeOrDelete() {
-        let rows = [row(id: 1, name: "Pharmacognosy")]
-        let (items, _) = classified(
-            rows: rows,
-            ranks: [1: rank(total: 913, lastActive: -129)],
-            archived: [DeckID(1)]
-        )
-        #expect(items.count == 1)
-        #expect(items[0].issue == .parked(daysAgo: 129))
-        #expect(items[0].subtitle == "Parked 129 days ago · all cards suspended")
-    }
-
-    @Test func parkedThresholdIsInclusive() {
-        let rows = [row(id: 1)]
-        let atThreshold = classified(
-            rows: rows,
-            ranks: [1: rank(total: 600, lastActive: -90)],
-            archived: [DeckID(1)]
-        )
-        #expect(atThreshold.items.count == 1)
-        let justUnder = classified(
-            rows: rows,
-            ranks: [1: rank(total: 600, lastActive: -89)],
-            archived: [DeckID(1)]
-        )
-        #expect(justUnder.items.isEmpty)
-    }
-
-    @Test func recentlyParkedDeckIsNotFlagged() {
-        let rows = [row(id: 1, name: "Pathophysiology Final Exam")]
-        let (items, _) = classified(
-            rows: rows,
-            ranks: [1: rank(total: 1100, lastActive: -16)],
-            archived: [DeckID(1)]
-        )
-        #expect(items.isEmpty)
-    }
-
-    @Test func parkedWithoutHistoryHasUnknownAge() {
-        let rows = [row(id: 1)]
-        let (items, _) = classified(
-            rows: rows,
-            ranks: [1: rank()],
-            archived: [DeckID(1)]
-        )
-        #expect(items.count == 1)
-        #expect(items[0].issue == .parked(daysAgo: nil))
-        #expect(items[0].subtitle == "Parked · all cards suspended")
-    }
-
-    @Test func parkedBeatsEmptyForArchivedDecks() {
-        // Archived with untouched cards and no history is parked, not empty.
-        let rows = [row(id: 1, new: 340)]
-        let (items, _) = classified(
-            rows: rows,
-            ranks: [1: rank()],
-            archived: [DeckID(1)]
-        )
-        #expect(items.count == 1)
-        #expect(items[0].issue == .parked(daysAgo: nil))
-    }
-
-    @Test func ranklessArchivedRowsStaySilent() {
-        let rows = [row(id: 1, name: "Active"), row(id: 2, name: "Parked")]
-        let (items, _) = classified(
-            rows: rows,
-            ranks: [1: rank(total: 50, lastActive: -3)],
-            archived: [DeckID(2)]
-        )
-        #expect(items.isEmpty)
-    }
-
-    @Test func filteredDecksNeverPark() {
-        let rows = [row(id: 1, isFiltered: true)]
-        let (items, _) = classified(
-            rows: rows,
-            ranks: [1: rank(total: 900, lastActive: -200)],
-            archived: [DeckID(1)]
-        )
-        #expect(items.isEmpty)
-    }
-
-    @Test func parkedSortsAfterEmpty() {
-        let rows = [row(id: 1), row(id: 2, name: "Parked")]
-        let (items, _) = classified(
-            rows: rows,
-            ranks: [1: rank(), 2: rank(total: 900, lastActive: -200)],
-            archived: [DeckID(2)]
-        )
-        #expect(items.map(\.id) == [1, 2])
-    }
-
-    // MARK: - Missing ranks
-
-    @Test func ranklessRowsSkipRankSignals() {
-        // History hasn't loaded for deck 2 (e.g. added under a non-default
-        // sort). Its neglect is unknowable — but must not read as "never
-        // reviewed" either.
-        let rows = [row(id: 1, review: 10), row(id: 2, review: 60)]
-        let (items, _) = classified(
-            rows: rows,
-            ranks: [1: rank(total: 50, lastActive: -3)]
-        )
-        #expect(items.isEmpty)
-    }
-
-    @Test func ranklessRowsStillYieldNewBacklog() {
-        let rows = [row(id: 1, review: 10), row(id: 2, new: 412)]
-        let (items, _) = classified(
-            rows: rows,
-            ranks: [1: rank(total: 50, lastActive: -3)],
-            newPerDay: [DeckID(2): 20]
-        )
-        #expect(items.count == 1)
-        #expect(items[0].id == 2)
-        #expect(items[0].issue == .newBacklog(perDay: 20, daysToClear: 21))
-    }
-
-    // MARK: - Ordering, cap, resolution
-
-    @Test func ordersBySeverityThenMagnitude() {
-        let rows = [
-            row(id: 1, review: 50),              // neglected, 60 days
-            row(id: 2, review: 10),              // neglected, 47 days
-            row(id: 3, new: 340),                // never started
-            row(id: 4, new: 412),                // new backlog
-            row(id: 5),                          // empty
-        ]
-        let (items, overflow) = classified(
-            rows: rows,
-            ranks: [
-                1: rank(total: 900, lastActive: -60),
-                2: rank(total: 900, lastActive: -47),
-                3: rank(),
-                4: rank(total: 2000, lastActive: -1),
-                5: rank(),
-            ],
-            newPerDay: [DeckID(4): 20]
-        )
-        #expect(items.map(\.id) == [1, 2, 3, 4])
-        #expect(overflow == 1)
-    }
-
-    @Test func capsVisibleItemsWithOverflow() {
-        let rows = (1...6).map { row(id: Int64($0), review: 10 * $0) }
-        let ranks = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, rank(total: 900, lastActive: -60)) })
-        let (items, overflow) = classified(rows: rows, ranks: ranks)
-        #expect(items.count == 4)
-        #expect(overflow == 2)
-    }
-
-    @Test func unresolvedUntilRanksExist() {
-        let data = DeckTriage.data(rows: [row(id: 1, review: 60)], ranks: [:], archived: [], newPerDay: [:])
-        #expect(data == .unresolved)
-        #expect(!data.isHidden)
-    }
-
-    @Test func resolvedEmptyHides() {
-        let data = DeckTriage.data(
-            rows: [row(id: 1, name: "Done")],
-            ranks: [1: rank(total: 300, lastActive: -1)],
-            archived: [],
-            newPerDay: [:]
-        )
-        #expect(data.isResolved)
-        #expect(data.isHidden)
+    @Test func metadataRoundTripsAcrossRelaunchAndCollectionsStayIndependent() throws {
+        var metadata = matured(7, issue: "unused")
+        metadata.entries["7"]?.suppressedUntil["unused"] = now.addingTimeInterval(7 * 86_400)
+        let copy = try JSONDecoder().decode(DeckDecisionMetadata.self, from: JSONEncoder().encode(metadata))
+        #expect(copy == metadata)
+        #expect(copy.isSuppressed(id: 7, issue: "unused", now: now))
+        #expect(!DeckDecisionMetadata().isSuppressed(id: 7, issue: "unused", now: now))
     }
 }

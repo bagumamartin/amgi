@@ -1,8 +1,11 @@
+import AmgiAppCore
 import AmgiAppShared
 import AnkiClients
+import AnkiBackend
 import AnkiKit
 import Dependencies
 import Foundation
+import os
 
 
 
@@ -16,6 +19,8 @@ import Foundation
 final class DeckConfigModel {
     let deckId: DeckID
     let deckName: String
+    private let collectionActivationID: UUID?
+    @ObservationIgnored @Dependency(\.ankiBackend) private var configBackend
 
     // Internal rather than private: the preset/FSRS methods live in
     // DeckConfigModel+Presets.swift now, and `private` is file-scoped.
@@ -33,6 +38,10 @@ final class DeckConfigModel {
     var newCardsIgnoreReviewLimit = false
     var applyAllParentLimits = false
 
+    /// Step syntax is `m` / `h` / `d` in *data*, not copy — see
+    /// `StudyDeckNaming` for the same reasoning applied to deck names. The
+    /// numbers inside are read in the user's locale, but the unit letters stay
+    /// ASCII so a schedule typed on one device reads the same on another.
     var learningStepsText: String = "1m 10m"
     var graduatingGoodDays: Int32 = 1
     var graduatingEasyDays: Int32 = 4
@@ -40,6 +49,12 @@ final class DeckConfigModel {
     var relearningStepsText: String = "10m"
     var leechThreshold: Int32 = 8
     var leechAction: LeechAction = .suspend
+
+    /// Non-nil when the last `parseSteps` saw a token it could not read.
+    /// `parseSteps` is also called from the preset and step-count paths, so
+    /// the save path clears it before its own parse rather than trusting
+    /// whatever ran last.
+    var stepsParseError: String?
 
     var fsrsEnabled = false
     var desiredRetentionPercent: Double = 90
@@ -97,7 +112,24 @@ final class DeckConfigModel {
         var context: DeckConfigsForUpdate
     }
 
-    init(deckId: DeckID, deckName: String) {
+    /// Settings opened by a decision must not save into a different profile
+    /// after an await. The task-local reaches the backend's locked RPC gate.
+    func collectionAccess<T: Sendable>(_ operation: () async throws -> T) async throws -> T {
+        do {
+            return try await AnkiBackend.$requiredCollectionActivationID.withValue(collectionActivationID) {
+                try await operation()
+            }
+        } catch {
+            if let collectionActivationID, configBackend.collectionActivationID != collectionActivationID {
+                throw DeckDecisionFailure(message: L10n.text("The active profile changed. Try again in the current profile."))
+            }
+            throw error
+        }
+    }
+
+    init(deckId: DeckID, deckName: String, requiredActivationID: UUID? = nil) {
+        @Dependency(\.ankiBackend) var backend
+        collectionActivationID = requiredActivationID ?? backend.collectionActivationID
         self.deckId = deckId
         self.deckName = deckName
     }
@@ -158,8 +190,8 @@ final class DeckConfigModel {
         isLoading = true
         loadError = nil
         do {
-            let config = try await deckClient.getDeckConfig(deckId)
-            let context = (try? await deckClient.fetchDeckConfigContext(deckId)) ?? fallbackContext(from: config)
+            let config = try await collectionAccess { try await deckClient.getDeckConfig(deckId) }
+            let context = (try? await collectionAccess { try await deckClient.fetchDeckConfigContext(deckId) }) ?? fallbackContext(from: config)
             apply(config: config, context: context)
             isLoading = false
         } catch {
@@ -237,12 +269,24 @@ final class DeckConfigModel {
         isSaving = true
         defer { isSaving = false }
 
+        stepsParseError = nil
+        let learnSteps = parseSteps(learningStepsText)
+        let relearnSteps = parseSteps(relearningStepsText)
+        // Refuse rather than silently write a shorter schedule: `parseSteps`
+        // reports the tokens it could not read, and a dropped token here
+        // becomes a lost interval in the user's collection.
+        if let problem = stepsParseError {
+            destination = .alert(.saveFailed(L10n.text("Enter learning steps like 10m 1d.")))
+            Log.decks.error("Deck config save rejected: unparseable step(s) \(problem, privacy: .public)")
+            return false
+        }
+
         var updated = loaded.config
         var cfg = updated.config
         cfg.newPerDay = Int(max(0, newCardsPerDay))
         cfg.reviewsPerDay = Int(max(0, reviewsPerDay))
-        cfg.learnSteps = parseSteps(learningStepsText)
-        cfg.relearnSteps = parseSteps(relearningStepsText)
+        cfg.learnSteps = learnSteps
+        cfg.relearnSteps = relearnSteps
         cfg.graduatingIntervalGood = Int(max(0, graduatingGoodDays))
         cfg.graduatingIntervalEasy = Int(max(0, graduatingEasyDays))
         cfg.leechThreshold = Int(max(1, leechThreshold))
@@ -298,7 +342,7 @@ final class DeckConfigModel {
         updated.config = cfg
 
         do {
-            try await deckClient.updateDeckConfig(
+            try await collectionAccess { try await deckClient.updateDeckConfig(
                 deckId,
                 updated,
                 applyToChildren,
@@ -306,7 +350,7 @@ final class DeckConfigModel {
                 newCardsIgnoreReviewLimit,
                 applyAllParentLimits,
                 fsrsHealthCheck
-            )
+            ) }
             collectionStore.markLocalMutation()
             return true
         } catch {

@@ -6,12 +6,12 @@ import AmgiTheme
 /// Section title with a trailing sort menu — used for Library "Decks" and
 /// deck-detail "Subdecks". Pure rendering; the container owns persistence.
 public struct DeckSectionHeader: View {
-    public let title: String
+    public let title: LocalizedStringKey
     @Binding public var sortOrder: DeckSortOrder
 
     @Environment(\.palette) private var palette
 
-    public init(title: String, sortOrder: Binding<DeckSortOrder>) {
+    public init(title: LocalizedStringKey, sortOrder: Binding<DeckSortOrder>) {
         self.title = title
         self._sortOrder = sortOrder
     }
@@ -82,7 +82,11 @@ public struct ArchivedSectionHeader: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Archived, \(count) \(itemNoun)")
+        .accessibilityLabel(
+            itemNoun == "decks"
+                ? Text("Archived, \(count) decks")
+                : Text("Archived, \(count) subdecks")
+        )
         .accessibilityHint(isExpanded ? "Collapse" : "Expand")
         .accessibilityAddTraits(.isButton)
     }
@@ -119,10 +123,10 @@ import AmgiTheme
 /// Title-only stand-in: `Menu` is unavailable on watchOS, and the watch
 /// never presents this header. Kept so sibling AmgiUI files still type-check.
 public struct DeckSectionHeader: View {
-    public let title: String
+    public let title: LocalizedStringKey
     @Binding public var sortOrder: DeckSortOrder
 
-    public init(title: String, sortOrder: Binding<DeckSortOrder>) {
+    public init(title: LocalizedStringKey, sortOrder: Binding<DeckSortOrder>) {
         self.title = title
         self._sortOrder = sortOrder
     }

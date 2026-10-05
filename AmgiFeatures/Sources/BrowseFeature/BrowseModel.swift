@@ -94,8 +94,10 @@ final class BrowseModel {
 
     let rootDeck: DeckInfo?
 
-    init(rootDeck: DeckInfo? = nil) {
+    init(rootDeck: DeckInfo? = nil, initialFilter: String = "") {
         self.rootDeck = rootDeck
+        self.searchText = initialFilter
+        if initialFilter == "is:suspended" { self.mode = .cards }
         if let rootDeck {
             source = .deck(rootDeck.id)
         }
@@ -165,18 +167,48 @@ final class BrowseModel {
     var canUndo: Bool { undoStatus?.canUndo ?? false }
     var canRedo: Bool { undoStatus?.canRedo ?? false }
 
+    /// "Undo Add Cards", or just "Undo" when there is nothing to undo.
+    ///
+    /// The engine supplies the *operation* name and translates it itself, so
+    /// this used to detect an already-prepended verb by testing for an
+    /// English `undo` prefix — which broke the moment the engine was given a
+    /// non-English `preferred_langs`. The verb now comes from the app's
+    /// catalog and the prefix test compares against *that* verb, so a
+    /// localized engine string composes correctly in either case.
     var undoMenuTitle: String {
-        let text = undoStatus?.undoText.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !canUndo || text.isEmpty { return "Undo" }
-        if text.lowercased().hasPrefix("undo") { return text }
-        return "Undo \(text)"
+        actionTitle(
+            available: canUndo,
+            operation: undoStatus?.undoText,
+            template: "Undo %@",
+            verb: "Undo"
+        )
     }
 
     var redoMenuTitle: String {
-        let text = undoStatus?.redoText.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !canRedo || text.isEmpty { return "Redo" }
-        if text.lowercased().hasPrefix("redo") { return text }
-        return "Redo \(text)"
+        actionTitle(
+            available: canRedo,
+            operation: undoStatus?.redoText,
+            template: "Redo %@",
+            verb: "Redo"
+        )
+    }
+
+    private func actionTitle(
+        available: Bool,
+        operation: String?,
+        template: String.LocalizationValue,
+        verb: String.LocalizationValue
+    ) -> String {
+        let verbText = L10n.text(verb)
+        guard available else { return verbText }
+        let operation = (operation ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !operation.isEmpty else { return verbText }
+        // Some engine versions already include the verb: leave their wording
+        // alone rather than saying "Undo Undo Add Cards".
+        guard !operation.lowercased().hasPrefix(verbText.lowercased() + " ") else {
+            return operation
+        }
+        return L10n.format(template, [operation])
     }
 
     /// Engine-rendered browser rows keyed by result id. Cell order follows
@@ -774,7 +806,8 @@ final class BrowseModel {
         await run("suspend") { try await self.cardClient.suspendCards(cards, []) }
     }
 
-    func unSuspendSelected(_ noteIDs: Set<NoteID>, cardIDs: [CardID]) async {
+    @discardableResult
+    func unSuspendSelected(_ noteIDs: Set<NoteID>, cardIDs: [CardID]) async -> Bool {
         // Card scope when present; note expansion otherwise (never both —
         // passing both would double-cover siblings).
         let cards: [CardID]
@@ -783,7 +816,8 @@ final class BrowseModel {
         } else {
             cards = await cardsOfNotes(Array(noteIDs))
         }
-        await run("unsuspend") { try await self.cardClient.restoreBuriedAndSuspended(cards) }
+        guard !cards.isEmpty else { return false }
+        return await run("unsuspend") { try await self.cardClient.restoreBuriedAndSuspended(cards) }
     }
 
     func burySelected(_ noteIDs: Set<NoteID>, cardIDs: [CardID] = []) async {

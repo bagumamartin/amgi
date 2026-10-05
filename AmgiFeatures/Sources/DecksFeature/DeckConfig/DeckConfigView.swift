@@ -4,6 +4,7 @@ import AmgiTheme
 import AnkiKit
 import AnkiClients
 import Dependencies
+import Foundation
 
 enum DeckConfigCategory: String, CaseIterable, Identifiable, Equatable {
     case preset
@@ -58,6 +59,7 @@ struct DeckConfigView: View {
     let deckId: DeckID
     let deckName: String
     let onDismiss: () -> Void
+    let onSaved: () -> Void
 
     @State private var model: DeckConfigModel
     @State private var selectedCategory: DeckConfigCategory = .preset
@@ -65,11 +67,15 @@ struct DeckConfigView: View {
     @Environment(\.palette) private var palette
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-    init(deckId: DeckID, deckName: String, onDismiss: @escaping () -> Void) {
+    init(deckId: DeckID, deckName: String, initialCategory: DeckConfigCategory = .preset,
+         requiredActivationID: UUID? = nil, onSaved: @escaping () -> Void = {}, onDismiss: @escaping () -> Void) {
         self.deckId = deckId
         self.deckName = deckName
         self.onDismiss = onDismiss
-        _model = State(wrappedValue: DeckConfigModel(deckId: deckId, deckName: deckName))
+        self.onSaved = onSaved
+        _selectedCategory = State(initialValue: initialCategory)
+        _model = State(wrappedValue: DeckConfigModel(deckId: deckId, deckName: deckName,
+            requiredActivationID: requiredActivationID))
     }
 
     var body: some View {
@@ -106,7 +112,7 @@ struct DeckConfigView: View {
                 .disabled(model.destination != nil)
         }
         ToolbarItem(placement: .confirmationAction) {
-            Button("Save") { Task { if await model.saveConfig() { onDismiss() } } }
+            Button("Save") { Task { if await model.saveConfig() { onSaved(); onDismiss() } } }
                 .keyboardShortcut(.defaultAction)
                 .disabled(!model.hasLoadedConfig || model.isSaving || model.destination != nil)
         }

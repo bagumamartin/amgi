@@ -20,6 +20,8 @@ package struct DeckListView: View {
     @State private var showImport = false
     @State private var renameTarget: DeckRowViewData?
     @State private var pendingDeck: DeckInfo?
+    @State private var decisionRequest: DeckDecisionRequest?
+    @State private var decisionReview: DeckDecisionReviewMode?
     /// Deck detail grows out of the row that was tapped, rather than cutting
     /// in from the trailing edge — the row and the screen are the same thing.
     @Namespace private var deckTransition
@@ -56,6 +58,9 @@ package struct DeckListView: View {
             onDeleteDeck: { rawID in await model.delete(DeckID(rawID)) },
             onRenameDeck: { row in renameTarget = row },
             onCreateDeck: { showCreateSheet = true },
+            onDecision: { item, action in decisionRequest = DeckDecisionRequest(item: item, action: action) },
+            onReviewDecisions: { model.beginDecisionReview(); decisionReview = .automatic },
+            onReviewPausedDecks: { model.beginDecisionReview(); decisionReview = .paused },
             deckTransition: deckTransition
         )
         // `LibraryListContent` stores six closures, which makes it
@@ -77,6 +82,14 @@ package struct DeckListView: View {
                 #if os(iOS)
                 .navigationTransition(.zoom(sourceID: deck.id.rawValue, in: deckTransition))
                 #endif
+        }
+        .modifier(DeckDecisionPresentation(model: model, request: $decisionRequest,
+            presentsErrors: decisionReview == nil, onViewDeck: { pendingDeck = $0 }))
+        .sheet(item: $decisionReview) { mode in
+            DeckDecisionReviewView(model: model, mode: mode, onViewDeck: { deck in
+                decisionReview = nil
+                pendingDeck = deck
+            })
         }
         .toolbar { toolbarContent }
         .sheet(isPresented: $showCreateSheet) {

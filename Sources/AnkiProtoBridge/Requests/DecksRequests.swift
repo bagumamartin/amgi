@@ -46,7 +46,7 @@ extension Request where Response == [DeckTreeNode] {
             },
             decode: { bytes in
                 let root = try Anki_Decks_DeckTreeNode(serializedBytes: bytes)
-                return root.children.map { DeckTreeNode($0) }
+                return root.children.map { DeckTreeNode($0, includesInventory: instant.timeIntervalSince1970 > 0) }
             }
         )
     }
@@ -239,7 +239,7 @@ extension DeckTreeNode {
     /// Maps a proto deck-tree node into the `AnkiKit` mirror, joining
     /// `fullName` paths recursively. `parentPath` is the joined path of
     /// every ancestor — pass `""` for top-level decks.
-    package init(_ proto: Anki_Decks_DeckTreeNode, parentPath: String = "") {
+    package init(_ proto: Anki_Decks_DeckTreeNode, parentPath: String = "", includesInventory: Bool = true) {
         let fullName = parentPath.isEmpty ? proto.name : "\(parentPath)::\(proto.name)"
         self.init(
             id: DeckID(proto.deckID),
@@ -251,7 +251,19 @@ extension DeckTreeNode {
                 reviewCount: Int(proto.reviewCount)
             ),
             isFiltered: proto.filtered,
-            children: proto.children.map { DeckTreeNode($0, parentPath: fullName) }
+            children: proto.children.map { DeckTreeNode($0, parentPath: fullName, includesInventory: includesInventory) },
+            cardCount: includesInventory ? Int(proto.totalIncludingChildren) : nil,
+            uncappedCounts: includesInventory ? Self.uncappedCounts(in: proto) : nil
+        )
+    }
+
+    private static func uncappedCounts(in proto: Anki_Decks_DeckTreeNode) -> DeckCounts {
+        let children = proto.children.filter { !$0.filtered }.map { uncappedCounts(in: $0) }
+        return DeckCounts(
+            newCount: Int(proto.newUncapped) + children.reduce(0) { $0 + $1.newCount },
+            learnCount: Int(proto.intradayLearning + proto.interdayLearningUncapped)
+                + children.reduce(0) { $0 + $1.learnCount },
+            reviewCount: Int(proto.reviewUncapped) + children.reduce(0) { $0 + $1.reviewCount }
         )
     }
 }
