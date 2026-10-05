@@ -111,6 +111,9 @@ let package = Package(
         .target(
             name: "AnkiBackend",
             dependencies: [
+                // LanguagePreferences (the default `preferred_langs`) and
+                // BackendError's domain types.
+                "AnkiKit",
                 "AnkiRustLib",
                 "AnkiProto",
                 .product(name: "SwiftProtobuf", package: "swift-protobuf"),

@@ -1,0 +1,4 @@
+/* Widget's Info.plist localization. One folder per shipped language; see the
+ * app's copy for why only top-level string values can be localized this way. */
+"CFBundleDisplayName" = "Ijuka";
+"CFBundleName" = "Ijuka";

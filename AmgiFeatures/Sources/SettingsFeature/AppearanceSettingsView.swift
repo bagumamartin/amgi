@@ -9,6 +9,29 @@ struct AppearanceSettingsView: View {
     @Bindable var manager: ThemeManager
     @Shared(.appStorage(AppearancePreferences.Keys.appFont))
     private var appFontRaw: String = AppFont.system.rawValue
+    /// The app language, bound straight to the observable store. Binding
+    /// through `overrideTag` — rather than a local `@State` copy mirrored by
+    /// an `onChange` — is what makes the write land in one place: the store
+    /// owns both the App Group persistence and the observation that
+    /// re-renders the app, and a local mirror could only ever get one right.
+    @Bindable private var appLocale = AppLocaleModel.shared
+    @State private var engineRelaunchNeeded = false
+
+    /// `""` is the "System" row, which clears the override.
+    private var languageTag: Binding<String> {
+        Binding(
+            get: { appLocale.overrideTag ?? "" },
+            set: { newValue in
+                let previous = appLocale.overrideTag
+                appLocale.setOverride(newValue)
+                // The engine's `preferred_langs` was fixed when the backend was
+                // constructed, and rebuilding it here would drop the open
+                // collection's lock mid-session — so say so rather than
+                // pretending it applied.
+                engineRelaunchNeeded = previous != appLocale.overrideTag
+            }
+        )
+    }
 
     var body: some View {
         SettingsPage {
@@ -25,6 +48,7 @@ struct AppearanceSettingsView: View {
                 .pickerStyle(.segmented)
                 .padding(AmgiSpacing.md)
             }
+            languageRow
 
             SettingsSectionHeader(title: "App Font")
             SettingsGroup {
@@ -48,6 +72,39 @@ struct AppearanceSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .onChange(of: manager.themeID) { _, _ in reloadWidget() }
         .onChange(of: manager.appearance) { _, _ in reloadWidget() }
+        .onChange(of: appLocale.overrideTag) { _, _ in reloadWidgetForLanguageChange() }
+    }
+
+    // MARK: - Language
+
+    private var languageRow: some View {
+        Group {
+            SettingsSectionHeader(title: "Language")
+            SettingsGroup {
+                SettingsPickerRow(
+                    title: "App Language",
+                    systemImage: "globe",
+                    tone: .info,
+                    selection: languageTag
+                ) {
+                    Text("System").tag("")
+                    ForEach(AppLocale.availableLanguageTags, id: \.self) { tag in
+                        Text(verbatim: AppLocale.languageName(for: tag)).tag(tag)
+                    }
+                }
+            }
+            if engineRelaunchNeeded {
+                SettingsFootnote("Relaunch Ijuka to apply this language to text that comes from the Anki engine, such as card errors and undo names.")
+            } else {
+                SettingsFootnote("System follows your device language. Changing this also changes the language the Anki engine uses.")
+            }
+        }
+    }
+
+    /// The picker writes through `languageTag`; this only refreshes the widget
+    /// timeline, whose strings come from this same locale.
+    private func reloadWidgetForLanguageChange() {
+        reloadWidget()
     }
 
     /// Theme cards draw their own selected/unselected frame, so they sit
@@ -116,7 +173,7 @@ private struct ThemeCard: View {
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
                 }
-                Text(label).bold()
+                Text(LocalizedStringKey(label)).bold()
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(AmgiSpacing.md)
@@ -164,7 +221,7 @@ private struct PreviewCard: View {
 
 private extension PreviewCard {
     func badge(_ text: String, color: Color) -> some View {
-        Text(text)
+        Text(LocalizedStringKey(text))
             .amgiFont(.captionBold)
             .foregroundStyle(color)
             .padding(.horizontal, 8).padding(.vertical, 4)

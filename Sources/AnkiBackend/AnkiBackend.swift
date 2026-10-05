@@ -1,3 +1,7 @@
+// `public` because `LanguagePreferences.systemTags` is the default value of
+// a public initializer's parameter — `InternalImportsByDefault` would
+// otherwise import it as internal and reject the reference.
+public import AnkiKit
 import AnkiRustLib
 import AnkiProto
 import Synchronization
@@ -5,6 +9,9 @@ public import Foundation
 private import SwiftProtobuf
 
 public final class AnkiBackend: Sendable {
+    /// Scoped editors carry this through async client calls. The RPC gate
+    /// checks it under lifecycle access, even if the same profile was reopened.
+    @TaskLocal public static var requiredCollectionActivationID: UUID?
     private let backendPtr: Int64
     private let lock = NSLock()
     /// Serializes lifecycle-sensitive sequences as well as individual RPCs.
@@ -24,6 +31,11 @@ public final class AnkiBackend: Sendable {
     /// across a profile switch, and the annotation was suppressing the check
     /// that would have said so.
     private let mediaFolderStorage = Mutex<String?>(nil)
+    private let collectionActivationStorage = Mutex<UUID?>(nil)
+
+    /// Changes on every open, including reopening the same profile. Composite
+    /// UI operations use it to reject work queued before a profile switch.
+    public var collectionActivationID: UUID? { collectionActivationStorage.withLock { $0 } }
 
     /// Absolute path of the open collection's media folder, or nil if no
     /// collection is currently open. Safe to read from any thread; callers
@@ -32,7 +44,17 @@ public final class AnkiBackend: Sendable {
         mediaFolderStorage.withLock { $0 }
     }
 
-    public init(preferredLangs: [String] = ["en"]) throws {
+    /// - Parameter preferredLangs: Language tags the engine should prefer,
+    ///   in order — the same shape `AnkiBackendDependency` uses and the same
+    ///   normalization `LanguagePreferences` applies. Defaults to the user's
+    ///   own languages.
+    ///
+    ///   This used to be `["en"]`, which pinned every production backend —
+    ///   app, watch, MCP helper, dependency live value — to English. The
+    ///   engine is where undo operation names, import errors, and card
+    ///   template text come from, so a hardcoded `"en"` meant those could
+    ///   never be localized no matter what the UI did.
+    public init(preferredLangs: [String] = LanguagePreferences.systemTags) throws {
         var initMsg = Anki_Backend_BackendInit()
         initMsg.preferredLangs = preferredLangs
         initMsg.server = false
@@ -104,6 +126,8 @@ public final class AnkiBackend: Sendable {
         mediaFolderPath: String,
         mediaDbPath: String
     ) throws {
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
         let previousMediaFolder = mediaFolderStorage.withLock { current in
             let previous = current
             current = mediaFolderPath
@@ -116,6 +140,7 @@ public final class AnkiBackend: Sendable {
         req.mediaDbPath = mediaDbPath
         do {
             try callVoid(service: Service.collection, method: CollectionMethod.open, request: req)
+            collectionActivationStorage.withLock { $0 = UUID() }
         } catch {
             mediaFolderStorage.withLock { $0 = previousMediaFolder }
             throw error
@@ -123,10 +148,13 @@ public final class AnkiBackend: Sendable {
     }
 
     public func closeCollection(downgradeToSchema11: Bool = false) throws {
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
         var req = Anki_Collection_CloseCollectionRequest()
         req.downgradeToSchema11 = downgradeToSchema11
         try callVoid(service: Service.collection, method: CollectionMethod.close, request: req)
         mediaFolderStorage.withLock { $0 = nil }
+        collectionActivationStorage.withLock { $0 = nil }
     }
 
     /// Runs a lifecycle-sensitive sequence while preventing another RPC from
@@ -229,6 +257,9 @@ public final class AnkiBackend: Sendable {
     ) throws(BackendError) -> Data {
         lifecycleLock.lock()
         defer { lifecycleLock.unlock() }
+        if let required = Self.requiredCollectionActivationID, required != collectionActivationID {
+            throw BackendError(kind: .interrupted, message: "The active collection changed.")
+        }
         if prioritizeInteractive {
             interactiveCallCount.withLock { $0 += 1 }
             if agentCallCount.withLock({ $0 > 0 }) {

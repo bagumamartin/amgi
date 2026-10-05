@@ -18,6 +18,7 @@ package struct SettingsWindowHost: View {
     package let onSwitchProfile: (AmgiAccount) async -> Void
     @State private var selection: SettingsRoute? = .appearance
     @Bindable private var accountStore = AccountStore.shared
+    @Bindable private var appLocale = AppLocaleModel.shared
     @Environment(\.palette) private var palette
 
     package init(onSwitchProfile: @escaping (AmgiAccount) async -> Void) {
@@ -28,11 +29,11 @@ package struct SettingsWindowHost: View {
         NavigationSplitView {
             List(selection: $selection) {
                 ForEach(SettingsRouteInventory.availableGroups) { group in
-                    Section(group.title) {
+                    Section(LocalizedStringKey(group.title)) {
                         ForEach(group.routes) { route in
-                            Label(route.title, systemImage: route.systemImage)
+                            Label(LocalizedStringKey(route.title), systemImage: route.systemImage)
                                 .tag(route)
-                                .accessibilityLabel(route.title)
+                                .accessibilityLabel(Text(LocalizedStringKey(route.title)))
                         }
                     }
                 }
@@ -62,6 +63,7 @@ package struct SettingsWindowHost: View {
         } message: {
             Text(accountStore.switchFailure ?? "")
         }
+        .environment(\.locale, appLocale.locale)
     }
 
     @ViewBuilder

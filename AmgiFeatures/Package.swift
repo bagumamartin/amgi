@@ -34,6 +34,12 @@ let sharedSwiftSettings: [SwiftSetting] = [
 
 let package = Package(
     name: "AmgiFeatures",
+    // Required for the String Catalog in AmgiAppCore to be treated as a
+    // localization resource rather than an opaque file: without it SwiftPM
+    // neither copies the .lproj variants into the resource bundle nor
+    // resolves `String(localized:bundle:)` against it. "en" is the source
+    // language, not a promise that English is the only shipped language.
+    defaultLocalization: "en",
     platforms: [.iOS(.v18), .macOS(.v15), .watchOS(.v11)],
     products: [
         .library(name: "AmgiAppCore", targets: ["AmgiAppCore"]),
@@ -73,6 +79,13 @@ let package = Package(
                 .product(name: "AnkiKit", package: "amgi"),
                 .product(name: "Sharing", package: "swift-sharing"),
             ],
+            // The app's String Catalog. AmgiAppCore is the only target the
+            // app, the widget, and the watch all link, so it is the only
+            // place a single copy of the catalog can live for `L10n` and
+            // `AppLocale` to agree on. The app / widget / watch targets each
+            // add the same file to their own bundle — SwiftUI's `Text("…")`
+            // resolves through `Bundle.main`, not through here.
+            resources: [.process("Resources")],
             swiftSettings: sharedSwiftSettings
         ),
         .testTarget(
@@ -204,6 +217,7 @@ let package = Package(
             name: "DecksFeatureTests",
             dependencies: [
                 "DecksFeature",
+                "AmgiAppCore",
                 "AmgiAppShared",
                 .product(name: "AmgiUI", package: "AmgiUI"),
                 .product(name: "AnkiKit", package: "amgi"),
@@ -294,6 +308,7 @@ let package = Package(
                 "StatsFeature",
                 .product(name: "AnkiKit", package: "amgi"),
                 .product(name: "AnkiBackend", package: "amgi"),
+                .product(name: "AnkiProtoBridge", package: "amgi"),
                 .product(name: "AnkiClients", package: "amgi"),
                 .product(name: "AmgiTheme", package: "AmgiUI"),
                 .product(name: "AmgiUI", package: "AmgiUI"),

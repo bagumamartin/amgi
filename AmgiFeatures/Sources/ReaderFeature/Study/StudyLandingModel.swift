@@ -183,7 +183,10 @@ final class StudyLandingModel {
     func study(search: String, limit: Int, reschedule: Bool) async -> (deckID: DeckID?, message: String?) {
         do {
             let spec = FilteredDeckSpec(
-                name: "Study · Session · \(UUID().uuidString.prefix(8))",
+                // A name, not copy: `StudyDeckNaming` matches it on later
+                // launches to clean up. See that type for why it must not be
+                // localized.
+                name: StudyDeckNaming.sessionName(token: String(UUID().uuidString.prefix(8))),
                 search: search,
                 limit: UInt32(max(1, limit)),
                 order: .due,

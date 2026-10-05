@@ -36,10 +36,19 @@ let package = Package(
     name: "AmgiUI",
     // watchOS 11 added for the AmgiWatchApp target (PR #14); matches the
     // root package's watchOS floor.
+    // No `defaultLocalization`: this package has no localized resources of
+    // its own. The app's String Catalog lives in AmgiAppCore, and every host
+    // (app, widget, watch) ships its own copy in its own bundle because
+    // SwiftUI resolves `Text("…")` through `Bundle.main`, not through a
+    // package.
     platforms: [.iOS(.v18), .macOS(.v15), .watchOS(.v11)],
     products: [
         .library(name: "AmgiTheme", targets: ["AmgiTheme"]),
         .library(name: "AmgiUI", targets: ["AmgiUI"]),
+    ],
+    dependencies: [
+        // AnkiKit, for StudyDeckNaming (see the AmgiUI target below).
+        .package(path: "../"),
     ],
     targets: [
         .target(
@@ -54,7 +63,13 @@ let package = Package(
         ),
         .target(
             name: "AmgiUI",
-            dependencies: ["AmgiTheme"],
+            dependencies: [
+                "AmgiTheme",
+                // StudyDeckNaming — the app's own deck names, matched from
+                // StudyDeckRow. Domain strings, so they live below the app
+                // layer with the rest of AnkiKit.
+                .product(name: "AnkiKit", package: "amgi"),
+            ],
             swiftSettings: sharedSwiftSettings
         ),
         .testTarget(

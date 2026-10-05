@@ -5,6 +5,16 @@ options:
   # edits to the generated .pbxproj.
   xcodeVersion: "27.0"
   bundleIdPrefix: com.bagumamartin
+  # English is the development language, not the only shipped one. It has to
+  # be named here: the project previously had no development language, which
+  # is why `knownRegions` was `(Base, en)` and why adding a translation had
+  # nowhere to attach.
+  developmentLanguage: en
+  # Base is the pseudo/development region; `en` is a real locale because the
+  # String Catalog's source language is English. Every language listed here
+  # must have a matching entry in Localizable.xcstrings, an .lproj under each
+  # target's sources, or Xcode silently drops it from the build.
+  knownRegions: [en, es, fr, hu, vi, Base]
   deploymentTarget:
     iOS: "18.0"
     macOS: "15.0"
@@ -180,6 +190,14 @@ targets:
         type: folder
       - path: Resources/EPUBReader
         type: folder
+      # String Catalog, shared verbatim with the widget and watch targets.
+      # SwiftUI resolves `Text("…")` through `Bundle.main`, so the catalog
+      # has to be in *this* bundle — the copy inside AmgiAppCore's resource
+      # bundle is what `L10n` and `AppLocale` fall back to, not what the
+      # literals in package code see.
+      - path: ../AmgiFeatures/Sources/AmgiAppCore/Resources/Localizable.xcstrings
+      - path: Resources/Localization
+        type: group
       - path: PrivacyInfo.xcprivacy
     dependencies:
       - package: AmgiFeatures
@@ -325,6 +343,9 @@ targets:
     supportedDestinations: [iOS, macOS]
     sources:
       - path: Sources/Widgets
+      # Same catalog as the app target. The widget has its own main bundle,
+      # and WidgetFeature's `Text("…")` resolves through it.
+      - path: ../AmgiFeatures/Sources/AmgiAppCore/Resources/Localizable.xcstrings
     dependencies:
       # Everything but @main AmgiWidgetBundle lives in WidgetFeature, which
       # brings AmgiAppCore + AmgiTheme transitively. AnkiKit was vestigial —
@@ -352,6 +373,9 @@ targets:
       # 2026-08-15). Do not re-add per-file paths here.
       - path: Sources/Watch
         type: group
+      # Same catalog as the app target — the watch is its own main bundle,
+      # and WatchFeature's `Text("…")` resolves through it.
+      - path: ../AmgiFeatures/Sources/AmgiAppCore/Resources/Localizable.xcstrings
     dependencies:
       - package: AnkiBridge
         product: AnkiKit

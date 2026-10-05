@@ -1,3 +1,4 @@
+import AmgiAppCore
 import AnkiBackend
 import AnkiSync
 import Dependencies
@@ -58,7 +59,11 @@ struct WatchApp: App {
 
     private static func setUpBackend() throws {
         try prepareDependencies {
-            let backend = try AnkiBackend(preferredLangs: ["en"])
+            // `AppLocale.languageTags` rather than a literal: the watch reads
+            // the same App Group override as the app, so the engine and the
+            // watch's own copy follow the user's language choice. The watch
+            // has no override UI of its own, so this is the system list.
+            let backend = try AnkiBackend(preferredLangs: AppLocale.languageTags)
             // Unprofiled path on purpose: the watch is a separate device
             // container with no profile registry, so it always resolves to
             // the "default" scope (see AnkiKit.ProfileScope). It is not the

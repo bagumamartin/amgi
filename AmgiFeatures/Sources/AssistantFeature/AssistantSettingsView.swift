@@ -144,12 +144,13 @@ private struct AssistantSettingsPanel<Content: View>: View {
 
 private struct AssistantSettingsHeader: View {
     @Environment(\.palette) private var palette
-    let title: String
+    let title: LocalizedStringKey
 
-    init(_ title: String) { self.title = title }
+    init(_ title: LocalizedStringKey) { self.title = title }
 
     var body: some View {
-        Text(title.uppercased())
+        Text(title)
+            .textCase(.uppercase)
             .amgiFont(.micro)
             .fontWeight(.semibold)
             .foregroundStyle(palette.textSecondary)
@@ -159,8 +160,8 @@ private struct AssistantSettingsHeader: View {
 
 private struct AssistantSettingsLabel: View {
     @Environment(\.palette) private var palette
-    let title: String
-    let subtitle: String
+    let title: LocalizedStringKey
+    let subtitle: LocalizedStringKey
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {

@@ -442,7 +442,11 @@ struct BrowserColumnsSheet: View {
                         .accessibilityLabel(model.mode == .notes ? col.notesLabel : col.cardsLabel)
                         .accessibilityValue(isActive ? "Shown" : "Hidden")
                         .accessibilityAddTraits(isActive ? .isSelected : [])
-                        .accessibilityHint("Double-click to \(isActive ? "hide" : "show") this column")
+                        .accessibilityHint(
+                            isActive
+                                ? "Double-click to hide this column"
+                                : "Double-click to show this column"
+                        )
                     }
                 }
             }

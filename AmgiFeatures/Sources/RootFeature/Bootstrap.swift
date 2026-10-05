@@ -78,7 +78,7 @@ public enum AmgiRoot {
         var openError: String?
         var launchBackend: AnkiBackend?
         do {
-            let backend = try AnkiBackend(preferredLangs: ["en"])
+            let backend = try AnkiBackend(preferredLangs: AppLocale.languageTags)
             try openCollection(for: activeProfile.id, backend: backend)
             launchBackend = backend
         } catch {
@@ -86,7 +86,7 @@ public enum AmgiRoot {
             // The backend handle itself is cheap and lock-free — only the
             // collection open contends. Rebuild it so the bridge and the
             // retry loop have something to drive.
-            launchBackend = try? AnkiBackend(preferredLangs: ["en"])
+            launchBackend = try? AnkiBackend(preferredLangs: AppLocale.languageTags)
         }
 
         guard let launchBackend else {

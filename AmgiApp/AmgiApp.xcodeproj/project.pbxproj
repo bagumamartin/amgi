@@ -17,6 +17,8 @@
 		1BA1F93AC6C6FF8C357063BA /* SwiftNavigation in Frameworks */ = {isa = PBXBuildFile; productRef = 5E4DD888EA7B00AFD7922CBF /* SwiftNavigation */; };
 		1CCF36BA63528C1E2FA3F9FD /* AnkiClients in Frameworks */ = {isa = PBXBuildFile; productRef = 1D9F9CD702DB5DC5DC8AAB30 /* AnkiClients */; };
 		1F595923A449E405CB3706FE /* Logging in Frameworks */ = {isa = PBXBuildFile; productRef = 266EDB28F3269C3FAAD43479 /* Logging */; };
+		1F8DFC33908BB72123EC287A /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 614A0C4CF99306462A48331C /* Localizable.xcstrings */; };
+		265A62736A50BC89AEA8902C /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 614A0C4CF99306462A48331C /* Localizable.xcstrings */; };
 		284D9147C2A3A745987080EB /* ToolCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C9D50B193DAB0B3BCF9F942 /* ToolCatalog.swift */; };
 		2F6CCEA4FF8B775FCA9299DA /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2B60A11C277A30E8180CB0F1 /* WidgetKit.framework */; platformFilters = (ios, macos, ); };
 		300C45BEA20065427F563AAD /* AmgiAppCore in Frameworks */ = {isa = PBXBuildFile; productRef = 22DC7EB8B98A3ED9E71AC3D1 /* AmgiAppCore */; };
@@ -28,6 +30,7 @@
 		5206D53A52E116E129C0E956 /* AnkiSync in Frameworks */ = {isa = PBXBuildFile; productRef = 1D52A2C890DE8794E39904C4 /* AnkiSync */; };
 		5540802A47E5AE6133162993 /* Sharing in Frameworks */ = {isa = PBXBuildFile; productRef = E246B9A74FC08245970AE0E4 /* Sharing */; };
 		5A08BF65B561740464CDF767 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 4885F9B8D778EF6F864BC74F /* PrivacyInfo.xcprivacy */; };
+		5F29D42C853E7A1513A41608 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = C20AC463A94AFE11D437DF99 /* InfoPlist.strings */; };
 		5F5B77D77DD4749D9539DE34 /* AmgiReviewCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8A765015A79B5CB13C813D22 /* AmgiReviewCore */; };
 		652134A3080AAB2E8524794F /* WidgetFeature in Frameworks */ = {isa = PBXBuildFile; productRef = DDECB4DC220C7664DB15D012 /* WidgetFeature */; };
 		67A2ED31F59B08EBD06A4FED /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A12D2167226A912462BF60EA /* Assets.xcassets */; };
@@ -58,6 +61,7 @@
 		CD7A425CC4ECBA61920F09E6 /* AmgiUI in Frameworks */ = {isa = PBXBuildFile; productRef = 87D0CB2695723E94A8F6EEE4 /* AmgiUI */; };
 		DF3FFA1F8462CC2CFDFFCFBE /* DeckTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC265AB47DCCBBC1EB438183 /* DeckTools.swift */; };
 		E0F82330DBABF8BB7D7E1913 /* ChangeNotifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 050871108FCAF3E20418130D /* ChangeNotifier.swift */; };
+		E2760DCBD1FD70A3B91D2A52 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 614A0C4CF99306462A48331C /* Localizable.xcstrings */; };
 		E45540503268E00A3CAC9B04 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2B60A11C277A30E8180CB0F1 /* WidgetKit.framework */; };
 		E837F827FE3322843F74EA5B /* NoteTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD26BCBEDE891D0BEB7EA8A5 /* NoteTools.swift */; };
 		EB88A0BE4D76D2A0F0B63FDE /* AnkiProtoBridge in Frameworks */ = {isa = PBXBuildFile; productRef = E780C2AFBBD011F875CCFBEF /* AnkiProtoBridge */; };
@@ -130,24 +134,27 @@
 		34B25F9D324E0B703F834DC4 /* WatchAssets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = WatchAssets.xcassets; sourceTree = "<group>"; };
 		39C2C9422C9A994272F8C208 /* AmgiIcons */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AmgiIcons; path = ../AmgiIcons; sourceTree = SOURCE_ROOT; };
 		3A9A4E63D51973E133E2DE69 /* ToolSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolSupport.swift; sourceTree = "<group>"; };
-		4885F9B8D778EF6F864BC74F /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		4885F9B8D778EF6F864BC74F /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		53491D7CE1CAE7A63D1DA6EA /* AppRunningCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRunningCheck.swift; sourceTree = "<group>"; };
 		5C4176C8ACB2773678D5905C /* ConfigMediaTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigMediaTools.swift; sourceTree = "<group>"; };
+		614A0C4CF99306462A48331C /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		669B560BB02A588DCA87B768 /* MCPGuidance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPGuidance.swift; sourceTree = "<group>"; };
 		69732ABBA700D0E8F1D4C877 /* Resolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Resolver.swift; sourceTree = "<group>"; };
 		6E616F2C1C40311BFF40247B /* EngineCaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineCaller.swift; sourceTree = "<group>"; };
 		6FC065BB94EC4D03C744D66D /* AmgiUI */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AmgiUI; path = ../AmgiUI; sourceTree = SOURCE_ROOT; };
 		70812766FBE1BD682DD2D3A3 /* RenderStatsTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenderStatsTools.swift; sourceTree = "<group>"; };
 		72699F2AEA76B14830B32F04 /* ToolDispatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolDispatcher.swift; sourceTree = "<group>"; };
+		77BCA3AE1801B3DBEB74AB42 /* vi */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = vi; path = vi.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		795E67571E8B9C7014F5A3E7 /* EPUBReader */ = {isa = PBXFileReference; lastKnownFileType = folder; name = EPUBReader; path = Resources/EPUBReader; sourceTree = SOURCE_ROOT; };
 		8194F942C511DFA83C0CB371 /* AmgiAppApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmgiAppApp.swift; sourceTree = "<group>"; };
+		859D338E5A66EDAC407F66A9 /* fr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = fr; path = fr.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		86204AF7D14861EEF82FF7E2 /* WatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchApp.swift; sourceTree = "<group>"; };
 		8B7E366EDFEDB47A52008B90 /* EngineHolder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineHolder.swift; sourceTree = "<group>"; };
 		8C9D50B193DAB0B3BCF9F942 /* ToolCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolCatalog.swift; sourceTree = "<group>"; };
 		8FD2F4C9803F239FBB711F38 /* ReviewContextTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewContextTools.swift; sourceTree = "<group>"; };
 		9508481C0DD815976FA19522 /* AmgiReader */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AmgiReader; path = ../AmgiReader; sourceTree = SOURCE_ROOT; };
 		98C4A1BE226DE11015C01ECE /* SearchTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchTools.swift; sourceTree = "<group>"; };
-		A1260ECF4FE2678C38F6F6FA /* IjukaMCPHelper */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = text; name = IjukaMCPHelper; path = "ijuka-mcp"; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1260ECF4FE2678C38F6F6FA /* IjukaMCPHelper */ = {isa = PBXFileReference; includeInIndex = 0; path = IjukaMCPHelper; sourceTree = BUILT_PRODUCTS_DIR; };
 		A12D2167226A912462BF60EA /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A837EB0A30B6E90B20D5C1CD /* AmgiWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = AmgiWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		BE8DDAC853DEF5B6112EB833 /* AmgiFeatures */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AmgiFeatures; path = ../AmgiFeatures; sourceTree = SOURCE_ROOT; };
@@ -156,14 +163,17 @@
 		CAE0DE68DC7E04F773A57E14 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		CD26BCBEDE891D0BEB7EA8A5 /* NoteTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteTools.swift; sourceTree = "<group>"; };
 		DE61E854280804F08BB1DD31 /* AmgiApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = AmgiApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DF32098FA1CB8EEA33D2EEA2 /* es */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = es; path = es.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		E52A1F699FA8746826E4EAB0 /* AmgiWatchApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AmgiWatchApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		E5D39FB1485D22E90682A2FB /* hu */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = hu; path = hu.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		EC265AB47DCCBBC1EB438183 /* DeckTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckTools.swift; sourceTree = "<group>"; };
+		F74FCB519CBDA0E0701AE074 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		FB2A988052DE9E9211CBE4C3 /* IPCProxy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IPCProxy.swift; sourceTree = "<group>"; };
 		FEF6D1A33091968455963805 /* AmgiAppTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AmgiAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		1B98150CA7E87F8DFC46FAE3 /* Exceptions for "Widgets" folder in "AmgiWidget" target */ = {
+		1B98150CA7E87F8DFC46FAE3 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -176,23 +186,43 @@
 		004874923745BECF98EEBD18 /* Widgets */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				1B98150CA7E87F8DFC46FAE3 /* Exceptions for "Widgets" folder in "AmgiWidget" target */,
+				1B98150CA7E87F8DFC46FAE3 /* PBXFileSystemSynchronizedBuildFileExceptionSet */,
 			);
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			name = Widgets;
 			path = Widgets;
 			sourceTree = "<group>";
 		};
 		70BB06347ADF26FA0276AD23 /* AmgiAppTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			name = AmgiAppTests;
 			path = AmgiAppTests;
 			sourceTree = "<group>";
 		};
 		7608F7C11757FEACED1F7B35 /* AmgiAppAdaptiveUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			name = AmgiAppAdaptiveUITests;
 			path = AmgiAppAdaptiveUITests;
 			sourceTree = "<group>";
 		};
 		866AB3935E4B832E1E446D8E /* AmgiAppIntentsUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			name = AmgiAppIntentsUITests;
 			path = AmgiAppIntentsUITests;
 			sourceTree = "<group>";
 		};
@@ -258,6 +288,30 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		17C2C02BCE3C0271890FEAC9 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				BC67389F5B392A7B85F755D6 /* AmgiAppCore */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		197AE972980E578C2EFB77EF /* AmgiFeatures */ = {
+			isa = PBXGroup;
+			children = (
+				17C2C02BCE3C0271890FEAC9 /* Sources */,
+			);
+			path = AmgiFeatures;
+			sourceTree = "<group>";
+		};
+		27AB5A0D8A0062DCE6DAED87 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				614A0C4CF99306462A48331C /* Localizable.xcstrings */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
 		4A125CFDC56D7032ED3A5E92 /* IjukaMCP */ = {
 			isa = PBXGroup;
 			children = (
@@ -300,6 +354,14 @@
 			name = Packages;
 			sourceTree = "<group>";
 		};
+		6D26FE2B29EE93428D2DB50F /* Localization */ = {
+			isa = PBXGroup;
+			children = (
+				C20AC463A94AFE11D437DF99 /* InfoPlist.strings */,
+			);
+			path = Localization;
+			sourceTree = "<group>";
+		};
 		852CFC1C0D03FE7967E700AA /* Sources */ = {
 			isa = PBXGroup;
 			children = (
@@ -321,10 +383,19 @@
 		9E8676797DB5CFAC1112664F /* amgi */ = {
 			isa = PBXGroup;
 			children = (
+				197AE972980E578C2EFB77EF /* AmgiFeatures */,
 				930422E9DF215E73D9C6E27A /* Sources */,
 			);
 			name = amgi;
 			path = ..;
+			sourceTree = "<group>";
+		};
+		BC67389F5B392A7B85F755D6 /* AmgiAppCore */ = {
+			isa = PBXGroup;
+			children = (
+				27AB5A0D8A0062DCE6DAED87 /* Resources */,
+			);
+			path = AmgiAppCore;
 			sourceTree = "<group>";
 		};
 		C2DEE343E176258185B95328 /* Tests */ = {
@@ -357,6 +428,7 @@
 				32D10E5F584CDD7816F8408A /* Fonts */,
 				308AC2057FB8232A7A730D15 /* mathjax */,
 				1B84A2ADB8D6A599253D2E78 /* Review */,
+				6D26FE2B29EE93428D2DB50F /* Localization */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -622,6 +694,10 @@
 			knownRegions = (
 				Base,
 				en,
+				es,
+				fr,
+				hu,
+				vi,
 			);
 			mainGroup = F90D9C10E2CEF0656D9B04B5;
 			minimizedProjectReferenceProxies = 1;
@@ -670,6 +746,8 @@
 				67A2ED31F59B08EBD06A4FED /* Assets.xcassets in Resources */,
 				914745C4D1A6A52334194F09 /* EPUBReader in Resources */,
 				9063E7D11DDAA9D8A7A0CF5D /* Fonts in Resources */,
+				5F29D42C853E7A1513A41608 /* InfoPlist.strings in Resources */,
+				1F8DFC33908BB72123EC287A /* Localizable.xcstrings in Resources */,
 				5A08BF65B561740464CDF767 /* PrivacyInfo.xcprivacy in Resources */,
 				8AE5F2F0A719B566CC316F35 /* Review in Resources */,
 				9E79CAC91DE4DC297BDB10DE /* mathjax in Resources */,
@@ -687,6 +765,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				265A62736A50BC89AEA8902C /* Localizable.xcstrings in Resources */,
 				B7DC18E3EDF82685C810048E /* WatchAssets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -702,6 +781,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E2760DCBD1FD70A3B91D2A52 /* Localizable.xcstrings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -839,6 +919,21 @@
 			targetProxy = 405A1DF95A869267A4FF267C /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
+
+/* Begin PBXVariantGroup section */
+		C20AC463A94AFE11D437DF99 /* InfoPlist.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				F74FCB519CBDA0E0701AE074 /* en */,
+				DF32098FA1CB8EEA33D2EEA2 /* es */,
+				859D338E5A66EDAC407F66A9 /* fr */,
+				E5D39FB1485D22E90682A2FB /* hu */,
+				77BCA3AE1801B3DBEB74AB42 /* vi */,
+			);
+			name = InfoPlist.strings;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
 		01CDE097EE270648A3455BCC /* Release */ = {

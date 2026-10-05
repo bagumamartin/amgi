@@ -167,9 +167,18 @@ package struct ReviewView: View {
         store.invalidateAll(origin: .localUser)
     }
 
+    /// Is this filtered deck one of the app's own study sessions, and so safe
+    /// to delete when the session ends?
+    ///
+    /// Recognized by name, because that is all the engine gives us — a
+    /// filtered deck carries no marker beyond the name the app chose. The
+    /// names are therefore *data*, not UI copy: they are written into the
+    /// collection, compared after relaunch, and matched by
+    /// `StudyDeckRow` too. Keep them stable, keep them in
+    /// `StudyDeckNaming`, and never run them through the catalog. User-created
+    /// filtered decks ("Custom Study Session" and friends) are the app's
+    /// other temporary decks and are matched by the same rules.
     private static func isTemporarySession(_ name: String) -> Bool {
-        name == "Custom Study Session"
-            || name == "Study · Selection"
-            || name.hasPrefix("Study · Session · ")
+        StudyDeckNaming.isTemporarySessionDeck(name)
     }
 }

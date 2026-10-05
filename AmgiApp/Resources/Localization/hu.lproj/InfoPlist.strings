@@ -1,0 +1,16 @@
+/* Permission prompts and the display name.
+ *
+ * The prompt is the first thing a user reads from this app on a device where
+ * they do not read English, so it is a real translation, not a copy of
+ * Info.plist. Add one folder per shipped language; a missing translation falls
+ * back to the English value in Info.plist, which is correct rather than empty.
+ *
+ * Only top-level string values can be localized this way — see the en copy
+ * for why the document-type and UTType names are not here.
+ */
+"CFBundleDisplayName" = "Ijuka";
+"CFBundleName" = "Ijuka";
+
+"NSCameraUsageDescription" = "Az Ijuka a kamerával képeket ad a kártyáidhoz.";
+"NSMicrophoneUsageDescription" = "Az Ijuka a mikrofonnal hangfelvételeket készít a kártyáidhoz.";
+"NSPhotoLibraryUsageDescription" = "Az Ijuka a legutóbbi fotóidat mutatja, hogy képeket adhass a kártyáidhoz.";

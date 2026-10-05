@@ -105,7 +105,11 @@ final class EngineHolder: Sendable {
                 return EngineCaller(kind: .local(existing))
             }
             do {
-                let backend = try AnkiBackend(preferredLangs: ["en"])
+                // The user's languages, not a literal. The helper is a CLI
+                // tool with no UI, so this is the system list; it matters
+                // because the engine owns the error text and the note-type
+                // and deck names that flow back into tool results.
+                let backend = try AnkiBackend(preferredLangs: LanguagePreferences.systemTags)
                 try FileManager.default.createDirectory(
                     atPath: paths.mediaFolderPath, withIntermediateDirectories: true
                 )

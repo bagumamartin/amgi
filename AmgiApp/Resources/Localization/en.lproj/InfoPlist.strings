@@ -1,0 +1,22 @@
+/* Info.plist localization.
+ *
+ * Only *top-level* string values in Info.plist can be localized this way.
+ * That rules out the document-type and UTType names: they live inside
+ * `CFBundleDocumentTypes` / `UTExportedTypeDeclarations` arrays, and
+ * InfoPlist.strings has no way to reach into an array. Those names are
+ * therefore still English-only, and a translation has to come from the OS
+ * type system instead (declaring localized `.lproj`-adjacent UTType
+ * descriptions is not possible today) — tracked, not solvable here.
+ *
+ * `en.lproj` is the base. Add one folder per shipped language. Nothing in
+ * here is read at runtime, so a missing translation falls back to the
+ * English value in Info.plist, which is correct rather than empty.
+ */
+"CFBundleDisplayName" = "Ijuka";
+"CFBundleName" = "Ijuka";
+
+/* The first thing a user reads from this app on a device where they do not
+ * read English. */
+"NSCameraUsageDescription" = "Ijuka uses the camera to add pictures to your cards.";
+"NSMicrophoneUsageDescription" = "Ijuka uses the microphone to record audio notes for your cards.";
+"NSPhotoLibraryUsageDescription" = "Ijuka shows your recent photos so you can add pictures to your cards.";

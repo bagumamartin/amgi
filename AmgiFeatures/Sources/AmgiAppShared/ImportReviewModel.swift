@@ -153,7 +153,9 @@ package final class ImportReviewModel {
             cleanupStagingDirectory()
         } catch {
             phase = .failed
-            failureMessage = Self.message(for: error, format: format)
+            // Everything above is staging: the file was still being opened and
+            // sniffed, so a failure here is about the file, not the collection.
+            failureMessage = Self.message(for: error, format: format, at: .staging)
         }
     }
 
@@ -208,7 +210,10 @@ package final class ImportReviewModel {
             failureMessage = "The import was cancelled."
         } catch {
             phase = .failed
-            failureMessage = Self.message(for: error, format: format)
+            // Past staging: the engine owns the file, and its message is
+            // already localized (it was constructed with the user's
+            // languages), so pass it through.
+            failureMessage = Self.message(for: error, format: format, at: .engine)
         }
 
         if lifecycleStarted {
@@ -279,7 +284,9 @@ package final class ImportReviewModel {
         do {
             try await refreshCSVMetadata(preservingTags: true, tags: tags, updatedTags: updatedTags)
         } catch {
-            failureMessage = Self.message(for: error, format: .text)
+            // Re-reading the staged text file: still the file's problem, not
+            // the collection's.
+            failureMessage = Self.message(for: error, format: .text, at: .staging)
         }
     }
 
@@ -297,7 +304,7 @@ package final class ImportReviewModel {
         do {
             try await refreshCSVMetadata(preservingTags: true, tags: tags, updatedTags: updatedTags)
         } catch {
-            failureMessage = Self.message(for: error, format: .text)
+            failureMessage = Self.message(for: error, format: .text, at: .staging)
         }
     }
 
@@ -540,26 +547,50 @@ package final class ImportReviewModel {
         }.value
     }
 
-    private static func message(for error: any Error, format: AnkiImportFormat?) -> String {
+    /// A user-facing explanation for a failed import.
+    ///
+    /// This used to classify failures by *matching English words* in the
+    /// engine's message ("zip", "archive", "mnemosyne"). That is a sentinel
+    /// that breaks the moment the engine is given a real `preferred_langs` —
+    /// the same German user whose Anki says "unleserliches Archiv" would fall
+    /// through every branch and see the raw engine string.
+    ///
+    /// Now: the format is already known at the call site, and the two
+    /// classifications that depended on the message text are decided by
+    /// *where the failure happened* — the staging step that opens the archive
+    /// or reads the database. A failure there is a bad file; a failure after
+    /// is the engine's own message, which is already localized.
+    package enum FailurePoint {
+        /// The file was being opened, sniffed, or converted into the
+        /// collection's own storage.
+        case staging
+        /// The engine had the file and rejected it.
+        case engine
+    }
+
+    package static func message(
+        for error: any Error,
+        format: AnkiImportFormat?,
+        at point: FailurePoint
+    ) -> String {
         if let failure = error as? ImportReviewFailure {
             return failure.errorDescription
         }
-        let raw = (error as? any LocalizedError)?.errorDescription ?? error.localizedDescription
-        let lowered = raw.lowercased()
-        if format == .deckPackage || format == .collectionPackage || format == .zippedPackage {
-            if lowered.contains("zip") || lowered.contains("archive") || lowered.contains("invalid file") {
-                return "This file doesn’t appear to be a valid Anki package. It may be damaged or created by a newer version of Anki."
+        if point == .staging {
+            switch format {
+            case .deckPackage, .collectionPackage, .zippedPackage:
+                return L10n.text("This file doesn’t appear to be a valid Anki package. It may be damaged or created by a newer version of Anki.")
+            case .mnemosyne:
+                return L10n.text("This database is not a readable Mnemosyne collection. Choose a Mnemosyne SQL 1, 2, or 3 database.")
+            case .text:
+                return L10n.text("Ijuka couldn’t read this text file. Save it as UTF-8 CSV, TSV, or tab-separated text and try again.")
+            // Anki JSON has no file-shaped failure worth guessing at here, and
+            // the engine's own message is better than a generic one.
+            case .ankiJSON, .none:
+                break
             }
         }
-        if format == .mnemosyne,
-           lowered.contains("mnemosyne") || lowered.contains("global_variables") {
-            return "This database is not a readable Mnemosyne collection. Choose a Mnemosyne SQL 1, 2, or 3 database."
-        }
-        if format == .text,
-           lowered.contains("csv") || lowered.contains("unicode") || lowered.contains("utf-8") {
-            return "Ijuka couldn’t read this text file. Save it as UTF-8 CSV, TSV, or tab-separated text and try again."
-        }
-        return raw
+        return (error as? any LocalizedError)?.errorDescription ?? error.localizedDescription
     }
 }
 

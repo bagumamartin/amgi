@@ -81,7 +81,7 @@ struct SettingsRowLink<Destination: View>: View {
         } label: {
             HStack(spacing: AmgiSpacing.md) {
                 iconTile
-                Text(title)
+                Text(LocalizedStringKey(title))
                     .amgiFont(.body)
                     .foregroundStyle(palette.textPrimary)
                 Spacer(minLength: AmgiSpacing.sm)
@@ -99,9 +99,9 @@ struct SettingsRowLink<Destination: View>: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.pressScale)
-        .accessibilityLabel(title)
+        .accessibilityLabel(Text(LocalizedStringKey(title)))
         .accessibilityValue(detail ?? "")
-        .accessibilityHint("Opens \(title)")
+        .accessibilityHint(Text("Opens \(title)"))
     }
 
     private var iconTile: some View {
@@ -157,7 +157,7 @@ struct SettingsSectionHeader: View {
     let title: String
 
     var body: some View {
-        Text(title)
+        Text(LocalizedStringKey(title))
             .amgiFont(.micro)
             .fontWeight(.semibold)
             .textCase(.uppercase)

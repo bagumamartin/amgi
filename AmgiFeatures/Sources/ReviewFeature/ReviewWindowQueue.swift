@@ -61,6 +61,7 @@ extension Notification.Name {
 package struct ReviewWindowHost: View {
     @State private var request: ReviewWindowQueue.Request?
     @Bindable private var accountStore = AccountStore.shared
+    @Bindable private var appLocale = AppLocaleModel.shared
     @Environment(\.palette) private var palette
     @Environment(\.dismiss) private var dismiss
 
@@ -98,6 +99,7 @@ package struct ReviewWindowHost: View {
             ReviewWindowQueue.shared.discardPending()
             dismiss()
         }
+        .environment(\.locale, appLocale.locale)
     }
 }
 

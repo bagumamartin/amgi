@@ -66,7 +66,7 @@ struct SettingsListHeader: View {
     init(_ title: String) { self.title = title }
 
     var body: some View {
-        Text(title)
+        Text(LocalizedStringKey(title))
             .amgiFont(.micro)
             .fontWeight(.semibold)
             // A custom header view opts out of List's own uppercasing, so
@@ -86,7 +86,7 @@ struct SettingsFootnote: View {
     init(_ text: String) { self.text = text }
 
     var body: some View {
-        Text(text)
+        Text(LocalizedStringKey(text))
             .amgiFont(.caption)
             .foregroundStyle(palette.textSecondary)
             .fixedSize(horizontal: false, vertical: true)
@@ -111,7 +111,7 @@ struct SettingsToggleRow: View {
 
     var body: some View {
         SettingsRowLayout(title: title, systemImage: systemImage, tone: tone) {
-            Toggle(title, isOn: $isOn)
+            Toggle(LocalizedStringKey(title), isOn: $isOn)
                 .labelsHidden()
                 .tint(palette.positive)
         }
@@ -131,7 +131,7 @@ struct SettingsPickerRow<Value: Hashable, Options: View>: View {
 
     var body: some View {
         SettingsRowLayout(title: title, systemImage: systemImage, tone: tone) {
-            Picker(title, selection: $selection) { options() }
+            Picker(LocalizedStringKey(title), selection: $selection) { options() }
                 .labelsHidden()
                 .pickerStyle(.menu)
                 .tint(palette.textSecondary)
@@ -159,7 +159,7 @@ struct SettingsButtonRow: View {
         Button(action: action) {
             HStack(spacing: AmgiSpacing.md) {
                 SettingsIconTile(systemImage: systemImage, tone: tone)
-                Text(title)
+                Text(LocalizedStringKey(title))
                     .amgiFont(.body)
                     .foregroundStyle(isDestructive ? palette.danger : palette.textPrimary)
                 Spacer(minLength: AmgiSpacing.sm)
@@ -172,7 +172,7 @@ struct SettingsButtonRow: View {
             .opacity(isEnabled ? 1 : 0.4)
         }
         .buttonStyle(.pressScale)
-        .accessibilityLabel(title)
+        .accessibilityLabel(Text(LocalizedStringKey(title)))
         .accessibilityValue(isBusy ? "Working" : "")
         .accessibilityHint(isDestructive ? "Performs a destructive action" : "Performs this action")
     }
@@ -202,7 +202,7 @@ struct SettingsStepperRow<Value: Strideable>: View {
                     .foregroundStyle(palette.textSecondary)
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
-                Stepper(title, value: $value, in: range, step: step)
+                Stepper(LocalizedStringKey(title), value: $value, in: range, step: step)
                     .labelsHidden()
             }
         }
@@ -218,7 +218,7 @@ struct SettingsColorRow: View {
 
     var body: some View {
         SettingsRowLayout(title: title, systemImage: systemImage, tone: tone) {
-            ColorPicker(title, selection: $color, supportsOpacity: false)
+            ColorPicker(LocalizedStringKey(title), selection: $color, supportsOpacity: false)
                 .labelsHidden()
         }
     }
@@ -265,7 +265,7 @@ private struct SettingsRowLayout<Accessory: View>: View {
     var body: some View {
         HStack(spacing: AmgiSpacing.md) {
             SettingsIconTile(systemImage: systemImage, tone: tone)
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .amgiFont(.body)
                 .foregroundStyle(palette.textPrimary)
             Spacer(minLength: AmgiSpacing.sm)

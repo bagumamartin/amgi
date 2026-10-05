@@ -172,7 +172,7 @@ struct MainTabView: View {
     private var rootSidebar: some View {
         List(selection: sidebarSelection) {
             ForEach(sections) { section in
-                Label(section.title, systemImage: section.systemImage)
+                Label(LocalizedStringKey(section.title), systemImage: section.systemImage)
                     .tag(section)
             }
         }
@@ -184,21 +184,21 @@ struct MainTabView: View {
     #if os(iOS)
     private var iosTabView: some View {
         TabView(selection: selectionBinding) {
-            Tab(MainSection.library.title, systemImage: MainSection.library.systemImage, value: MainSection.library) {
+            Tab(LocalizedStringKey(MainSection.library.title), systemImage: MainSection.library.systemImage, value: MainSection.library) {
                 tabContent(for: .library)
             }
             if showReaderTab {
-                Tab(MainSection.read.title, systemImage: MainSection.read.systemImage, value: MainSection.read) {
+                Tab(LocalizedStringKey(MainSection.read.title), systemImage: MainSection.read.systemImage, value: MainSection.read) {
                     tabContent(for: .read)
                 }
             }
-            Tab(MainSection.study.title, systemImage: MainSection.study.systemImage, value: MainSection.study) {
+            Tab(LocalizedStringKey(MainSection.study.title), systemImage: MainSection.study.systemImage, value: MainSection.study) {
                 tabContent(for: .study)
             }
-            Tab(MainSection.stats.title, systemImage: MainSection.stats.systemImage, value: MainSection.stats) {
+            Tab(LocalizedStringKey(MainSection.stats.title), systemImage: MainSection.stats.systemImage, value: MainSection.stats) {
                 tabContent(for: .stats)
             }
-            Tab(MainSection.browse.title, systemImage: MainSection.browse.systemImage, value: MainSection.browse) {
+            Tab(LocalizedStringKey(MainSection.browse.title), systemImage: MainSection.browse.systemImage, value: MainSection.browse) {
                 tabContent(for: .browse)
             }
         }

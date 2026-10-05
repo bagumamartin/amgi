@@ -7,6 +7,8 @@
 		<string>$(PRODUCT_BUNDLE_IDENTIFIER).widget-refresh</string>
 		<string>$(PRODUCT_BUNDLE_IDENTIFIER).automatic-sync</string>
 	</array>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
 	<key>CFBundleDisplayName</key>
 	<string>Ijuka</string>
 	<key>CFBundleDocumentTypes</key>
@@ -112,6 +114,12 @@
 	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+		<string>hu</string>
+		<string>vi</string>
+	</array>
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>

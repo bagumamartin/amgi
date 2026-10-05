@@ -9,18 +9,18 @@ public enum AssistantModelAvailability: Equatable, Sendable {
 
     public var title: String {
         switch self {
-        case .ready: "On-device"
-        case .disabled: "Off"
-        case .unavailable: "Unavailable"
+        case .ready: L10n.text("On-device")
+        case .disabled: L10n.text("Off")
+        case .unavailable: L10n.text("Unavailable")
         }
     }
 
     public var detail: String {
         switch self {
         case .ready:
-            "Private system model"
+            L10n.text("Private system model")
         case .disabled:
-            "Deterministic summaries only"
+            L10n.text("Deterministic summaries only")
         case .unavailable(let reason):
             reason
         }

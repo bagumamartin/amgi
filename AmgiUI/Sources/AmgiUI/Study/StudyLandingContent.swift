@@ -696,7 +696,7 @@ public struct StudyLandingContent: View {
             .fixedSize(horizontal: false, vertical: true)
     }
 
-    private func loadingCard(message: String) -> some View {
+    private func loadingCard(message: LocalizedStringKey) -> some View {
         HStack(spacing: AmgiSpacing.sm) {
             ProgressView()
             Text(message)

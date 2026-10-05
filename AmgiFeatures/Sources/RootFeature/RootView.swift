@@ -37,6 +37,9 @@ public struct RootView: View {
     @Dependency(\.ankiBackend) private var backend
     @Dependency(\.syncCoordinator) private var syncCoordinator
     @Bindable private var accountStore = AccountStore.shared
+    /// The app language. Observed so the root re-renders — and re-applies
+    /// `.environment(\.locale,)` — when the user picks one in Settings.
+    @Bindable private var appLocale = AppLocaleModel.shared
 
     @State private var pendingReviewDeckId: DeckID?
     @State private var pullCooling = false
@@ -162,6 +165,17 @@ public struct RootView: View {
             }
             .themedRoot()
             .environment(\.appFont, AppFont(rawValue: appFontRaw) ?? .system)
+            // The one place the app's locale becomes the SwiftUI locale, so
+            // `Text("…")` resolution, date and number formatting, and `L10n`
+            // all agree. Engine strings (undo names, errors) are resolved once
+            // in `Bootstrap` and need a relaunch to follow.
+            //
+            // Read through the observable store, not `AppLocale.current`:
+            // `AppLocale` is a static namespace and SwiftUI will not re-run
+            // this body when a `UserDefaults` key changes, so the picker would
+            // write the override and nothing would re-render. See
+            // `AppLocaleModel`.
+            .environment(\.locale, appLocale.locale)
             .focusedSceneValue(\.rootSceneActions, sceneActions)
     }
 

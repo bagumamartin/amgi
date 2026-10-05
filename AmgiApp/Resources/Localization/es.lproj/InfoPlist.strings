@@ -1,0 +1,10 @@
+/* Permission prompts and the display name.
+ *
+ * Only top-level string values can be localized this way.
+ */
+"CFBundleDisplayName" = "Ijuka";
+"CFBundleName" = "Ijuka";
+
+"NSCameraUsageDescription" = "Ijuka usa la cámara para añadir imágenes a tus tarjetas.";
+"NSMicrophoneUsageDescription" = "Ijuka usa el micrófono para grabar notas de audio para tus tarjetas.";
+"NSPhotoLibraryUsageDescription" = "Ijuka muestra tus fotos recientes para que puedas añadir imágenes a tus tarjetas.";

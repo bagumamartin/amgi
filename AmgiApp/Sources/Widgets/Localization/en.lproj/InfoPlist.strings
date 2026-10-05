@@ -1,0 +1,5 @@
+/* Widget's Info.plist localization. `en.lproj` is the base; add one folder
+ * per shipped language. See the app's InfoPlist.strings for why only
+ * top-level string values can be localized this way. */
+"CFBundleDisplayName" = "Ijuka";
+"CFBundleName" = "Ijuka";

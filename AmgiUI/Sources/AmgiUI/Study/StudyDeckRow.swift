@@ -1,5 +1,6 @@
 public import SwiftUI
 import AmgiTheme
+import AnkiKit
 
 /// One deck the desk can start. Mix counts say what the sitting contains;
 /// subdecks are a caption, not a second list.
@@ -25,14 +26,20 @@ public struct StudyDeckRow: View {
                         .foregroundStyle(palette.textPrimary)
                         .lineLimit(1)
                     if data.isFiltered {
-                        Text(
-                            data.name == "Study · Selection"
-                                || data.name.hasPrefix("Study · Session · ")
-                                ? "Resume session"
-                                : "Extra session"
-                        )
-                            .amgiFont(.caption)
-                            .foregroundStyle(palette.customStudyBadge)
+                        // Which label depends on whether the deck is a session
+                        // this app left behind (see `StudyDeckNaming` — the
+                        // names are data). The labels themselves are copy, and
+                        // both branches are literals so the extractor sees
+                        // them.
+                        Group {
+                            if StudyDeckNaming.isSessionDeck(data.name) {
+                                Text("Resume session")
+                            } else {
+                                Text("Extra session")
+                            }
+                        }
+                        .amgiFont(.caption)
+                        .foregroundStyle(palette.customStudyBadge)
                     } else if !mixLabel.isEmpty {
                         Text(mixLabel)
                             .amgiFont(.caption)

@@ -78,9 +78,9 @@ package struct SettingsView: View {
         HStack(spacing: 0) {
             List(selection: $selectedRoute) {
                 ForEach(SettingsRouteInventory.availableGroups) { group in
-                    Section(group.title) {
+                    Section(LocalizedStringKey(group.title)) {
                         ForEach(group.routes) { route in
-                            Label(route.title, systemImage: route.systemImage)
+                            Label(LocalizedStringKey(route.title), systemImage: route.systemImage)
                                 .tag(route)
                         }
                     }
