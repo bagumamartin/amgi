@@ -31,6 +31,8 @@ struct ReaderStyleSheet: View {
     private var twoPageLayout: Bool = false
     @Shared(.appStorage(ReaderPreferenceKeys.pageTransition))
     private var pageTransitionRaw: String = ReaderPageTransition.curl.rawValue
+    @Shared(.appStorage(PDFReaderPreferences.Keys.pageNavigation))
+    private var pdfPageNavigationRaw: String = PDFReaderPreferences.PageNavigation.paged.rawValue
 
     private var isPDF: Bool
 
@@ -60,15 +62,33 @@ struct ReaderStyleSheet: View {
                     Text("Theme")
                 }
 
-                // Page Navigation / Scroll Mode
+                // PDF uses continuous scrolling on macOS to match the native
+                // desktop reading layout. iPhone and iPad retain the mode picker.
+                #if os(macOS)
+                if !isPDF {
+                    Section {
+                        pageModePicker
+                        if pageTransition != .scroll {
+                            transitionPicker
+                        }
+                    } header: {
+                        Text("Page Navigation")
+                    }
+                }
+                #else
                 Section {
-                    pageModePicker
-                    if pageTransition != .scroll {
+                    if isPDF {
+                        pdfPageModePicker
+                    } else {
+                        pageModePicker
+                    }
+                    if !isPDF, pageTransition != .scroll {
                         transitionPicker
                     }
                 } header: {
                     Text("Page Navigation")
                 }
+                #endif
 
                 // Font Size & Family (Relevant for reflowable EPUB)
                 if !isPDF {
@@ -144,6 +164,18 @@ struct ReaderStyleSheet: View {
         )) {
             Text("Paged").tag("paged")
             Text("Continuous Scroll").tag("scroll")
+        }
+        .pickerStyle(.segmented)
+    }
+
+    private var pdfPageModePicker: some View {
+        Picker("Navigation Mode", selection: Binding(
+            get: { PDFReaderPreferences.PageNavigation(rawValue: pdfPageNavigationRaw) ?? .paged },
+            set: { mode in $pdfPageNavigationRaw.withLock { $0 = mode.rawValue } }
+        )) {
+            ForEach(PDFReaderPreferences.PageNavigation.allCases) { mode in
+                Text(mode.label).tag(mode)
+            }
         }
         .pickerStyle(.segmented)
     }

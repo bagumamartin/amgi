@@ -45,8 +45,7 @@ struct ReaderOpenView: View {
         } else if case .pdf = book.source {
             PDFReaderView(
                 book: book,
-                progressCoordinator: progress,
-                startPageIndex: startPageIndex
+                progressCoordinator: progress
             )
         } else if !book.chapters.isEmpty {
             let idx = resumeChapterIndex
@@ -68,11 +67,4 @@ struct ReaderOpenView: View {
         return index
     }
 
-    private var startPageIndex: Int {
-        if let saved = savedProgress,
-           let index = book.chapters.firstIndex(where: { $0.id == saved.chapterID }) {
-            return book.chapters[index].startPageIndex ?? 0
-        }
-        return 0
-    }
 }

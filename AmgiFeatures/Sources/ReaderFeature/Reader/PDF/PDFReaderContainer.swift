@@ -6,6 +6,14 @@ import PDFKit
 import Sharing
 import SwiftUI
 
+#if os(macOS)
+import AppKit
+#endif
+
+#if canImport(UIKit) && !os(macOS)
+import UIKit
+#endif
+
 /// Apple Books-style PDF Reader.
 ///
 /// Features:
@@ -20,11 +28,13 @@ import SwiftUI
 struct PDFReaderView: View {
     let book: ReaderBook
     let progressCoordinator: ReaderProgressCoordinator
-    let startPageIndex: Int
+    let startPageIndex: Int?
     var onClose: (() -> Void)? = nil
 
     @State private var model: PDFReaderModel
-    @State private var navigation = PDFReaderNavigation()
+    @State private var navigation: PDFReaderNavigation
+    @State private var canvasCoordinator: PDFViewCoordinator
+    @State private var hasRestoredInitialPage = false
     @State private var chromeVisible: Bool = true
     @State private var isMarkupActive: Bool = false
     @State private var isContentsSheetPresented = false
@@ -32,6 +42,8 @@ struct PDFReaderView: View {
     @State private var isSearchVisible = false
     @State private var searchText = ""
     @State private var searchResultCount = 0
+    @State private var macSidebarVisible = true
+    @State private var macThumbnailWidth: CGFloat = 174
     @State private var selection: PDFSelectionContext?
     @State private var lookupRequest: LookupRequest?
 
@@ -40,30 +52,35 @@ struct PDFReaderView: View {
 
     @Shared(.appStorage(ReaderTypographyPreferences.Keys.theme))
     private var themeRaw: String = ReaderTypographyPreferences.Theme.default.rawValue
-    @Shared(.appStorage(ReaderPreferenceKeys.pageTransition))
-    private var pageTransitionRaw: String = ReaderPageTransition.scroll.rawValue
+    @Shared(.appStorage(PDFReaderPreferences.Keys.pageNavigation))
+    private var pdfPageNavigationRaw: String = PDFReaderPreferences.PageNavigation.paged.rawValue
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.palette) private var palette
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.pdfReaderWindowState) private var pdfReaderWindowState
 
     private var theme: ReaderTypographyPreferences.Theme {
         ReaderTypographyPreferences.Theme(rawValue: themeRaw) ?? .default
     }
 
-    private var pageTransition: ReaderPageTransition {
-        ReaderPageTransition(rawValue: pageTransitionRaw) ?? .scroll
+    private var pageNavigation: PDFReaderPreferences.PageNavigation {
+        PDFReaderPreferences.PageNavigation(rawValue: pdfPageNavigationRaw) ?? .paged
     }
 
     init(
         book: ReaderBook,
         progressCoordinator: ReaderProgressCoordinator,
-        startPageIndex: Int = 0,
+        startPageIndex: Int? = nil,
         onClose: (() -> Void)? = nil
     ) {
         self.book = book
         self.progressCoordinator = progressCoordinator
         self.startPageIndex = startPageIndex
         self.onClose = onClose
+        let navigation = PDFReaderNavigation()
+        _navigation = State(initialValue: navigation)
+        _canvasCoordinator = State(initialValue: PDFViewCoordinator(navigation: navigation))
         _model = State(
             initialValue: PDFReaderModel(book: book, progress: progressCoordinator)
         )
@@ -86,18 +103,34 @@ struct PDFReaderView: View {
                     Text(message)
                 } actions: {
                     Button("Retry") {
-                        Task { await model.load() }
+                        Task { await open() }
                     }
                     .buttonStyle(.borderedProminent)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            case .ready:
+            case .ready where hasRestoredInitialPage:
                 readerBody
+            case .ready:
+                ProgressView("Opening \(book.title)…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .task { await open() }
+        .onAppear {
+            #if os(macOS)
+            pdfReaderWindowState?.isActive = true
+            #endif
+        }
         .onDisappear {
             model.persistPosition(navigation.pageIndex)
+            #if os(macOS)
+            pdfReaderWindowState?.isActive = false
+            #endif
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .inactive || phase == .background {
+                model.persistPosition(navigation.pageIndex)
+            }
         }
         .sheet(isPresented: $isContentsSheetPresented) {
             contentsSheet
@@ -112,135 +145,345 @@ struct PDFReaderView: View {
 
     // MARK: - Reader Body
 
+    private var pageNavigationTransition: PDFReaderNavigation.Transition {
+        #if os(macOS)
+        .continuous
+        #else
+        pageNavigation == .continuous ? .continuous : .scroll
+        #endif
+    }
+
+    @ViewBuilder
     private var readerBody: some View {
-        ZStack(alignment: .bottom) {
-            // Theme background
-            theme.backgroundColor
-                .ignoresSafeArea()
+        #if os(macOS)
+        macReaderBody
+        #else
+        GeometryReader { geometry in
+            ZStack(alignment: .bottom) {
+                theme.backgroundColor
+                    .ignoresSafeArea()
 
-            // PDF Canvas
-            PDFPageCanvas(
-                model: model,
-                navigation: navigation,
-                searchTerm: isSearchVisible && !searchText.isEmpty ? searchText : nil,
-                theme: theme,
-                onPageChanged: { index in
-                    navigation.move(
-                        toPage: index,
-                        label: model.label(forPage: index),
-                        count: model.pageCount,
-                        userInitiated: true
-                    )
-                },
-                onSearchResultsChanged: { count in
-                    searchResultCount = count
-                },
-                onStepSearchResult: { delta in
-                    PDFViewCoordinatorRegistry.shared.coordinator?.stepSearchResult(by: delta)
-                },
-                onSelectionChanged: { ctx in
-                    selection = ctx
-                },
-                onTapCenter: {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        chromeVisible.toggle()
-                    }
-                },
-                onTapPrevPage: {
-                    let prev = max(0, navigation.pageIndex - 1)
-                    navigation.move(
-                        toPage: prev,
-                        label: model.label(forPage: prev),
-                        count: model.pageCount,
-                        userInitiated: true
-                    )
-                },
-                onTapNextPage: {
-                    let next = min(model.pageCount - 1, navigation.pageIndex + 1)
-                    navigation.move(
-                        toPage: next,
-                        label: model.label(forPage: next),
-                        count: model.pageCount,
-                        userInitiated: true
-                    )
-                }
-            )
-            .ignoresSafeArea()
-
-            // In-document search dropdown
-            if isSearchVisible {
-                VStack {
-                    searchBar
-                        .padding(.top, 60)
-                    Spacer()
-                }
-                .transition(.move(edge: .top).combined(with: .opacity))
-            }
-
-            // Inline Selection Callout
-            if let selection, !selection.text.isEmpty {
-                selectionCallout(for: selection)
-                    .padding(.bottom, chromeVisible ? 100 : 30)
-                    .transition(.scale(scale: 0.95).combined(with: .opacity))
-            }
-
-            // Floating Top Chrome
-            if chromeVisible {
-                VStack(spacing: 0) {
-                    topChromeRow
-                    Spacer()
-                }
-                .transition(.opacity)
-            }
-
-            // Floating Bottom Thumbnail Filmstrip Scrubber
-            if chromeVisible {
-                PDFThumbnailScrubber(
-                    document: model.document,
-                    pageCount: model.pageCount,
-                    currentPage: navigation.pageIndex,
-                    onSeek: { targetPage in
+                PDFPageCanvas(
+                    model: model,
+                    navigation: navigation,
+                    coordinator: canvasCoordinator,
+                    searchTerm: isSearchVisible && !searchText.isEmpty ? searchText : nil,
+                    theme: theme,
+                    onPageChanged: { index in
                         navigation.move(
-                            toPage: targetPage,
-                            label: model.label(forPage: targetPage),
+                            toPage: index,
+                            label: model.label(forPage: index),
                             count: model.pageCount,
                             userInitiated: true
                         )
-                    }
+                    },
+                    onSearchResultsChanged: { count in
+                        searchResultCount = count
+                    },
+                    onStepSearchResult: { delta in
+                        canvasCoordinator.stepSearchResult(by: delta)
+                    },
+                    onSelectionChanged: { ctx in
+                        selection = ctx
+                    },
+                    onTapCenter: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            chromeVisible.toggle()
+                        }
+                    },
+                    onTapPrevPage: { navigate(to: navigation.turn(by: -1), userInitiated: true) },
+                    onTapNextPage: { navigate(to: navigation.turn(by: 1), userInitiated: true) }
                 )
-                .padding(.bottom, 12)
-                .transition(.opacity)
+                .ignoresSafeArea()
+
+                if isSearchVisible {
+                    VStack {
+                        searchBar
+                            .padding(.top, 60)
+                        Spacer()
+                    }
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                }
+
+                if let selection, !selection.text.isEmpty {
+                    selectionCallout(for: selection)
+                        .padding(.bottom, chromeVisible ? 100 : 30)
+                        .transition(.scale(scale: 0.95).combined(with: .opacity))
+                }
+
+                if chromeVisible {
+                    VStack(spacing: 0) {
+                        topChromeRow(isWide: geometry.size.width >= 600)
+                        Spacer()
+                    }
+                    .transition(.opacity)
+
+                    PDFThumbnailScrubber(
+                        model: model,
+                        pageCount: model.pageCount,
+                        currentPage: navigation.pageIndex,
+                        onSeek: { targetPage in navigate(to: targetPage, userInitiated: true) },
+                        onInteractionChanged: { canvasCoordinator.setScrubberActive($0) }
+                    )
+                    .transition(.opacity)
+                }
+            }
+            .navigationBarBackButtonHidden(true)
+            #if os(iOS)
+            .toolbarVisibility(.hidden, for: .navigationBar)
+            .toolbarVisibility(.hidden, for: .tabBar)
+            #endif
+            .onChange(of: pdfPageNavigationRaw) { _, _ in
+                navigation.transition = pageNavigationTransition
+                canvasCoordinator.apply(navigation)
+            }
+            .onChange(of: geometry.size) { _, _ in
+                canvasCoordinator.layoutChanged()
             }
         }
-        .navigationBarBackButtonHidden(true)
-        #if os(iOS)
-        .toolbarVisibility(.hidden, for: .navigationBar)
-        .toolbarVisibility(.hidden, for: .tabBar)
         #endif
-        .onChange(of: pageTransitionRaw) { _, _ in
-            navigation.transition = (pageTransition == .scroll) ? .continuous : .scroll
-            PDFViewCoordinatorRegistry.shared.coordinator?.apply(navigation)
+    }
+
+    #if os(macOS)
+    private var macReaderBody: some View {
+        GeometryReader { geometry in
+            VStack(spacing: 0) {
+                HStack(spacing: 0) {
+                    if macSidebarVisible {
+                        PDFMacThumbnailSidebar(
+                            model: model,
+                            currentPage: navigation.pageIndex,
+                            onSelectPage: { navigate(to: $0, userInitiated: true) },
+                            thumbnailWidth: $macThumbnailWidth
+                        )
+                        Divider()
+                    }
+
+                    ZStack(alignment: .bottom) {
+                        PDFPageCanvas(
+                            model: model,
+                            navigation: navigation,
+                            coordinator: canvasCoordinator,
+                            searchTerm: !searchText.isEmpty ? searchText : nil,
+                            theme: theme,
+                            onPageChanged: { index in
+                                navigation.move(
+                                    toPage: index,
+                                    label: model.label(forPage: index),
+                                    count: model.pageCount,
+                                    userInitiated: true
+                                )
+                            },
+                            onSearchResultsChanged: { searchResultCount = $0 },
+                            onStepSearchResult: { canvasCoordinator.stepSearchResult(by: $0) },
+                            onSelectionChanged: { selection = $0 }
+                        )
+
+                        if let selection, !selection.text.isEmpty {
+                            selectionCallout(for: selection)
+                                .padding(.bottom, 20)
+                                .transition(.scale(scale: 0.95).combined(with: .opacity))
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            .onAppear {
+                canvasCoordinator.layoutChanged()
+            }
+            .onChange(of: geometry.size) { _, _ in
+                canvasCoordinator.layoutChanged()
+            }
+        }
+        .background(Color(nsColor: .windowBackgroundColor))
+        .navigationBarBackButtonHidden(true)
+        .toolbar { macToolbar }
+        .onChange(of: pdfPageNavigationRaw) { _, _ in
+            navigation.transition = pageNavigationTransition
+            canvasCoordinator.apply(navigation)
+        }
+        .onChange(of: macSidebarVisible) { _, _ in
+            canvasCoordinator.layoutChanged()
         }
     }
 
+    @ToolbarContentBuilder
+    private var macToolbar: some ToolbarContent {
+        ToolbarItemGroup(placement: .navigation) {
+            Button(action: closeReader) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            .help("Back to Library")
+            .accessibilityLabel("Back to Library")
+
+            Button {
+                macSidebarVisible.toggle()
+            } label: {
+                Image(systemName: macSidebarVisible ? "sidebar.left" : "sidebar.right")
+            }
+            .help(macSidebarVisible ? "Hide Page Thumbnails" : "Show Page Thumbnails")
+            .accessibilityLabel(macSidebarVisible ? "Hide Page Thumbnails" : "Show Page Thumbnails")
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(model.managedURL?.lastPathComponent ?? book.title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text("Page \(navigation.pageIndex + 1) of \(max(1, model.pageCount))")
+                    .font(.system(size: 11, weight: .regular, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            .frame(minWidth: 190, maxWidth: 280, alignment: .leading)
+        }
+
+        ToolbarItem(placement: .principal) {
+            HStack(spacing: 0) {
+                macToolbarButton("minus.magnifyingglass", label: "Zoom Out") {
+                    canvasCoordinator.zoom(by: 1 / 1.2)
+                }
+                Divider().frame(height: 20)
+                macToolbarButton("1.magnifyingglass", label: "Actual Size") {
+                    canvasCoordinator.useActualSize()
+                }
+                Divider().frame(height: 20)
+                macToolbarButton("plus.magnifyingglass", label: "Zoom In") {
+                    canvasCoordinator.zoom(by: 1.2)
+                }
+            }
+            .padding(.horizontal, 3)
+            .background(Color.primary.opacity(0.055), in: Capsule())
+        }
+
+        ToolbarItemGroup(placement: .automatic) {
+            HStack(spacing: 6) {
+                macToolbarButton("pencil.tip.crop.circle", label: "Markup") {
+                    isMarkupActive.toggle()
+                }
+                .foregroundStyle(isMarkupActive ? Color.accentColor : Color.primary)
+
+                macToolbarButton("a.circle", label: "Themes and Settings") {
+                    isStyleSheetPresented = true
+                }
+
+                macToolbarButton("info.circle", label: "Contents and Annotations") {
+                    isContentsSheetPresented = true
+                }
+
+                if let managedURL = model.managedURL {
+                    ShareLink(item: managedURL) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 14, weight: .medium))
+                            .frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Share PDF")
+                    .accessibilityLabel("Share PDF")
+                }
+            }
+
+        }
+
+        ToolbarItem(placement: .primaryAction) {
+            macSearchField
+        }
+    }
+
+    private func macToolbarButton(
+        _ symbol: String,
+        label: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 14, weight: .medium))
+                .frame(width: 30, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(label)
+        .accessibilityLabel(label)
+    }
+
+    private var macSearchField: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+
+            TextField("Search", text: $searchText)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .onSubmit { canvasCoordinator.search(searchText) }
+
+            if searchResultCount > 0 {
+                Text("\(searchResultCount)")
+                    .font(.system(size: 11, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+
+                Button { canvasCoordinator.stepSearchResult(by: -1) } label: {
+                    Image(systemName: "chevron.up")
+                }
+                .buttonStyle(.plain)
+                .help("Previous Match")
+
+                Button { canvasCoordinator.stepSearchResult(by: 1) } label: {
+                    Image(systemName: "chevron.down")
+                }
+                .buttonStyle(.plain)
+                .help("Next Match")
+            }
+
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                    searchResultCount = canvasCoordinator.search(nil)
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Clear Search")
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(width: 250, height: 30)
+        .background(Color.primary.opacity(0.055), in: Capsule())
+    }
+    #endif
+
     // MARK: - Floating Chrome Components
 
-    private var topChromeRow: some View {
-        HStack(alignment: .top) {
-            topLeftCapsule
+    private func topChromeRow(isWide: Bool) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            topLeftCapsule(isWide: isWide)
 
-            Spacer()
+            if isWide {
+                Spacer(minLength: 12)
+                Text(book.title)
+                    .amgiFont(.bodyEmphasis)
+                    .foregroundStyle(palette.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 10)
+                Spacer(minLength: 12)
+            } else {
+                Spacer(minLength: 6)
+            }
 
             VStack(alignment: .trailing, spacing: 8) {
                 topRightCapsule
                 pageBadge
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, isWide ? 20 : 16)
         .padding(.top, 8)
     }
 
-    private var topLeftCapsule: some View {
+    private func topLeftCapsule(isWide: Bool) -> some View {
         HStack(spacing: 12) {
             Button {
                 closeReader()
@@ -261,6 +504,16 @@ struct PDFReaderView: View {
                     .frame(width: 24, height: 24)
             }
             .accessibilityLabel("Contents")
+
+            if isWide, let managedURL = model.managedURL {
+                ShareLink(item: managedURL) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(palette.textPrimary)
+                        .frame(width: 24, height: 24)
+                }
+                .accessibilityLabel("Share PDF")
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
@@ -295,7 +548,7 @@ struct PDFReaderView: View {
                     isSearchVisible.toggle()
                     if !isSearchVisible {
                         searchText = ""
-                        PDFViewCoordinatorRegistry.shared.coordinator?.search(nil)
+                        canvasCoordinator.search(nil)
                     }
                 }
             } label: {
@@ -473,7 +726,7 @@ struct PDFReaderView: View {
             TextField("Search in document…", text: $searchText)
                 .textFieldStyle(.plain)
                 .onSubmit {
-                    PDFViewCoordinatorRegistry.shared.coordinator?.search(searchText)
+                    canvasCoordinator.search(searchText)
                 }
 
             if searchResultCount > 0 {
@@ -482,13 +735,13 @@ struct PDFReaderView: View {
                     .foregroundStyle(palette.textSecondary)
 
                 Button {
-                    PDFViewCoordinatorRegistry.shared.coordinator?.stepSearchResult(by: -1)
+                    canvasCoordinator.stepSearchResult(by: -1)
                 } label: {
                     Image(systemName: "chevron.up")
                 }
 
                 Button {
-                    PDFViewCoordinatorRegistry.shared.coordinator?.stepSearchResult(by: 1)
+                    canvasCoordinator.stepSearchResult(by: 1)
                 } label: {
                     Image(systemName: "chevron.down")
                 }
@@ -498,7 +751,7 @@ struct PDFReaderView: View {
                 withAnimation {
                     isSearchVisible = false
                     searchText = ""
-                    PDFViewCoordinatorRegistry.shared.coordinator?.search(nil)
+                    canvasCoordinator.search(nil)
                 }
             } label: {
                 Image(systemName: "xmark.circle.fill")
@@ -553,20 +806,10 @@ struct PDFReaderView: View {
             bookmarks: bookmarkItems,
             notes: noteItems,
             onSelectOutline: { item in
-                navigation.move(
-                    toPage: item.pageIndex,
-                    label: model.label(forPage: item.pageIndex),
-                    count: model.pageCount,
-                    userInitiated: true
-                )
+                navigate(to: item.pageIndex, userInitiated: true)
             },
             onSelectBookmark: { item in
-                navigation.move(
-                    toPage: item.pageIndex,
-                    label: model.label(forPage: item.pageIndex),
-                    count: model.pageCount,
-                    userInitiated: true
-                )
+                navigate(to: item.pageIndex, userInitiated: true)
             },
             onDeleteBookmark: { item in
                 if let uuid = UUID(uuidString: item.id),
@@ -575,12 +818,7 @@ struct PDFReaderView: View {
                 }
             },
             onSelectNote: { item in
-                navigation.move(
-                    toPage: item.pageIndex,
-                    label: model.label(forPage: item.pageIndex),
-                    count: model.pageCount,
-                    userInitiated: true
-                )
+                navigate(to: item.pageIndex, userInitiated: true)
             }
         )
     }
@@ -616,14 +854,34 @@ struct PDFReaderView: View {
         await annotations.load(bookID: book.id)
         guard case .ready = model.state else { return }
 
-        navigation.transition = (pageTransition == .scroll) ? .continuous : .scroll
-        let page = startPageIndex > 0 ? startPageIndex : await model.restoredPageIndex()
+        navigation.transition = pageNavigationTransition
+        let page: Int
+        if let startPageIndex {
+            page = startPageIndex
+        } else {
+            page = await model.restoredPageIndex()
+        }
         navigation.move(
             toPage: page,
             label: model.label(forPage: page),
             count: model.pageCount,
             userInitiated: false
         )
+        canvasCoordinator.apply(navigation)
+        hasRestoredInitialPage = true
+    }
+
+    /// Move the document view and all reader chrome from one navigation state.
+    /// The coordinator suppresses PDFKit's programmatic page notification; the
+    /// state is updated here so the badge and scrubber move in the same frame.
+    private func navigate(to pageIndex: Int, userInitiated: Bool) {
+        navigation.move(
+            toPage: pageIndex,
+            label: model.label(forPage: pageIndex),
+            count: model.pageCount,
+            userInitiated: userInitiated
+        )
+        canvasCoordinator.apply(navigation)
     }
 
     // MARK: - Dictionary Lookup

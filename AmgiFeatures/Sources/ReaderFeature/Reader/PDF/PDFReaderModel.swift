@@ -31,6 +31,8 @@ final class PDFReaderModel {
     /// `Sendable`, which is also why the store holds bytes rather than one.
     private(set) var document: PDFDocument?
     private(set) var descriptor: PDFDocumentDescriptor?
+    private(set) var documentID = UUID()
+    private(set) var managedURL: URL?
 
     /// Annotations we have written, keyed by page index.
     ///
@@ -51,6 +53,7 @@ final class PDFReaderModel {
 
     let book: ReaderBook
     private let progress: ReaderProgressCoordinator
+    @ObservationIgnored private let thumbnailCache = PDFThumbnailCache()
 
     @ObservationIgnored @Dependency(\.pdfLibraryClient) private var client
 
@@ -75,6 +78,9 @@ final class PDFReaderModel {
             state = .failed("This PDF could not be opened.")
             return
         }
+        documentID = UUID()
+        managedURL = managed
+        thumbnailCache.clear()
         self.document = document
         self.descriptor = await client.descriptor(book.id)
         refreshAnnotations()
@@ -83,6 +89,22 @@ final class PDFReaderModel {
     }
 
     var pageCount: Int { document?.pageCount ?? 0 }
+
+    /// A thumbnail keyed to this document and render size. The cache belongs to
+    /// this reader model so two open PDFs cannot display each other's pages.
+    func thumbnail(forPage index: Int, size: CGSize) -> PlatformImage? {
+        guard let document, let page = document.page(at: index) else { return nil }
+        if let cached = thumbnailCache.get(
+            documentID: documentID,
+            pageIndex: index,
+            size: size
+        ) {
+            return cached
+        }
+        guard let image = PDFThumbnailRenderer.render(page: page, size: size) else { return nil }
+        thumbnailCache.set(image, documentID: documentID, pageIndex: index, size: size)
+        return image
+    }
 
     /// The document's own label for a page, falling back to its 1-based index.
     ///

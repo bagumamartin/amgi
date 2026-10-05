@@ -3,6 +3,10 @@ import AmgiReaderPDF
 import PDFKit
 import SwiftUI
 
+#if canImport(UIKit) && !os(macOS)
+import UIKit
+#endif
+
 /// Keeps `PDFView` in step with `PDFReaderNavigation`.
 @MainActor
 @Observable
@@ -10,6 +14,13 @@ final class PDFViewCoordinator: NSObject {
     private var navigation: PDFReaderNavigation
     private var isApplyingModelChange = false
     private(set) weak var view: PDFView?
+    private var isScrubberActive = false
+    private var hasUserZoom = false
+    private var savedUserScale: CGFloat = 1
+    private var appliedRotationQuarterTurns = 0
+    private var didInitialFit = false
+    private weak var configuredDocument: PDFDocument?
+    private var pendingProgrammaticPageIndex: Int?
 
     var onPageChanged: ((Int) -> Void)?
     var onSearchResultsChanged: ((Int) -> Void)?
@@ -30,8 +41,9 @@ final class PDFViewCoordinator: NSObject {
     }
 
     func attach(_ view: PDFView) {
+        if self.view === view { return }
+        detach()
         self.view = view
-        PDFViewCoordinatorRegistry.shared.coordinator = self
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(pageChanged),
@@ -44,14 +56,19 @@ final class PDFViewCoordinator: NSObject {
             name: .PDFViewSelectionChanged,
             object: view
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(scaleChanged),
+            name: .PDFViewScaleChanged,
+            object: view
+        )
+        didInitialFit = false
     }
 
     func detach() {
         NotificationCenter.default.removeObserver(self, name: .PDFViewPageChanged, object: view)
         NotificationCenter.default.removeObserver(self, name: .PDFViewSelectionChanged, object: view)
-        if PDFViewCoordinatorRegistry.shared.coordinator === self {
-            PDFViewCoordinatorRegistry.shared.coordinator = nil
-        }
+        NotificationCenter.default.removeObserver(self, name: .PDFViewScaleChanged, object: view)
         view = nil
         savedSelection = nil
     }
@@ -65,7 +82,67 @@ final class PDFViewCoordinator: NSObject {
     @objc private func pageChanged() {
         guard !isApplyingModelChange else { return }
         guard let view, let page = view.currentPage else { return }
-        onPageChanged?(view.document?.index(for: page) ?? 0)
+        let index = view.document?.index(for: page) ?? 0
+        // A delayed page notification can arrive after a later drag sample.
+        // Keep the scrubber's current target authoritative for the full drag.
+        if isScrubberActive { return }
+        if let pendingProgrammaticPageIndex {
+            self.pendingProgrammaticPageIndex = nil
+            if index == pendingProgrammaticPageIndex { return }
+        }
+        // Refit a completed page turn in paged mode, but never change scale
+        // under a continuous scroll gesture: that changes the scroll geometry
+        // while PDFKit is deciding which page is current.
+        if navigation.transition != .continuous {
+            if hasUserZoom {
+                applyUserScale(to: view, scale: savedUserScale)
+            } else {
+                applyFit(to: view)
+            }
+        }
+        onPageChanged?(index)
+    }
+
+    @objc private func scaleChanged() {
+        guard !isApplyingModelChange, let view else { return }
+        hasUserZoom = true
+        savedUserScale = view.scaleFactor
+    }
+
+    func setScrubberActive(_ active: Bool) {
+        isScrubberActive = active
+    }
+
+    /// The window changed size. Refit only while the reader is in its initial
+    /// fit mode; a user zoom remains their chosen magnification.
+    func layoutChanged() {
+        guard let view else { return }
+        if hasUserZoom {
+            applyUserScale(to: view, scale: savedUserScale)
+        } else {
+            applyFit(to: view)
+        }
+    }
+
+    func zoom(by factor: CGFloat) {
+        guard let view else { return }
+        let scale = min(max(view.scaleFactor * factor, view.minScaleFactor), view.maxScaleFactor)
+        hasUserZoom = true
+        savedUserScale = scale
+        applyUserScale(to: view, scale: scale)
+    }
+
+    func useActualSize() {
+        guard let view else { return }
+        hasUserZoom = true
+        savedUserScale = 1
+        applyUserScale(to: view, scale: 1)
+    }
+
+    func fitToWindow() {
+        guard let view else { return }
+        hasUserZoom = false
+        applyFit(to: view)
     }
 
     func restoreSelection() {
@@ -163,24 +240,26 @@ final class PDFViewCoordinator: NSObject {
     func apply(_ navigation: PDFReaderNavigation) {
         self.navigation = navigation
         guard let view, let document = view.document else { return }
-        isApplyingModelChange = true
-        defer { isApplyingModelChange = false }
-
-        let wantedMode = Self.displayMode(for: navigation.transition)
-        if view.displayMode != wantedMode {
-            view.displayMode = wantedMode
-            if let target = document.page(at: navigation.pageIndex) {
-                view.go(to: target)
-            }
+        if configuredDocument !== document {
+            configuredDocument = document
+            pendingProgrammaticPageIndex = nil
+            appliedRotationQuarterTurns = 0
+            hasUserZoom = false
+            savedUserScale = 1
+            didInitialFit = false
         }
-
+        let wantedMode = Self.displayMode(for: navigation.transition)
         #if os(iOS)
-        if navigation.transition == .pageCurl {
-            view.usePageViewController(true, withViewOptions: nil)
-        } else {
-            view.usePageViewController(false, withViewOptions: nil)
+        let wantsPageViewController = navigation.transition != .continuous
+        if view.isUsingPageViewController != wantsPageViewController {
+            let options: [UIPageViewController.OptionsKey: Any] = [.interPageSpacing: 10]
+            view.usePageViewController(wantsPageViewController, withViewOptions: options)
         }
         #endif
+
+        if view.displayMode != wantedMode {
+            view.displayMode = wantedMode
+        }
 
         let wantedDirection: PDFDisplayDirection = (navigation.isTwoUp || navigation.transition != .continuous) ? .horizontal : .vertical
         if view.displayDirection != wantedDirection {
@@ -193,20 +272,39 @@ final class PDFViewCoordinator: NSObject {
             view.pageBreakMargins = .init(top: 0, left: 0, bottom: 0, right: 0)
         }
 
-        applyRotation(navigation.rotationQuarterTurns, to: view, document: document)
-
-        if let current = view.currentPage,
-           document.index(for: current) != navigation.pageIndex,
-           let target = document.page(at: navigation.pageIndex) {
-            view.go(to: target)
+        if navigation.rotationQuarterTurns != appliedRotationQuarterTurns {
+            let delta = navigation.rotationQuarterTurns - appliedRotationQuarterTurns
+            isApplyingModelChange = true
+            for index in 0..<document.pageCount {
+                guard let page = document.page(at: index) else { continue }
+                page.rotation = (page.rotation + delta * 90 + 360) % 360
+            }
+            appliedRotationQuarterTurns = navigation.rotationQuarterTurns
+            isApplyingModelChange = false
+            didInitialFit = false
         }
-        applyZoom(navigation.zoom, to: view)
+
+        let visiblePageIndex = view.currentPage.map { document.index(for: $0) } ?? -1
+        if visiblePageIndex != navigation.pageIndex,
+           let target = document.page(at: navigation.pageIndex) {
+            isApplyingModelChange = true
+            pendingProgrammaticPageIndex = navigation.pageIndex
+            view.go(to: target)
+            isApplyingModelChange = false
+        }
+
+        if !didInitialFit {
+            applyFit(to: view)
+            didInitialFit = true
+        }
     }
 
     func go(toPageIndex index: Int) {
         guard let view, let document = view.document,
               let page = document.page(at: index) else { return }
+        guard document.index(for: view.currentPage ?? page) != index else { return }
         isApplyingModelChange = true
+        pendingProgrammaticPageIndex = index
         defer { isApplyingModelChange = false }
         view.go(to: page)
     }
@@ -224,8 +322,15 @@ final class PDFViewCoordinator: NSObject {
         if let first = selections.first {
             isApplyingModelChange = true
             view.setCurrentSelection(first, animate: true)
+            if let page = first.pages.first {
+                pendingProgrammaticPageIndex = document.index(for: page)
+            }
             view.go(to: first)
             isApplyingModelChange = false
+            if let page = first.pages.first {
+                let index = document.index(for: page)
+                onPageChanged?(index)
+            }
         }
         onSearchResultsChanged?(selections.count)
         return selections.count
@@ -248,38 +353,35 @@ final class PDFViewCoordinator: NSObject {
         guard let view, selections.indices.contains(index) else { return }
         isApplyingModelChange = true
         view.setCurrentSelection(selections[index], animate: true)
+        if let page = selections[index].pages.first, let document = view.document {
+            pendingProgrammaticPageIndex = document.index(for: page)
+        }
         view.go(to: selections[index])
+        isApplyingModelChange = false
+        if let document = view.document, let page = selections[index].pages.first {
+            onPageChanged?(document.index(for: page))
+        }
+    }
+
+    private func applyFit(to view: PDFView) {
+        isApplyingModelChange = true
+        view.minScaleFactor = 0.25
+        view.maxScaleFactor = 5.0
+        view.autoScales = false
+        let fit = view.scaleFactorForSizeToFit
+        if fit > 0 {
+            view.scaleFactor = fit
+        }
         isApplyingModelChange = false
     }
 
-    private func applyZoom(_ zoom: PDFReaderNavigation.Zoom, to view: PDFView) {
+    private func applyUserScale(to view: PDFView, scale: CGFloat) {
+        isApplyingModelChange = true
         view.minScaleFactor = 0.25
         view.maxScaleFactor = 5.0
-        switch zoom {
-        case .fitWidth, .fitPage:
-            view.autoScales = true
-            let fit = view.scaleFactorForSizeToFit
-            if fit > 0 {
-                view.scaleFactor = fit
-            }
-        case .actualSize:
-            view.autoScales = false
-            view.scaleFactor = 1.0
-        }
-    }
-
-    private func applyRotation(
-        _ quarterTurns: Int,
-        to view: PDFView,
-        document: PDFDocument
-    ) {
-        let degrees = quarterTurns * 90
-        for index in 0..<document.pageCount {
-            guard let page = document.page(at: index) else { continue }
-            if page.rotation != degrees {
-                page.rotation = degrees
-            }
-        }
+        view.autoScales = false
+        view.scaleFactor = min(max(scale, view.minScaleFactor), view.maxScaleFactor)
+        isApplyingModelChange = false
     }
 
     private static func displayMode(for transition: PDFReaderNavigation.Transition) -> PDFDisplayMode {
@@ -314,14 +416,10 @@ final class PDFViewCoordinator: NSObject {
         UIView.animate(withDuration: 0.25) {
             view.scaleFactor = target
         }
+        hasUserZoom = target > fit * 1.05
+        savedUserScale = target
     }
     #endif
-}
-
-@MainActor
-final class PDFViewCoordinatorRegistry {
-    static let shared = PDFViewCoordinatorRegistry()
-    weak var coordinator: PDFViewCoordinator?
 }
 
 /// A region the user is dragging out, not yet an annotation.
@@ -347,6 +445,7 @@ struct PDFDraftRegion: Equatable {
 struct PDFPageCanvas: View {
     let model: PDFReaderModel
     let navigation: PDFReaderNavigation
+    let coordinator: PDFViewCoordinator
     let searchTerm: String?
     var theme: ReaderTypographyPreferences.Theme = .default
     let onPageChanged: (Int) -> Void
@@ -361,6 +460,7 @@ struct PDFPageCanvas: View {
         PlatformCanvas(
             model: model,
             navigation: navigation,
+            coordinator: coordinator,
             searchTerm: searchTerm,
             theme: theme,
             onPageChanged: onPageChanged,
@@ -378,6 +478,7 @@ struct PDFPageCanvas: View {
 private struct PlatformCanvas: UIViewRepresentable {
     let model: PDFReaderModel
     let navigation: PDFReaderNavigation
+    let coordinator: PDFViewCoordinator
     let searchTerm: String?
     let theme: ReaderTypographyPreferences.Theme
     let onPageChanged: (Int) -> Void
@@ -388,7 +489,6 @@ private struct PlatformCanvas: UIViewRepresentable {
     let onTapNextPage: (() -> Void)?
 
     func makeCoordinator() -> PDFViewCoordinator {
-        let coordinator = PDFViewCoordinator(navigation: navigation)
         coordinator.onTapCenter = onTapCenter
         coordinator.onTapPrevPage = onTapPrevPage
         coordinator.onTapNextPage = onTapNextPage
@@ -435,6 +535,7 @@ private struct PlatformCanvas: UIViewRepresentable {
 private struct PlatformCanvas: NSViewRepresentable {
     let model: PDFReaderModel
     let navigation: PDFReaderNavigation
+    let coordinator: PDFViewCoordinator
     let searchTerm: String?
     let theme: ReaderTypographyPreferences.Theme
     let onPageChanged: (Int) -> Void
@@ -445,7 +546,6 @@ private struct PlatformCanvas: NSViewRepresentable {
     let onTapNextPage: (() -> Void)?
 
     func makeCoordinator() -> PDFViewCoordinator {
-        let coordinator = PDFViewCoordinator(navigation: navigation)
         coordinator.onTapCenter = onTapCenter
         coordinator.onTapPrevPage = onTapPrevPage
         coordinator.onTapNextPage = onTapNextPage
@@ -491,7 +591,7 @@ enum PDFPageCanvasSupport {
         }
         #else
         switch theme {
-        case .default: return NSColor(red: 0.98, green: 0.97, blue: 0.95, alpha: 1.0)
+        case .default: return NSColor(calibratedWhite: 0.15, alpha: 1.0)
         case .sepia: return NSColor(red: 0.96, green: 0.93, blue: 0.85, alpha: 1.0)
         case .dark: return NSColor(red: 0.11, green: 0.11, blue: 0.12, alpha: 1.0)
         }

@@ -74,6 +74,11 @@ struct MainTabView: View {
     /// Section to return to when Browse hands a regular-width window back.
     @State private var previousSection: MainSection = .library
 
+    /// The PDF page sidebar takes over the window's single sidebar slot while
+    /// reading on Mac, then restores the app section sidebar on close.
+    @State private var splitColumnVisibility: NavigationSplitViewVisibility = .all
+    @State private var pdfReaderWindowState = PDFReaderWindowState()
+
     /// Settings push from the sidebar footer. On macOS the footer opens the
     /// Settings window instead of writing this.
     @State private var accountDestination: AccountMenuDestination?
@@ -162,10 +167,14 @@ struct MainTabView: View {
     /// wrapping `NavigationSplitView` in `NavigationStack` ate Library's
     /// deck-detail `navigationDestination`.
     private var splitRoot: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $splitColumnVisibility) {
             rootSidebar
         } detail: {
             sectionContent(selection, showsAccountMenu: false)
+        }
+        .environment(\.pdfReaderWindowState, pdfReaderWindowState)
+        .onChange(of: pdfReaderWindowState.isActive) { _, isActive in
+            splitColumnVisibility = isActive ? .detailOnly : .all
         }
     }
 

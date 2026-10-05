@@ -3,128 +3,244 @@ import AmgiUI
 import PDFKit
 import SwiftUI
 
-#if canImport(UIKit)
+#if canImport(UIKit) && !os(macOS)
 import UIKit
 #endif
 
-/// In-memory cache for rendered miniature page thumbnails.
-@MainActor
-final class PDFThumbnailCache {
-    static let shared = PDFThumbnailCache()
-    private var cache = NSCache<NSNumber, PlatformImage>()
-
-    init() {
-        cache.countLimit = 150
-    }
-
-    func get(for pageIndex: Int) -> PlatformImage? {
-        cache.object(forKey: NSNumber(value: pageIndex))
-    }
-
-    func set(_ image: PlatformImage, for pageIndex: Int) {
-        cache.setObject(image, forKey: NSNumber(value: pageIndex))
-    }
-}
-
-/// Miniature thumbnail card representing a single PDF page in the filmstrip scrubber.
-struct PDFMiniThumbnailCard: View {
-    let document: PDFDocument?
-    let pageIndex: Int
-    let isCurrent: Bool
-
-    @State private var thumbnail: PlatformImage?
-
-    var body: some View {
-        ZStack {
-            if let thumbnail {
-                Image(platformImage: thumbnail)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-            } else {
-                Rectangle()
-                    .fill(Color.white)
-            }
-        }
-        .frame(width: 18, height: 26)
-        .clipShape(RoundedRectangle(cornerRadius: 2))
-        .overlay(
-            RoundedRectangle(cornerRadius: 2)
-                .stroke(isCurrent ? Color.primary : Color.secondary.opacity(0.3), lineWidth: isCurrent ? 1.5 : 0.5)
-        )
-        .scaleEffect(isCurrent ? 1.15 : 1.0)
-        .animation(.spring(response: 0.2, dampingFraction: 0.7), value: isCurrent)
-        .task(id: pageIndex) {
-            await loadThumbnail()
-        }
-    }
-
-    private func loadThumbnail() async {
-        if let cached = PDFThumbnailCache.shared.get(for: pageIndex) {
-            thumbnail = cached
-            return
-        }
-        guard let document, let page = document.page(at: pageIndex) else { return }
-        let img = page.thumbnail(of: CGSize(width: 36, height: 52), for: .cropBox)
-        PDFThumbnailCache.shared.set(img, for: pageIndex)
-        thumbnail = img
-    }
-}
-
-/// Apple Books-style bottom thumbnail scrubber for PDFs.
-/// Shows a floating frosted capsule containing miniature page thumbnails.
-/// Users can swipe/scroll through the filmstrip and tap any thumbnail to jump.
+/// A compact, whole-document map of representative pages.
+///
+/// The strip represents the complete PDF in the available width. It does not
+/// make the user scroll through thousands of pages to reach the end. A raised
+/// thumbnail tracks the exact current page, including pages that are between
+/// two of the representative samples.
 struct PDFThumbnailScrubber: View {
-    let document: PDFDocument?
+    let model: PDFReaderModel
     let pageCount: Int
     let currentPage: Int
     let onSeek: (Int) -> Void
+    var onInteractionChanged: (Bool) -> Void = { _ in }
 
     @Environment(\.palette) private var palette
-    @State private var isInteracting: Bool = false
-    @State private var lastHapticPage: Int = -1
+    @State private var sampleImages: [Int: PlatformImage] = [:]
+    @State private var sampleDocumentID: UUID?
+    @State private var currentPageImage: PlatformImage?
+    @State private var isScrubbing = false
+    @State private var startingPage: Int?
+    @State private var lastRequestedPage: Int?
+
+    private let trackInset: CGFloat = 12
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 5) {
-                    ForEach(0..<max(1, pageCount), id: \.self) { index in
-                        PDFMiniThumbnailCard(
-                            document: document,
-                            pageIndex: index,
-                            isCurrent: index == currentPage
-                        )
-                        .id(index)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            triggerHaptic()
-                            onSeek(index)
-                        }
+        GeometryReader { geometry in
+            let sampleIndices = Self.sampledPageIndices(
+                pageCount: pageCount,
+                availableWidth: geometry.size.width - trackInset * 2
+            )
+            let safeCurrentPage = max(0, min(currentPage, max(0, pageCount - 1)))
+            let x = selectedCenter(
+                pageIndex: safeCurrentPage,
+                in: geometry.size.width
+            )
+
+            ZStack(alignment: .leading) {
+                HStack(alignment: .center, spacing: 3) {
+                    ForEach(sampleIndices, id: \.self) { index in
+                        sampleTile(at: index)
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.horizontal, trackInset)
+
+                currentPageTile(at: safeCurrentPage)
+                    .position(x: x, y: geometry.size.height / 2)
+                    .accessibilityHidden(true)
             }
-            .frame(height: 44)
-            .onChange(of: currentPage) { _, newPage in
-                if !isInteracting {
-                    withAnimation(.easeInOut(duration: 0.25)) {
-                        proxy.scrollTo(newPage, anchor: .center)
-                    }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .contentShape(Capsule())
+            .gesture(scrubGesture(width: geometry.size.width))
+            .amgiMaterial(.regular, in: Capsule(), interactive: true)
+            .amgiMaterialElevation(Capsule())
+            .scaleEffect(x: isScrubbing ? 1.025 : 1, y: isScrubbing ? 1.06 : 1)
+            .animation(.spring(response: 0.22, dampingFraction: 0.78), value: isScrubbing)
+            .task(id: Self.sampleTaskKey(documentID: model.documentID, indices: sampleIndices)) {
+                if sampleDocumentID != model.documentID {
+                    sampleDocumentID = model.documentID
+                    sampleImages.removeAll()
+                    currentPageImage = nil
                 }
+                await loadSamples(sampleIndices, prioritizing: safeCurrentPage)
             }
-            .onAppear {
-                proxy.scrollTo(currentPage, anchor: .center)
+            .task(id: "\(model.documentID)-\(safeCurrentPage)") {
+                await loadCurrentPageThumbnail(safeCurrentPage)
             }
         }
-        .frame(maxWidth: min(CGFloat(pageCount * 23 + 32), 340))
-        .amgiMaterial(.regular, in: Capsule(), interactive: true)
-        .amgiMaterialElevation(Capsule())
+        .frame(height: 56)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 12)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("PDF pages")
+        .accessibilityValue("Page \(currentPage + 1) of \(max(1, pageCount))")
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: onSeek(min(max(0, pageCount - 1), currentPage + 1))
+            case .decrement: onSeek(max(0, currentPage - 1))
+            @unknown default: break
+            }
+        }
+        .onDisappear {
+            if isScrubbing {
+                isScrubbing = false
+                onInteractionChanged(false)
+            }
+        }
     }
 
-    private func triggerHaptic() {
+    private func sampleTile(at index: Int) -> some View {
+        Group {
+            if let image = sampleImages[index] {
+                Image(platformImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+            } else {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Color.white.opacity(0.92))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 2)
+                            .stroke(palette.separator.opacity(0.65), lineWidth: 0.5)
+                    }
+            }
+        }
+        .frame(width: tileWidth, height: 28)
+        .clipShape(RoundedRectangle(cornerRadius: 2))
+        .overlay {
+            RoundedRectangle(cornerRadius: 2)
+                .stroke(palette.separator.opacity(0.8), lineWidth: 0.5)
+        }
+    }
+
+    private var tileWidth: CGFloat { 19 }
+
+    private func currentPageTile(at index: Int) -> some View {
+        let height: CGFloat = isScrubbing ? 45 : 36
+        let width: CGFloat = isScrubbing ? 35 : 28
+
+        return Group {
+            if let currentPageImage {
+                Image(platformImage: currentPageImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .padding(2)
+            } else if let sampleImage = sampleImages[index] {
+                Image(platformImage: sampleImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .padding(2)
+            } else {
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(Color.white)
+                    .overlay {
+                        ProgressView()
+                            .controlSize(.mini)
+                    }
+            }
+        }
+        .frame(width: width, height: height)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 4))
+        .overlay {
+            RoundedRectangle(cornerRadius: 4)
+                .stroke(palette.textPrimary.opacity(0.28), lineWidth: 0.75)
+        }
+        .shadow(color: .black.opacity(0.18), radius: 3, x: 0, y: 1)
+        .scaleEffect(isScrubbing ? 1.06 : 1)
+        .animation(.spring(response: 0.18, dampingFraction: 0.72), value: isScrubbing)
+        .accessibilityLabel("Selected page \(index + 1)")
+    }
+
+    private func scrubGesture(width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .local)
+            .onChanged { value in
+                if !isScrubbing {
+                    isScrubbing = true
+                    startingPage = currentPage
+                    onInteractionChanged(true)
+                }
+                selectPage(at: value.location.x, width: width)
+            }
+            .onEnded { value in
+                selectPage(at: value.location.x, width: width)
+                if startingPage != lastRequestedPage {
+                    triggerSelectionFeedback()
+                }
+                isScrubbing = false
+                startingPage = nil
+                lastRequestedPage = nil
+                onInteractionChanged(false)
+            }
+    }
+
+    private func selectPage(at localX: CGFloat, width: CGFloat) {
+        guard pageCount > 0 else { return }
+        let usableWidth = max(1, width - trackInset * 2)
+        let fraction = min(max((localX - trackInset) / usableWidth, 0), 1)
+        let target = Int((fraction * CGFloat(max(0, pageCount - 1))).rounded())
+        guard target != lastRequestedPage else { return }
+        lastRequestedPage = target
+        onSeek(target)
+    }
+
+    private func triggerSelectionFeedback() {
         #if canImport(UIKit) && !os(macOS)
         let generator = UIImpactFeedbackGenerator(style: .light)
         generator.impactOccurred()
         #endif
+    }
+
+    private func selectedCenter(pageIndex: Int, in width: CGFloat) -> CGFloat {
+        guard pageCount > 1 else { return width / 2 }
+        let fraction = CGFloat(pageIndex) / CGFloat(pageCount - 1)
+        return trackInset + fraction * (width - trackInset * 2)
+    }
+
+    private func loadSamples(_ indices: [Int], prioritizing currentPage: Int) async {
+        let ordered = [currentPage] + indices.filter { $0 != currentPage }
+        for index in ordered where index >= 0 && index < pageCount {
+            guard !Task.isCancelled else { return }
+            if sampleImages[index] == nil,
+               let image = model.thumbnail(forPage: index, size: CGSize(width: 38, height: 54)) {
+                sampleImages[index] = image
+            }
+            // Give PDFView a chance to keep drawing the main page between the
+            // small, bounded batch of overview thumbnails.
+            await Task.yield()
+        }
+    }
+
+    private func loadCurrentPageThumbnail(_ index: Int) async {
+        currentPageImage = nil
+        guard index >= 0, index < pageCount else { return }
+        do {
+            // Adjacent page swipes still update the page badge and exact-page
+            // preview together. During a fast scrub, render only the latest
+            // settled frame instead of blocking every touch sample on PDFKit.
+            try await Task.sleep(for: .milliseconds(isScrubbing ? 65 : 0))
+        } catch {
+            return
+        }
+        guard !Task.isCancelled else { return }
+        currentPageImage = model.thumbnail(forPage: index, size: CGSize(width: 76, height: 108))
+    }
+
+    private static func sampleTaskKey(documentID: UUID, indices: [Int]) -> String {
+        "\(documentID)-\(indices.map(String.init).joined(separator: ","))"
+    }
+
+    private static func sampledPageIndices(pageCount: Int, availableWidth: CGFloat) -> [Int] {
+        guard pageCount > 0 else { return [] }
+        let desiredCount = max(1, min(80, Int(availableWidth / 22)))
+        let sampleCount = min(pageCount, desiredCount)
+        guard sampleCount > 1 else { return [0] }
+        return (0..<sampleCount).map { sample in
+            Int((Double(sample) * Double(pageCount - 1) / Double(sampleCount - 1)).rounded())
+        }
     }
 }
