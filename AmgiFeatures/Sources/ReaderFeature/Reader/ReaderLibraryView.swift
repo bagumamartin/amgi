@@ -17,9 +17,9 @@ enum BookshelfSortMode: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .recent:   "Recently Read"
-        case .title:    "Title"
-        case .progress: "Progress"
+        case .recent:   L10n.text("Recently Read")
+        case .title:    L10n.text("Title")
+        case .progress: L10n.text("Progress")
         }
     }
 }
@@ -99,6 +99,10 @@ package struct ReaderLibraryView: View {
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
+                if model.isImportingBooks {
+                    ProgressView()
+                        .controlSize(.small)
+                }
                 SyncToolbarButton()
                 Menu { plusMenu } label: {
                     Image(systemName: "plus")

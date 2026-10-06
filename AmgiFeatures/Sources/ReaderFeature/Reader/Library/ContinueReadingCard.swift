@@ -13,6 +13,7 @@ struct ContinueReadingCard: View {
     private static let coverAspect: CGFloat = 2.0 / 3.0
 
     @Environment(\.palette) private var palette
+    @Environment(\.locale) private var locale
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -55,7 +56,7 @@ struct ContinueReadingCard: View {
 
     private var subtitle: String {
         let pct = Int((item.progress * 100).rounded())
-        let when = BookMetaFormatters.relativeReadingDate(item.updatedAt)
+        let when = BookMetaFormatters.relativeReadingDate(item.updatedAt, locale: locale)
         return "\(pct)% · \(when)"
     }
 }
