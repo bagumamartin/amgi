@@ -9,6 +9,7 @@ public struct StudyDeckRow: View {
     public let onTap: () -> Void
 
     @Environment(\.palette) private var palette
+    @Environment(\.locale) private var locale
 
     public init(data: StudyDeckRowData, onTap: @escaping () -> Void) {
         self.data = data
@@ -72,20 +73,23 @@ public struct StudyDeckRow: View {
         }
         .buttonStyle(.pressScale)
         .accessibilityLabel(accessibilityLabel)
-        .accessibilityHint("Starts a review session for this deck")
+        .accessibilityHint(AmgiL10n.text("Starts a review session for this deck", locale: locale))
     }
 
     private var accessibilityLabel: String {
-        var parts = ["Study \(data.name)", "\(data.totalDue) cards due"]
+        var parts = [AmgiL10n.format("Study %@", [data.name], locale: locale), AmgiL10n.format("Cards due: %lld", [data.totalDue], locale: locale)]
         if let includes = data.includesLabel { parts.append(includes) }
         return parts.joined(separator: ", ")
     }
 
     private var mixLabel: String {
+        // Reuse the standalone card-state keys and fold case: "New" -> "new"
+        // in English, "Mới" -> "mới" in Vietnamese. Separate "%lld new"
+        // keys would collide with the standalone ones in symbol generation.
         var parts: [String] = []
-        if data.newCount > 0 { parts.append("\(data.newCount) new") }
-        if data.learnCount > 0 { parts.append("\(data.learnCount) learn") }
-        if data.reviewCount > 0 { parts.append("\(data.reviewCount) review") }
+        if data.newCount > 0 { parts.append("\(data.newCount) \(AmgiL10n.text("New", locale: locale).lowercased(with: locale))") }
+        if data.learnCount > 0 { parts.append("\(data.learnCount) \(AmgiL10n.text("Learn", locale: locale).lowercased(with: locale))") }
+        if data.reviewCount > 0 { parts.append("\(data.reviewCount) \(AmgiL10n.text("Review", locale: locale).lowercased(with: locale))") }
         return parts.joined(separator: " · ")
     }
 }

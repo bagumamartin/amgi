@@ -12,6 +12,7 @@ public struct SessionDoneContent: View {
     let onDone: () -> Void
 
     @Environment(\.palette) private var palette
+    @Environment(\.locale) private var locale
 
     public init(
         title: String,
@@ -47,13 +48,13 @@ public struct SessionDoneContent: View {
 
                 AmgiCard {
                     VStack(alignment: .leading, spacing: AmgiSpacing.sm) {
-                        stat("Reviewed", value: "\(reviewed)")
-                        stat("Accuracy", value: accuracyPercent.map { "\($0)%" } ?? "—")
-                        stat("Time", value: timeLabel)
+                        stat(AmgiL10n.text("Reviewed", locale: locale), value: "\(reviewed)")
+                        stat(AmgiL10n.text("Accuracy", locale: locale), value: accuracyPercent.map { "\($0)%" } ?? "—")
+                        stat(AmgiL10n.text("Time", locale: locale), value: timeLabel)
                         if graduatedToday > 0 {
                             Text(graduatedToday == 1
-                                 ? "1 card graduated today"
-                                 : "\(graduatedToday) cards graduated today")
+                                 ? AmgiL10n.text("1 card graduated today", locale: locale)
+                                 : AmgiL10n.format("%lld cards graduated today", [graduatedToday], locale: locale))
                                 .amgiFont(.caption)
                                 .foregroundStyle(palette.textSecondary)
                                 .padding(.top, AmgiSpacing.xs)

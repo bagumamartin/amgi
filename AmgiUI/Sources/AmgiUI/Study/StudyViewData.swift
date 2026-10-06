@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 // MARK: - DTOs (no AnkiKit / AnkiClients imports — pure view data)
 
@@ -171,6 +171,82 @@ public struct StudySummaryData: Equatable, Sendable {
 
     public static func backlogNote(haveBacklog: Bool) -> String? {
         haveBacklog ? "Daily limits are holding reviews back" : nil
+    }
+
+    // MARK: - Localized variants
+    //
+    // The properties above are the English source strings (and what the
+    // unit tests assert). Views must use these locale-aware variants with
+    // `@Environment(\.locale)` — `Text(String)` does not localize, so
+    // rendering the properties directly is how English leaked through.
+
+    public func localizedPrimaryActionTitle(locale: Locale) -> String? {
+        switch phase {
+        case .due: "\(AmgiL10n.text("Start", locale: locale)) · \(totalDue)"
+        case .leftover: "\(AmgiL10n.text("Continue", locale: locale)) · \(AmgiL10n.format("%lld left", [totalDue], locale: locale))"
+        case .caughtUp: nil
+        }
+    }
+
+    public func localizedCaughtUpTitle(locale: Locale) -> String {
+        if learningReturning > 0 { return AmgiL10n.text("Done for now", locale: locale) }
+        if reviewedToday > 0 || answerCount > 0 { return AmgiL10n.text("Done for today", locale: locale) }
+        return AmgiL10n.text("Nothing due today", locale: locale)
+    }
+
+    public func localizedSessionShape(locale: Locale) -> String {
+        var parts: [String] = []
+        if learnCount > 0 { parts.append(AmgiL10n.text("Learning first", locale: locale)) }
+        switch (reviewCount > 0, newCount > 0) {
+        case (true, true):
+            parts.append(learnCount > 0 ? AmgiL10n.text("then reviews and new", locale: locale) : AmgiL10n.text("Reviews, then new", locale: locale))
+        case (true, false):
+            parts.append(learnCount > 0 ? AmgiL10n.text("then reviews", locale: locale) : AmgiL10n.text("Reviews", locale: locale))
+        case (false, true):
+            parts.append(learnCount > 0 ? AmgiL10n.text("then new", locale: locale) : AmgiL10n.text("New cards", locale: locale))
+        case (false, false):
+            break
+        }
+        return parts.joined(separator: ", ")
+    }
+
+    public func localizedEstimateLabel(locale: Locale) -> String? {
+        guard totalDue > 0 else { return nil }
+        let minutes = Self.estimatedMinutes(
+            remaining: totalDue,
+            answerCount: answerCount,
+            answerMillis: answerMillis
+        )
+        if minutes < 1 { return AmgiL10n.text("Under a minute", locale: locale) }
+        return AmgiL10n.format("About %lld min", [minutes], locale: locale)
+    }
+
+    public func localizedReturningNote(locale: Locale) -> String? {
+        guard learningReturning > 0 else { return nil }
+        if learningReturning == 1 {
+            return AmgiL10n.text("1 learning card returns later today", locale: locale)
+        }
+        return AmgiL10n.format("%lld learning cards return later today", [learningReturning], locale: locale)
+    }
+
+    public func localizedStreakLabel(locale: Locale) -> String? {
+        guard streak > 0 else { return nil }
+        return AmgiL10n.format("%lld-day streak", [streak], locale: locale)
+    }
+
+    public func localizedTimeStudiedLabel(locale: Locale) -> String? {
+        guard answerMillis > 0 else { return nil }
+        let minutes = max(1, Int((Double(answerMillis) / 60_000).rounded()))
+        return AmgiL10n.format("%lld min studied", [minutes], locale: locale)
+    }
+
+    public func localizedTomorrowLabel(locale: Locale) -> String? {
+        guard let tomorrowDue, tomorrowDue > 0 else { return nil }
+        return AmgiL10n.format("Tomorrow · %lld cards", [tomorrowDue], locale: locale)
+    }
+
+    public static func localizedBacklogNote(haveBacklog: Bool, locale: Locale) -> String? {
+        haveBacklog ? AmgiL10n.text("Daily limits are holding reviews back", locale: locale) : nil
     }
 
     public func withLiveCounts(

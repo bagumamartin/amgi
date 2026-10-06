@@ -258,9 +258,14 @@ public enum StudySpan {
 
     /// Morning (6), noon (12), evening (18), and midnight (0), each centered
     /// on that hour's column of the Anki day.
-    public static func dayAxisMarks(rolloverHour: Int) -> [StudyAxisLabel] {
+    public static func dayAxisMarks(rolloverHour: Int, locale: Locale = .current) -> [StudyAxisLabel] {
         let start = ((rolloverHour % 24) + 24) % 24
-        let periods = [("Morning", 6), ("Noon", 12), ("Evening", 18), ("Midnight", 0)]
+        let periods = [
+            (AmgiL10n.text("Morning", locale: locale), 6),
+            (AmgiL10n.text("Noon", locale: locale), 12),
+            (AmgiL10n.text("Evening", locale: locale), 18),
+            (AmgiL10n.text("Midnight", locale: locale), 0),
+        ]
         return periods.map { name, clock in
             StudyAxisLabel(title: name, slot: (clock - start + 24) % 24)
         }
@@ -320,7 +325,9 @@ public enum StudySpan {
         return cells
     }
 
-    public static func weekdayHeaders(calendar: Calendar = .current) -> [String] {
+    public static func weekdayHeaders(calendar: Calendar = .current, locale: Locale = .current) -> [String] {
+        var calendar = calendar
+        calendar.locale = locale
         let symbols = calendar.veryShortWeekdaySymbols
         let start = calendar.firstWeekday - 1
         guard symbols.count == 7, start >= 0, start < 7 else { return symbols }
@@ -388,14 +395,14 @@ public enum StudySpan {
         "(is:learn or is:review) prop:due<0 -is:suspended"
     }
 
-    public static func dayTitle(offset: Int, day: Date, calendar: Calendar = .current) -> String {
+    public static func dayTitle(offset: Int, day: Date, calendar: Calendar = .current, locale: Locale = .current) -> String {
         switch offset {
-        case 0: return "Today"
-        case 1: return "Yesterday"
-        case -1: return "Tomorrow"
+        case 0: return AmgiL10n.text("Today", locale: locale)
+        case 1: return AmgiL10n.text("Yesterday", locale: locale)
+        case -1: return AmgiL10n.text("Tomorrow", locale: locale)
         default:
             let dayNumber = calendar.component(.day, from: day)
-            let month = day.formatted(dateFormat(calendar: calendar).month(.abbreviated))
+            let month = day.formatted(dateFormat(calendar: calendar, locale: locale).month(.abbreviated))
             return "\(dayNumber) \(month)"
         }
     }
@@ -403,24 +410,26 @@ public enum StudySpan {
     public static func weekTitle(
         todayStart: Date,
         anchor: Int,
-        calendar: Calendar = .current
+        calendar: Calendar = .current,
+        locale: Locale = .current
     ) -> String {
         let offsets = weekOffsets(todayStart: todayStart, anchor: anchor, calendar: calendar)
-        guard let first = offsets.first, let last = offsets.last else { return "This week" }
-        if offsets.contains(0) { return "This week" }
+        guard let first = offsets.first, let last = offsets.last else { return AmgiL10n.text("This week", locale: locale) }
+        if offsets.contains(0) { return AmgiL10n.text("This week", locale: locale) }
         let start = date(todayStart: todayStart, offset: first, calendar: calendar)
         let end = date(todayStart: todayStart, offset: last, calendar: calendar)
-        return "\(dayMonth(start, calendar: calendar)) – \(dayMonth(end, calendar: calendar))"
+        return "\(dayMonth(start, calendar: calendar, locale: locale)) – \(dayMonth(end, calendar: calendar, locale: locale))"
     }
 
     public static func monthTitle(
         todayStart: Date,
         anchor: Int,
-        calendar: Calendar = .current
+        calendar: Calendar = .current,
+        locale: Locale = .current
     ) -> String {
         let day = date(todayStart: todayStart, offset: anchor, calendar: calendar)
         let sameYear = calendar.component(.year, from: day) == calendar.component(.year, from: todayStart)
-        let format = dateFormat(calendar: calendar)
+        let format = dateFormat(calendar: calendar, locale: locale)
         if sameYear {
             return day.formatted(format.month(.wide))
         }
@@ -443,26 +452,29 @@ public enum StudySpan {
         grain: StudyGrain,
         todayStart: Date,
         anchor: Int,
-        calendar: Calendar = .current
+        calendar: Calendar = .current,
+        locale: Locale = .current
     ) -> String {
         switch grain {
         case .day:
             let day = date(todayStart: todayStart, offset: anchor, calendar: calendar)
-            return day.formatted(dateFormat(calendar: calendar).weekday(.wide))
+            return day.formatted(dateFormat(calendar: calendar, locale: locale).weekday(.wide))
         case .week:
             let offsets = weekOffsets(todayStart: todayStart, anchor: anchor, calendar: calendar)
             let probe = offsets.first ?? anchor
             let day = date(todayStart: todayStart, offset: probe, calendar: calendar)
             let week = calendar.component(.weekOfYear, from: day)
-            return "Week \(week)"
+            return "\(AmgiL10n.text("Week", locale: locale)) \(week)"
         case .month:
             let day = date(todayStart: todayStart, offset: anchor, calendar: calendar)
             let month = calendar.component(.month, from: day)
-            return seasonName(month: month, calendar: calendar)
+            return seasonName(month: month, calendar: calendar, locale: locale)
         case .year:
             let day = date(todayStart: todayStart, offset: anchor, calendar: calendar)
             let year = calendar.component(.year, from: day)
-            return isLeapYear(year) ? "Leap year" : "Common year"
+            return isLeapYear(year)
+                ? AmgiL10n.text("Leap year", locale: locale)
+                : AmgiL10n.text("Common year", locale: locale)
         }
     }
 
@@ -472,16 +484,16 @@ public enum StudySpan {
 
     /// Meteorological season. Southern regions and time zones swap the
     /// northern names, because September is spring there.
-    public static func seasonName(month: Int, calendar: Calendar = .current) -> String {
+    public static func seasonName(month: Int, calendar: Calendar = .current, locale: Locale = .current) -> String {
         let southern = isSouthernHemisphere(
-            locale: calendar.locale ?? .current,
+            locale: calendar.locale ?? locale,
             timeZone: calendar.timeZone
         )
         switch month {
-        case 3, 4, 5: return southern ? autumnName(locale: calendar.locale) : "Spring"
-        case 6, 7, 8: return southern ? "Winter" : "Summer"
-        case 9, 10, 11: return southern ? "Spring" : autumnName(locale: calendar.locale)
-        default: return southern ? "Summer" : "Winter"
+        case 3, 4, 5: return southern ? autumnName(locale: calendar.locale ?? locale) : AmgiL10n.text("Spring", locale: locale)
+        case 6, 7, 8: return southern ? AmgiL10n.text("Winter", locale: locale) : AmgiL10n.text("Summer", locale: locale)
+        case 9, 10, 11: return southern ? AmgiL10n.text("Spring", locale: locale) : autumnName(locale: calendar.locale ?? locale)
+        default: return southern ? AmgiL10n.text("Summer", locale: locale) : AmgiL10n.text("Winter", locale: locale)
         }
     }
 
@@ -494,7 +506,7 @@ public enum StudySpan {
     }
 
     private static func autumnName(locale: Locale?) -> String {
-        locale?.region?.identifier == "US" ? "Fall" : "Autumn"
+        AmgiL10n.text(locale?.region?.identifier == "US" ? "Fall" : "Autumn", locale: locale ?? .current)
     }
 
     /// Countries whose population lives mostly south of the equator.
@@ -519,19 +531,21 @@ public enum StudySpan {
         grain: StudyGrain,
         todayStart: Date,
         anchor: Int,
-        calendar: Calendar = .current
+        calendar: Calendar = .current,
+        locale: Locale = .current
     ) -> String {
         switch grain {
         case .day:
             return dayTitle(
                 offset: anchor,
                 day: date(todayStart: todayStart, offset: anchor, calendar: calendar),
-                calendar: calendar
+                calendar: calendar,
+                locale: locale
             )
         case .week:
-            return weekTitle(todayStart: todayStart, anchor: anchor, calendar: calendar)
+            return weekTitle(todayStart: todayStart, anchor: anchor, calendar: calendar, locale: locale)
         case .month:
-            return monthTitle(todayStart: todayStart, anchor: anchor, calendar: calendar)
+            return monthTitle(todayStart: todayStart, anchor: anchor, calendar: calendar, locale: locale)
         case .year:
             return yearTitle(todayStart: todayStart, anchor: anchor, calendar: calendar)
         }
@@ -558,23 +572,27 @@ public enum StudySpan {
         }
     }
 
-    public static func jumpTitle(grain: StudyGrain) -> String {
+    public static func jumpTitle(grain: StudyGrain, locale: Locale = .current) -> String {
         switch grain {
-        case .day: "Today"
-        case .week, .month, .year: "Present"
+        case .day: AmgiL10n.text("Today", locale: locale)
+        case .week, .month, .year: AmgiL10n.text("Present", locale: locale)
         }
     }
 
     /// Under an hour stays `N min`. At an hour, minutes are spelled out,
     /// and a zero remainder drops them (`2 hours`).
-    public static func studiedDuration(minutes: Int) -> String? {
+    public static func studiedDuration(minutes: Int, locale: Locale = .current) -> String? {
         guard minutes > 0 else { return nil }
-        if minutes < 60 { return "\(minutes) min" }
+        if minutes < 60 { return AmgiL10n.format("%lld min", [minutes], locale: locale) }
         let hours = minutes / 60
         let remainder = minutes % 60
-        let hourWord = hours == 1 ? "hour" : "hours"
+        let hourWord = hours == 1
+            ? AmgiL10n.text("hour", locale: locale)
+            : AmgiL10n.text("hours", locale: locale)
         if remainder == 0 { return "\(hours) \(hourWord)" }
-        let minuteWord = remainder == 1 ? "minute" : "minutes"
+        let minuteWord = remainder == 1
+            ? AmgiL10n.text("minute", locale: locale)
+            : AmgiL10n.text("minutes", locale: locale)
         return "\(hours) \(hourWord) \(remainder) \(minuteWord)"
     }
 
@@ -706,7 +724,8 @@ public enum StudySpan {
         oldest: Int,
         newest: Int,
         spanName: String,
-        additionalSearch: String? = nil
+        additionalSearch: String? = nil,
+        locale: Locale = .current
     ) -> [StudyTimeRow] {
         criteria.map { criterion in
             let baseSearch = criterionSearch(
@@ -716,13 +735,26 @@ public enum StudySpan {
                 newest: newest
             )
             let scoped = additionalSearch.map { "\(baseSearch) \($0)" } ?? baseSearch
+            let title = AmgiL10n.text(criterion.title, locale: locale)
+            // Nouns share the title's key where they match ("Leeches"); the
+            // rest have their own keys. Separate lowercase keys would collide
+            // with the titles in symbol generation.
+            let noun: String
+            switch criterion.id {
+            case "leeches":
+                noun = title.lowercased(with: locale)
+            case "reviewed":
+                noun = AmgiL10n.text("card reviews", locale: locale)
+            default:
+                noun = AmgiL10n.text(criterion.emptyNoun, locale: locale)
+            }
             return StudyTimeRow(
                 id: criterion.id,
-                title: criterion.title,
+                title: title,
                 count: counts[criterion.id] ?? 0,
                 search: scoped,
-                detailTitle: "\(criterion.title) · \(spanName)",
-                emptyMessage: emptyCriterionMessage(noun: criterion.emptyNoun, spanName: spanName),
+                detailTitle: "\(title) · \(spanName)",
+                emptyMessage: emptyCriterionMessage(noun: noun, spanName: spanName, locale: locale),
                 reschedulesByDefault: criterion.reschedulesByDefault
             )
         }
@@ -739,33 +771,35 @@ public enum StudySpan {
         count: Int,
         daysAhead: Int,
         spanName: String,
-        search explicitSearch: String? = nil
+        search explicitSearch: String? = nil,
+        locale: Locale = .current
     ) -> StudyTimeRow {
         StudyTimeRow(
             id: "due",
-            title: "Due this day",
+            title: AmgiL10n.text("Due this day", locale: locale),
             count: count,
             search: explicitSearch ?? dueSearch(daysAhead: daysAhead),
-            detailTitle: "Due · \(spanName)",
-            emptyMessage: dueEmptyMessage(spanName: spanName),
+            detailTitle: "\(AmgiL10n.text("Due", locale: locale)) · \(spanName)",
+            emptyMessage: dueEmptyMessage(spanName: spanName, locale: locale),
             reschedulesByDefault: true,
-            subtitle: "Scheduled for this Anki day"
+            subtitle: AmgiL10n.text("Scheduled for this Anki day", locale: locale)
         )
     }
 
     public static func backlogRow(
         count: Int,
-        search explicitSearch: String? = nil
+        search explicitSearch: String? = nil,
+        locale: Locale = .current
     ) -> StudyTimeRow {
         StudyTimeRow(
             id: "backlog",
-            title: "Backlog",
+            title: AmgiL10n.text("Backlog", locale: locale),
             count: count,
             search: explicitSearch ?? backlogSearch,
-            detailTitle: "Backlog",
-            emptyMessage: "No overdue cards",
+            detailTitle: AmgiL10n.text("Backlog", locale: locale),
+            emptyMessage: AmgiL10n.text("No overdue cards", locale: locale),
             reschedulesByDefault: true,
-            subtitle: "Past due · daily limits may be holding reviews back"
+            subtitle: AmgiL10n.text("Past due · daily limits may be holding reviews back", locale: locale)
         )
     }
 
@@ -773,52 +807,59 @@ public enum StudySpan {
         count: Int,
         dayOffset: Int,
         spanName: String,
-        search explicitSearch: String? = nil
+        search explicitSearch: String? = nil,
+        locale: Locale = .current
     ) -> StudyTimeRow {
         let search = explicitSearch
             ?? unstableSearch(dayOffset: dayOffset)
             ?? "is:due prop:s<\(unstableStabilityDays)"
         return StudyTimeRow(
             id: "unstable",
-            title: "Unstable now",
+            title: AmgiL10n.text("Unstable now", locale: locale),
             count: count,
             search: search,
-            detailTitle: "Unstable · \(spanName)",
-            emptyMessage: "No unstable cards \(spanPhrase(spanName))",
+            detailTitle: "\(AmgiL10n.text("Unstable", locale: locale)) · \(spanName)",
+            emptyMessage: AmgiL10n.format("No unstable cards %@", [spanPhrase(spanName, locale: locale)], locale: locale),
             reschedulesByDefault: false,
-            subtitle: "FSRS stability under \(unstableStabilityDays) days"
+            subtitle: AmgiL10n.format("FSRS stability under %lld days", [unstableStabilityDays], locale: locale)
         )
     }
 
-    public static func emptyCriterionMessage(noun: String, spanName: String) -> String {
-        "No \(noun) \(spanPhrase(spanName))"
+    public static func emptyCriterionMessage(noun: String, spanName: String, locale: Locale = .current) -> String {
+        AmgiL10n.format("No %@ %@", [noun, spanPhrase(spanName, locale: locale)], locale: locale)
     }
 
-    public static func dueEmptyMessage(spanName: String) -> String {
-        if spanName == "Tomorrow" { return "Nothing due tomorrow" }
-        return "Nothing due on \(spanName)"
+    public static func dueEmptyMessage(spanName: String, locale: Locale = .current) -> String {
+        if spanName == AmgiL10n.text("Tomorrow", locale: locale) {
+            return AmgiL10n.text("Nothing due tomorrow", locale: locale)
+        }
+        return AmgiL10n.format("Nothing due on %@", [spanName], locale: locale)
     }
 
-    private static func dayMonth(_ day: Date, calendar: Calendar) -> String {
+    private static func dayMonth(_ day: Date, calendar: Calendar, locale: Locale? = nil) -> String {
         let dayNumber = calendar.component(.day, from: day)
-        let month = day.formatted(dateFormat(calendar: calendar).month(.abbreviated))
+        let month = day.formatted(dateFormat(calendar: calendar, locale: locale).month(.abbreviated))
         return "\(dayNumber) \(month)"
     }
 
     /// "yesterday", "this week", "in September", "in 12–18 Sep".
-    public static func spanPhrase(_ spanName: String) -> String {
-        switch spanName.lowercased() {
-        case "today", "yesterday", "tomorrow", "this week":
-            spanName.lowercased()
+    public static func spanPhrase(_ spanName: String, locale: Locale = .current) -> String {
+        let today = AmgiL10n.text("Today", locale: locale).lowercased(with: locale)
+        let yesterday = AmgiL10n.text("Yesterday", locale: locale).lowercased(with: locale)
+        let tomorrow = AmgiL10n.text("Tomorrow", locale: locale).lowercased(with: locale)
+        let thisWeek = AmgiL10n.text("This week", locale: locale).lowercased(with: locale)
+        switch spanName.lowercased(with: locale) {
+        case today, yesterday, tomorrow, thisWeek:
+            return spanName.lowercased(with: locale)
         default:
-            "in \(spanName)"
+            return AmgiL10n.format("in %@", [spanName], locale: locale)
         }
     }
 
-    private static func dateFormat(calendar: Calendar) -> Date.FormatStyle {
+    private static func dateFormat(calendar: Calendar, locale: Locale? = nil) -> Date.FormatStyle {
         var format = Date.FormatStyle()
         format.calendar = calendar
-        format.locale = calendar.locale ?? .autoupdatingCurrent
+        format.locale = locale ?? calendar.locale ?? .autoupdatingCurrent
         return format
     }
 }

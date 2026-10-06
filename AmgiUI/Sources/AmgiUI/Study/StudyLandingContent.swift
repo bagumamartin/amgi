@@ -127,6 +127,7 @@ public struct StudyLandingContent: View {
 
     @Environment(\.palette) private var palette
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.locale) private var locale
     @State private var choseToWait = false
 
     public init(
@@ -466,7 +467,7 @@ public struct StudyLandingContent: View {
         ) {
             VStack(alignment: .leading, spacing: AmgiSpacing.md) {
                 HStack {
-                    Text(showsTodayDesk ? "Your activity" : "Review activity")
+                    Text(AmgiL10n.text(showsTodayDesk ? "Your activity" : "Review activity", locale: locale))
                         .font(.title3)
                         .fontWeight(.semibold)
                         .foregroundStyle(palette.textPrimary)
@@ -553,7 +554,7 @@ public struct StudyLandingContent: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: AmgiSpacing.sm) {
             HStack(spacing: AmgiSpacing.sm) {
-                Text(scopeLabel.map { "TODAY · \($0)" } ?? "TODAY")
+                Text(scopeLabel.map { "\(AmgiL10n.text("Today", locale: locale).uppercased(with: locale)) · \($0)" } ?? AmgiL10n.text("Today", locale: locale).uppercased(with: locale))
                     .font(.footnote)
                     .fontWeight(.semibold)
                     .tracking(0.4)
@@ -566,7 +567,7 @@ public struct StudyLandingContent: View {
                         .foregroundStyle(palette.accent)
                 }
             }
-            Text(summary.phase == .caughtUp ? summary.caughtUpTitle : "\(summary.totalDue) cards left")
+            Text(summary.phase == .caughtUp ? summary.localizedCaughtUpTitle(locale: locale) : AmgiL10n.format("%lld cards left", [summary.totalDue], locale: locale))
                 .font(titleFont)
                 .fontWeight(.bold)
                 .foregroundStyle(palette.textPrimary)
@@ -575,7 +576,7 @@ public struct StudyLandingContent: View {
                     .font(.subheadline)
                     .foregroundStyle(palette.textPrimary)
             }
-            if let estimate = summary.estimateLabel {
+            if let estimate = summary.localizedEstimateLabel(locale: locale) {
                 Text(estimate)
                     .font(.body)
                     .foregroundStyle(palette.textSecondary)
@@ -614,11 +615,12 @@ public struct StudyLandingContent: View {
     }
 
     private func categoryLegendItem(_ title: String, count: Int, color: Color) -> some View {
-        HStack(spacing: 6) {
+        let localizedTitle = AmgiL10n.text(title, locale: locale)
+        return HStack(spacing: 6) {
             Circle()
                 .fill(color)
                 .frame(width: 7, height: 7)
-            Text(title)
+            Text(localizedTitle)
                 .font(.caption)
                 .foregroundStyle(palette.textSecondary)
             Text("\(count)")
@@ -627,8 +629,8 @@ public struct StudyLandingContent: View {
                 .foregroundStyle(palette.textPrimary)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(title), \(count)")
-        .accessibilityValue("\(count) cards")
+        .accessibilityLabel("\(localizedTitle), \(count)")
+        .accessibilityValue(AmgiL10n.format("%lld cards", [count], locale: locale))
     }
 
     private func legendKey(title: String, color: Color) -> some View {
@@ -636,7 +638,7 @@ public struct StudyLandingContent: View {
             Circle()
                 .fill(color)
                 .frame(width: 6, height: 6)
-            Text(title)
+            Text(AmgiL10n.text(title, locale: locale))
                 .font(.caption2)
                 .foregroundStyle(palette.textSecondary)
         }
@@ -709,7 +711,7 @@ public struct StudyLandingContent: View {
 
     private func attentionSection(title: String, rows: [StudyTimeRow]) -> some View {
         VStack(alignment: .leading, spacing: AmgiSpacing.sm) {
-            Text(title)
+            Text(AmgiL10n.text(title, locale: locale))
                 .amgiFont(.sectionHeading)
                 .foregroundStyle(palette.textPrimary)
             timeRowList(rows)
@@ -745,7 +747,7 @@ public struct StudyLandingContent: View {
                 )
                 Picker("Period", selection: Binding(get: { grain }, set: { onSelectGrain($0) })) {
                     ForEach(StudyGrain.allCases) { item in
-                        Text(item.title).tag(item)
+                        Text(AmgiL10n.text(item.title, locale: locale)).tag(item)
                     }
                 }
                 .pickerStyle(.segmented)
@@ -861,7 +863,7 @@ public struct StudyLandingContent: View {
 
     @ViewBuilder
     private func primary(_ summary: StudySummaryData) -> some View {
-        if let title = summary.primaryActionTitle {
+        if let title = summary.localizedPrimaryActionTitle(locale: locale) {
             VStack(spacing: AmgiSpacing.sm) {
                 Button(action: onBeginSession) {
                     HStack(spacing: AmgiSpacing.sm) {
@@ -874,8 +876,8 @@ public struct StudyLandingContent: View {
                     .frame(minHeight: 44)
                 }
                 .buttonStyle(AmgiPrimaryButtonStyle())
-                .accessibilityHint("Begins a review session using the current deck limits")
-                if !summary.sessionShape.isEmpty {
+                .accessibilityHint(AmgiL10n.text("Begins a review session using the current deck limits", locale: locale))
+                if !summary.localizedSessionShape(locale: locale).isEmpty {
                     Text(sessionLine(summary))
                         .amgiFont(.caption)
                         .foregroundStyle(palette.textSecondary)
@@ -887,10 +889,11 @@ public struct StudyLandingContent: View {
     }
 
     private func sessionLine(_ summary: StudySummaryData) -> String {
-        if let estimate = summary.estimateLabel, summary.phase != .caughtUp {
-            return "\(estimate) · \(summary.sessionShape)"
+        let shape = summary.localizedSessionShape(locale: locale)
+        if let estimate = summary.localizedEstimateLabel(locale: locale), summary.phase != .caughtUp {
+            return "\(estimate) · \(shape)"
         }
-        return summary.sessionShape
+        return shape
     }
 
     // MARK: - Sections
@@ -953,7 +956,7 @@ public struct StudyLandingContent: View {
     }
 
     private func sectionHeader(_ title: String) -> some View {
-        Text(title)
+        Text(AmgiL10n.text(title, locale: locale))
             .amgiFont(.sectionHeading)
             .foregroundStyle(palette.textPrimary)
             .padding(.bottom, 8)

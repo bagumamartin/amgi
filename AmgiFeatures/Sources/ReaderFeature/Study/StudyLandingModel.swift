@@ -31,7 +31,7 @@ final class StudyLandingModel {
     var todayAttentionRows: [StudyTimeRow] = []
     var spanDeckRows: [StudyTimeRow] = []
     var spanDeckRowsLoading = false
-    var spanDeckTitle = "Relevant decks"
+    var spanDeckTitle = L10n.text("Relevant decks")
     var spanRowsError: String?
     var spanDeckRowsError: String?
     var workloadError: String?
@@ -118,10 +118,10 @@ final class StudyLandingModel {
             let deckCount = tree.filter { $0.counts.total > 0 }.count
             guard token == loadToken else { return }
 
-            let weekday = Date().formatted(.dateTime.weekday(.wide))
+            let weekday = Date().formatted(.dateTime.weekday(.wide).locale(AppLocale.current))
             let subtitleLabel = deckCount == 0
                 ? weekday
-                : "\(weekday) · \(deckCount) deck\(deckCount == 1 ? "" : "s") due"
+                : "\(weekday) · \(deckCount == 1 ? L10n.format("%lld deck due", [deckCount]) : L10n.format("%lld decks due", [deckCount]))"
             let dayProgress = await resolveCollectionProgress(
                 totalDue: totalDue,
                 search: activitySearch
@@ -136,7 +136,7 @@ final class StudyLandingModel {
                 newCount: totalNew,
                 learnCount: treeLearn,
                 reviewCount: totalReview,
-                todayLabel: "Today",
+                todayLabel: L10n.text("Today"),
                 subtitleLabel: subtitleLabel,
                 deckCount: deckCount,
                 reviewedToday: dayProgress.reviewedToday,
@@ -195,7 +195,7 @@ final class StudyLandingModel {
             let created = try await deckClient.createFilteredDeck(spec)
             let gathered = try await deckClient.rebuildFilteredDeck(created.id)
             guard gathered > 0 else {
-                return (nil, "No cards matched.")
+                return (nil, L10n.text("No cards matched."))
             }
             store.invalidateAll(origin: .localUser)
             return (created.id, nil)
@@ -219,36 +219,36 @@ final class StudyLandingModel {
     }
 
     var spanTitle: String {
-        StudySpan.title(grain: grain, todayStart: todayStart, anchor: dayOffset)
+        StudySpan.title(grain: grain, todayStart: todayStart, anchor: dayOffset, locale: AppLocale.current)
     }
 
     var spanSubtitle: String {
-        StudySpan.subtitle(grain: grain, todayStart: todayStart, anchor: dayOffset)
+        StudySpan.subtitle(grain: grain, todayStart: todayStart, anchor: dayOffset, locale: AppLocale.current)
     }
 
     var spanHeadline: String {
         guard !showsTodayDesk else { return "" }
         if grain == .day, dayOffset < 0 {
             let count = spanRows.first?.count ?? futureDueCounts[-dayOffset] ?? 0
-            return "\(count) due"
+            return L10n.format("%lld due", [count])
         }
         if !spanOffsets.isEmpty, spanOffsets.allSatisfy({ $0 < 0 }) {
             let count = spanOffsets.reduce(0) { $0 + activityCount($1) }
-            return "\(count) scheduled"
+            return L10n.format("%lld scheduled", [count])
         }
         let count = spanRows.first { $0.id == "reviewed" }?.count ?? reviewedInSpan
         let minutes = reviewedMillisInSpan / 60_000
-        if let duration = StudySpan.studiedDuration(minutes: minutes) {
-            return "\(count) reviewed · \(duration)"
+        if let duration = StudySpan.studiedDuration(minutes: minutes, locale: AppLocale.current) {
+            return "\(L10n.format("%lld reviewed", [count])) · \(duration)"
         }
-        return "\(count) reviewed"
+        return L10n.format("%lld reviewed", [count])
     }
 
     var showsJump: Bool {
         !StudySpan.isCurrent(grain: grain, todayStart: todayStart, anchor: dayOffset)
     }
 
-    var jumpTitle: String { StudySpan.jumpTitle(grain: grain) }
+    var jumpTitle: String { StudySpan.jumpTitle(grain: grain, locale: AppLocale.current) }
 
     var chart: StudyChartModel {
         let calendar = Calendar.current
@@ -272,7 +272,7 @@ final class StudyLandingModel {
                     isFuture: dayOffset < 0
                 )
             }
-            let axis = StudySpan.dayAxisMarks(rolloverHour: rolloverHour)
+            let axis = StudySpan.dayAxisMarks(rolloverHour: rolloverHour, locale: AppLocale.current)
             return .hours(columns: columns, axis: axis)
         case .week:
             let offsets = StudySpan.weekOffsets(todayStart: todayStart, anchor: dayOffset, calendar: calendar)
@@ -294,7 +294,7 @@ final class StudyLandingModel {
             }
             return .bars(columns)
         case .month:
-            let headers = StudySpan.weekdayHeaders(calendar: calendar)
+            let headers = StudySpan.weekdayHeaders(calendar: calendar, locale: AppLocale.current)
             let offsets = StudySpan.monthOffsets(todayStart: todayStart, anchor: dayOffset, calendar: calendar)
             let cells = offsets.enumerated().map { index, offset in
                 let number: String
@@ -531,17 +531,17 @@ final class StudyLandingModel {
             let count = offset == 0 ? currentDue : graphs.futureDue.futureDue[offset] ?? 0
             let label: String
             if offset == 0 {
-                label = "Today"
+                label = L10n.text("Today")
             } else if offset == 1 {
-                label = "Tomorrow"
+                label = L10n.text("Tomorrow")
             } else {
-                label = date.formatted(.dateTime.weekday(.abbreviated))
+                label = date.formatted(.dateTime.weekday(.abbreviated).locale(AppLocale.current))
             }
-            let spokenDate = date.formatted(.dateTime.weekday(.wide))
+            let spokenDate = date.formatted(.dateTime.weekday(.wide).locale(AppLocale.current))
             return StudyForecastDay(
                 offset: -offset,
                 label: label,
-                accessibilityLabel: "\(spokenDate), \(count) cards",
+                accessibilityLabel: L10n.format("%@, %lld cards", [spokenDate, count]),
                 count: count
             )
         }
@@ -563,7 +563,8 @@ final class StudyLandingModel {
         if backlogCount > 0 {
             attentionRows.append(StudySpan.backlogRow(
                 count: backlogCount,
-                search: scopedActivitySearch(StudySpan.backlogSearch)
+                search: scopedActivitySearch(StudySpan.backlogSearch),
+                locale: AppLocale.current
             ))
         }
 
@@ -579,11 +580,12 @@ final class StudyLandingModel {
                 attentionRows.append(StudySpan.unstableRow(
                     count: count,
                     dayOffset: 0,
-                    spanName: "today",
-                    search: scopedActivitySearch(search)
+                    spanName: L10n.text("Today"),
+                    search: scopedActivitySearch(search),
+                    locale: AppLocale.current
                 ))
             } catch {
-                workloadErrorMessage = "The unstable-card count couldn't be loaded."
+                workloadErrorMessage = L10n.text("The unstable-card count couldn't be loaded.")
             }
         }
 
@@ -712,9 +714,9 @@ final class StudyLandingModel {
         guard !names.isEmpty else { return nil }
         let shown = names.prefix(3).joined(separator: ", ")
         if names.count > 3 {
-            return "Includes \(shown)…"
+            return "\(L10n.format("Includes %@", [shown]))…"
         }
-        return "Includes \(shown)"
+        return L10n.format("Includes %@", [shown])
     }
 
     /// Recursively resolves icons for every row (top-level decks and nested
@@ -883,7 +885,8 @@ final class StudyLandingModel {
                 count: count,
                 daysAhead: ahead,
                 spanName: spanName,
-                search: search
+                search: search,
+                locale: AppLocale.current
             )]
             if supportsStability, let unstableSearch = StudySpan.unstableSearch(dayOffset: dayOffset) {
                 do {
@@ -891,11 +894,12 @@ final class StudyLandingModel {
                     rows.append(StudySpan.unstableRow(
                         count: unstableCount,
                         dayOffset: dayOffset,
-                        spanName: spanName
+                        spanName: spanName,
+                        locale: AppLocale.current
                     ))
                 } catch {
                     if token == spanToken {
-                        spanRowsError = "The unstable-card count couldn't be loaded."
+                        spanRowsError = L10n.text("The unstable-card count couldn't be loaded.")
                     }
                 }
             }
@@ -923,7 +927,8 @@ final class StudyLandingModel {
             oldest: window.oldest,
             newest: window.newest,
             spanName: spanName,
-            additionalSearch: activitySearch.isEmpty ? nil : activitySearch
+            additionalSearch: activitySearch.isEmpty ? nil : activitySearch,
+            locale: AppLocale.current
         )
         if supportsStability {
             let unstableSearch = scopedActivitySearch(
@@ -941,13 +946,14 @@ final class StudyLandingModel {
                         count: unstableCount,
                         dayOffset: dayOffset,
                         spanName: spanName,
-                        search: unstableSearch
+                        search: unstableSearch,
+                        locale: AppLocale.current
                     ),
                     at: 0
                 )
             } catch {
                 if token == spanToken {
-                    spanRowsError = "The unstable-card count couldn't be loaded."
+                    spanRowsError = L10n.text("The unstable-card count couldn't be loaded.")
                 }
             }
         }
@@ -967,7 +973,7 @@ final class StudyLandingModel {
         guard grain == .day, dayOffset != 0,
               let baseSearch = StudySpan.relevanceSearch(dayOffset: dayOffset) else {
             if token == spanToken {
-                spanDeckTitle = "Relevant decks"
+                spanDeckTitle = L10n.text("Relevant decks")
                 spanDeckRows = []
                 spanDeckRowsLoading = false
                 spanDeckRowsError = nil
@@ -975,7 +981,7 @@ final class StudyLandingModel {
             return
         }
 
-        spanDeckTitle = dayOffset > 0 ? "Decks with cards reviewed" : "Decks with cards due"
+        spanDeckTitle = dayOffset > 0 ? L10n.text("Decks with cards reviewed") : L10n.text("Decks with cards due")
         if let cached = relevantDeckCache[dayOffset] {
             spanDeckRows = cached
             spanDeckRowsLoading = false
@@ -1029,7 +1035,7 @@ final class StudyLandingModel {
                 detailTitle: "\(node.name) · \(spanTitle)",
                 emptyMessage: "No matching cards in \(node.name)",
                 reschedulesByDefault: true,
-                subtitle: node.children.isEmpty ? nil : "Includes subdecks",
+                subtitle: node.children.isEmpty ? nil : L10n.text("Includes subdecks"),
                 initialDeckID: node.id.rawValue,
                 deckFullName: node.fullName
             ))
@@ -1046,7 +1052,7 @@ final class StudyLandingModel {
         spanDeckRows = capped
         spanDeckRowsLoading = false
         if hadFailure {
-            spanDeckRowsError = "Some deck counts couldn't be loaded. Pull to refresh to try again."
+            spanDeckRowsError = L10n.text("Some deck counts couldn't be loaded. Pull to refresh to try again.")
         }
     }
 
@@ -1083,7 +1089,7 @@ final class StudyLandingModel {
             return (counts, hadFailure)
         }
         if result.1, token == spanToken {
-            spanRowsError = "Some study filters couldn't be loaded. Pull to refresh to try again."
+            spanRowsError = L10n.text("Some study filters couldn't be loaded. Pull to refresh to try again.")
         }
         return result.0
     }

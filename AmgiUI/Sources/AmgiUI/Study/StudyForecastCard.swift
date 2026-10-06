@@ -12,6 +12,7 @@ public struct StudyForecastCard: View {
 
     @Environment(\.palette) private var palette
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.locale) private var locale
 
     public init(
         data: StudyForecastData,
@@ -126,7 +127,7 @@ public struct StudyForecastCard: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(day.accessibilityLabel)
-                .accessibilityHint(day.offset == 0 ? "Today" : "Open this day")
+                .accessibilityHint(day.offset == 0 ? AmgiL10n.text("Today", locale: locale) : AmgiL10n.text("Open this day", locale: locale))
             }
         }
         .frame(minHeight: forecastBarAreaHeight)
@@ -184,20 +185,20 @@ public struct StudyForecastCard: View {
 
     private var metricRows: [[ForecastMetric]] {
         var metrics = [
-            ForecastMetric(title: "Tomorrow", value: "\(data.tomorrowDue)", color: palette.textPrimary),
-            ForecastMetric(title: "Daily load", value: "\(data.dailyLoad)", color: palette.textPrimary),
+            ForecastMetric(title: AmgiL10n.text("Tomorrow", locale: locale), value: "\(data.tomorrowDue)", color: palette.textPrimary),
+            ForecastMetric(title: AmgiL10n.text("Daily Load", locale: locale), value: "\(data.dailyLoad)", color: palette.textPrimary),
         ]
         if data.hasBacklog {
             metrics.append(
                 ForecastMetric(
-                    title: "Backlog",
+                    title: AmgiL10n.text("Backlog", locale: locale),
                     value: data.backlogCount > 0 ? "\(data.backlogCount)" : "—",
                     color: palette.warning
                 )
             )
         }
         if let unstable = data.unstableDueCount, data.fsrsEnabled {
-            metrics.append(ForecastMetric(title: "Unstable now", value: "\(unstable)", color: palette.danger))
+            metrics.append(ForecastMetric(title: AmgiL10n.text("Unstable now", locale: locale), value: "\(unstable)", color: palette.danger))
         }
         return stride(from: 0, to: metrics.count, by: 2).map { start in
             Array(metrics[start..<min(start + 2, metrics.count)])
@@ -211,14 +212,14 @@ public struct StudyForecastCard: View {
 
     private var metricsAccessibilityLabel: String {
         var parts = [
-            "Tomorrow: \(data.tomorrowDue)",
-            "Daily load: \(data.dailyLoad)",
+            "\(AmgiL10n.text("Tomorrow", locale: locale)): \(data.tomorrowDue)",
+            "\(AmgiL10n.text("Daily Load", locale: locale)): \(data.dailyLoad)",
         ]
         if data.hasBacklog {
-            parts.append("Backlog: \(data.backlogCount)")
+            parts.append("\(AmgiL10n.text("Backlog", locale: locale)): \(data.backlogCount)")
         }
         if let unstable = data.unstableDueCount, data.fsrsEnabled {
-            parts.append("Unstable now: \(unstable)")
+            parts.append("\(AmgiL10n.text("Unstable now", locale: locale)): \(unstable)")
         }
         return parts.joined(separator: ", ")
     }
@@ -243,7 +244,7 @@ public struct StudyForecastCard: View {
     }
 
     private func compactBarLabel(_ label: String) -> String {
-        (presentation == .compact || presentation == .medium) && label == "Tomorrow" ? "Tmrw" : label
+        (presentation == .compact || presentation == .medium) && label == AmgiL10n.text("Tomorrow", locale: locale) ? AmgiL10n.text("Tmrw", locale: locale) : label
     }
 
     private func barColor(for day: StudyForecastDay) -> Color {

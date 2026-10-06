@@ -19,6 +19,7 @@ public struct StudyTimeDetailContent: View {
     let onBrowse: (() -> Void)?
 
     @Environment(\.palette) private var palette
+    @Environment(\.locale) private var locale
 
     public init(
         row: StudyTimeRow,
@@ -77,12 +78,12 @@ public struct StudyTimeDetailContent: View {
                         VStack(alignment: .leading, spacing: AmgiSpacing.lg) {
                             countBlock
                             limitBlock
-                            Toggle("Answering reschedules these cards", isOn: $reschedules)
+                            Toggle(AmgiL10n.text("Answering reschedules these cards", locale: locale), isOn: $reschedules)
                                 .amgiFont(.body)
                                 .tint(palette.accent)
                             if reschedules {
                                 Label(
-                                    "These cards will move to a new schedule.",
+                                    AmgiL10n.text("These cards will move to a new schedule.", locale: locale),
                                     systemImage: "arrow.triangle.2.circlepath"
                                 )
                                 .amgiFont(.caption)
@@ -90,7 +91,7 @@ public struct StudyTimeDetailContent: View {
                             }
                             studyButton
                             if let onBrowse {
-                                Button("Browse matching cards", action: onBrowse)
+                                Button(AmgiL10n.text("Browse matching cards", locale: locale), action: onBrowse)
                                     .buttonStyle(AmgiSecondaryButtonStyle())
                                     .frame(maxWidth: .infinity)
                             }
@@ -119,7 +120,7 @@ public struct StudyTimeDetailContent: View {
                 .amgiFont(.displayHero)
                 .foregroundStyle(palette.textPrimary)
                 .monospacedDigit()
-            Text(matchCount == 1 ? "card" : "cards")
+            Text(matchCount == 1 ? AmgiL10n.text("card", locale: locale) : AmgiL10n.text("Cards", locale: locale).lowercased(with: locale))
                 .amgiFont(.body)
                 .foregroundStyle(palette.textSecondary)
         }
@@ -127,15 +128,15 @@ public struct StudyTimeDetailContent: View {
 
     private var deckBlock: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Picker("Deck", selection: $deckID) {
+            Picker(AmgiL10n.text("Deck", locale: locale), selection: $deckID) {
                 ForEach(decks) { deck in
-                    Text(deck.title).tag(deck.id)
+                    Text(deck.id == StudyDeckChoice.all.id ? AmgiL10n.text("All decks", locale: locale) : deck.title).tag(deck.id)
                 }
             }
             .pickerStyle(.menu)
             .onChange(of: deckID) { _, _ in onScopeChange() }
             if deckID != StudyDeckChoice.all.id {
-                Toggle("Include subdecks", isOn: $includeSubdecks)
+                Toggle(AmgiL10n.text("Include subdecks", locale: locale), isOn: $includeSubdecks)
                     .amgiFont(.body)
                     .tint(palette.accent)
                     .onChange(of: includeSubdecks) { _, _ in onScopeChange() }
@@ -145,7 +146,7 @@ public struct StudyTimeDetailContent: View {
 
     private var limitBlock: some View {
         Stepper(value: $limit, in: 1...max(matchCount, 1)) {
-            Text("Study \(limit)")
+            Text(AmgiL10n.format("Study %lld", [limit], locale: locale))
                 .amgiFont(.body)
                 .foregroundStyle(palette.textPrimary)
                 .monospacedDigit()
@@ -163,7 +164,7 @@ public struct StudyTimeDetailContent: View {
                     Image(systemName: "play.fill")
                         .font(.system(size: 14, weight: .bold))
                 }
-                Text("Study · \(limit)")
+                Text(AmgiL10n.format("Study · %lld", [limit], locale: locale))
                     .bold()
             }
             .frame(maxWidth: .infinity)

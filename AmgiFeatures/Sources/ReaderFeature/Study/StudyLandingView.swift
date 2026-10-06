@@ -262,7 +262,7 @@ private struct StudyTimeDetailScreen: View {
         busy = true
         defer { busy = false }
         guard let count = await model.matchCount(activeSearch) else {
-            message = "The card count couldn't be loaded. Pull to refresh or try again."
+            message = L10n.text("The card count couldn't be loaded. Pull to refresh or try again.")
             return
         }
         matchCount = count

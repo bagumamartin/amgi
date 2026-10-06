@@ -15,6 +15,7 @@ public struct StudyReadingRec: View {
 
     @Environment(\.palette) private var palette
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.locale) private var locale
 
     private let cardWidth: CGFloat = 120
     private let cardHeight: CGFloat = 170
@@ -31,8 +32,8 @@ public struct StudyReadingRec: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.pressScale)
-        .accessibilityLabel("Continue reading \(data.title)")
-        .accessibilityHint("Opens the book at your last reading position")
+        .accessibilityLabel("\(AmgiL10n.text("Continue reading", locale: locale)) \(data.title)")
+        .accessibilityHint(AmgiL10n.text("Opens the book at your last reading position", locale: locale))
     }
 
     // MARK: - Tile

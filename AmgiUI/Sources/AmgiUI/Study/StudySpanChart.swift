@@ -10,6 +10,7 @@ public struct StudySpanChart: View {
 
     @Environment(\.palette) private var palette
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.locale) private var locale
 
     public init(
         model: StudyChartModel,
@@ -57,10 +58,10 @@ public struct StudySpanChart: View {
                 .font(.system(size: 22, weight: .medium))
                 .foregroundStyle(palette.accent)
                 .accessibilityHidden(true)
-            Text(count == 0 ? "Nothing scheduled" : "\(count) scheduled")
+            Text(count == 0 ? AmgiL10n.text("Nothing scheduled", locale: locale) : AmgiL10n.format("%lld scheduled", [count], locale: locale))
                 .amgiFont(.bodyEmphasis, .monospacedDigits)
                 .foregroundStyle(palette.textPrimary)
-            Text(count == 0 ? "No cards are due on \(title.lowercased())." : "Cards are scheduled for \(title.lowercased()).")
+            Text(forecastDetail(title: title, count: count))
                 .amgiFont(.caption)
                 .foregroundStyle(palette.textSecondary)
                 .multilineTextAlignment(.center)
@@ -69,7 +70,18 @@ public struct StudySpanChart: View {
         .frame(maxWidth: .infinity, minHeight: 150)
         .padding(.horizontal, AmgiSpacing.lg)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(count == 0 ? "Nothing scheduled on \(title)" : "\(count) cards scheduled on \(title)")
+        .accessibilityLabel(forecastAccessibility(title: title, count: count))
+    }
+
+    private func forecastDetail(title: String, count: Int) -> String {
+        let day = title.lowercased(with: locale)
+        if count == 0 { return AmgiL10n.format("No cards are due on %@.", [day], locale: locale) }
+        return AmgiL10n.format("Cards are scheduled for %@.", [day], locale: locale)
+    }
+
+    private func forecastAccessibility(title: String, count: Int) -> String {
+        if count == 0 { return AmgiL10n.format("Nothing scheduled on %@", [title], locale: locale) }
+        return AmgiL10n.format("%lld cards scheduled on %@", [count, title], locale: locale)
     }
 
     private func bars(_ columns: [StudyChartColumn]) -> some View {

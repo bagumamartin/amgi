@@ -13,6 +13,7 @@ public struct StudyDueRing: View {
     public var diameter: CGFloat
 
     @Environment(\.palette) private var palette
+    @Environment(\.locale) private var locale
 
     @State private var displayedDue = 0
 
@@ -104,7 +105,8 @@ public struct StudyDueRing: View {
 
     private var centerContent: some View {
         VStack(spacing: 2) {
-            Text(summary.phase == .caughtUp ? "TODAY" : "DUE NOW")
+            Text(AmgiL10n.text(summary.phase == .caughtUp ? "Today" : "DUE NOW", locale: locale))
+                .textCase(.uppercase)
                 .amgiFont(.micro)
                 .foregroundStyle(palette.textSecondary)
                 .accessibilityHidden(true)
@@ -153,13 +155,25 @@ public struct StudyDueRing: View {
     // MARK: - Accessibility
 
     private var accessibilitySummary: String {
-        let progress = "\(summary.todayProgressPercent)% of today's goal complete"
+        let progress = AmgiL10n.format("%lld%% of today's goal complete", [summary.todayProgressPercent], locale: locale)
         guard summary.totalDue > 0 else {
-            return "No cards due today. \(progress)."
+            return "\(AmgiL10n.text("No cards due today", locale: locale)). \(progress)."
         }
 
-        let due = summary.totalDue == 1 ? "1 card" : "\(summary.totalDue) cards"
-        return "\(due) due today. New \(summary.newCount), learning \(summary.learnCount), review \(summary.reviewCount). \(progress)."
+        let due = summary.totalDue == 1
+            ? AmgiL10n.text("1 card", locale: locale)
+            : AmgiL10n.format("%lld cards", [summary.totalDue], locale: locale)
+        return AmgiL10n.format(
+            "%@ due today. %@ %lld, %@ %lld, %@ %lld. %@.",
+            [
+                due,
+                AmgiL10n.text("New", locale: locale), summary.newCount,
+                AmgiL10n.text("Learn", locale: locale), summary.learnCount,
+                AmgiL10n.text("Review", locale: locale), summary.reviewCount,
+                progress,
+            ],
+            locale: locale
+        )
     }
 }
 
