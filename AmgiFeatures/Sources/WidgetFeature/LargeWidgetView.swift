@@ -41,7 +41,7 @@ struct LargeWidgetView: View {
 
             // Hero due count and the same three category rings used by the
             // Study desk. The center keeps the aggregate completion visible
-            // while each ring communicates the remaining mix.
+            // while each ring fills with the day's completed share.
             HStack(alignment: .center, spacing: 16) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("\(totalDue)")

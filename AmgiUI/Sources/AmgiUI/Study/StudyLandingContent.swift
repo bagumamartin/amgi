@@ -94,6 +94,7 @@ public struct StudyLandingContent: View {
     let grain: StudyGrain
     let chart: StudyChartModel
     let showsTodayDesk: Bool
+    let spanSubtitle: String
     let spanHeadline: String
     let spanRows: [StudyTimeRow]
     let spanRowsLoading: Bool
@@ -138,6 +139,7 @@ public struct StudyLandingContent: View {
         grain: StudyGrain = .day,
         chart: StudyChartModel = .bars([]),
         showsTodayDesk: Bool = true,
+        spanSubtitle: String = "",
         spanHeadline: String = "",
         spanRows: [StudyTimeRow] = [],
         spanRowsLoading: Bool = false,
@@ -173,6 +175,7 @@ public struct StudyLandingContent: View {
         self.grain = grain
         self.chart = chart
         self.showsTodayDesk = showsTodayDesk
+        self.spanSubtitle = spanSubtitle
         self.spanHeadline = spanHeadline
         self.spanRows = spanRows
         self.spanRowsLoading = spanRowsLoading
@@ -292,6 +295,8 @@ public struct StudyLandingContent: View {
         switch layout {
         case .compact, .regular:
             VStack(alignment: .leading, spacing: layout.columnSpacing) {
+                todayPeriodControls
+                activityCard(presentation: layout.presentation)
                 todayHero(summary, presentation: layout.presentation)
                 forecastCard(presentation: layout.presentation)
                 supplementaryTodayContent
@@ -300,7 +305,6 @@ public struct StudyLandingContent: View {
                     decks: decks,
                     continueReading: continueReading
                 )
-                activityCard(presentation: layout.presentation)
             }
         case .wide:
             wideTodayLayout(
@@ -322,6 +326,8 @@ public struct StudyLandingContent: View {
             availableWidth: availableWidth
         )
         return VStack(alignment: .leading, spacing: 24) {
+            todayPeriodControls
+            activityCard(presentation: presentation)
             HStack(alignment: .top, spacing: 14) {
                 todayHero(summary, presentation: presentation)
                     .frame(minWidth: 360, maxWidth: .infinity)
@@ -334,24 +340,30 @@ public struct StudyLandingContent: View {
                 decks: decks,
                 continueReading: continueReading
             ) {
-                HStack(alignment: .top, spacing: 14) {
+                if hasSupplementaryTodayContent {
+                    HStack(alignment: .top, spacing: 14) {
+                        todayQueue(
+                            summary: summary,
+                            decks: decks,
+                            continueReading: continueReading
+                        )
+                        .frame(minWidth: 360, maxWidth: .infinity)
+
+                        VStack(alignment: .leading, spacing: 24) {
+                            supplementaryTodayContent
+                        }
+                        .frame(minWidth: 260, idealWidth: 320, maxWidth: 360)
+                    }
+                } else {
                     todayQueue(
                         summary: summary,
                         decks: decks,
                         continueReading: continueReading
                     )
-                    .frame(minWidth: 360, maxWidth: .infinity)
-
-                    VStack(alignment: .leading, spacing: 24) {
-                        supplementaryTodayContent
-                        activityCard(presentation: presentation)
-                    }
-                    .frame(minWidth: 260, idealWidth: 320, maxWidth: 360)
                 }
-            } else {
+            } else if hasSupplementaryTodayContent {
                 VStack(alignment: .leading, spacing: 24) {
                     supplementaryTodayContent
-                    activityCard(presentation: presentation)
                 }
             }
         }
@@ -390,6 +402,10 @@ public struct StudyLandingContent: View {
             return true
         }
         return showsContinueReading && continueReading != nil
+    }
+
+    private var hasSupplementaryTodayContent: Bool {
+        !todayAttentionRows.isEmpty || workloadError != nil
     }
 
     private func historyLayout(layout: StudyContentLayout) -> some View {
@@ -520,27 +536,40 @@ public struct StudyLandingContent: View {
             Group {
                 if presentation == .compact {
                     VStack(alignment: .leading, spacing: AmgiSpacing.lg) {
-                        todayHeroCopy(summary, includesPrimary: false)
-                        StudyDueRing(summary: summary, diameter: 156)
-                            .frame(maxWidth: .infinity)
+                        todayHeroCopy(summary, includesPrimary: false, includesLegend: false)
+                        HStack(alignment: .center, spacing: AmgiSpacing.lg) {
+                            StudyDueRing(summary: summary, diameter: 148)
+                                .frame(maxWidth: .infinity)
+                            Rectangle()
+                                .fill(palette.separator)
+                                .frame(width: 1)
+                            categoryLegend(summary)
+                                .frame(maxWidth: .infinity)
+                        }
                         primary(summary)
                     }
                 } else if presentation == .medium {
                     HStack(alignment: .center, spacing: AmgiSpacing.md) {
+                        StudyDueRing(summary: summary, diameter: 120)
+                        Rectangle()
+                            .fill(palette.separator)
+                            .frame(width: 1)
                         todayHeroCopy(
                             summary,
                             includesPrimary: true,
                             titleFont: .title
                         )
-                        StudyDueRing(summary: summary, diameter: 120)
                     }
                 } else {
                     HStack(alignment: .center, spacing: AmgiSpacing.xl) {
-                        todayHeroCopy(summary, includesPrimary: true)
                         StudyDueRing(
                             summary: summary,
                             diameter: presentation == .wide ? 160 : 184
                         )
+                        Rectangle()
+                            .fill(palette.separator)
+                            .frame(width: 1)
+                        todayHeroCopy(summary, includesPrimary: true)
                     }
                 }
             }
@@ -550,6 +579,7 @@ public struct StudyLandingContent: View {
     private func todayHeroCopy(
         _ summary: StudySummaryData,
         includesPrimary: Bool,
+        includesLegend: Bool = true,
         titleFont: Font = .largeTitle
     ) -> some View {
         VStack(alignment: .leading, spacing: AmgiSpacing.sm) {
@@ -567,12 +597,12 @@ public struct StudyLandingContent: View {
                         .foregroundStyle(palette.accent)
                 }
             }
-            Text(summary.phase == .caughtUp ? summary.localizedCaughtUpTitle(locale: locale) : AmgiL10n.format("%lld cards left", [summary.totalDue], locale: locale))
+            Text(summary.phase == .caughtUp ? summary.localizedCaughtUpTitle(locale: locale) : summary.localizedReviewedTitle(locale: locale))
                 .font(titleFont)
                 .fontWeight(.bold)
                 .foregroundStyle(palette.textPrimary)
-            if !summary.subtitleLabel.isEmpty {
-                Text(summary.subtitleLabel)
+            if let decksDue = summary.localizedDecksDueLabel(locale: locale) {
+                Text(decksDue)
                     .font(.subheadline)
                     .foregroundStyle(palette.textPrimary)
             }
@@ -589,7 +619,9 @@ public struct StudyLandingContent: View {
             if includesPrimary {
                 primary(summary)
             }
-            categoryLegend(summary)
+            if includesLegend {
+                categoryLegend(summary)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -623,6 +655,7 @@ public struct StudyLandingContent: View {
             Text(localizedTitle)
                 .font(.caption)
                 .foregroundStyle(palette.textSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
             Text("\(count)")
                 .font(.caption)
                 .monospacedDigit()
@@ -735,30 +768,56 @@ public struct StudyLandingContent: View {
 
     private var spanControls: some View {
         VStack(alignment: .leading, spacing: AmgiSpacing.sm) {
-            Text("History")
-                .amgiFont(.cardTitle)
-                .foregroundStyle(palette.textPrimary)
-            HStack(spacing: AmgiSpacing.sm) {
-                stepButton(
-                    systemName: "chevron.left",
-                    label: "Previous period",
-                    enabled: canStepPast,
-                    action: onStepPast
-                )
-                Picker("Period", selection: Binding(get: { grain }, set: { onSelectGrain($0) })) {
-                    ForEach(StudyGrain.allCases) { item in
-                        Text(AmgiL10n.text(item.title, locale: locale)).tag(item)
-                    }
+            spanHeading
+            periodStepperRow(accessibilityLabel: "History period")
+        }
+    }
+
+    /// The subtitle that used to live under the navigation bar
+    /// (weekday, week number, season, leap/common year). The nav bar
+    /// already shows the title, so only the subtitle is repeated here —
+    /// never the title itself.
+    @ViewBuilder
+    private var spanHeading: some View {
+        if !spanSubtitle.isEmpty {
+            Text(spanSubtitle)
+                .amgiFont(.caption)
+                .foregroundStyle(palette.textSecondary)
+                .accessibilityLabel(spanSubtitle)
+        }
+    }
+
+    /// Same Day/Week/Month/Year navigation as History, with Today's own
+    /// subtitle (weekday) above it. Keeps general navigation consistent
+    /// from the Today desk.
+    private var todayPeriodControls: some View {
+        VStack(alignment: .leading, spacing: AmgiSpacing.sm) {
+            spanHeading
+            periodStepperRow(accessibilityLabel: "Study period")
+        }
+    }
+
+    private func periodStepperRow(accessibilityLabel: String) -> some View {
+        HStack(spacing: AmgiSpacing.sm) {
+            stepButton(
+                systemName: "chevron.left",
+                label: "Previous period",
+                enabled: canStepPast,
+                action: onStepPast
+            )
+            Picker("Period", selection: Binding(get: { grain }, set: { onSelectGrain($0) })) {
+                ForEach(StudyGrain.allCases) { item in
+                    Text(AmgiL10n.text(item.title, locale: locale)).tag(item)
                 }
-                .pickerStyle(.segmented)
-                .accessibilityLabel("History period")
-                stepButton(
-                    systemName: "chevron.right",
-                    label: "Next period",
-                    enabled: canStepFuture,
-                    action: onStepFuture
-                )
             }
+            .pickerStyle(.segmented)
+            .accessibilityLabel(accessibilityLabel)
+            stepButton(
+                systemName: "chevron.right",
+                label: "Next period",
+                enabled: canStepFuture,
+                action: onStepFuture
+            )
         }
     }
 

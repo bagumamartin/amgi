@@ -194,6 +194,22 @@ public struct StudySummaryData: Equatable, Sendable {
         return AmgiL10n.text("Nothing due today", locale: locale)
     }
 
+    /// Hero title for an active day: cards completed today. The ring and
+    /// primary button already carry the remaining count.
+    public func localizedReviewedTitle(locale: Locale) -> String {
+        AmgiL10n.format("%lld cards reviewed", [max(reviewedToday, 0)], locale: locale)
+    }
+
+    /// Hero subtitle: decks due without the weekday — the page subtitle
+    /// already names the day, so repeating it here is noise.
+    public func localizedDecksDueLabel(locale: Locale) -> String? {
+        guard deckCount > 0 else { return nil }
+        if deckCount == 1 {
+            return AmgiL10n.format("%lld deck due", [deckCount], locale: locale)
+        }
+        return AmgiL10n.format("%lld decks due", [deckCount], locale: locale)
+    }
+
     public func localizedSessionShape(locale: Locale) -> String {
         var parts: [String] = []
         if learnCount > 0 { parts.append(AmgiL10n.text("Learning first", locale: locale)) }

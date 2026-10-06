@@ -3,11 +3,13 @@ import AmgiTheme
 
 /// Large circular progress visualization for the Study landing screen.
 ///
-/// Three fixed concentric rings keep the live new/learning/review mix
-/// readable at a glance. Each category owns one ring: its colored arc is
-/// the share of the live queue in that state, sitting on a dim track in the
-/// same category color. The centre keeps the total due count and today's
-/// completion percentage as the compact focal point.
+/// Three fixed concentric rings — New outside, Learning middle, Review
+/// inside — so the colors and their positions stay learnable. Each ring
+/// is a day-progress indicator: the bold arc is the completed share of
+/// today (`reviewedToday / dueBaselineToday`, clamped to 1), revealed
+/// clockwise from the top exactly like the ancestor's single segmented
+/// sweep, glowing once the ring closes. The centre keeps the total due
+/// count and today's completion percentage as the compact focal point.
 public struct StudyDueRing: View {
     public let summary: StudySummaryData
     public var diameter: CGFloat
@@ -22,8 +24,23 @@ public struct StudyDueRing: View {
     private var ringSpacing: CGFloat { max(3, diameter * 0.02) }
     private var ringStep: CGFloat { lineWidth + ringSpacing }
 
-    private var categoryTotal: Int {
-        max(0, summary.newCount + summary.learnCount + summary.reviewCount)
+    /// Completed share of the day. Single source of truth for every
+    /// ring's fill and the centre percentage — per-category completion
+    /// is not tracked, so no ring invents its own.
+    private var progress: Double {
+        summary.todayProgressFraction
+    }
+
+    /// Clear width inside the innermost stroke. Centre text is pinned
+    /// to this so it never collides with the rings.
+    private var innerClearWidth: CGFloat {
+        max(44, ringSize - ringStep * 4 - lineWidth)
+    }
+
+    /// Caption under the percentage: what the ring fill and % mean.
+    /// Plain word, no count — the numeral above already carries due.
+    private var doneText: String {
+        AmgiL10n.text("Done", locale: locale)
     }
 
     public init(summary: StudySummaryData, diameter: CGFloat = 168) {
@@ -55,26 +72,26 @@ public struct StudyDueRing: View {
     private var categoryRings: some View {
         ZStack {
             categoryRing(
-                count: summary.newCount,
                 color: palette.cardStateNew,
                 diameter: ringSize
             )
             categoryRing(
-                count: summary.learnCount,
                 color: palette.cardStateLearning,
                 diameter: ringSize - ringStep * 2
             )
             categoryRing(
-                count: summary.reviewCount,
                 color: palette.cardStateReview,
                 diameter: ringSize - ringStep * 4
             )
         }
+        .shadow(
+            color: palette.positive.opacity(progress * 0.45),
+            radius: progress >= 1 ? 10 : 0
+        )
     }
 
-    private func categoryRing(count: Int, color: Color, diameter: CGFloat) -> some View {
-        let fraction = categoryFraction(for: count)
-        return ZStack {
+    private func categoryRing(color: Color, diameter: CGFloat) -> some View {
+        ZStack {
             Circle()
                 .stroke(
                     color.opacity(0.16),
@@ -82,23 +99,23 @@ public struct StudyDueRing: View {
                 )
                 .frame(width: diameter, height: diameter)
 
-            if fraction > 0 {
+            if progress > 0 {
                 Circle()
-                    .trim(from: 0, to: fraction)
+                    .trim(from: 0, to: progress)
                     .stroke(
                         color,
-                        style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+                        style: StrokeStyle(
+                            lineWidth: lineWidth,
+                            // Round sweep tip while the ring is open;
+                            // butt joints close the full circle flush.
+                            lineCap: progress < 1 ? .round : .butt
+                        )
                     )
                     .rotationEffect(.degrees(-90))
                     .frame(width: diameter, height: diameter)
             }
         }
         .frame(width: diameter, height: diameter)
-    }
-
-    private func categoryFraction(for count: Int) -> Double {
-        guard categoryTotal > 0 else { return 0 }
-        return min(1, max(0, Double(count) / Double(categoryTotal)))
     }
 
     // MARK: - Centre text
@@ -112,10 +129,12 @@ public struct StudyDueRing: View {
                 .accessibilityHidden(true)
 
             Text("\(displayedDue)")
-                .font(.largeTitle)
+                .font(.title)
                 .fontWeight(.bold)
                 .foregroundStyle(palette.textPrimary)
                 .contentTransition(.numericText())
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
                 .accessibilityHidden(true)
 
             Text("\(summary.todayProgressPercent)%")
@@ -123,8 +142,15 @@ public struct StudyDueRing: View {
                 .monospacedDigit()
                 .foregroundStyle(palette.textTertiary)
                 .accessibilityHidden(true)
-            progressIndicator
+            Text(doneText)
+                .amgiFont(.micro)
+                .foregroundStyle(palette.textTertiary)
+                .accessibilityHidden(true)
         }
+        .frame(maxWidth: innerClearWidth)
+        // Optical nudge: the short "Done" line leaves headroom below,
+        // so the group sits slightly low and DUE NOW clears the top.
+        .offset(y: 3)
         .onAppear {
             withAnimation(AmgiMotion.standard) {
                 displayedDue = summary.totalDue
@@ -135,20 +161,6 @@ public struct StudyDueRing: View {
                 displayedDue = newValue
             }
         }
-        .accessibilityHidden(true)
-    }
-
-    private var progressIndicator: some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(palette.separator.opacity(0.55))
-                Capsule()
-                    .fill(palette.accent)
-                    .frame(width: proxy.size.width * summary.todayProgressFraction)
-            }
-        }
-        .frame(width: min(max(diameter * 0.36, 48), 82), height: 4)
         .accessibilityHidden(true)
     }
 

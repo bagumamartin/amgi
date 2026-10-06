@@ -61,6 +61,7 @@ package struct StudyLandingView: View {
             grain: model.grain,
             chart: model.chart,
             showsTodayDesk: model.showsTodayDesk,
+            spanSubtitle: model.spanSubtitle,
             spanHeadline: model.spanHeadline,
             spanRows: model.spanRows,
             spanRowsLoading: model.spanRowsLoading,
