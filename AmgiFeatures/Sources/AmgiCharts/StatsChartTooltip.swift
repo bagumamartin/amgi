@@ -1,4 +1,5 @@
 import SwiftUI
+import AmgiAppCore
 import AmgiTheme
 import AmgiUI
 
@@ -49,5 +50,5 @@ func statsBarRangeLabel(start: Int, bucketSize: Int) -> String {
     }
 
     let end = start + bucketSize - 1
-    return "\(start) to \(end)"
+    return L10n.format("%lld to %lld", [start, end])
 }

@@ -1,4 +1,5 @@
 public import SwiftUI
+import AmgiAppCore
 import AmgiTheme
 import AmgiUI
 import Charts
@@ -16,13 +17,13 @@ public struct CardCountsChart: View {
     private var chartData: [(name: String, count: Int, color: Color)] {
         let c = cardCounts.excludingInactive
         return [
-            ("New", Int(c.newCards), palette.cardStateNew),
-            ("Learning", Int(c.learn), palette.cardStateLearning),
-            ("Relearning", Int(c.relearn), palette.cardStateRelearn),
-            ("Young", Int(c.young), palette.cardStateReview),
-            ("Mature", Int(c.mature), palette.cardStateMature),
-            ("Suspended", Int(c.suspended), palette.cardStateSuspended),
-            ("Buried", Int(c.buried), palette.textTertiary),
+            (L10n.text("New"), Int(c.newCards), palette.cardStateNew),
+            (L10n.text("Learning"), Int(c.learn), palette.cardStateLearning),
+            (L10n.text("Relearning"), Int(c.relearn), palette.cardStateRelearn),
+            (L10n.text("Young"), Int(c.young), palette.cardStateReview),
+            (L10n.text("Mature"), Int(c.mature), palette.cardStateMature),
+            (L10n.text("Suspended"), Int(c.suspended), palette.cardStateSuspended),
+            (L10n.text("Buried"), Int(c.buried), palette.textTertiary),
         ].filter { $0.count > 0 }
     }
 
@@ -39,7 +40,7 @@ public struct CardCountsChart: View {
                 HStack {
                     Text("Card Counts").amgiFont(.bodyEmphasis)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    Text("\(total) total").amgiFont(.caption).foregroundStyle(palette.textSecondary)
+                    Text(L10n.format("%lld total", [total])).amgiFont(.caption).foregroundStyle(palette.textSecondary)
                 }
 
                 if chartData.isEmpty {

@@ -1,4 +1,5 @@
 public import SwiftUI
+import AmgiAppCore
 import AmgiTheme
 import AmgiUI
 public import AnkiKit
@@ -35,12 +36,12 @@ public struct RetentionChart: View {
             )
         }
         return [
-            row("Today", trueRetention.today),
-            row("Yesterday", trueRetention.yesterday),
-            row("Week", trueRetention.week),
-            row("Month", trueRetention.month),
-            row("Year", trueRetention.year),
-            row("All Time", trueRetention.allTime),
+            row(L10n.text("Today"), trueRetention.today),
+            row(L10n.text("Yesterday"), trueRetention.yesterday),
+            row(L10n.text("Week"), trueRetention.week),
+            row(L10n.text("Month"), trueRetention.month),
+            row(L10n.text("Year"), trueRetention.year),
+            row(L10n.text("All Time"), trueRetention.allTime),
         ]
     }
 

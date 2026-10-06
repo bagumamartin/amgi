@@ -1,4 +1,5 @@
 public import SwiftUI
+import AmgiAppCore
 import AmgiTheme
 import AmgiUI
 public import AnkiKit
@@ -149,7 +150,7 @@ private extension HeatmapChartOptimized {
                 #endif
 
                 if currentStreak > 0 {
-                    Label("\(currentStreak)-day streak", systemImage: "flame.fill")
+                    Label(L10n.format("%lld-day streak", [currentStreak]), systemImage: "flame.fill")
                         .amgiFont(.captionBold)
                         .foregroundStyle(palette.warning)
                 }
@@ -162,10 +163,10 @@ private extension HeatmapChartOptimized {
             } else {
                 if !isCompact {
                     HStack(spacing: 16) {
-                        summaryItem(value: "\(totalReviews)", label: "Total")
-                        summaryItem(value: "\(reviewsThisMonth)", label: "This month")
-                        summaryItem(value: "\(reviewsThisWeek)", label: "This week")
-                        summaryItem(value: "\(visibleData[0] ?? 0)", label: "Today")
+                        summaryItem(value: "\(totalReviews)", label: L10n.text("Total"))
+                        summaryItem(value: "\(reviewsThisMonth)", label: L10n.text("This month"))
+                        summaryItem(value: "\(reviewsThisWeek)", label: L10n.text("This week"))
+                        summaryItem(value: "\(visibleData[0] ?? 0)", label: L10n.text("Today"))
                     }
                 }
 
@@ -300,22 +301,32 @@ private extension HeatmapChartOptimized {
     }
 
     func weekdayLabel(_ index: Int) -> String {
+        // Locale-aware single-letter weekday initials (T2/T4/T6 in
+        // Vietnamese, M/W/F in English) instead of hardcoded English.
+        let symbols = Calendar.current.veryShortWeekdaySymbols
+        // Grid rows are Monday-first: index 1 = Monday, 3 = Wednesday,
+        // 5 = Friday. veryShortWeekdaySymbols is Sunday-first.
+        func mondayFirst(_ weekday: Int) -> String {
+            let sundayFirstIndex = weekday % 7
+            guard symbols.indices.contains(sundayFirstIndex) else { return "" }
+            return symbols[sundayFirstIndex]
+        }
         switch index {
-        case 1: "M"
-        case 3: "W"
-        case 5: "F"
-        default: ""
+        case 1: return mondayFirst(2)
+        case 3: return mondayFirst(4)
+        case 5: return mondayFirst(6)
+        default: return ""
         }
     }
 
     func dateRangeLabel(_ days: Int) -> String {
         switch days {
-        case 30: return "Last 30 days"
-        case 90: return "Last 90 days"
-        case 180: return "Last 6 months"
-        case 365: return "Last 1 year"
-        case 730: return "Last 2 years"
-        default: return "\(days) days"
+        case 30: return L10n.text("Last 30 days")
+        case 90: return L10n.text("Last 90 days")
+        case 180: return L10n.text("Last 6 months")
+        case 365: return L10n.text("Last 1 year")
+        case 730: return L10n.text("Last 2 years")
+        default: return L10n.format("%lld days", [days])
         }
     }
 

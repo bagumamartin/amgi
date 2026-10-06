@@ -1,4 +1,5 @@
 public import SwiftUI
+import AmgiAppCore
 import AmgiTheme
 import AmgiUI
 import Charts
@@ -47,7 +48,7 @@ public struct EaseChart: View {
                 HStack {
                     Text("Card Ease").amgiFont(.bodyEmphasis)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    Text("Avg: \(averageEase)")
+                    Text(L10n.format("Avg: %@", [averageEase]))
                         .amgiFont(.captionBold)
                         .foregroundStyle(palette.textSecondary)
                 }
@@ -70,8 +71,8 @@ public struct EaseChart: View {
                                 .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
                                 .annotation(position: .top, spacing: 0) {
                                     StatsChartTooltip(
-                                        title: "Ease \(selectedEase / 10)%",
-                                        lines: ["Cards: \(selectedCount(for: selectedEase))"]
+                                        title: L10n.format("Ease %lld%%", [selectedEase / 10]),
+                                        lines: [L10n.format("%lld cards", [selectedCount(for: selectedEase)])]
                                     )
                                 }
                         }
@@ -90,7 +91,7 @@ public struct EaseChart: View {
                         valueAtX: nearestEase,
                         xPosition: { Double($0) },
                         accessibilityText: { ease in
-                            "Ease \(ease / 10)%, Cards: \(selectedCount(for: ease))"
+                            "\(L10n.format("Ease %lld%%", [ease / 10])), \(L10n.format("%lld cards", [selectedCount(for: ease)]))"
                         }
                     )
                     .frame(height: 180)

@@ -1,3 +1,4 @@
+import AmgiAppCore
 import AmgiCharts
 import AnkiClients
 import AnkiKit
@@ -71,7 +72,7 @@ struct WatchStatsView: View {
     private var periodPicker: some View {
         Picker(selection: $period) {
             ForEach(StatsPeriod.allCases, id: \.self) { p in
-                Text(p.rawValue).tag(p)
+                Text(p.localizedTitle).tag(p)
             }
         } label: {
             Text("Period")

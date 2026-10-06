@@ -1,4 +1,5 @@
 public import SwiftUI
+import AmgiAppCore
 import AmgiTheme
 import AmgiUI
 import Charts
@@ -87,9 +88,8 @@ public struct FutureDueChart: View {
                                     StatsChartTooltip(
                                         title: statsChartDayTitle(selectedDay),
                                         lines: [
-                                            "Cards due: \(selectedCount(for: selectedDay, in: filteredData))",
-                                            "Backlog: \(selectedDay < 0 ? "Yes" : "No")",
-                                        ]
+                                            L10n.format("Cards due: %lld", [selectedCount(for: selectedDay, in: filteredData)]),
+                                        ] + (selectedDay < 0 ? [L10n.text("Backlog")] : [])
                                     )
                                 }
                         }
@@ -108,14 +108,14 @@ public struct FutureDueChart: View {
                         },
                         xPosition: { Double($0) },
                         accessibilityText: { day in
-                            "\(statsChartDayTitle(day)), Cards due: \(selectedCount(for: day, in: filteredData))"
+                            "\(statsChartDayTitle(day)), \(L10n.format("Cards due: %lld", [selectedCount(for: day, in: filteredData)]))"
                         }
                     )
                     .frame(height: 180)
                 }
 
                 if futureDue.haveBacklog {
-                    Toggle("Include Backlog", isOn: Binding(
+                    Toggle(L10n.text("Include Backlog"), isOn: Binding(
                         get: { includeBacklog },
                         set: { newValue in
                             includeBacklog = newValue
@@ -126,10 +126,10 @@ public struct FutureDueChart: View {
                 }
 
                 HStack(spacing: 16) {
-                    footerItem("Total", value: "\(totalDue(filteredData))")
-                    footerItem("Avg/day", value: String(format: "%.1f", avgPerDay(filteredData)))
-                    footerItem("Tomorrow", value: "\(dueTomorrow(filteredData))")
-                    footerItem("Daily Load", value: "\(futureDue.dailyLoad)")
+                    footerItem(L10n.text("Total"), value: "\(totalDue(filteredData))")
+                    footerItem(L10n.text("Avg/day"), value: String(format: "%.1f", avgPerDay(filteredData)))
+                    footerItem(L10n.text("Tomorrow"), value: "\(dueTomorrow(filteredData))")
+                    footerItem(L10n.text("Daily Load"), value: "\(futureDue.dailyLoad)")
                 }
             }
         }

@@ -1,4 +1,5 @@
 public import SwiftUI
+import AmgiAppCore
 import AmgiTheme
 import AmgiUI
 import Charts
@@ -86,7 +87,7 @@ public struct IntervalsChart: View {
                                 .annotation(position: .top, spacing: 0) {
                                     StatsChartTooltip(
                                         title: selectedLabel,
-                                        lines: ["Cards: \(selectedCount(for: selectedLabel))"]
+                                        lines: [L10n.format("%lld cards", [selectedCount(for: selectedLabel)])]
                                     )
                                 }
                         }
@@ -104,7 +105,7 @@ public struct IntervalsChart: View {
                             Double(selectableLabels.firstIndex(of: label) ?? 0)
                         },
                         accessibilityText: { label in
-                            "\(label), Cards: \(selectedCount(for: label))"
+                            "\(label), \(L10n.format("%lld cards", [selectedCount(for: label)]))"
                         }
                     )
                     .frame(height: 180)

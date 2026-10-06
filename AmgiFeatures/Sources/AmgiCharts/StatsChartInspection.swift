@@ -1,4 +1,5 @@
 import SwiftUI
+import AmgiAppCore
 import Charts
 
 /// Pointer and keyboard inspection shared by the dashboard's x-axis charts.
@@ -142,12 +143,13 @@ extension View {
 
 func statsChartDayTitle(_ dayOffset: Int) -> String {
     guard let date = Calendar.current.date(byAdding: .day, value: dayOffset, to: Date()) else {
-        return "Day \(dayOffset)"
+        return L10n.format("Day %lld", [dayOffset])
     }
     return date.formatted(
         .dateTime
             .weekday(.abbreviated)
             .month(.abbreviated)
             .day()
+            .locale(AppLocale.current)
     )
 }

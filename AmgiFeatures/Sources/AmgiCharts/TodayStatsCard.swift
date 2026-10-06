@@ -1,4 +1,5 @@
 public import SwiftUI
+import AmgiAppCore
 import AmgiTheme
 import AmgiUI
 public import AnkiKit
@@ -18,12 +19,12 @@ public struct PeriodStatsCard: View {
 
     private var periodTitle: String {
         switch period {
-        case .day: return "Today"
-        case .week: return "Last 7 Days"
-        case .month: return "Last Month"
-        case .threeMonths: return "Last 3 Months"
-        case .year: return "Last Year"
-        case .all: return "All Time"
+        case .day: return L10n.text("Today")
+        case .week: return L10n.text("Last 7 Days")
+        case .month: return L10n.text("Last Month")
+        case .threeMonths: return L10n.text("Last 3 Months")
+        case .year: return L10n.text("Last Year")
+        case .all: return L10n.text("All Time")
         }
     }
 
@@ -89,32 +90,32 @@ public struct PeriodStatsCard: View {
 
             if period == .day {
                 HStack(spacing: AmgiSpacing.sm) {
-                    statItem(title: "Reviewed", value: "\(today.answerCount)", color: palette.textPrimary)
-                    statItem(title: "Time", value: formatMillis(UInt64(today.answerMillis)), color: palette.textPrimary)
-                    statItem(title: "Correct", value: todayAccuracy, color: palette.positive)
-                    statItem(title: "Mature%", value: todayMatureAccuracy, color: palette.cardStateMature)
+                    statItem(title: L10n.text("Reviewed"), value: "\(today.answerCount)", color: palette.textPrimary)
+                    statItem(title: L10n.text("Time"), value: formatMillis(UInt64(today.answerMillis)), color: palette.textPrimary)
+                    statItem(title: L10n.text("Correct"), value: todayAccuracy, color: palette.positive)
+                    statItem(title: L10n.text("Mature%"), value: todayMatureAccuracy, color: palette.cardStateMature)
                 }
                 Divider()
                 HStack(spacing: AmgiSpacing.sm) {
-                    statBadge("New", count: today.learnCount, color: palette.cardStateNew)
-                    statBadge("Relearn", count: today.relearnCount, color: palette.cardStateRelearn)
-                    statBadge("Review", count: today.reviewCount, color: palette.cardStateLearning)
-                    statBadge("Again", count: today.answerCount - today.correctCount, color: palette.danger)
+                    statBadge(L10n.text("New"), count: today.learnCount, color: palette.cardStateNew)
+                    statBadge(L10n.text("Relearn"), count: today.relearnCount, color: palette.cardStateRelearn)
+                    statBadge(L10n.text("Review"), count: today.reviewCount, color: palette.cardStateLearning)
+                    statBadge(L10n.text("Again"), count: today.answerCount - today.correctCount, color: palette.danger)
                 }
             } else {
                 let agg = aggregated
                 HStack(spacing: AmgiSpacing.sm) {
-                    statItem(title: "Reviewed", value: "\(agg.total)", color: palette.textPrimary)
-                    statItem(title: "Time", value: formatMillis(agg.timeMillis), color: palette.textPrimary)
-                    statItem(title: "Young", value: "\(agg.young)", color: palette.cardStateLearning)
-                    statItem(title: "Mature", value: "\(agg.mature)", color: palette.cardStateMature)
+                    statItem(title: L10n.text("Reviewed"), value: "\(agg.total)", color: palette.textPrimary)
+                    statItem(title: L10n.text("Time"), value: formatMillis(agg.timeMillis), color: palette.textPrimary)
+                    statItem(title: L10n.text("Young"), value: "\(agg.young)", color: palette.cardStateLearning)
+                    statItem(title: L10n.text("Mature"), value: "\(agg.mature)", color: palette.cardStateMature)
                 }
                 Divider()
                 HStack(spacing: AmgiSpacing.sm) {
-                    statBadge("New", count: agg.learn, color: palette.cardStateNew)
-                    statBadge("Relearn", count: agg.relearn, color: palette.cardStateRelearn)
-                    statBadge("Young", count: agg.young, color: palette.cardStateLearning)
-                    statBadge("Mature", count: agg.mature, color: palette.cardStateMature)
+                    statBadge(L10n.text("New"), count: agg.learn, color: palette.cardStateNew)
+                    statBadge(L10n.text("Relearn"), count: agg.relearn, color: palette.cardStateRelearn)
+                    statBadge(L10n.text("Young"), count: agg.young, color: palette.cardStateLearning)
+                    statBadge(L10n.text("Mature"), count: agg.mature, color: palette.cardStateMature)
                 }
             }
         }

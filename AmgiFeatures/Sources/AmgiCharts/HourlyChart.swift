@@ -1,4 +1,5 @@
 public import SwiftUI
+import AmgiAppCore
 import AmgiTheme
 import AmgiUI
 import Charts
@@ -83,8 +84,8 @@ public struct HourlyChart: View {
                                     StatsChartTooltip(
                                         title: formatHour(selected.hour),
                                         lines: [
-                                            "Reviews: \(selected.total)",
-                                            String(format: "Correct: %.0f%%", selected.correctPct),
+                                            L10n.format("Reviews: %lld", [selected.total]),
+                                            L10n.format("Correct: %.0f%%", [selected.correctPct]),
                                         ]
                                     )
                                 }
@@ -106,7 +107,7 @@ public struct HourlyChart: View {
                         xPosition: { Double($0) },
                         accessibilityText: { hour in
                             guard let selected = selectedEntry(for: hour) else { return formatHour(hour) }
-                            return "\(formatHour(hour)), Reviews: \(selected.total), Correct: \(Int(selected.correctPct.rounded()))%"
+                            return "\(formatHour(hour)), \(L10n.format("Reviews: %lld", [selected.total])), \(L10n.format("Correct: %.0f%%", [selected.correctPct]))"
                         }
                     )
                     .frame(height: 150)
@@ -144,7 +145,7 @@ public struct HourlyChart: View {
                     }
                     .chartXScale(domain: 0...23)
                     .chartYScale(domain: 0...100)
-                    .chartYAxisLabel("Correct %")
+                    .chartYAxisLabel(L10n.text("Correct"))
                     .frame(height: 100)
                 }
             }
@@ -153,11 +154,19 @@ public struct HourlyChart: View {
 }
 
 private extension HourlyChart {
+    /// Locale-aware hour label ("3a"/"3p" in English, "3 SA"/"3 CH" in
+    /// Vietnamese, "3h" where the locale uses 24-hour time). The old
+    /// implementation hardcoded the English "a"/"p" suffixes, which is how
+    /// "12a / 4p / 8p" leaked into every language.
     func formatHour(_ hour: Int) -> String {
-        if hour == 0 { return "12a" }
-        if hour < 12 { return "\(hour)a" }
-        if hour == 12 { return "12p" }
-        return "\(hour - 12)p"
+        var components = DateComponents()
+        components.hour = hour
+        let calendar = Calendar.current
+        guard let date = calendar.date(from: components) else { return "\(hour)" }
+        let formatter = DateFormatter()
+        formatter.locale = AppLocale.current
+        formatter.dateFormat = DateFormatter.dateFormat(fromTemplate: "ha", options: 0, locale: AppLocale.current) ?? "ha"
+        return formatter.string(from: date).replacingOccurrences(of: " ", with: "")
     }
 }
 

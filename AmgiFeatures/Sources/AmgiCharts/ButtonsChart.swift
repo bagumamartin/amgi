@@ -1,4 +1,5 @@
 public import SwiftUI
+import AmgiAppCore
 import AmgiTheme
 import AmgiUI
 import Charts
@@ -34,15 +35,19 @@ public struct ButtonsChart: View {
         let count: Int
     }
 
-    private let buttonLabels = ["Again", "Hard", "Good", "Easy"]
-    private let cardTypes = ["Learning", "Young", "Mature"]
+    private var buttonLabels: [String] {
+        [L10n.text("Again"), L10n.text("Hard"), L10n.text("Good"), L10n.text("Easy")]
+    }
+    private var cardTypes: [String] {
+        [L10n.text("Learning"), L10n.text("Young"), L10n.text("Mature")]
+    }
 
     private var entries: [ButtonEntry] {
         let bc = buttonCounts
         let sources: [(String, [Int])] = [
-            ("Learning", bc.learning),
-            ("Young", bc.young),
-            ("Mature", bc.mature),
+            (L10n.text("Learning"), bc.learning),
+            (L10n.text("Young"), bc.young),
+            (L10n.text("Mature"), bc.mature),
         ]
         var result: [ButtonEntry] = []
         for (typeName, counts) in sources {
@@ -108,15 +113,15 @@ public struct ButtonsChart: View {
                                 .annotation(position: .top, spacing: 0) {
                                     StatsChartTooltip(
                                         title: selectedButton,
-                                        lines: ["Answers: \(selectedCount(for: selectedButton))"]
+                                        lines: [L10n.format("Answers: %lld", [selectedCount(for: selectedButton)])]
                                     )
                                 }
                         }
                     }
                     .chartForegroundStyleScale([
-                        "Learning": palette.cardStateNew,
-                        "Young": palette.cardStateLearning,
-                        "Mature": palette.cardStateMature,
+                        L10n.text("Learning"): palette.cardStateNew,
+                        L10n.text("Young"): palette.cardStateLearning,
+                        L10n.text("Mature"): palette.cardStateMature,
                     ])
                     .statsChartXInspection(
                         values: selectableButtons,
@@ -126,7 +131,7 @@ public struct ButtonsChart: View {
                             Double(buttonLabels.firstIndex(of: button) ?? 0)
                         },
                         accessibilityText: { button in
-                            "\(button), Answers: \(selectedCount(for: button))"
+                            "\(button), \(L10n.format("Answers: %lld", [selectedCount(for: button)]))"
                         }
                     )
                     .frame(height: 180)

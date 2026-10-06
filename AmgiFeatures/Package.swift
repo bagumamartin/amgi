@@ -176,6 +176,7 @@ let package = Package(
         .target(
             name: "AmgiCharts",
             dependencies: [
+                "AmgiAppCore",
                 .product(name: "AnkiKit", package: "amgi"),
                 .product(name: "AmgiTheme", package: "AmgiUI"),
                 .product(name: "AmgiUI", package: "AmgiUI"),
@@ -527,6 +528,7 @@ let package = Package(
         .target(
             name: "WatchFeature",
             dependencies: [
+                "AmgiAppCore",
                 "AmgiCharts",
                 "AmgiReviewCore",
                 .product(name: "AnkiKit", package: "amgi"),

@@ -1,3 +1,4 @@
+import AmgiAppCore
 import Foundation
 import AnkiKit
 import AmgiUI
@@ -56,7 +57,7 @@ enum DeckDetailStats {
 
     static func buildSubtitle(graphs: GraphsSnapshot, isEmpty: Bool) -> String {
         if isEmpty {
-            return "No cards yet · Add some to start studying"
+            return L10n.text("No cards yet · Add some to start studying")
         }
 
         func dayTotal(_ rev: ReviewCountsAndTimes.Reviews) -> Int {
@@ -82,22 +83,29 @@ enum DeckDetailStats {
             }
         }
 
-        let lastStudied: String
-        switch lastOffset {
-        case nil: lastStudied = "never"
-        case .some(0): lastStudied = "today"
-        case .some(-1): lastStudied = "yesterday"
+        let lastStudiedDate: String? = switch lastOffset {
+        case nil: nil
+        case .some(0): nil
+        case .some(-1): nil
         case .some(let off):
-            let date = Calendar.current.date(byAdding: .day, value: off, to: Date()) ?? Date()
-            lastStudied = date.formatted(.dateTime.month(.abbreviated).day())
+            Calendar.current.date(byAdding: .day, value: off, to: Date())
+                .map { $0.formatted(.dateTime.month(.abbreviated).day().locale(AppLocale.current)) } ?? Date().formatted(.dateTime.month(.abbreviated).day().locale(AppLocale.current))
         }
 
-        if streak > 0 {
-            return "Last studied \(lastStudied) · \(streak)-day streak"
-        } else if lastOffset != nil {
-            return "Last studied \(lastStudied)"
+        if streak > 0, let date = lastStudiedDate {
+            return "\(L10n.format("Last studied %@", [date])) · \(L10n.format("%lld-day streak", [streak]))"
+        } else if streak > 0, lastOffset == 0 {
+            return "\(L10n.text("Last studied today")) · \(L10n.format("%lld-day streak", [streak]))"
+        } else if streak > 0, lastOffset == -1 {
+            return "\(L10n.text("Last studied yesterday")) · \(L10n.format("%lld-day streak", [streak]))"
+        } else if lastOffset == 0 {
+            return L10n.text("Last studied today")
+        } else if lastOffset == -1 {
+            return L10n.text("Last studied yesterday")
+        } else if let date = lastStudiedDate {
+            return L10n.format("Last studied %@", [date])
         } else {
-            return "No reviews yet"
+            return L10n.text("No reviews yet")
         }
     }
 }

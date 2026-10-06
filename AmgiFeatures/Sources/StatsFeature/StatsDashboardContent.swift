@@ -103,8 +103,8 @@ struct StatsDashboardContent: View {
         Menu {
             ForEach(StatsPeriod.allCases, id: \.self) { p in
                 Button { onSelectPeriod(p) } label: {
-                    if period == p { Label(p.rawValue, systemImage: "checkmark") }
-                    else { Text(p.rawValue) }
+                    if period == p { Label(p.localizedTitle, systemImage: "checkmark") }
+                    else { Text(p.localizedTitle) }
                 }
             }
         } label: {

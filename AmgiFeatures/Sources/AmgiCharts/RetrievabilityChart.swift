@@ -1,4 +1,5 @@
 public import SwiftUI
+import AmgiAppCore
 import Charts
 import AmgiTheme
 import AmgiUI
@@ -96,7 +97,7 @@ public struct RetrievabilityChart: View {
                         .foregroundStyle(palette.textSecondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                Text("Avg: \(averageLabel)")
+                Text(L10n.format("Avg: %@", [averageLabel]))
                     .amgiFont(.captionBold)
                     .foregroundStyle(palette.textSecondary)
             }
@@ -127,8 +128,8 @@ public struct RetrievabilityChart: View {
                     chartData.first(where: { $0.start == start })?.center ?? Double(start)
                 },
                 accessibilityText: { start in
-                    guard let bucket = selectedBucket, bucket.start == start else { return "Retrievability \(start)%" }
-                    return "\(bucket.label), Cards: \(bucket.count)"
+                    guard let bucket = selectedBucket, bucket.start == start else { return L10n.format("Retrievability %lld%%", [start]) }
+                    return "\(bucket.label), \(L10n.format("%lld cards", [bucket.count]))"
                 }
             )
             .chartXAxis {
@@ -163,14 +164,13 @@ private extension RetrievabilityChart {
     private func selectedRetrievabilityRuleMark(for item: Bucket) -> some ChartContent {
         if let selectedBucket,
            selectedBucket.start == item.start {
-            let countLabel = "Cards"
             RuleMark(x: .value("Selected Retrievability", selectedBucket.center))
                 .foregroundStyle(palette.accent.opacity(0.35))
                 .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
                 .annotation(position: .top, spacing: 0, overflowResolution: .init(x: .fit, y: .fit)) {
                     StatsChartTooltip(
                         title: selectedBucket.label,
-                        lines: ["\(countLabel): \(selectedBucket.count)"]
+                        lines: [L10n.format("%lld cards", [selectedBucket.count])]
                     )
                 }
         }

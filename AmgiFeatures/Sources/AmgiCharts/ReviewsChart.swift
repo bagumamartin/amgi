@@ -1,4 +1,5 @@
 public import SwiftUI
+import AmgiAppCore
 import AmgiTheme
 import AmgiUI
 import Charts
@@ -35,11 +36,11 @@ public struct ReviewsChart: View {
     private var entries: [ReviewEntry] {
         let maxDay = period.days
         let types: [(String, KeyPath<ReviewCountsAndTimes.Reviews, Int>, Color)] = [
-            ("Learn", \.learn, palette.cardStateNew),
-            ("Relearn", \.relearn, palette.cardStateRelearn),
-            ("Young", \.young, palette.cardStateLearning),
-            ("Mature", \.mature, palette.cardStateMature),
-            ("Filtered", \.filtered, palette.textTertiary),
+            (L10n.text("Learn"), \.learn, palette.cardStateNew),
+            (L10n.text("Relearn"), \.relearn, palette.cardStateRelearn),
+            (L10n.text("Young"), \.young, palette.cardStateLearning),
+            (L10n.text("Mature"), \.mature, palette.cardStateMature),
+            (L10n.text("Filtered"), \.filtered, palette.textTertiary),
         ]
         var result: [ReviewEntry] = []
         for (day, rev) in reviews.count {
@@ -76,7 +77,7 @@ public struct ReviewsChart: View {
 
     private func selectedReviewLines(for day: Int, entries: [ReviewEntry]) -> [String] {
         let matching = entries.filter { $0.day == day }
-        return ["Reviews: \(totalReviews(matching))"] + matching.map { "\($0.type): \($0.count)" }
+        return [L10n.format("Reviews: %lld", [totalReviews(matching)])] + matching.map { "\($0.type): \($0.count)" }
     }
 
     private func selectedAccessibilityText(for day: Int, entries: [ReviewEntry]) -> String {
@@ -124,11 +125,11 @@ public struct ReviewsChart: View {
                         }
                     }
                     .chartForegroundStyleScale([
-                        "Learn": palette.cardStateNew,
-                        "Relearn": palette.cardStateRelearn,
-                        "Young": palette.cardStateLearning,
-                        "Mature": palette.cardStateMature,
-                        "Filtered": palette.textTertiary,
+                        L10n.text("Learn"): palette.cardStateNew,
+                        L10n.text("Relearn"): palette.cardStateRelearn,
+                        L10n.text("Young"): palette.cardStateLearning,
+                        L10n.text("Mature"): palette.cardStateMature,
+                        L10n.text("Filtered"): palette.textTertiary,
                     ])
                     .chartXAxis {
                         AxisMarks(values: .automatic(desiredCount: 5)) { _ in
@@ -151,8 +152,8 @@ public struct ReviewsChart: View {
                 }
 
                 HStack(spacing: 16) {
-                    footerItem("Total", value: "\(totalReviews(entries))")
-                    footerItem("Avg/day", value: String(format: "%.1f", avgPerDay(entries)))
+                    footerItem(L10n.text("Total"), value: "\(totalReviews(entries))")
+                    footerItem(L10n.text("Avg/day"), value: String(format: "%.1f", avgPerDay(entries)))
                 }
             }
         }

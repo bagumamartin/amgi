@@ -1,4 +1,5 @@
 public import SwiftUI
+import AmgiAppCore
 import AmgiTheme
 import AmgiUI
 import Charts
@@ -46,7 +47,7 @@ public struct AddedChart: View {
     }
 
     private func selectedAccessibilityText(for day: Int) -> String {
-        "\(statsChartDayTitle(day)), Cards added: \(selectedCount(for: day))"
+        "\(statsChartDayTitle(day)), \(L10n.format("Cards added: %lld", [selectedCount(for: day)]))"
     }
 
     public var body: some View {
@@ -78,7 +79,7 @@ public struct AddedChart: View {
                                 .annotation(position: .top, spacing: 0) {
                                     StatsChartTooltip(
                                         title: statsChartDayTitle(selectedDay),
-                                        lines: ["Cards added: \(selectedCount(for: selectedDay))"]
+                                        lines: [L10n.format("Cards added: %lld", [selectedCount(for: selectedDay)])]
                                     )
                                 }
                         }
@@ -100,8 +101,8 @@ public struct AddedChart: View {
                 }
 
                 HStack(spacing: 16) {
-                    footerItem("Total", value: "\(totalAdded)")
-                    footerItem("Avg/day", value: String(format: "%.1f", avgPerDay))
+                    footerItem(L10n.text("Total"), value: "\(totalAdded)")
+                    footerItem(L10n.text("Avg/day"), value: String(format: "%.1f", avgPerDay))
                 }
             }
         }
