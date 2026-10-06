@@ -315,6 +315,9 @@ import AnkiKit
             "Info/es", // Spanish short form is also "info"
             "Manual/es", // Spanish "manual" matches
             "type %lld/fr", // French "type" matches
+            "Auto/fr", // French "auto" matches
+            "Ordinal/es", "Ordinal/fr", // technical term matches in both
+            "Cyan/fr", // French "cyan" matches
         ]
         let catalog = try Self.catalog()
         let strings = try #require(catalog["strings"] as? [String: Any])
