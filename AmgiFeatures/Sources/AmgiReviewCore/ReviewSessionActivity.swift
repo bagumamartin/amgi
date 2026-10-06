@@ -38,9 +38,9 @@ public enum ReviewSessionLeaseError: Error, Equatable, Sendable {
     public var localizedDescription: String {
         switch self {
         case .draining:
-            return "The collection is switching profiles. Try the review again when switching finishes."
+            return L10n.text("The collection is switching profiles. Try the review again when switching finishes.")
         case .alreadyActive:
-            return "Another review window is already using this collection. Finish or close it before starting another review."
+            return L10n.text("Another review window is already using this collection. Finish or close it before starting another review.")
         }
     }
 }

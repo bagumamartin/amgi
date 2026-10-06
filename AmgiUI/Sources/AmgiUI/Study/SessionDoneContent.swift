@@ -63,7 +63,7 @@ public struct SessionDoneContent: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                Button("Done", action: onDone)
+                Button(AmgiL10n.text("Done", locale: locale), action: onDone)
                     .buttonStyle(AmgiPrimaryButtonStyle())
             }
             .padding(.horizontal, AmgiSpacing.lg)

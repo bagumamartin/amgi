@@ -7,14 +7,14 @@ public enum CardFlag {
 
     public static func name(_ value: UInt32) -> String {
         switch value & 0b111 {
-        case 1: return "Red"
-        case 2: return "Orange"
-        case 3: return "Green"
-        case 4: return "Blue"
-        case 5: return "Pink"
-        case 6: return "Cyan"
-        case 7: return "Purple"
-        default: return "No Flag"
+        case 1: return L10n.text("Red")
+        case 2: return L10n.text("Orange")
+        case 3: return L10n.text("Green")
+        case 4: return L10n.text("Blue")
+        case 5: return L10n.text("Pink")
+        case 6: return L10n.text("Cyan")
+        case 7: return L10n.text("Purple")
+        default: return L10n.text("No flag")
         }
     }
 

@@ -442,7 +442,7 @@ public final class ReviewSession {
         startError = nil
         guard acquireActivityLease() else { return }
         guard beginActivityMutation() else {
-            startError = "The collection is busy with another operation. Try the review again."
+            startError = L10n.text("The collection is busy with another operation. Try the review again.")
             releaseActivityLease()
             return
         }
@@ -659,7 +659,7 @@ public final class ReviewSession {
             return
         }
         guard beginActivityMutation() else {
-            answerError = "This review no longer owns the collection scheduler. Close it and start again."
+            answerError = L10n.text("This review no longer owns the collection scheduler. Close it and start again.")
             return
         }
         isAdvancing = true
@@ -835,7 +835,7 @@ public final class ReviewSession {
             return
         }
         guard beginActivityMutation() else {
-            answerError = "This review no longer owns the collection scheduler. Close it and start again."
+            answerError = L10n.text("This review no longer owns the collection scheduler. Close it and start again.")
             return
         }
         isAdvancing = true
@@ -921,7 +921,7 @@ public final class ReviewSession {
                 await advanceToNextCard(notes: notes, notetypes: notetypes, notetypesClient: notetypesClient, cardRendering: cardRendering, statsClient: statsClient)
             } catch {
                 Log.review.error("Undo failed: \(error)")
-                answerError = "Couldn't undo that answer: \(error.localizedDescription)"
+                answerError = L10n.format("Couldn\u{2019}t undo that answer: %@", [error.localizedDescription])
             }
         }
     }
@@ -940,7 +940,7 @@ public final class ReviewSession {
             return
         }
         guard beginActivityMutation() else {
-            answerError = "This review no longer owns the collection scheduler. Close it and start again."
+            answerError = L10n.text("This review no longer owns the collection scheduler. Close it and start again.")
             return
         }
         isAdvancing = true
@@ -1027,7 +1027,7 @@ public final class ReviewSession {
                     )
                 }
                 Log.review.error("Redo failed: \(error)")
-                answerError = "Couldn't redo that answer: \(error.localizedDescription)"
+                answerError = L10n.format("Couldn\u{2019}t redo that answer: %@", [error.localizedDescription])
             }
         }
     }
@@ -1132,7 +1132,7 @@ public final class ReviewSession {
             return
         }
         guard beginActivityMutation() else {
-            answerError = "This review no longer owns the collection scheduler. Close it and start again."
+            answerError = L10n.text("This review no longer owns the collection scheduler. Close it and start again.")
             return
         }
         isAdvancing = true
@@ -1200,7 +1200,7 @@ public final class ReviewSession {
             return
         }
         guard beginActivityMutation() else {
-            answerError = "This review no longer owns the collection scheduler. Close it and start again."
+            answerError = L10n.text("This review no longer owns the collection scheduler. Close it and start again.")
             return
         }
         isAdvancing = true

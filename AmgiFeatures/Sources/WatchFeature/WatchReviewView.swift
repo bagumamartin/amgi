@@ -1,4 +1,5 @@
 import AVFoundation
+import AmgiAppCore
 import AnkiBackend
 import AnkiKit
 import Dependencies
@@ -51,7 +52,7 @@ struct WatchReviewView: View {
                             ratingButton(.good, color: .green)
                         }
                     } else {
-                        reviewButton("Show Answer", color: .blue) { session.revealAnswer() }
+                        reviewButton(L10n.text("Show Answer"), color: .blue) { session.revealAnswer() }
                     }
                 }
                 .ignoresSafeArea(edges: .bottom)
@@ -104,16 +105,18 @@ struct WatchReviewView: View {
                 Image(systemName: "clock.badge.checkmark")
                     .font(.title2)
                     .foregroundStyle(.orange)
-                Text("Cooling Down")
+                Text(L10n.text("Cooling Down"))
                     .font(.headline)
-                Text("\(session.waitingLearningCount) card\(session.waitingLearningCount == 1 ? "" : "s") due later")
+                Text(session.waitingLearningCount == 1
+                    ? L10n.text("1 card due later")
+                    : L10n.format("%lld cards due later", [session.waitingLearningCount]))
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Button("Review Ahead") {
+                Button(L10n.text("Review Ahead")) {
                     session.reviewAhead()
                 }
                 .buttonStyle(.borderedProminent)
-                Button("Done") {
+                Button(L10n.text("Done")) {
                     session.finishEarly()
                     onDismiss()
                 }
@@ -138,23 +141,23 @@ struct WatchReviewView: View {
                 }
                 .padding(.top, 4)
 
-                Text("All Caught Up!")
+                Text(L10n.text("All Caught Up!"))
                     .font(.headline)
                     .foregroundStyle(.primary)
 
                 VStack(spacing: 3) {
-                    Text("\(session.sessionStats.reviewed) cards reviewed")
+                    Text(L10n.format("%lld cards reviewed", [session.sessionStats.reviewed]))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
 
                     if session.sessionStats.reviewed > 0 {
-                        Text("\(Int(session.sessionStats.accuracy * 100))% accuracy")
+                        Text(L10n.format("%.0f%% accuracy", [session.sessionStats.accuracy * 100]))
                             .font(.caption2)
                             .foregroundStyle(.green)
                     }
                 }
 
-                Button("Done") { onDismiss() }
+                Button(L10n.text("Done")) { onDismiss() }
                     .buttonStyle(.borderedProminent)
                     .tint(.green)
                     .padding(.top, 6)

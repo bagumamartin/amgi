@@ -26,7 +26,7 @@ public struct CardFlagPicker: View {
 
     public var body: some View {
         Section {
-            Picker("Flag", selection: Binding(
+            Picker(L10n.text("Flag"), selection: Binding(
                 get: { model.currentFlag & 0b111 },
                 set: { value in
                     Task {
@@ -82,17 +82,17 @@ public struct CardActionSections: View {
     public var body: some View {
         Section {
             Button { act { await model.suspend(cardId) } } label: {
-                Label("Suspend Card", systemImage: "pause.circle")
+                Label(L10n.text("Suspend Card"), systemImage: "pause.circle")
             }
             Button { act { await model.bury(cardId) } } label: {
-                Label("Bury Card Until Tomorrow", systemImage: "books.vertical")
+                Label(L10n.text("Bury Card Until Tomorrow"), systemImage: "books.vertical")
             }
             Button { act { await model.resetToNew(cardId) } } label: {
-                Label("Forget Card", systemImage: "arrow.counterclockwise")
+                Label(L10n.text("Forget Card"), systemImage: "arrow.counterclockwise")
             }
             if let onRequestSetDueDate {
                 Button { onRequestSetDueDate(cardId) } label: {
-                    Label("Set Due Date", systemImage: "calendar.badge.clock")
+                    Label(L10n.text("Set Due Date"), systemImage: "calendar.badge.clock")
                 }
             }
         }
@@ -101,21 +101,21 @@ public struct CardActionSections: View {
             Section {
                 Button { act { await model.toggleMarked(noteId) } } label: {
                     Label(
-                        model.isMarkedNote ? "Unmark Note" : "Mark Note",
+                        model.isMarkedNote ? L10n.text("Unmark Note") : L10n.text("Mark Note"),
                         systemImage: model.isMarkedNote ? "star.slash" : "star"
                     )
                 }
                 Button { act { await model.suspendNote(noteId) } } label: {
-                    Label("Suspend Note", systemImage: "pause.circle.fill")
+                    Label(L10n.text("Suspend Note"), systemImage: "pause.circle.fill")
                 }
                 Button { act { await model.buryNote(noteId) } } label: {
-                    Label("Bury Note", systemImage: "books.vertical.fill")
+                    Label(L10n.text("Bury Note"), systemImage: "books.vertical.fill")
                 }
             }
 
             Section {
                 Button(role: .destructive) { confirmDeleteNote = true } label: {
-                    Label("Delete Note", systemImage: "trash")
+                    Label(L10n.text("Delete Note"), systemImage: "trash")
                 }
             }
         }
@@ -161,13 +161,13 @@ private struct CardActionPresentations: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .alert("Action failed", isPresented: $model.showError) {
+            .alert(L10n.text("Action failed"), isPresented: $model.showError) {
                 Button("OK") { }
             } message: {
-                Text(model.errorMessage ?? "An unknown error occurred.")
+                Text(model.errorMessage ?? L10n.text("An unknown error occurred."))
             }
             .confirmationDialog(
-                "Delete this note?",
+                L10n.text("Delete this note?"),
                 isPresented: $confirmDeleteNote,
                 titleVisibility: .visible
             ) {
@@ -179,7 +179,7 @@ private struct CardActionPresentations: ViewModifier {
                 }
                 Button("Cancel", role: .cancel) { }
             } message: {
-                Text("This deletes the note and all its cards. The action cannot be undone.")
+                Text(L10n.text("This deletes the note and all its cards. The action cannot be undone."))
             }
             .task(id: cardId) {
                 guard let cardId else { return }
@@ -232,7 +232,7 @@ public struct CardActionMenuSections: View {
             Button {
                 Task { if let advance = await model.undo(cardId) { onAction(advance) } }
             } label: {
-                Label("Undo", systemImage: "arrow.uturn.backward")
+                Label(L10n.text("Undo"), systemImage: "arrow.uturn.backward")
             }
             .disabled(!model.canUndo || model.isUndoing)
         }
@@ -285,7 +285,7 @@ public struct CardContextMenu: View {
             Image(systemName: "ellipsis.circle")
                 .amgiFont(.bodyEmphasis)
         }
-        .accessibilityLabel("Card actions")
+        .accessibilityLabel(L10n.text("Card actions"))
         .cardActionPresentations(
             model: model,
             cardId: cardId,
