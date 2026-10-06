@@ -12,10 +12,12 @@ struct ReaderLibraryViewData: Equatable {
 struct ContinueReadingItem: Identifiable, Equatable {
     let id: String
     let title: String
+    var author: String? = nil
     let surname: String?
     let progress: Double
     let updatedAt: Date
     let coverArt: CoverArtSource
+    var formatLabel: String = "Book"
 }
 
 struct BookCellItem: Identifiable, Equatable {
@@ -24,6 +26,7 @@ struct BookCellItem: Identifiable, Equatable {
     let author: String?
     let surname: String?
     let coverArt: CoverArtSource
+    var progress: Double? = nil
     /// Non-nil when the book is present but unreadable (source missing or no
     /// longer parsing). The row still renders so the book does not silently
     /// disappear; the view turns this into a repair affordance.
@@ -85,10 +88,12 @@ enum ReaderLibraryViewDataBuilder {
                 return ContinueReadingItem(
                     id: book.id,
                     title: book.title,
+                    author: book.author,
                     surname: BookMetaFormatters.surname(from: book.author),
                     progress: p.progress,
                     updatedAt: p.updatedAt,
-                    coverArt: coverArt(for: book, epubCoverURLFor: epubCoverURLFor, epubFirstPageFor: epubFirstPageFor)
+                    coverArt: coverArt(for: book, epubCoverURLFor: epubCoverURLFor, epubFirstPageFor: epubFirstPageFor),
+                    formatLabel: formatLabel(for: book)
                 )
             }
             .sorted { $0.updatedAt > $1.updatedAt }
@@ -125,6 +130,7 @@ enum ReaderLibraryViewDataBuilder {
                     author: book.author,
                     surname: BookMetaFormatters.surname(from: book.author),
                     coverArt: coverArt(for: book, epubCoverURLFor: epubCoverURLFor, epubFirstPageFor: epubFirstPageFor),
+                    progress: progressByID[book.id]?.progress,
                     repair: repairFor(book.id)
                 )
             }
@@ -162,6 +168,15 @@ private extension ReaderLibraryViewDataBuilder {
             // Carry the managed document URL alongside so the view can fall
             // back to a first-page thumbnail instead of a generic placeholder.
             return .pdf(coverURL: epubCoverURLFor(book.id), documentURL: localURL)
+        }
+    }
+
+    static func formatLabel(for book: ReaderBook) -> String {
+        switch book.source {
+        case .pdf:
+            return "PDF"
+        case .epub, .ankiDeck:
+            return "Book"
         }
     }
 }

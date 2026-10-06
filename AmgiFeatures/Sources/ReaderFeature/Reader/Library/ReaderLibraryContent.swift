@@ -101,7 +101,7 @@ private extension ReaderLibraryContent {
     @ViewBuilder
     func loaded(_ data: ReaderLibraryViewData) -> some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 28) {
                 ContinueReadingSection(items: data.continueReading, bookForId: bookForId, progress: progress)
                 AllBooksSection(
                     items: data.allBooks,
@@ -112,20 +112,19 @@ private extension ReaderLibraryContent {
                         repairTarget = RepairTarget(id: id, title: title, repair: repair)
                     }
                 )
-                Color.clear.frame(height: 8)
             }
             .frame(maxWidth: ReaderLibraryColumn.maxWidth)
             .frame(maxWidth: .infinity)
             .padding(.top, 8)
+            .padding(.bottom, 32)
         }
     }
 }
 
-/// Centered content column for the Reader Library, matching the
-/// Library/Study columns so the shelves stay readable on regular-width
-/// layouts instead of stretching full-width.
+/// Content column for the Reader Library, sized to allow up to 6 columns on
+/// regular-width layouts (Mac/iPad) matching Apple Books.
 private enum ReaderLibraryColumn {
-    static let maxWidth: CGFloat = 800
+    static let maxWidth: CGFloat = 1400
 }
 
 // MARK: - Preview

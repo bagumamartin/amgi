@@ -171,7 +171,7 @@ private struct PlatformImageView: View {
     var body: some View {
         Image(nsImage: image)
             .resizable()
-            .scaledToFill()
+            .scaledToFit()
     }
 }
 #else
@@ -180,7 +180,7 @@ private struct PlatformImageView: View {
     var body: some View {
         Image(uiImage: image)
             .resizable()
-            .scaledToFill()
+            .scaledToFit()
     }
 }
 #endif

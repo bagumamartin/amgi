@@ -1,3 +1,4 @@
+import AmgiAppCore
 import AmgiTheme
 import AmgiUI
 import SwiftUI
@@ -5,59 +6,77 @@ import SwiftUI
 struct ContinueReadingCard: View {
     let item: ContinueReadingItem
 
-    /// Wide enough to read as a featured card, narrow enough that the next
-    /// card peeks in and advertises the horizontal scroll.
-    private static let coverWidth: CGFloat = 196
-    /// Standard trade-book ratio, shared with the grid so the two sections
-    /// read as one shelf rather than two different cover shapes.
-    private static let coverAspect: CGFloat = 2.0 / 3.0
+    private static let cardWidth: CGFloat = 280
+    private static let cardHeight: CGFloat = 80
+    private static let thumbWidth: CGFloat = 44
+    private static let thumbHeight: CGFloat = 62
 
     @Environment(\.palette) private var palette
-    @Environment(\.locale) private var locale
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        HStack(spacing: 12) {
             cover
-            Text(item.title)
-                .amgiFont(.cardTitle)
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
-                .foregroundStyle(palette.textPrimary)
-                .frame(height: 44, alignment: .topLeading)
-            Text(subtitle)
-                .amgiFont(.caption)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(item.title)
+                    .font(.system(size: 14, weight: .semibold))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .foregroundStyle(palette.textPrimary)
+
+                if let author = item.author, !author.isEmpty {
+                    Text(author)
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundStyle(palette.textSecondary)
+                        .lineLimit(1)
+                }
+
+                Text(statusLine)
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundStyle(palette.textSecondary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Image(systemName: "ellipsis")
+                .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(palette.textSecondary)
-                .lineLimit(1)
-            ProgressView(value: item.progress)
-                .progressViewStyle(.linear)
-                .tint(palette.accent)
+                .padding(.trailing, 2)
         }
-        .frame(width: Self.coverWidth, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(width: Self.cardWidth, height: Self.cardHeight)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(palette.surfaceElevated)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+        }
     }
 
     private var cover: some View {
-        // The format badge lives inside BookCoverView (top-trailing). The old
-        // bookmark overlay sat on the same corner and covered the badge, so
-        // it is gone: progress + "23% · Today" already says "in progress".
         BookCoverView(
             coverArt: item.coverArt,
             title: item.title,
             surname: item.surname,
             seed: item.id
         )
-        .aspectRatio(Self.coverAspect, contentMode: .fit)
-        .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.control, style: .continuous))
+        .frame(width: Self.thumbWidth, height: Self.thumbHeight)
+        .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.small, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: AmgiRadius.control, style: .continuous)
-                .strokeBorder(.primary.opacity(0.12), lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: AmgiRadius.small, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
         }
-        .shadow(color: .black.opacity(0.12), radius: 8, x: 0, y: 4)
+        .shadow(color: .black.opacity(0.12), radius: 4, x: 0, y: 2)
     }
 
-    private var subtitle: String {
+    private var statusLine: String {
         let pct = Int((item.progress * 100).rounded())
-        let when = BookMetaFormatters.relativeReadingDate(item.updatedAt, locale: locale)
-        return "\(pct)% · \(when)"
+        // "PDF" is a universal format badge; only the generic kind word is copy.
+        let kind = item.formatLabel == "Book" ? L10n.text("Book") : item.formatLabel
+        return "\(kind) • \(pct)%"
     }
 }
 
@@ -67,11 +86,13 @@ struct ContinueReadingCard: View {
     ContinueReadingCard(
         item: ContinueReadingItem(
             id: "preview-1",
-            title: "어린 왕자",
-            surname: "Saint-Exupéry",
-            progress: 0.07,
+            title: "Rang & Dale's Pharmacology",
+            author: "James M. Ritter",
+            surname: "Ritter",
+            progress: 0.54,
             updatedAt: Date(),
-            coverArt: .none
+            coverArt: .none,
+            formatLabel: "Book"
         )
     )
     .padding()

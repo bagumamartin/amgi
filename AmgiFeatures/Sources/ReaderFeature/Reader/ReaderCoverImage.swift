@@ -90,7 +90,7 @@ struct ReaderCoverImage<Placeholder: View>: View {
             AsyncImage(url: url) { phase in
                 switch phase {
                 case .success(let image):
-                    image.resizable().scaledToFill()
+                    image.resizable().scaledToFit()
                         .overlay { Rectangle().stroke(imageOutlineColor, lineWidth: 1) }
                 default:
                     placeholder()
@@ -101,14 +101,14 @@ struct ReaderCoverImage<Placeholder: View>: View {
             // Downsampled off the main thread: covers are drawn at ~120pt but
             // the source files are frequently thousands of pixels wide.
             DownsampledImage(url: url, maxPixelSize: AmgiImagePixelSize.cover) { image in
-                image.resizable().scaledToFill()
+                image.resizable().scaledToFit()
                     .overlay { Rectangle().stroke(imageOutlineColor, lineWidth: 1) }
             } placeholder: {
                 placeholder()
             }
             #else
             if let image = NSImage(contentsOfFile: url.path) {
-                Image(nsImage: image).resizable().scaledToFill()
+                Image(nsImage: image).resizable().scaledToFit()
                     .overlay { Rectangle().stroke(imageOutlineColor, lineWidth: 1) }
             } else {
                 placeholder()

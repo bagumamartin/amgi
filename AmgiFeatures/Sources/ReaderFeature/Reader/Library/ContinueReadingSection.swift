@@ -54,10 +54,9 @@ struct ContinueReadingSection: View {
     }
 
     private var sectionHeader: some View {
-        Text("CONTINUE READING")
-            .amgiFont(.captionBold)
-            .tracking(1.4)
-            .foregroundStyle(palette.textSecondary)
+        Text("Continue")
+            .font(.system(size: 20, weight: .bold, design: .serif))
+            .foregroundStyle(palette.textPrimary)
             .padding(.horizontal, 16)
     }
 }

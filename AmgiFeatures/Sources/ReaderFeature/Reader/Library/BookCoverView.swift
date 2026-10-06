@@ -7,38 +7,43 @@ struct BookCoverView: View {
     let title: String
     let surname: String?
     let seed: String
+    var showsFormatBadge: Bool = false
 
     var body: some View {
         switch coverArt {
         case .epub(let url):
-            ReaderCoverImage(fileURL: url, format: .epub) {
-                BookCoverPlaceholder(title: title, surname: surname, seed: seed)
+            ReaderCoverImage(fileURL: url, format: showsFormatBadge ? .epub : nil) {
+                placeholder
             }
         case .epubFirstPage(let source):
             // No embedded cover: render the first page, which usually *is*
-            // the cover. The badge still reads EPUB. The cell's own clip +
-            // hairline shapes the snapshot exactly like a real cover.
-            ReaderCoverImage(fileURL: nil, format: .epub) {
+            // the cover. The badge still reads EPUB if format badge is enabled.
+            ReaderCoverImage(fileURL: nil, format: showsFormatBadge ? .epub : nil) {
                 EPUBFirstPageThumbnail(source: source) {
-                    BookCoverPlaceholder(title: title, surname: surname, seed: seed)
+                    placeholder
                 }
             }
         case .pdf(let coverURL, let documentURL):
             // The stored cover wins when present; otherwise the PDF's first
             // page doubles as the cover so a book without embedded art still
             // shows something recognisable instead of a generic tile.
-            ReaderCoverImage(fileURL: coverURL, format: .pdf) {
+            ReaderCoverImage(fileURL: coverURL, format: showsFormatBadge ? .pdf : nil) {
                 PDFCoverThumbnail(documentURL: documentURL) {
-                    BookCoverPlaceholder(title: title, surname: surname, seed: seed)
+                    placeholder
                 }
             }
         case .anki(let path):
             ReaderCoverImage(path: path) {
-                BookCoverPlaceholder(title: title, surname: surname, seed: seed)
+                placeholder
             }
         case .none:
-            BookCoverPlaceholder(title: title, surname: surname, seed: seed)
+            placeholder
         }
+    }
+
+    private var placeholder: some View {
+        BookCoverPlaceholder(title: title, surname: surname, seed: seed)
+            .aspectRatio(1 / 1.45, contentMode: .fit)
     }
 }
 

@@ -10,12 +10,14 @@ struct AllBooksSection: View {
     /// Nil hides the affordance and every book behaves as before.
     var onRepair: ((String, ReaderBookRepair) -> Void)?
 
-    /// Three-up on iPhone, more columns as width allows. Fixed at three the
-    /// grid goes sparse on iPad; fully adaptive it goes cramped on iPhone
-    /// SE. The minimum keeps cells readable while the column count follows
-    /// the 800pt content column.
+    /// Responsive column layout matching Apple Books:
+    /// - iPhone: 2 columns
+    /// - iPad portrait: 4 columns
+    /// - iPad landscape & Mac: 6 columns
+    /// With `.bottom` alignment so books of differing heights sit on a shared
+    /// horizontal baseline with aligned metadata bars below.
     private let columns: [GridItem] = [
-        GridItem(.adaptive(minimum: 108, maximum: 180), spacing: 14, alignment: .top)
+        GridItem(.adaptive(minimum: 155, maximum: 220), spacing: 20, alignment: .bottom)
     ]
 
     @Environment(\.palette) private var palette
@@ -24,51 +26,28 @@ struct AllBooksSection: View {
     @Namespace private var coverTransition
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("ALL BOOKS")
-                .amgiFont(.captionBold)
-                .tracking(1.4)
-                .foregroundStyle(palette.textSecondary)
-                .padding(.horizontal, 16)
+        VStack(alignment: .leading, spacing: 14) {
+            sectionHeader
 
-            LazyVGrid(columns: columns, spacing: 18) {
+            LazyVGrid(columns: columns, spacing: 24) {
                 ForEach(items) { item in
-                    if let repair = item.repair, let onRepair {
-                        // A book that needs repair must not navigate into the
-                        // reader: there is nothing readable behind it. Offer
-                        // the repair sheet instead of opening a blank page.
-                        Button {
-                            onRepair(item.id, repair)
-                        } label: {
-                            AllBooksCell(item: item)
-                        }
-                        .buttonStyle(.pressScale)
-                    } else if let book = bookForId(item.id) {
-                        NavigationLink {
-                            ReaderOpenView(book: book, progress: progress)
-                                #if os(iOS)
-                                .navigationTransition(.zoom(sourceID: item.id, in: coverTransition))
-                                #endif
-                        } label: {
-                            AllBooksCell(item: item)
-                                .contextMenu {
-                                    NavigationLink {
-                                        ReaderBookDetailView(book: book, progress: progress)
-                                    } label: {
-                                        Label("Book Details & Chapters", systemImage: "info.circle")
-                                    }
-                                }
-                        }
-                        .buttonStyle(.pressScale)
-                        #if os(iOS)
-                        .matchedTransitionSource(id: item.id, in: coverTransition)
-                        #endif
-                    } else {
-                        AllBooksCell(item: item)
-                    }
+                    AllBooksCell(
+                        item: item,
+                        book: bookForId(item.id),
+                        progress: progress,
+                        coverTransition: coverTransition,
+                        onRepair: onRepair
+                    )
                 }
             }
             .padding(.horizontal, 16)
         }
+    }
+
+    private var sectionHeader: some View {
+        Text("All Books")
+            .font(.system(size: 20, weight: .bold, design: .serif))
+            .foregroundStyle(palette.textPrimary)
+            .padding(.horizontal, 16)
     }
 }
