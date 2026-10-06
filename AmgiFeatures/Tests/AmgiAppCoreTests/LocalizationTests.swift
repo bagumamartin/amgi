@@ -301,6 +301,21 @@ import AnkiKit
         // A value identical to the key is either an untranslated placeholder or
         // a genuine coincidence. Both are worth seeing in review; the sentinel
         // is exempt because its whole job is to differ.
+        //
+        // Verified coincidences (correct in the target language despite
+        // identical spelling) are exempt below — do not add to this set
+        // without checking a dictionary first.
+        let verifiedCoincidences: Set<String> = [
+            "Total/es", "Total/fr", // total is "total" in Spanish and French
+            "%lld min/es", "%lld min/fr", // the "min" abbreviation is shared
+            "%.1f min/es", "%.1f min/fr", // same abbreviation with decimals
+            "minute/fr", "minutes/fr", // French spelling matches English
+            "Orange/fr", "Turquoise/fr", // French color names match
+            "note/fr", "1 note/fr", "%lld notes/fr", // French "note"/"notes" match
+            "Info/es", // Spanish short form is also "info"
+            "Manual/es", // Spanish "manual" matches
+            "type %lld/fr", // French "type" matches
+        ]
         let catalog = try Self.catalog()
         let strings = try #require(catalog["strings"] as? [String: Any])
         for (key, rawEntry) in strings where key != AppLocale.probeKey {
@@ -308,6 +323,7 @@ import AnkiKit
             let languages = entry["localizations"] as? [String: Any] ?? [:]
             for (language, rawUnit) in languages {
                 let value = try Self.value(of: rawUnit)
+                guard !verifiedCoincidences.contains("\(key)/\(language)") else { continue }
                 #expect(
                     value != key,
                     "\(key)/\(language) is identical to the English source — untranslated?"
