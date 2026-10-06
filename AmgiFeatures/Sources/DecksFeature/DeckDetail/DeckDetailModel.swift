@@ -188,7 +188,7 @@ final class DeckDetailModel {
         defer { actionInFlight = false }
         do {
             let count = try await deckClient.rebuildFilteredDeck(deck.id)
-            rebuildFeedback = "Rebuilt — \(count) cards"
+            rebuildFeedback = L10n.format("Rebuilt — %lld cards", [count])
             // Rebuild's request only decodes a count — invalidate conservatively.
             store.apply(CollectionChanges(card: true, deck: true, studyQueues: true))
             try? await Task.sleep(for: .seconds(2))
@@ -232,7 +232,7 @@ final class DeckDetailModel {
     /// Returns nil on success; otherwise an error message to surface.
     func createSubdeck(rawName: String) async -> String? {
         let trimmed = rawName.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return "Name cannot be empty." }
+        guard !trimmed.isEmpty else { return L10n.text("Name cannot be empty.") }
         // Anki uses :: as the deck-hierarchy separator. Strip any user-supplied
         // separator collisions to avoid creating multi-level decks unexpectedly.
         let leafName = trimmed.replacingOccurrences(of: "::", with: "_")
@@ -242,7 +242,7 @@ final class DeckDetailModel {
             store.apply(creation.changes)
             return nil
         } catch {
-            return "Failed to create subdeck: \(error.localizedDescription)"
+            return L10n.format("Failed to create subdeck: %@", [error.localizedDescription])
         }
     }
 }

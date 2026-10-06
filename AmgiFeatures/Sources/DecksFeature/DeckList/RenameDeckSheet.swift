@@ -1,4 +1,5 @@
 import SwiftUI
+import AmgiAppCore
 import AmgiUI
 import AmgiAppShared
 import AnkiKit
@@ -102,7 +103,7 @@ private extension RenameDeckSheet {
             }
             onDone()
         } catch {
-            errorMessage = "Failed to rename deck: \(error.localizedDescription)"
+            errorMessage = L10n.format("Failed to rename deck: %@", [error.localizedDescription])
         }
         isSaving = false
     }

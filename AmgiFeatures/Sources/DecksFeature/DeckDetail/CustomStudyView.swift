@@ -1,4 +1,5 @@
 import SwiftUI
+import AmgiAppCore
 import AmgiTheme
 import AnkiClients
 import AnkiKit
@@ -14,6 +15,7 @@ struct CustomStudyView: View {
         case stateAndTag = "Study by state or tag"
 
         var id: Self { self }
+        var localizedTitle: String { L10n.key(rawValue) }
         var createsSession: Bool {
             switch self {
             case .newLimit, .reviewLimit: false
@@ -31,6 +33,8 @@ struct CustomStudyView: View {
         case any = "Any"
         case include = "Include"
         case exclude = "Exclude"
+
+        var localizedTitle: String { L10n.key(rawValue) }
     }
 
     let deck: DeckInfo
@@ -124,8 +128,8 @@ struct CustomStudyView: View {
 
     private var navigationTitle: String {
         switch phase {
-        case .settings: "Custom Study"
-        case .ready: "Session Ready"
+        case .settings: L10n.text("Custom Study")
+        case .ready: L10n.text("Session Ready")
         }
     }
 
@@ -149,7 +153,7 @@ struct CustomStudyView: View {
                 set: { if let selectedMode = $0 { mode = selectedMode } }
             )) {
                 ForEach(Mode.allCases) { item in
-                    Text(item.rawValue).tag(item)
+                    Text(item.localizedTitle).tag(item)
                 }
             }
             .listStyle(.sidebar)
@@ -183,11 +187,11 @@ struct CustomStudyView: View {
                             .foregroundStyle(palette.textSecondary)
                         Menu {
                             Picker("Study mode", selection: $mode) {
-                                ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
+                                ForEach(Mode.allCases) { Text($0.localizedTitle).tag($0) }
                             }
                         } label: {
                             HStack {
-                                Text(mode.rawValue)
+                                Text(mode.localizedTitle)
                                     .font(.system(size: 16, weight: .medium))
                                     .foregroundStyle(palette.textPrimary)
                                 Spacer()
@@ -241,7 +245,7 @@ struct CustomStudyView: View {
                 Text(fieldLabel)
                     .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(palette.textPrimary)
-                Text("\(amount) \(fieldUnit)")
+                Text(amountText)
                     .font(.system(size: 14))
                     .foregroundStyle(palette.textSecondary)
             }
@@ -277,11 +281,11 @@ struct CustomStudyView: View {
 
     private var settingsForm: some View {
         VStack(alignment: .leading, spacing: 22) {
-            Text("\(deck.name) · Includes subdecks")
+            Text("\(deck.name) · \(L10n.text("Includes subdecks"))")
                 .amgiFont(.caption)
                 .foregroundStyle(palette.textSecondary)
             VStack(alignment: .leading, spacing: 6) {
-                Text(mode.rawValue)
+                Text(mode.localizedTitle)
                     .amgiFont(.sectionHeading)
                 Text(modeDescription)
                     .amgiFont(.body)
@@ -298,7 +302,7 @@ struct CustomStudyView: View {
                 cardStateAndTags
             } else {
                 Stepper(value: amountBinding, in: amountRange) {
-                    LabeledContent(fieldLabel, value: "\(amount) \(fieldUnit)")
+                    LabeledContent(fieldLabel, value: amountText)
                 }
                 .padding(16)
                 .background(palette.surface, in: RoundedRectangle(cornerRadius: AmgiRadius.inset))
@@ -338,7 +342,7 @@ struct CustomStudyView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(tag.name).amgiFont(.captionBold)
                         Picker(tag.name, selection: tagBinding(tag.name)) {
-                            ForEach(TagChoice.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                            ForEach(TagChoice.allCases, id: \.self) { Text($0.localizedTitle).tag($0) }
                         }
                         .pickerStyle(.segmented)
                     }
@@ -356,14 +360,14 @@ struct CustomStudyView: View {
                 .foregroundStyle(palette.accent)
             Text("Custom Study Session is ready")
                 .amgiFont(.sectionHeading)
-            Text("Built from \(deck.name) and its subdecks. The session is a standard Anki filtered deck.")
+            Text(L10n.format("Built from %@ and its subdecks. The session is a standard Anki filtered deck.", [deck.name]))
                 .amgiFont(.body)
                 .foregroundStyle(palette.textSecondary)
                 .multilineTextAlignment(.center)
             HStack {
-                countPill("New", session.counts.newCount, palette.cardStateNew)
-                countPill("Learning", session.counts.learnCount, palette.cardStateLearning)
-                countPill("Review", session.counts.reviewCount, palette.cardStateReview)
+                countPill(L10n.text("New"), session.counts.newCount, palette.cardStateNew)
+                countPill(L10n.text("Learning"), session.counts.learnCount, palette.cardStateLearning)
+                countPill(L10n.text("Review"), session.counts.reviewCount, palette.cardStateReview)
             }
             .padding(.vertical, 8)
             Button("Study Now") { onStudySession(session) }
@@ -426,8 +430,8 @@ struct CustomStudyView: View {
                 phase = .ready(session)
             } else {
                 completionMessage = mode == .newLimit
-                    ? "Today's new-card limit increased by \(amount)."
-                    : "Today's review limit increased by \(amount)."
+                    ? L10n.format("Today's new-card limit increased by %lld.", [amount])
+                    : L10n.format("Today's review limit increased by %lld.", [amount])
             }
         } catch {
             errorMessage = error.localizedDescription
@@ -469,60 +473,72 @@ struct CustomStudyView: View {
     private var amountRange: ClosedRange<Int> { mode == .forgotten ? 1...30 : 1...99_999 }
     private var fieldLabel: String {
         switch mode {
-        case .newLimit: "Extra new cards"
-        case .reviewLimit: "Extra review cards"
-        case .forgotten: "Forgotten in the last"
-        case .ahead: "Review ahead by"
-        case .preview: "Added in the last"
+        case .newLimit: L10n.text("Extra new cards")
+        case .reviewLimit: L10n.text("Extra review cards")
+        case .forgotten: L10n.text("Forgotten in the last")
+        case .ahead: L10n.text("Review ahead by")
+        case .preview: L10n.text("Added in the last")
         case .stateAndTag: ""
         }
     }
-    private var fieldUnit: String {
+    private var amountText: String {
         switch mode {
-        case .newLimit, .reviewLimit: "cards"
-        default: amount == 1 ? "day" : "days"
+        case .newLimit, .reviewLimit:
+            L10n.format("%lld cards", [amount])
+        default:
+            amount == 1 ? L10n.text("1 day") : L10n.format("%lld days", [amount])
         }
     }
-    private var primaryActionTitle: String { mode.createsSession ? "Create Session" : "Increase Limit" }
+    private var primaryActionTitle: String {
+        mode.createsSession ? L10n.text("Create Session") : L10n.text("Increase Limit")
+    }
     private var availabilityText: String? {
         guard let defaults else { return nil }
         switch mode {
         case .newLimit:
-            return "Available: \(defaults.availableNew) here · \(defaults.availableNewInChildren) in subdecks"
+            return L10n.format(
+                "Available: %lld here · %lld in subdecks",
+                [defaults.availableNew, defaults.availableNewInChildren]
+            )
         case .reviewLimit:
-            return "Available: \(defaults.availableReview) here · \(defaults.availableReviewInChildren) in subdecks"
+            return L10n.format(
+                "Available: %lld here · %lld in subdecks",
+                [defaults.availableReview, defaults.availableReviewInChildren]
+            )
         default:
             return nil
         }
     }
     private var modeDescription: String {
         switch mode {
-        case .newLimit: "Study more new cards today without changing your deck preset."
-        case .reviewLimit: "Show more cards that are already due for review today."
-        case .forgotten: "Revisit cards you answered Again to strengthen difficult material."
-        case .ahead: "Study upcoming reviews before a trip or a busy week."
-        case .preview: "Preview recently added new cards without rescheduling them."
-        case .stateAndTag: "Build a focused session by card state, limit, and tags."
+        case .newLimit: L10n.text("Study more new cards today without changing your deck preset.")
+        case .reviewLimit: L10n.text("Show more cards that are already due for review today.")
+        case .forgotten: L10n.text("Revisit cards you answered Again to strengthen difficult material.")
+        case .ahead: L10n.text("Study upcoming reviews before a trip or a busy week.")
+        case .preview: L10n.text("Preview recently added new cards without rescheduling them.")
+        case .stateAndTag: L10n.text("Build a focused session by card state, limit, and tags.")
         }
     }
     private var consequenceTitle: String {
         switch mode {
-        case .newLimit, .reviewLimit: "For today only"
-        case .forgotten, .preview: "Your schedule stays unchanged"
-        case .ahead: "Answers update scheduling"
-        case .stateAndTag: cardState == .all ? "Your schedule stays unchanged" : "Answers update scheduling"
+        case .newLimit, .reviewLimit: L10n.text("For today only")
+        case .forgotten, .preview: L10n.text("Your schedule stays unchanged")
+        case .ahead: L10n.text("Answers update scheduling")
+        case .stateAndTag: cardState == .all
+                ? L10n.text("Your schedule stays unchanged")
+                : L10n.text("Answers update scheduling")
         }
     }
     private var consequenceDetail: String {
         switch mode {
-        case .newLimit: "The daily limit returns to normal tomorrow. Cards remain in this deck."
-        case .reviewLimit: "This raises today's limit; it does not bring future reviews forward."
-        case .forgotten, .preview: "Cards stay linked to their original decks. Empty the session to return them."
-        case .ahead: "Cards receive new due dates based on your answers and how early you review them."
+        case .newLimit: L10n.text("The daily limit returns to normal tomorrow. Cards remain in this deck.")
+        case .reviewLimit: L10n.text("This raises today's limit; it does not bring future reviews forward.")
+        case .forgotten, .preview: L10n.text("Cards stay linked to their original decks. Empty the session to return them.")
+        case .ahead: L10n.text("Cards receive new due dates based on your answers and how early you review them.")
         case .stateAndTag:
             cardState == .all
-                ? "All-card sessions are previews and do not reschedule cards."
-                : "Answers update scheduling. Empty the session to return remaining cards."
+                ? L10n.text("All-card sessions are previews and do not reschedule cards.")
+                : L10n.text("Answers update scheduling. Empty the session to return remaining cards.")
         }
     }
 }

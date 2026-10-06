@@ -89,11 +89,12 @@ struct DeckDetailView: View {
     private var alertTitle: String {
         guard let alert = currentAlert else { return "" }
         switch alert {
-        case .empty: return "Empty \"\(shortTitle)\"?"
-        case .error: return "Something went wrong"
-        case .info: return "Done"
-        case .subdeck: return "Create Subdeck"
-        case .extendLimit(let kind): return "Increase Today's \(kind.noun) Limit"
+        case .empty: return L10n.format("Empty %@?", [shortTitle])
+        case .error: return L10n.text("Something went wrong")
+        case .info: return L10n.text("Done")
+        case .subdeck: return L10n.text("Create Subdeck")
+        case .extendLimit(let kind):
+            return L10n.format("Increase Today's %@ Limit", [L10n.key(kind.noun)])
         }
     }
 
@@ -103,8 +104,8 @@ struct DeckDetailView: View {
         let subtitle: String = {
             if let snap = model.statsSnapshot, !snap.subtitle.isEmpty { return snap.subtitle }
             return isEmpty
-                ? "No cards yet · Add some to start studying"
-                : "Tap Study to start a session"
+                ? L10n.text("No cards yet · Add some to start studying")
+                : L10n.text("Tap Study to start a session")
         }()
         let insights = model.statsSnapshot?.insights ?? .empty
         return .loaded(DeckDetailViewData(
@@ -442,9 +443,9 @@ private extension DeckDetailView {
         case .error(let msg), .info(let msg):
             Text(msg)
         case .subdeck:
-            Text("Will be created as \(deck.name)::<name>")
+            Text("\(L10n.text("Will be created as")) \(deck.name)::<name>")
         case .extendLimit(let kind):
-            Text("Extra \(kind.noun.lowercased()) cards to show today, on top of this deck's daily limit. Resets tomorrow.")
+            Text(L10n.format("Extra %@ cards to show today, on top of this deck's daily limit. Resets tomorrow.", [L10n.key(kind.noun).lowercased(with: L10n.locale)]))
         }
     }
 
