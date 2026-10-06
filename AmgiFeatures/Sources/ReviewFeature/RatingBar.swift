@@ -1,4 +1,5 @@
 import SwiftUI
+import AmgiAppCore
 import AmgiTheme
 import AmgiUI
 import AnkiKit
@@ -20,10 +21,10 @@ struct RatingBar: View {
         // relearn/learning/review/new) so the buttons, count dots, badges,
         // rings, and progress fills all speak one palette in every theme.
         HStack(spacing: AmgiSpacing.md) {
-            ratingCard(.again, label: "Again", color: palette.cardStateRelearn)
-            ratingCard(.hard, label: "Hard", color: palette.cardStateLearning)
-            ratingCard(.good, label: "Good", color: palette.cardStateReview)
-            ratingCard(.easy, label: "Easy", color: palette.cardStateNew)
+            ratingCard(.again, label: L10n.text("Again"), color: palette.cardStateRelearn)
+            ratingCard(.hard, label: L10n.text("Hard"), color: palette.cardStateLearning)
+            ratingCard(.good, label: L10n.text("Good"), color: palette.cardStateReview)
+            ratingCard(.easy, label: L10n.text("Easy"), color: palette.cardStateNew)
         }
         // Four equal actions should remain a single, easy-to-compare group.
         // On wide iPad windows, letting each card claim a quarter of the
@@ -114,10 +115,17 @@ struct RatingBar: View {
         // iPad still needs `.onKeyPress` — the focus engine swallows arrows
         // before these shortcuts. Duplicate fires are no-ops (`isAdvancing`).
         .keyboardShortcut(binding.keyEquivalent, modifiers: binding.modifiers)
-        .accessibilityLabel("\(label)\(showIntervals ? ", next in \(intervals[rating] ?? "")" : "")")
+        .accessibilityLabel(ratingAccessibilityLabel(label: label, rating: rating))
+
         #if os(macOS)
         .help("\(label) (\(keyDisplay))")
+
         #endif
+    }
+
+    private func ratingAccessibilityLabel(label: String, rating: Rating) -> String {
+        guard showIntervals else { return label }
+        return "\(label), \(L10n.format("next in %@", [intervals[rating] ?? ""]))"
     }
 }
 

@@ -1,5 +1,6 @@
 package import SwiftUI
 package import Sharing
+import AmgiAppCore
 import AnkiKit
 
 /// A review action that can be driven from the keyboard (and rebound in
@@ -22,17 +23,17 @@ package enum ReviewShortcutAction: String, CaseIterable, Identifiable, Sendable 
 
     package var title: String {
         switch self {
-        case .undo: "Undo"
-        case .redo: "Redo"
-        case .editNote: "Edit Note"
-        case .lookup: "Look Up"
-        case .replayAudio: "Replay Audio"
-        case .revealAnswer: "Reveal Answer"
-        case .rateAgain: "Rate: Again"
-        case .rateHard: "Rate: Hard"
-        case .rateGood: "Rate: Good"
-        case .rateEasy: "Rate: Easy"
-        case .repeatLastRating: "Repeat Last Rating"
+        case .undo: L10n.text("Undo")
+        case .redo: L10n.text("Redo")
+        case .editNote: L10n.text("Edit Note")
+        case .lookup: L10n.text("Look Up")
+        case .replayAudio: L10n.text("Replay Audio")
+        case .revealAnswer: L10n.text("Reveal Answer")
+        case .rateAgain: L10n.text("Rate: Again")
+        case .rateHard: L10n.text("Rate: Hard")
+        case .rateGood: L10n.text("Rate: Good")
+        case .rateEasy: L10n.text("Rate: Easy")
+        case .repeatLastRating: L10n.text("Repeat Last Rating")
         }
     }
 
@@ -184,7 +185,7 @@ package struct ReviewShortcut: Equatable, Codable, Hashable, Sendable {
     /// bindings like option+arrows read properly in Settings and tooltips.
     private static func keyDisplay(_ key: String) -> String {
         switch key {
-        case " ": return "Space"
+        case " ": return L10n.text("Space")
         case "\u{F700}", "↑": return "↑"
         case "\u{F701}", "↓": return "↓"
         case "\u{F702}", "←": return "←"

@@ -38,7 +38,7 @@ struct ReviewSessionInspector: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: AmgiSpacing.xs) {
-            Label("Review Session", systemImage: "rectangle.stack")
+            Label(L10n.text("Review Session"), systemImage: "rectangle.stack")
                 .font(.headline)
                 .foregroundStyle(palette.textPrimary)
             Text(session.profile.displayName)
@@ -48,41 +48,41 @@ struct ReviewSessionInspector: View {
     }
 
     private var queueSection: some View {
-        inspectorSection("Queue") {
-            countRow("New", value: session.remainingCounts.newCount, color: palette.cardStateNew)
-            countRow("Learning", value: session.remainingCounts.learnCount, color: palette.cardStateLearning)
-            countRow("Review", value: session.remainingCounts.reviewCount, color: palette.cardStateReview)
+        inspectorSection(L10n.text("Queue")) {
+            countRow(L10n.text("New"), value: session.remainingCounts.newCount, color: palette.cardStateNew)
+            countRow(L10n.text("Learning"), value: session.remainingCounts.learnCount, color: palette.cardStateLearning)
+            countRow(L10n.text("Review"), value: session.remainingCounts.reviewCount, color: palette.cardStateReview)
         }
     }
 
     private var progressSection: some View {
-        inspectorSection("Today") {
-            valueRow("Answered", session.dailyCompletedToday)
-            valueRow("Session reviews", session.sessionStats.reviewed)
-            valueRow("Correct", session.sessionStats.correct)
-            valueRow("Streak", session.correctStreak)
-            valueRow("Answer time", answerTimeLabel)
+        inspectorSection(L10n.text("Today")) {
+            valueRow(L10n.text("Answered"), session.dailyCompletedToday)
+            valueRow(L10n.text("Session reviews"), session.sessionStats.reviewed)
+            valueRow(L10n.text("Correct"), session.sessionStats.correct)
+            valueRow(L10n.text("Streak"), session.correctStreak)
+            valueRow(L10n.text("Answer time"), answerTimeLabel)
         }
     }
 
     private var currentCardSection: some View {
-        inspectorSection("Current Card") {
-            valueRow("State", currentStateTitle)
-            valueRow("Ordinal", (session.currentCardOrdinal + 1).formatted())
-            valueRow("Queue remaining", max(session.remainingCounts.total, 0).formatted())
-            valueRow("Deck", session.activeDeckName.isEmpty ? session.deckName : session.activeDeckName)
+        inspectorSection(L10n.text("Current Card")) {
+            valueRow(L10n.text("State"), currentStateTitle)
+            valueRow(L10n.text("Ordinal"), (session.currentCardOrdinal + 1).formatted())
+            valueRow(L10n.text("Queue remaining"), max(session.remainingCounts.total, 0).formatted())
+            valueRow(L10n.text("Deck"), session.activeDeckName.isEmpty ? session.deckName : session.activeDeckName)
         }
     }
 
     private var historySection: some View {
-        inspectorSection("History") {
-            valueRow("Undo", session.canUndo ? "Available" : "Empty")
-            valueRow("Redo", session.canRedo ? "Available" : "Empty")
+        inspectorSection(L10n.text("History")) {
+            valueRow(L10n.text("Undo"), session.canUndo ? L10n.text("Available") : L10n.text("Not available"))
+            valueRow(L10n.text("Redo"), session.canRedo ? L10n.text("Available") : L10n.text("Not available"))
             valueRow(
-                "Scheduler",
+                L10n.text("Scheduler"),
                 ReviewSessionCoordinator.shared.activeSession?.sessionID == session.sessionID
-                    ? "Owned by this session"
-                    : "Unavailable"
+                    ? L10n.text("Owned by this session")
+                    : L10n.text("Unavailable")
             )
         }
     }
@@ -93,7 +93,7 @@ struct ReviewSessionInspector: View {
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: AmgiSpacing.sm) {
-            Text(title.uppercased())
+            Text(title.uppercased(with: L10n.locale))
                 .amgiFont(.micro)
                 .foregroundStyle(palette.textSecondary)
             VStack(spacing: AmgiSpacing.sm) {
@@ -146,10 +146,10 @@ struct ReviewSessionInspector: View {
 
     private var currentStateTitle: String {
         switch session.currentCardState {
-        case .new: "New"
-        case .learning: "Learning"
-        case .review: "Review"
-        case .relearning: "Relearning"
+        case .new: L10n.text("New")
+        case .learning: L10n.text("Learning")
+        case .review: L10n.text("Review")
+        case .relearning: L10n.text("Relearning")
         }
     }
 }

@@ -58,7 +58,7 @@ struct ReviewCardArea: View {
             Spacer()
             ProgressView()
                 .controlSize(.large)
-            Text("Preparing cards\u{2026}")
+            Text(L10n.text("Preparing cards\u{2026}"))
                 .amgiFont(.body)
                 .foregroundStyle(palette.textSecondary)
             Spacer()
@@ -102,7 +102,7 @@ struct ReviewCardArea: View {
                 Button {
                     session.revealAnswer()
                 } label: {
-                    Text("Show Answer")
+                    Text(L10n.text("Show Answer"))
                         .amgiFont(.bodyEmphasis)
                         .frame(maxWidth: .infinity)
                         .padding()
@@ -145,16 +145,16 @@ struct ReviewCardArea: View {
     private var renderModeExplainer: String {
         switch session.resolvedMode {
         case .native:
-            return "rendered natively — passes the simplicity check."
+            return L10n.text("rendered natively — passes the simplicity check.")
         case .html:
             let prefs = currentRenderEnginePreferences(
                 mid: session.currentNote?.mid,
                 ord: Int(session.currentCardOrdinal)
             )
             if (prefs.override ?? prefs.global) == .alwaysHTML {
-                return "rendered as HTML — selected for this card."
+                return L10n.text("rendered as HTML — selected for this card.")
             }
-            return "rendered as HTML — uses features the native renderer doesn't support."
+            return L10n.text("rendered as HTML — uses features the native renderer doesn't support.")
         }
     }
 

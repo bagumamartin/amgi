@@ -85,7 +85,7 @@ package struct ReviewView: View {
             session.start()
         }
         .alert(
-            "Couldn't save that review",
+            L10n.text("Couldn’t save that review"),
             isPresented: Binding(
                 get: { session.answerError != nil },
                 set: { if !$0 { session.answerError = nil } }

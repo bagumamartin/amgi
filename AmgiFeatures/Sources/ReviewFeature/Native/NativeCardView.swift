@@ -1,4 +1,5 @@
 import SwiftUI
+import AmgiAppCore
 import AmgiUI
 import AmgiTheme
 import AmgiCardWeb
@@ -175,12 +176,12 @@ struct NativeCardView: View, Equatable {
                 .textSelection(.enabled)
                 .contextMenu {
                     if !isAnswerSide, onTextLookup != nil {
-                        Button("Look Up “\(macLookupPreview(for: String(attributed.characters)))”") {
+                        Button("\(L10n.text("Look Up")) “\(macLookupPreview(for: String(attributed.characters)))”") {
                             onTextLookup?(String(attributed.characters))
                         }
                         Divider()
                     }
-                    Button("Copy") {
+                    Button(L10n.text("Copy")) {
                         copyToPasteboard(String(attributed.characters))
                     }
                 }
@@ -236,7 +237,7 @@ struct NativeCardView: View, Equatable {
     /// Turn that stable, authored clue into an honest accessibility label
     /// instead of publishing a decorative image with no description at all.
     static func imageAccessibilityLabel(for filename: String, isAnswerSide: Bool = false) -> String {
-        let role = isAnswerSide ? "Answer card image" : "Question card image"
+        let role = isAnswerSide ? L10n.text("Answer card image") : L10n.text("Question card image")
         let filename = filename.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !filename.isEmpty else { return role }
         var stem = URL(fileURLWithPath: filename).deletingPathExtension().lastPathComponent
@@ -302,7 +303,7 @@ private struct NativeMediaImageView: View {
                     .scaledToFit()
                     .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.small, style: .continuous))
             } else if imageUnavailable {
-                Label("Image unavailable", systemImage: "photo")
+                Label(L10n.text("Image unavailable"), systemImage: "photo")
                     .amgiFont(.caption)
                     .foregroundStyle(palette.textSecondary)
             }

@@ -1,4 +1,5 @@
 import SwiftUI
+import AmgiAppCore
 import AmgiTheme
 import AnkiKit
 
@@ -82,12 +83,12 @@ struct DailyProgressBar<Center: View>: View {
         // widths.
         ZStack {
             HStack(alignment: .firstTextBaseline, spacing: AmgiSpacing.sm) {
-                Text("\(completedToday) of \(total) · \(percent)%")
+                Text(L10n.format("%lld of %lld · %lld%%", [completedToday, total, percent]))
                     .amgiFont(.micro)
                     .monospacedDigit()
                     .foregroundStyle(palette.textPrimary)
                 Spacer(minLength: AmgiSpacing.sm)
-                Text("\(max(remainingToday, 0)) left")
+                Text(L10n.format("%lld left", [max(remainingToday, 0)]))
                     .amgiFont(.captionBold)
                     .monospacedDigit()
                     .foregroundStyle(palette.accent)
@@ -178,13 +179,19 @@ struct DailyProgressBar<Center: View>: View {
 
     private var accessibilityLabel: String {
         var parts = [
-            "\(completedToday) of \(total) today",
-            "\(percent) percent complete",
-            "\(max(remainingToday, 0)) cards left",
+            L10n.format("%lld of %lld today", [completedToday, total]),
+            L10n.format("%lld percent complete", [percent]),
+            L10n.format("%lld cards", [max(remainingToday, 0)]),
         ]
-        if remainingCounts.newCount > 0 { parts.append("\(remainingCounts.newCount) new") }
-        if remainingCounts.learnCount > 0 { parts.append("\(remainingCounts.learnCount) learning") }
-        if remainingCounts.reviewCount > 0 { parts.append("\(remainingCounts.reviewCount) review") }
+        if remainingCounts.newCount > 0 {
+            parts.append("\(remainingCounts.newCount) \(L10n.text("New").lowercased(with: L10n.locale))")
+        }
+        if remainingCounts.learnCount > 0 {
+            parts.append("\(remainingCounts.learnCount) \(L10n.text("Learning").lowercased(with: L10n.locale))")
+        }
+        if remainingCounts.reviewCount > 0 {
+            parts.append("\(remainingCounts.reviewCount) \(L10n.text("Review").lowercased(with: L10n.locale))")
+        }
         return parts.joined(separator: ", ")
     }
 }

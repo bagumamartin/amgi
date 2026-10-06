@@ -256,7 +256,7 @@ struct ReviewContent: View {
             } label: {
                 Image(systemName: "xmark")
             }
-            .accessibilityLabel("Close")
+            .accessibilityLabel(L10n.text("Close"))
         }
         #endif
         #if os(iOS)
@@ -289,7 +289,7 @@ struct ReviewContent: View {
                     Image(systemName: "arrow.uturn.backward")
                 }
                 .disabled(!session.canUndo)
-                .accessibilityLabel(session.canUndo ? "Undo" : "Nothing to undo")
+                .accessibilityLabel(session.canUndo ? L10n.text("Undo") : L10n.text("Nothing to undo"))
 
                 Button {
                     session.redo()
@@ -297,7 +297,7 @@ struct ReviewContent: View {
                     Image(systemName: "arrow.uturn.forward")
                 }
                 .disabled(!session.canRedo)
-                .accessibilityLabel(session.canRedo ? "Redo" : "Nothing to redo")
+                .accessibilityLabel(session.canRedo ? L10n.text("Redo") : L10n.text("Nothing to redo"))
 
                 Button {
                     destination = session.currentNote.map(ReviewDestination.editNote)
@@ -305,7 +305,7 @@ struct ReviewContent: View {
                     Image(systemName: "pencil")
                 }
                 .disabled(session.currentNote == nil)
-                .accessibilityLabel("Edit Note")
+                .accessibilityLabel(L10n.text("Edit Note"))
             }
             ToolbarItem(placement: .topBarTrailing) {
                 cardActionsMenu
@@ -318,7 +318,7 @@ struct ReviewContent: View {
                 } label: {
                     Image(systemName: "sidebar.trailing")
                 }
-                .accessibilityLabel(showSessionInspector ? "Hide Session Inspector" : "Show Session Inspector")
+                .accessibilityLabel(showSessionInspector ? L10n.text("Hide Session Inspector") : L10n.text("Show Session Inspector"))
             }
         }
     }
@@ -355,8 +355,8 @@ struct ReviewContent: View {
     private var accessibilityTitle: String {
         if session.isAllDecksScope {
             return session.activeDeckName.isEmpty
-                ? "All Decks"
-                : "All Decks, \(session.activeDeckName.replacingOccurrences(of: "::", with: ", "))"
+                ? L10n.text("All decks")
+                : "\(L10n.text("All decks")), \(session.activeDeckName.replacingOccurrences(of: "::", with: ", "))"
         }
         return session.deckName.replacingOccurrences(of: "::", with: ", ")
     }
@@ -365,7 +365,7 @@ struct ReviewContent: View {
     private var deckTitle: String {
         if session.isAllDecksScope {
             return session.activeDeckName.isEmpty
-                ? "All Decks"
+                ? L10n.text("All decks")
                 : session.activeDeckName.components(separatedBy: "::").last?.trimmingCharacters(in: .whitespaces) ?? session.activeDeckName
         }
         return session.deckName.components(separatedBy: "::").last?.trimmingCharacters(in: .whitespaces) ?? session.deckName
@@ -377,9 +377,9 @@ struct ReviewContent: View {
             guard !session.activeDeckName.isEmpty else { return "" }
             let parts = session.activeDeckName.components(separatedBy: "::")
             if parts.count > 1 {
-                return "All Decks › " + parts.dropLast().joined(separator: " - ")
+                return L10n.text("All decks") + " › " + parts.dropLast().joined(separator: " - ")
             }
-            return "All Decks"
+            return L10n.text("All decks")
         }
         let parts = session.deckName.components(separatedBy: "::")
         guard parts.count > 1 else { return "" }
@@ -390,13 +390,13 @@ struct ReviewContent: View {
     private var navigationBreadcrumb: String {
         if session.isAllDecksScope {
             if session.activeDeckName.isEmpty {
-                return "All Decks"
+                return L10n.text("All decks")
             }
             let active = session.activeDeckName
                 .components(separatedBy: "::")
                 .map { $0.trimmingCharacters(in: .whitespaces) }
                 .joined(separator: " › ")
-            return "All Decks › \(active)"
+            return "\(L10n.text("All decks")) › \(active)"
         }
         return session.deckName
             .components(separatedBy: "::")
@@ -538,7 +538,7 @@ struct ReviewContent: View {
                 Button {
                     destination = session.currentTemplateTarget.map(ReviewDestination.editTemplate)
                 } label: {
-                    Label("Edit Template", systemImage: "square.and.pencil")
+                    Label(L10n.text("Edit Template"), systemImage: "square.and.pencil")
                 }
                 .disabled(session.currentTemplateTarget == nil)
 
@@ -548,7 +548,7 @@ struct ReviewContent: View {
                     // the query is pre-populated.
                     destination = .lookup("")
                 } label: {
-                    Label("Look Up", systemImage: "character.book.closed")
+                    Label(L10n.text("Look Up"), systemImage: "character.book.closed")
                 }
 
                 Button {
@@ -559,7 +559,7 @@ struct ReviewContent: View {
                     }
                 } label: {
                     Label(
-                        session.isAudioPlaying ? "Stop Audio" : "Replay Audio",
+                        session.isAudioPlaying ? L10n.text("Stop Audio") : L10n.text("Replay Audio"),
                         systemImage: session.isAudioPlaying ? "pause.circle" : "play.circle"
                     )
                 }
@@ -570,7 +570,7 @@ struct ReviewContent: View {
                 Button {
                     showRenderModeSheet = true
                 } label: {
-                    Label("Card Rendering", systemImage: "paintbrush")
+                    Label(L10n.text("Card Rendering"), systemImage: "paintbrush")
                 }
             }
 
@@ -591,7 +591,7 @@ struct ReviewContent: View {
                 )
         }
         .tint(cardActions.currentFlag == 0 ? palette.textPrimary : CardFlag.color(cardActions.currentFlag))
-        .accessibilityLabel("Card actions")
+        .accessibilityLabel(L10n.text("Card actions"))
     }
 
     /// Distinct from `finishedView`. A failed `start()` used to land on the
@@ -599,11 +599,11 @@ struct ReviewContent: View {
     /// success haptic — which reported a backend failure as a completed deck.
     private func startFailureView(_ message: String) -> some View {
         ContentUnavailableView {
-            Label("Couldn't Start Reviewing", systemImage: "exclamationmark.triangle")
+            Label(L10n.text("Couldn\u{2019}t Start Reviewing"), systemImage: "exclamationmark.triangle")
         } description: {
             Text(message)
         } actions: {
-            Button("Try Again") { session.start() }
+            Button(L10n.text("Try again")) { session.start() }
                 .buttonStyle(AmgiPrimaryButtonStyle())
         }
     }

@@ -1,3 +1,4 @@
+import AmgiAppCore
 import AmgiTheme
 import AmgiUI
 import AmgiReviewCore
@@ -36,9 +37,9 @@ struct ReviewContextDots: View {
 
     private var stateLabel: String {
         switch session.currentCardState {
-        case .new: "New card"
-        case .learning, .relearning: "Learning"
-        case .review: "Review"
+        case .new: L10n.text("New card")
+        case .learning, .relearning: L10n.text("Learning")
+        case .review: L10n.text("Review")
         }
     }
 
@@ -70,11 +71,11 @@ struct ReviewContextDots: View {
 
     private var lastRatingLabel: String {
         switch session.currentCardLastRating {
-        case .again: "Last rated Again"
-        case .hard: "Last rated Hard"
-        case .good: "Last rated Good"
-        case .easy: "Last rated Easy"
-        case nil: "Never reviewed"
+        case .again: L10n.format("Last rated %@", [L10n.text("Again")])
+        case .hard: L10n.format("Last rated %@", [L10n.text("Hard")])
+        case .good: L10n.format("Last rated %@", [L10n.text("Good")])
+        case .easy: L10n.format("Last rated %@", [L10n.text("Easy")])
+        case nil: L10n.text("Never reviewed")
         }
     }
 
@@ -96,6 +97,6 @@ struct ReviewContextDots: View {
         .buttonStyle(.plain)
         .disabled(!session.showAnswer || session.isAdvancing)
         .opacity(session.isAdvancing ? 0.45 : 1)
-        .accessibilityLabel("\(lastRatingLabel). Tap to repeat it")
+        .accessibilityLabel(L10n.format("%@. Tap to repeat it", [lastRatingLabel]))
     }
 }

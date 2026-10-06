@@ -9,17 +9,17 @@ import AmgiReviewCore
 extension CardRenderEngine {
     package var displayName: String {
         switch self {
-        case .auto: "Auto"
-        case .alwaysNative: "Native"
-        case .alwaysHTML: "HTML"
+        case .auto: L10n.text("Auto")
+        case .alwaysNative: L10n.text("Native")
+        case .alwaysHTML: L10n.text("HTML")
         }
     }
 
     package var summary: String {
         switch self {
-        case .auto: "Simple cards render natively, the rest use the template's HTML."
-        case .alwaysNative: "Prefer native rendering wherever the card allows it."
-        case .alwaysHTML: "Always render the template's HTML in the sandboxed web view."
+        case .auto: L10n.text("Simple cards render natively, the rest use the template's HTML.")
+        case .alwaysNative: L10n.text("Prefer native rendering wherever the card allows it.")
+        case .alwaysHTML: L10n.text("Always render the template's HTML in the sandboxed web view.")
         }
     }
 }
@@ -50,28 +50,28 @@ struct RenderModeSheet: View {
                         engineRow(engine)
                     }
                 } footer: {
-                    Text("This card: \(explainer)")
+                    Text(L10n.format("This card: %@", [explainer]))
                 }
 
                 if let template {
                     Section {
-                        Picker("Override", selection: overrideBinding(for: template)) {
-                            Text("Default").tag(CardRenderEngine?.none)
-                            Text("Native").tag(CardRenderEngine?.some(.alwaysNative))
-                            Text("HTML").tag(CardRenderEngine?.some(.alwaysHTML))
+                        Picker(L10n.text("Override"), selection: overrideBinding(for: template)) {
+                            Text(L10n.text("Default")).tag(CardRenderEngine?.none)
+                            Text(L10n.text("Native")).tag(CardRenderEngine?.some(.alwaysNative))
+                            Text(L10n.text("HTML")).tag(CardRenderEngine?.some(.alwaysHTML))
                         }
                     } header: {
-                        Text(templateName.map { "Template · \($0)" } ?? "This template")
+                        Text(templateName.map { L10n.format("Template · %@", [$0]) } ?? L10n.text("This template"))
                     } footer: {
-                        Text("Overrides the global choice for every card of this template. Stored on this device only.")
+                        Text(L10n.text("Overrides the global choice for every card of this template. Stored on this device only."))
                     }
                 }
             }
-            .navigationTitle("Card Rendering")
+            .navigationTitle(L10n.text("Card Rendering"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+                    Button(L10n.text("Done")) { dismiss() }
                 }
             }
         }

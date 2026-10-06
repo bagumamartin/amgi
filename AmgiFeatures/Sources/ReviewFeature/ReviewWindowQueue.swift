@@ -81,7 +81,7 @@ package struct ReviewWindowHost: View {
                     Image(systemName: "graduationcap")
                         .amgiFont(.displayHero)
                         .foregroundStyle(palette.textSecondary)
-                    Text("No deck selected")
+                    Text(L10n.text("No deck selected"))
                         .foregroundStyle(palette.textSecondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
