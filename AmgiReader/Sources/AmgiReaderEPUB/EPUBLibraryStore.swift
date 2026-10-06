@@ -116,7 +116,7 @@ public actor EPUBLibraryStore {
             // Parse the staged copy. The existing managed book is not touched
             // until this succeeds, so a corrupt re-import cannot destroy a
             // previously readable edition.
-            let stagedBook = try await parser.parse(fileURL: stagedEPUB)
+            let stagedBook = try await parser.parse(fileURL: stagedEPUB, knownBookID: bookID)
 
             var coverRelative: String?
             if let coverURL = stagedBook.coverImageURL,
@@ -144,6 +144,9 @@ public actor EPUBLibraryStore {
                 to: finalBookDirectory
             )
             let now = nextSyncDate(after: index.entries.first(where: { $0.bookID == bookID })?.syncDate)
+            let chapterEntries = committedBook.book.chapters.map {
+                EPUBLibraryIndexChapter(id: $0.id, title: $0.title, order: $0.order, pageCount: $0.pageCount)
+            }
             let entry = EPUBLibraryIndexEntry(
                 bookID: bookID,
                 title: committedBook.book.title,
@@ -151,6 +154,7 @@ public actor EPUBLibraryStore {
                 coverRelativePath: coverRelative,
                 language: committedBook.language,
                 pageCount: committedBook.pageCount,
+                chapters: chapterEntries,
                 updatedAt: now
             )
 
@@ -471,31 +475,94 @@ public actor EPUBLibraryStore {
                 out.append(cached)
                 continue
             }
-            let rebuilt = await rebuildBook(from: entry)
-            if let book = rebuilt.book {
-                bookCache[entry.bookID] = book
+            if entry.fault != nil {
+                out.append(Self.placeholderBook(for: entry))
+                continue
             }
-            out.append(rebuilt.book ?? Self.placeholderBook(for: entry))
+            let epubURL = localEntrySourceURL(entry.bookID)
+            guard FileManager.default.fileExists(atPath: epubURL.path) else {
+                await record(
+                    fault: .sourceMissing,
+                    detail: "The stored EPUB for this book is missing on disk.",
+                    for: entry.bookID,
+                    outcomeBook: nil
+                )
+                out.append(Self.placeholderBook(for: entry))
+                continue
+            }
+            let book = makeBook(from: entry)
+            out.append(book)
         }
         return out
     }
 
+    /// Retrieves a fully parsed ReaderBook on demand, re-parsing and caching chapters if uncached.
+    public func book(bookID: String) async -> ReaderBook? {
+        if let cached = bookCache[bookID] { return cached }
+        guard let position = index.entries.firstIndex(where: { $0.bookID == bookID && !$0.isDeleted }) else {
+            return nil
+        }
+        let entry = index.entries[position]
+        let rebuilt = await rebuildBook(from: entry)
+        if let book = rebuilt.book {
+            bookCache[bookID] = book
+            if index.entries[position].chapters == nil {
+                index.entries[position].chapters = book.chapters.map {
+                    EPUBLibraryIndexChapter(id: $0.id, title: $0.title, order: $0.order, pageCount: $0.pageCount)
+                }
+                try? writeIndex()
+            }
+            return book
+        }
+        return nil
+    }
+
     /// Current repair state for every non-deleted book, keyed by book ID.
     ///
-    /// This verifies each book rather than only echoing the persisted field,
-    /// so a source that disappeared (or started failing to parse) since the
-    /// last launch is reported even if nothing has touched the reader yet. A
-    /// fault it discovers is persisted, so a later cold launch still sees it.
+    /// Verifies source file presence and archive header integrity per book
+    /// without full extraction/parsing, so the library can report missing or
+    /// corrupt files instantaneously without stalling app launch.
     public func bookHealth() async -> [String: EPUBLibraryBookHealth] {
         var out: [String: EPUBLibraryBookHealth] = [:]
         for entry in index.entries where !entry.isDeleted {
-            if bookCache[entry.bookID] == nil {
-                let outcome = await rebuildBook(from: entry)
-                if let book = outcome.book {
-                    bookCache[entry.bookID] = book
-                }
+            let epubURL = localEntrySourceURL(entry.bookID)
+            guard FileManager.default.fileExists(atPath: epubURL.path) else {
+                await record(
+                    fault: .sourceMissing,
+                    detail: "The stored EPUB for this book is missing on disk.",
+                    for: entry.bookID,
+                    outcomeBook: nil
+                )
+                out[entry.bookID] = EPUBLibraryBookHealth(
+                    bookID: entry.bookID,
+                    state: .needsRepair(fault: .sourceMissing, detail: "The stored EPUB for this book is missing on disk.")
+                )
+                continue
             }
-            // Re-read: rebuildBook may have just recorded a fault.
+
+            // Quick zip integrity check: zip archives must begin with magic bytes 'PK\x03\x04'.
+            // If the file is truncated or corrupted, flag parseFailed without running full unzipping.
+            let isValidZip: Bool = {
+                guard let handle = try? FileHandle(forReadingFrom: epubURL) else { return false }
+                defer { try? handle.close() }
+                guard let header = try? handle.read(upToCount: 4) else { return false }
+                return header.elementsEqual([0x50, 0x4B, 0x03, 0x04])
+            }()
+
+            if !isValidZip {
+                await record(
+                    fault: .parseFailed,
+                    detail: "The EPUB archive is corrupted.",
+                    for: entry.bookID,
+                    outcomeBook: nil
+                )
+                out[entry.bookID] = EPUBLibraryBookHealth(
+                    bookID: entry.bookID,
+                    state: .needsRepair(fault: .parseFailed, detail: "The EPUB archive is corrupted.")
+                )
+                continue
+            }
+
             let current = index.entries.first(where: { $0.bookID == entry.bookID }) ?? entry
             out[entry.bookID] = Self.health(for: current)
         }
@@ -865,6 +932,33 @@ public actor EPUBLibraryStore {
             chapters: [],
             pageCount: nil,
             source: .epub(localURL: URL(fileURLWithPath: "/"))
+        )
+    }
+
+    private func makeBook(from entry: EPUBLibraryIndexEntry) -> ReaderBook {
+        let epubURL = localEntrySourceURL(entry.bookID)
+        let coverPath = entry.coverRelativePath.flatMap { localURL(forRelativePath: $0)?.path }
+        let chapters = entry.chapters?.map {
+            ReaderChapter(
+                id: $0.id,
+                bookID: entry.bookID,
+                bookTitle: entry.title,
+                title: $0.title,
+                order: $0.order,
+                content: "",
+                language: entry.language,
+                pageCount: $0.pageCount
+            )
+        } ?? []
+        return ReaderBook(
+            id: entry.bookID,
+            title: entry.title,
+            author: entry.author,
+            coverImagePath: coverPath,
+            language: entry.language,
+            chapters: chapters,
+            pageCount: entry.pageCount,
+            source: .epub(localURL: epubURL)
         )
     }
 

@@ -25,6 +25,18 @@ final class ReaderBookDetailModel {
     @ObservationIgnored @Dependency(\.pdfLibraryClient) private var pdfLibraryClient
     @ObservationIgnored @Dependency(\.readerCardCountClient) private var readerCardCountClient
 
+    func loadFullBookIfNeeded(_ book: ReaderBook) async -> ReaderBook {
+        guard book.chapters.isEmpty else { return book }
+        switch book.source {
+        case .epub:
+            return (await epubLibraryClient.book(book.id)) ?? book
+        case .pdf:
+            return (await pdfLibraryClient.book(book.id)) ?? book
+        case .ankiDeck:
+            return book
+        }
+    }
+
     func load(book: ReaderBook) async {
         var coverURL: URL?
         switch book.source {

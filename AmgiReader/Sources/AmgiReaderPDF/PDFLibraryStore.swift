@@ -114,13 +114,14 @@ public actor PDFLibraryStore {
             throw StoreError.importFailed(underlying: "The file no longer exists.")
         }
 
-        let existingID = Self.bookIDIfAlreadyPresent(sourceURL, in: rootDirectory)
         let bookID: String
         do {
             bookID = try Self.deriveBookID(forFileAt: sourceURL)
         } catch {
             throw StoreError.importFailed(underlying: error.localizedDescription)
         }
+
+        let existingID = Self.bookIDIfAlreadyPresent(candidateID: bookID, in: rootDirectory, index: index)
 
         // An import that would change the ID of a book already in the library
         // would silently create a second entry for the same document. This can
@@ -156,6 +157,10 @@ public actor PDFLibraryStore {
             }
 
             let now = nextSyncDate(after: index.entries.first { $0.bookID == bookID }?.syncDate)
+            let book = makeBook(from: descriptor, sourceURL: finalDirectory)
+            let chapterEntries = book.chapters.map {
+                PDFLibraryIndexChapter(id: $0.id, title: $0.title, order: $0.order, pageCount: $0.pageCount)
+            }
             let entry = PDFLibraryIndexEntry(
                 bookID: bookID,
                 title: descriptor.title,
@@ -163,6 +168,7 @@ public actor PDFLibraryStore {
                 coverRelativePath: coverRelative,
                 language: descriptor.language,
                 pageCount: descriptor.pageCount,
+                chapters: chapterEntries,
                 updatedAt: now
             )
 
@@ -180,7 +186,6 @@ public actor PDFLibraryStore {
                 throw StoreError.importFailed(underlying: "The library index could not be written.")
             }
 
-            let book = makeBook(from: descriptor, sourceURL: finalDirectory)
             bookCache[bookID] = book
             descriptorCache[bookID] = descriptor
             return book
@@ -489,25 +494,53 @@ public actor PDFLibraryStore {
                 out.append(cached)
                 continue
             }
-            let outcome = await rebuildBook(from: entry)
-            // A book that cannot be rebuilt must still appear, carrying its
-            // persisted fault, so the library can offer a repair action. Only a
-            // deleted book disappears.
-            out.append(outcome.book ?? Self.placeholderBook(for: entry))
+            if entry.fault != nil {
+                out.append(Self.placeholderBook(for: entry))
+                continue
+            }
+            let source = rootDirectory
+                .appendingPathComponent(entry.bookID, isDirectory: true)
+                .appendingPathComponent(Self.sourceFileName)
+            guard FileManager.default.fileExists(atPath: source.path) else {
+                record(
+                    fault: .sourceMissing,
+                    detail: "The PDF is no longer in the library folder.",
+                    for: entry.bookID
+                )
+                out.append(Self.placeholderBook(for: entry))
+                continue
+            }
+            let book = makeBook(from: entry)
+            out.append(book)
         }
         return out
     }
 
+    /// Retrieves a fully parsed ReaderBook on demand, re-parsing and caching chapters if uncached.
+    public func book(bookID: String) async -> ReaderBook? {
+        if let cached = bookCache[bookID] { return cached }
+        guard let position = index.entries.firstIndex(where: { $0.bookID == bookID && !$0.isDeleted }) else {
+            return nil
+        }
+        let entry = index.entries[position]
+        let outcome = await rebuildBook(from: entry)
+        if let book = outcome.book {
+            bookCache[bookID] = book
+            if index.entries[position].chapters == nil {
+                index.entries[position].chapters = book.chapters.map {
+                    PDFLibraryIndexChapter(id: $0.id, title: $0.title, order: $0.order, pageCount: $0.pageCount)
+                }
+                try? writeIndex()
+            }
+            return book
+        }
+        return nil
+    }
+
     /// Current repair state for every non-deleted book, keyed by book ID.
     ///
-    /// This verifies each book rather than echoing the persisted field, so a
-    /// source that disappeared since launch is reported even if the reader has
-    /// not been opened.
-    ///
-    /// The cache is deliberately not trusted here. A book that was read
-    /// successfully and *then* lost its file is the case worth catching, and
-    /// skipping verification for cached books is exactly how that case gets
-    /// reported as healthy. The check is a stat per book, not a re-parse.
+    /// Verifies source file presence per book without re-reading bytes or re-parsing,
+    /// so missing files are reported immediately without stalling app launch.
     public func bookHealth() async -> [String: PDFLibraryBookHealth] {
         var out: [String: PDFLibraryBookHealth] = [:]
         let fileManager = FileManager.default
@@ -515,10 +548,12 @@ public actor PDFLibraryStore {
             let source = rootDirectory
                 .appendingPathComponent(entry.bookID, isDirectory: true)
                 .appendingPathComponent(Self.sourceFileName)
-            let needsRebuild = bookCache[entry.bookID] == nil
-                || !fileManager.fileExists(atPath: source.path)
-            if needsRebuild {
-                _ = await rebuildBook(from: entry)
+            if !fileManager.fileExists(atPath: source.path) {
+                record(
+                    fault: .sourceMissing,
+                    detail: "The PDF is no longer in the library folder.",
+                    for: entry.bookID
+                )
             }
             let current = index.entries.first { $0.bookID == entry.bookID } ?? entry
             out[entry.bookID] = Self.health(for: current)
@@ -739,18 +774,27 @@ public actor PDFLibraryStore {
         SHA256.hash(data: Data(material)).map { String(format: "%02x", $0) }.joined()
     }
 
-    /// The ID of `url` if the library already holds that exact document.
+    /// The ID of `candidateID` if the library already holds that exact document.
     ///
     /// Compares derived IDs rather than raw bytes, because a managed file is
     /// annotated in place and so no longer matches the file the user picked
     /// byte-for-byte even though it is the same document.
-    private static func bookIDIfAlreadyPresent(_ url: URL, in root: URL) -> String? {
-        let candidateID: String
-        do {
-            candidateID = try deriveBookID(forFileAt: url)
-        } catch {
-            return nil
+    private static func bookIDIfAlreadyPresent(
+        candidateID: String,
+        in root: URL,
+        index: PDFLibraryIndexFile
+    ) -> String? {
+        // Fast path: if the document is already present in the in-memory index or
+        // its managed directory already exists, return immediately without
+        // scanning and hashing every PDF in the library.
+        if index.entries.contains(where: { $0.bookID == candidateID && !$0.isDeleted }) {
+            return candidateID
         }
+        let directFolder = root.appendingPathComponent(candidateID, isDirectory: true)
+        if FileManager.default.fileExists(atPath: directFolder.appendingPathComponent(Self.sourceFileName).path) {
+            return candidateID
+        }
+
         guard let entries = try? FileManager.default.contentsOfDirectory(
             at: root, includingPropertiesForKeys: nil
         ) else { return nil }
@@ -931,6 +975,38 @@ public actor PDFLibraryStore {
             chapters: [],
             pageCount: entry.pageCount,
             source: .pdf(localURL: URL(fileURLWithPath: "/dev/null"))
+        )
+    }
+
+    private func makeBook(from entry: PDFLibraryIndexEntry) -> ReaderBook {
+        let directory = rootDirectory.appendingPathComponent(entry.bookID, isDirectory: true)
+        let file = directory.appendingPathComponent(Self.sourceFileName)
+        let coverPath = entry.coverRelativePath.flatMap { relative -> String? in
+            let url = rootDirectory.appendingPathComponent(relative).standardizedFileURL
+            let prefix = rootDirectory.standardizedFileURL.path + "/"
+            return url.path.hasPrefix(prefix) ? url.path : nil
+        }
+        let chapters = entry.chapters?.map {
+            ReaderChapter(
+                id: $0.id,
+                bookID: entry.bookID,
+                bookTitle: entry.title,
+                title: $0.title,
+                order: $0.order,
+                content: "",
+                language: entry.language,
+                pageCount: $0.pageCount
+            )
+        } ?? []
+        return ReaderBook(
+            id: entry.bookID,
+            title: entry.title,
+            author: entry.author,
+            coverImagePath: coverPath,
+            language: entry.language,
+            chapters: chapters,
+            pageCount: entry.pageCount,
+            source: .pdf(localURL: file)
         )
     }
 

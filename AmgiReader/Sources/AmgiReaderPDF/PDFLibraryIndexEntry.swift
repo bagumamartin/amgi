@@ -54,6 +54,20 @@ public struct PDFLibraryBookHealth: Sendable, Hashable {
     }
 }
 
+public struct PDFLibraryIndexChapter: Codable, Sendable, Hashable {
+    public var id: Int64
+    public var title: String
+    public var order: String?
+    public var pageCount: Int?
+
+    public init(id: Int64, title: String, order: String? = nil, pageCount: Int? = nil) {
+        self.id = id
+        self.title = title
+        self.order = order
+        self.pageCount = pageCount
+    }
+}
+
 /// On-disk shape persisted in `PDFLibrary/index.json`.
 struct PDFLibraryIndexEntry: Codable, Sendable, Hashable {
     var bookID: String
@@ -62,6 +76,8 @@ struct PDFLibraryIndexEntry: Codable, Sendable, Hashable {
     var coverRelativePath: String?
     var language: String?
     var pageCount: Int
+    /// Cached chapter list from previous parse, avoiding cold-start re-parsing.
+    var chapters: [PDFLibraryIndexChapter]?
     /// Last local metadata/file update. Optional so indexes written before
     /// timestamped sync metadata remain readable.
     var updatedAt: Date?
@@ -82,6 +98,7 @@ struct PDFLibraryIndexEntry: Codable, Sendable, Hashable {
         coverRelativePath: String?,
         language: String?,
         pageCount: Int,
+        chapters: [PDFLibraryIndexChapter]? = nil,
         updatedAt: Date? = nil,
         deletedAt: Date? = nil,
         fault: PDFLibraryEntryFault? = nil,
@@ -93,6 +110,7 @@ struct PDFLibraryIndexEntry: Codable, Sendable, Hashable {
         self.coverRelativePath = coverRelativePath
         self.language = language
         self.pageCount = pageCount
+        self.chapters = chapters
         self.updatedAt = updatedAt
         self.deletedAt = deletedAt
         self.fault = fault

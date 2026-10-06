@@ -1,5 +1,7 @@
 import AmgiReader
 import AmgiReaderEPUB
+import AnkiClients
+import Dependencies
 import Foundation
 import Testing
 @testable import ReaderFeature
@@ -139,5 +141,66 @@ struct ReaderLibraryViewDataTests {
             hasAnkiConfig: true
         )
         #expect(data.allBooks.first?.coverArt == .epub(localFileURL: cover))
+    }
+}
+
+@Suite("Reader library model import")
+struct ReaderLibraryModelImportTests {
+    private func sampleBook(_ id: String, title: String) -> ReaderBook {
+        ReaderBook(
+            id: id,
+            title: title,
+            author: "Author",
+            chapters: [],
+            source: .epub(localURL: URL(fileURLWithPath: "/tmp/\(id).epub"))
+        )
+    }
+
+    @Test("upsertImportedBook immediately transitions state to loaded and populates book")
+    @MainActor
+    func upsertImmediatelyLoaded() async {
+        await withDependencies {
+            $0.epubLibraryClient.coverURL = { _ in nil }
+            $0.pdfLibraryClient.coverURL = { _ in nil }
+        } operation: {
+            let model = ReaderLibraryModel()
+            #expect(model.books.isEmpty)
+
+            let book = sampleBook("book-1", title: "Swift Guide")
+            await model.upsertImportedBook(book, searchText: "", sortMode: .title)
+
+            #expect(model.books.count == 1)
+            #expect(model.book(for: "book-1")?.title == "Swift Guide")
+            if case .loaded(let viewData) = model.state {
+                #expect(viewData.allBooks.count == 1)
+                #expect(viewData.allBooks.first?.title == "Swift Guide")
+            } else {
+                Issue.record("Expected state to be .loaded")
+            }
+        }
+    }
+
+    @Test("importBooks sets isImportingBooks flag and upserts book immediately")
+    @MainActor
+    func importBooksSetsFlagAndUpserts() async {
+        let dummyURL = URL(fileURLWithPath: "/tmp/sample.epub")
+        let imported = sampleBook("imported-1", title: "Imported Book")
+
+        await withDependencies {
+            $0.epubLibraryClient.importEPUB = { _ in imported }
+            $0.epubLibraryClient.listBooks = { [imported] }
+            $0.epubLibraryClient.coverURL = { _ in nil }
+            $0.pdfLibraryClient.listBooks = { [] }
+            $0.pdfLibraryClient.coverURL = { _ in nil }
+        } operation: {
+            let model = ReaderLibraryModel()
+            #expect(!model.isImportingBooks)
+
+            await model.importBooks([dummyURL], searchText: "", sortMode: .title)
+
+            #expect(!model.isImportingBooks)
+            #expect(model.books.count == 1)
+            #expect(model.book(for: "imported-1")?.title == "Imported Book")
+        }
     }
 }

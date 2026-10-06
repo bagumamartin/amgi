@@ -92,20 +92,34 @@ enum EPUBChapterMapper {
         )
     }
 
-    /// Strip HTML tags via the simple `<[^>]+>` regex, split on
+    /// Strip HTML tags via a fast linear Unicode scalar scan, split on
     /// whitespace, divide by 250 words/page (ceiling). 250 is the
     /// canonical reading-system word-per-page figure used by Apple Books
     /// and several reference implementations.
     static func estimatePages(forHTML html: String) -> Int {
-        let stripped = html.replacingOccurrences(
-            of: "<[^>]+>",
-            with: " ",
-            options: .regularExpression
-        )
-        let words = stripped.split(whereSeparator: { $0.isWhitespace || $0.isNewline })
-        let count = words.count
-        guard count > 0 else { return 1 }
-        return (count + 249) / 250
+        var wordCount = 0
+        var insideTag = false
+        var insideWord = false
+
+        for scalar in html.unicodeScalars {
+            if insideTag {
+                if scalar.value == 0x3E { // '>'
+                    insideTag = false
+                }
+            } else if scalar.value == 0x3C { // '<'
+                insideTag = true
+                insideWord = false
+            } else if scalar.value <= 0x20 || scalar.properties.isWhitespace {
+                insideWord = false
+            } else {
+                if !insideWord {
+                    wordCount += 1
+                    insideWord = true
+                }
+            }
+        }
+        guard wordCount > 0 else { return 1 }
+        return (wordCount + 249) / 250
     }
 
     /// Flatten the NCX tree into a `[href-without-fragment: label]`

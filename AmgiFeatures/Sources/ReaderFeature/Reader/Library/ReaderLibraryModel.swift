@@ -15,6 +15,7 @@ import Foundation
 final class ReaderLibraryModel {
     var state: ReaderLibraryContent.State = .loading
     var importError: String?
+    var isImportingBooks: Bool = false
 
     private(set) var books: [ReaderBook] = []
     private var bookIndex: [String: ReaderBook] = [:]
@@ -172,12 +173,7 @@ final class ReaderLibraryModel {
         if Task.isCancelled { return }
         repairs = foundRepairs
 
-        var progressSnapshot: [String: ReaderSavedProgress] = [:]
-        for book in merged {
-            if let saved = await progress.resolved(bookID: book.id) {
-                progressSnapshot[book.id] = saved
-            }
-        }
+        let progressSnapshot = await progress.resolveAll(bookIDs: merged.map(\.id))
         if Task.isCancelled { return }
         progressByBook = progressSnapshot
 
@@ -268,7 +264,14 @@ final class ReaderLibraryModel {
     /// button to press. A file whose extension is not recognised is reported
     /// rather than skipped silently — an import that appears to do nothing is
     /// indistinguishable from a broken one.
+    ///
+    /// Each imported book is optimistically inserted into the bookshelf immediately
+    /// so the user sees it appear in real time without waiting for full library
+    /// health checks or sync reloads to complete.
     func importBooks(_ urls: [URL], searchText: String, sortMode: BookshelfSortMode) async {
+        isImportingBooks = true
+        defer { isImportingBooks = false }
+
         var succeeded = 0
         for url in urls {
             let accessed = url.startAccessingSecurityScopedResource()
@@ -276,15 +279,17 @@ final class ReaderLibraryModel {
                 if accessed { url.stopAccessingSecurityScopedResource() }
             }
             do {
+                let importedBook: ReaderBook
                 switch url.pathExtension.lowercased() {
                 case "pdf":
-                    _ = try await pdfLibraryClient.importPDF(url)
+                    importedBook = try await pdfLibraryClient.importPDF(url)
                 case "epub":
-                    _ = try await epubLibraryClient.importEPUB(url)
+                    importedBook = try await epubLibraryClient.importEPUB(url)
                 default:
                     importError = "\"\(url.lastPathComponent)\" is not an EPUB or a PDF."
                     continue
                 }
+                await upsertImportedBook(importedBook, searchText: searchText, sortMode: sortMode)
                 succeeded += 1
             } catch {
                 importError = error.localizedDescription
@@ -293,5 +298,29 @@ final class ReaderLibraryModel {
         if succeeded > 0 {
             startReload(searchText: searchText, sortMode: sortMode)
         }
+    }
+
+    /// Optimistically inserts or updates an imported book in the visible library.
+    func upsertImportedBook(_ book: ReaderBook, searchText: String, sortMode: BookshelfSortMode) async {
+        books.removeAll { $0.id == book.id }
+        books.insert(book, at: 0)
+        bookIndex[book.id] = book
+
+        if localCoverURLs[book.id] == nil {
+            let coverURL: URL?
+            switch book.source {
+            case .epub:
+                coverURL = await epubLibraryClient.coverURL(book.id)
+            case .pdf:
+                coverURL = await pdfLibraryClient.coverURL(book.id)
+            case .ankiDeck:
+                coverURL = nil
+            }
+            if let coverURL {
+                localCoverURLs[book.id] = coverURL
+            }
+        }
+
+        rebuildViewData(searchText: searchText, sortMode: sortMode)
     }
 }

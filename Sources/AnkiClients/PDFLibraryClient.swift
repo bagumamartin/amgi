@@ -56,7 +56,9 @@ public struct PDFLibraryClient: Sendable {
     public var reload: @Sendable (_ bookID: String) async throws -> PDFDocumentDescriptor = { _ in
         throw PDFLibraryStore.StoreError.bookNotFound
     }
-    public var coverURL: @Sendable (_ bookID: String) async -> URL?
+    public var coverURL: @Sendable (_ bookID: String) async -> URL? = { _ in nil }
+    /// Retrieves a fully parsed ReaderBook on demand.
+    public var book: @Sendable (_ bookID: String) async -> ReaderBook? = { _ in nil }
 }
 
 extension PDFLibraryClient: TestDependencyKey {
@@ -114,6 +116,9 @@ extension PDFLibraryClient: DependencyKey {
                     .appendingPathComponent("cover.jpg"),
                       FileManager.default.fileExists(atPath: url.path) else { return nil }
                 return url
+            },
+            book: { bookID in
+                await SharedPDFLibraryStore.store().book(bookID: bookID)
             }
         )
     }()

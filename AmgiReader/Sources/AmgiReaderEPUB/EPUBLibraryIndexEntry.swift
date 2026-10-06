@@ -41,6 +41,20 @@ public struct EPUBLibraryBookHealth: Sendable, Hashable {
     }
 }
 
+public struct EPUBLibraryIndexChapter: Codable, Sendable, Hashable {
+    public var id: Int64
+    public var title: String
+    public var order: String?
+    public var pageCount: Int?
+
+    public init(id: Int64, title: String, order: String? = nil, pageCount: Int? = nil) {
+        self.id = id
+        self.title = title
+        self.order = order
+        self.pageCount = pageCount
+    }
+}
+
 /// On-disk shape persisted in `EPUBLibrary/index.json`.
 internal struct EPUBLibraryIndexEntry: Codable, Sendable, Hashable {
     var bookID: String
@@ -49,6 +63,8 @@ internal struct EPUBLibraryIndexEntry: Codable, Sendable, Hashable {
     var coverRelativePath: String?
     var language: String?
     var pageCount: Int
+    /// Cached chapter list from previous parse, avoiding cold-start re-unzips.
+    var chapters: [EPUBLibraryIndexChapter]?
     /// Last local metadata/file update. Optional so indexes written before
     /// timestamped sync metadata remain readable.
     var updatedAt: Date?
@@ -71,6 +87,7 @@ internal struct EPUBLibraryIndexEntry: Codable, Sendable, Hashable {
         coverRelativePath: String?,
         language: String?,
         pageCount: Int,
+        chapters: [EPUBLibraryIndexChapter]? = nil,
         updatedAt: Date? = nil,
         deletedAt: Date? = nil,
         fault: EPUBLibraryEntryFault? = nil,
@@ -82,6 +99,7 @@ internal struct EPUBLibraryIndexEntry: Codable, Sendable, Hashable {
         self.coverRelativePath = coverRelativePath
         self.language = language
         self.pageCount = pageCount
+        self.chapters = chapters
         self.updatedAt = updatedAt
         self.deletedAt = deletedAt
         self.fault = fault

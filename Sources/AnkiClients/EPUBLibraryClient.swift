@@ -40,7 +40,9 @@ public struct EPUBLibraryClient: Sendable {
     public var chapterContentURL: @Sendable (_ bookID: String, _ chapterID: Int64) async -> URL?
     /// Book content root, used as the WebView's read-access scope.
     public var contentRootURL: @Sendable (_ bookID: String) async -> URL?
-    public var coverURL: @Sendable (_ bookID: String) async -> URL?
+    public var coverURL: @Sendable (_ bookID: String) async -> URL? = { _ in nil }
+    /// Retrieves a fully parsed ReaderBook on demand.
+    public var book: @Sendable (_ bookID: String) async -> ReaderBook? = { _ in nil }
 }
 
 extension EPUBLibraryClient: TestDependencyKey {
@@ -96,6 +98,9 @@ extension EPUBLibraryClient: DependencyKey {
             },
             coverURL: { bookID in
                 await SharedEPUBLibraryStore.store().coverURL(bookID: bookID)
+            },
+            book: { bookID in
+                await SharedEPUBLibraryStore.store().book(bookID: bookID)
             }
         )
     }()

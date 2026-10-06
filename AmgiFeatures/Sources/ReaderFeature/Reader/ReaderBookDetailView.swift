@@ -18,24 +18,35 @@ struct ReaderBookDetailView: View {
 
     @State private var model = ReaderBookDetailModel()
     @State private var savedProgress: ReaderSavedProgress?
+    @State private var currentBook: ReaderBook?
+
+    private var activeBook: ReaderBook {
+        currentBook ?? book
+    }
 
     var body: some View {
         ReaderBookDetailContent(
-            book: book,
+            book: activeBook,
             savedProgress: savedProgress,
             state: model.state,
             progress: progress
         )
-        .navigationTitle(book.title)
+        .navigationTitle(activeBook.title)
         .navigationBarTitleDisplayMode(.inline)
         .task {
             savedProgress = await progress.resolved(bookID: book.id)
-            await model.load(book: book)
+            let hydrated = await model.loadFullBookIfNeeded(book)
+            currentBook = hydrated
+            await model.load(book: hydrated)
         }
         .onReceive(NotificationCenter.default.publisher(for: .amgiReaderCardAdded)) { note in
             guard let bookID = note.userInfo?["bookID"] as? String,
                   bookID == book.id else { return }
-            Task { await model.load(book: book) }
+            Task {
+                let hydrated = await model.loadFullBookIfNeeded(activeBook)
+                currentBook = hydrated
+                await model.load(book: hydrated)
+            }
         }
     }
 }

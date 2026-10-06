@@ -54,6 +54,33 @@ struct ReaderProgressCoordinator: Sendable {
         return winner
     }
 
+    /// Returns the resolved progress for multiple books in a single pass,
+    /// reading the iCloud manifest once rather than once per book.
+    func resolveAll(bookIDs: [String]) async -> [String: ReaderSavedProgress] {
+        let cloudEntries = (try? await sync.loadManifest()?.entries) ?? [:]
+        var result: [String: ReaderSavedProgress] = [:]
+        for bookID in bookIDs {
+            let local = store.load(bookID: bookID)
+            let cloud = cloudEntries[bookID]
+
+            let winner: ReaderSavedProgress?
+            switch (local, cloud) {
+            case let (l?, c?): winner = c.updatedAt > l.updatedAt ? c : l
+            case let (l?, nil): winner = l
+            case let (nil, c?): winner = c
+            default: winner = nil
+            }
+
+            if let winner {
+                result[bookID] = winner
+                if winner != local {
+                    store.save(bookID: bookID, payload: winner)
+                }
+            }
+        }
+        return result
+    }
+
     /// Saves locally first, then mirrors to the iCloud Drive manifest in
     /// the background. Both sides receive the same payload so collisions
     /// resolve identically on every device.

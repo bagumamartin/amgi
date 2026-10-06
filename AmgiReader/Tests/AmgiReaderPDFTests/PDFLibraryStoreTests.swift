@@ -45,6 +45,28 @@ struct PDFLibraryStoreTests {
         #expect(books[0].id == book.id)
     }
 
+    @Test("cold start books listing uses index without re-parsing")
+    func coldStartBooksUsesIndexDirectly() async throws {
+        let temporary = TemporaryLibrary()
+        defer { temporary.cleanUp() }
+        let source = try temporary.write(PDFDocumentFixture.outlined(), named: "book.pdf")
+        let store = PDFLibraryStore(rootDirectory: temporary.root.appendingPathComponent("library"))
+
+        let imported = try await store.importPDF(from: source)
+
+        // Fresh store modeling cold launch
+        let coldStore = PDFLibraryStore(rootDirectory: temporary.root.appendingPathComponent("library"))
+        let coldBooks = await coldStore.books()
+
+        #expect(coldBooks.count == 1)
+        #expect(coldBooks.first?.id == imported.id)
+        #expect(coldBooks.first?.title == imported.title)
+        #expect(coldBooks.first?.chapters.count == imported.chapters.count)
+
+        let health = await coldStore.bookHealth()
+        #expect(health[imported.id]?.isReady == true)
+    }
+
     @Test("chapters come from the document outline")
     func chaptersComeFromTheOutline() async throws {
         let temporary = TemporaryLibrary()

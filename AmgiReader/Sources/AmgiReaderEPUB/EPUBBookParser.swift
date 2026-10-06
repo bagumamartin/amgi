@@ -33,7 +33,7 @@ public actor EPUBBookParser {
     /// point at files inside EPUBKit's extracted directory
     /// (`EPUBDocument.directory`) — callers must keep that directory
     /// alive for as long as they intend to read chapters.
-    public func parse(fileURL: URL) async throws -> ParsedEPUBBook {
+    public func parse(fileURL: URL, knownBookID: String? = nil) async throws -> ParsedEPUBBook {
         guard let document = EPUBDocument(url: fileURL) else {
             throw EPUBParserError.cannotOpen
         }
@@ -44,7 +44,7 @@ public actor EPUBBookParser {
             throw EPUBParserError.noSpine
         }
 
-        let bookID = try Self.deriveBookID(forFileAt: fileURL)
+        let bookID = try knownBookID ?? Self.deriveBookID(forFileAt: fileURL)
         let language = document.metadata.language
         let author = document.metadata.creator?.name.flatMap {
             $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0

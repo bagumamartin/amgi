@@ -88,6 +88,32 @@ struct EPUBLibraryStoreTests {
         #expect(listedChapterURL.map { FileManager.default.fileExists(atPath: $0.path) } == true)
     }
 
+    @Test("cold start books listing uses index without re-extracting or re-parsing")
+    func coldStartBooksUsesIndexDirectly() async throws {
+        let fixtureRoot = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+
+        let sourceURL = fixtureRoot.appendingPathComponent("source.epub")
+        try makeValidEPUB(at: sourceURL)
+
+        let libraryRoot = fixtureRoot.appendingPathComponent("library", isDirectory: true)
+        let store = EPUBLibraryStore(rootDirectory: libraryRoot)
+        let imported = try await store.importEPUB(from: sourceURL)
+
+        // Simulate a cold launch with a fresh store.
+        let coldStore = EPUBLibraryStore(rootDirectory: libraryRoot)
+        let coldBooks = await coldStore.books()
+
+        #expect(coldBooks.count == 1)
+        #expect(coldBooks.first?.id == imported.id)
+        #expect(coldBooks.first?.title == "Test Publication")
+        #expect(coldBooks.first?.chapters.count == imported.chapters.count)
+
+        // Health check on cold start is instant and reports ready
+        let health = await coldStore.bookHealth()
+        #expect(health[imported.id]?.isReady == true)
+    }
+
     @Test("iCloud mirror uploads and additively restores without deleting local state")
     func iCloudMirrorRoundTrip() async throws {
         let fixtureRoot = try makeTemporaryDirectory()
