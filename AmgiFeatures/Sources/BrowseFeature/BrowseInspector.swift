@@ -1,5 +1,6 @@
 // AmgiApp/Sources/Browse/BrowseInspector.swift
 import SwiftUI
+import AmgiAppCore
 import AmgiUI
 import AnkiKit
 import AnkiClients
@@ -58,6 +59,8 @@ struct BrowseDetailTabs: View {
         case edit = "Edit"
         case preview = "Preview"
         case info = "Info"
+
+        var localizedTitle: String { L10n.key(rawValue) }
     }
 
     // Clicking a row is a peek, not an edit session — Preview leads and
@@ -71,7 +74,7 @@ struct BrowseDetailTabs: View {
     var body: some View {
         VStack(spacing: 0) {
             Picker("Tab", selection: $tab) {
-                ForEach(Tab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                ForEach(Tab.allCases, id: \.self) { Text($0.localizedTitle).tag($0) }
             }
             .pickerStyle(.segmented)
             .padding(8)
@@ -152,8 +155,8 @@ struct BrowseDetailTabs: View {
                 .foregroundStyle(palette.textSecondary)
         }
         .buttonStyle(.plain)
-        .help("Close")
-        .accessibilityLabel("Close details")
+        .help(L10n.text("Close"))
+        .accessibilityLabel(L10n.text("Close details"))
         .keyboardShortcut("w", modifiers: [.command, .option])
     }
 
@@ -269,7 +272,7 @@ struct CardPreviewPane: View {
         HStack(spacing: 12) {
             if let nav {
                 previewNavButton(
-                    title: "Previous",
+                    title: L10n.text("Previous"),
                     systemImage: "chevron.left",
                     enabled: nav.canPrev
                 ) {
@@ -279,7 +282,7 @@ struct CardPreviewPane: View {
                 Spacer(minLength: 8)
                 VStack(spacing: 4) {
                     if let idx = nav.currentIndex {
-                        Text("Card \(idx + 1) of \(nav.ids.count)")
+                        Text(L10n.format("Card %lld of %lld", [idx + 1, nav.ids.count]))
                             .amgiFont(.caption)
                             .foregroundStyle(palette.textSecondary)
                             .monospacedDigit()
@@ -289,7 +292,7 @@ struct CardPreviewPane: View {
                 Spacer(minLength: 8)
 
                 previewNavButton(
-                    title: "Next",
+                    title: L10n.text("Next"),
                     systemImage: "chevron.right",
                     iconTrailing: true,
                     enabled: nav.canNext
@@ -341,19 +344,19 @@ struct CardPreviewPane: View {
         HStack(spacing: 10) {
             if !backSideOnly {
                 previewButton(
-                    showAnswer ? "Show Question" : "Show Answer",
+                    showAnswer ? L10n.text("Show Question") : L10n.text("Show Answer"),
                     prominent: true
                 ) {
                     withAnimation(AmgiMotion.quick) { showAnswer.toggle() }
                 }
             }
-            previewButton(backSideOnly ? "Question Only" : "Answer Only", prominent: backSideOnly) {
+            previewButton(backSideOnly ? L10n.text("Question Only") : L10n.text("Answer Only"), prominent: backSideOnly) {
                 withAnimation(AmgiMotion.quick) {
                     backSideOnly.toggle()
                     showAnswer = backSideOnly
                 }
             }
-            previewButton("Play Audio", prominent: false) {
+            previewButton(L10n.text("Play Audio"), prominent: false) {
                 replayToken += 1
             }
         }
@@ -476,41 +479,41 @@ struct CardInfoPane: View {
         ScrollView {
             if let card {
                 VStack(alignment: .leading, spacing: 24) {
-                    infoHeading("Study status", systemImage: "calendar.badge.clock", tint: palette.accent)
+                    infoHeading(L10n.text("Study status"), systemImage: "calendar.badge.clock", tint: palette.accent)
                     LazyVGrid(
                         columns: [GridItem(.adaptive(minimum: 150), spacing: 12)],
                         spacing: 12
                     ) {
                         metricCard(
-                            "State",
+                            L10n.text("State"),
                             queueStateName(card),
                             systemImage: "circle.fill",
                             tint: typeColor(card)
                         )
-                        metricCard("Due", dueDescription(card), systemImage: "calendar", tint: dueColor(card))
+                        metricCard(L10n.text("Due"), dueDescription(card), systemImage: "calendar", tint: dueColor(card))
                         metricCard(
-                            "Reviews",
+                            L10n.text("Reviews"),
                             "\(card.reps)",
                             systemImage: "checkmark.circle.fill",
                             tint: palette.cardStateReview
                         )
                         metricCard(
-                            "Lapses",
+                            L10n.text("Lapses"),
                             "\(card.lapses)",
                             systemImage: "arrow.counterclockwise",
                             tint: card.lapses > 0 ? palette.cardStateRelearn : palette.textTertiary
                         )
                         if card.ivl > 0 {
                             metricCard(
-                                "Interval",
-                                "\(card.ivl) days",
+                                L10n.text("Interval"),
+                                L10n.format("%lld days", [Int64(card.ivl)]),
                                 systemImage: "clock.fill",
                                 tint: palette.info
                             )
                         }
                         if card.factor > 0 {
                             metricCard(
-                                "Ease",
+                                L10n.text("Ease"),
                                 "\(card.factor / 10)%",
                                 systemImage: "gauge.with.dots.needle.50percent",
                                 tint: easeColor(card.factor)
@@ -519,14 +522,14 @@ struct CardInfoPane: View {
                     }
 
                     if let stats, stats.stability != nil || stats.difficulty != nil || stats.retrievabilityPct != nil {
-                        infoHeading("Memory", systemImage: "brain.head.profile", tint: palette.cardStateMature)
+                        infoHeading(L10n.text("Memory"), systemImage: "brain.head.profile", tint: palette.cardStateMature)
                         LazyVGrid(
                             columns: [GridItem(.adaptive(minimum: 170), spacing: 12)],
                             spacing: 12
                         ) {
                             if let value = stats.retrievabilityPct {
                                 metricCard(
-                                    "Recall chance",
+                                    L10n.text("Recall chance"),
                                     String(format: "%.0f%%", value),
                                     systemImage: "chart.line.uptrend.xyaxis",
                                     tint: recallColor(value)
@@ -534,15 +537,15 @@ struct CardInfoPane: View {
                             }
                             if let value = stats.stability {
                                 metricCard(
-                                    "Stability",
-                                    String(format: "%.1f days", value),
+                                    L10n.text("Stability"),
+                                    L10n.format("%.1f days", [value]),
                                     systemImage: "waveform.path.ecg",
                                     tint: palette.info
                                 )
                             }
                             if let value = stats.difficulty {
                                 metricCard(
-                                    "Difficulty",
+                                    L10n.text("Difficulty"),
                                     String(format: "%.0f%%", value * 100),
                                     systemImage: "speedometer",
                                     tint: difficultyColor(value)
@@ -551,7 +554,7 @@ struct CardInfoPane: View {
                         }
                     }
 
-                    infoHeading("Review history", systemImage: "clock.arrow.circlepath", tint: palette.cardStateLearning)
+                    infoHeading(L10n.text("Review history"), systemImage: "clock.arrow.circlepath", tint: palette.cardStateLearning)
                     historyContent
 
                     technicalDetails(card)
@@ -561,9 +564,9 @@ struct CardInfoPane: View {
                 .frame(maxWidth: .infinity)
             } else {
                 ContentUnavailableView(
-                    "No Card Selected",
+                    L10n.text("No Card Selected"),
                     systemImage: "rectangle.stack",
-                    description: Text("Choose a card to see its study status and review history.")
+                    description: Text(L10n.text("Choose a card to see its study status and review history."))
                 )
                 .frame(maxWidth: .infinity, minHeight: 420)
             }
@@ -613,7 +616,7 @@ struct CardInfoPane: View {
     private var historyContent: some View {
         if let stats {
             if stats.revlog.isEmpty {
-                Text("No reviews yet. This card is ready for its first study session.")
+                Text(L10n.text("No reviews yet. This card is ready for its first study session."))
                     .amgiFont(.body)
                     .foregroundStyle(palette.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -646,12 +649,12 @@ struct CardInfoPane: View {
                 }
             }
         } else if statsFailed {
-            Text("Review history couldn’t be loaded.")
+            Text(L10n.text("Review history couldn’t be loaded."))
                 .foregroundStyle(palette.textSecondary)
         } else {
             HStack(spacing: 10) {
                 ProgressView().controlSize(.small)
-                Text("Loading review history…").foregroundStyle(palette.textSecondary)
+                Text(L10n.text("Loading review history…")).foregroundStyle(palette.textSecondary)
             }
         }
     }
@@ -663,7 +666,7 @@ struct CardInfoPane: View {
             } label: {
                 HStack {
                     Label {
-                        Text("Technical details")
+                        Text(L10n.text("Technical details"))
                             .amgiFont(.bodyEmphasis)
                             .foregroundStyle(palette.textPrimary)
                     } icon: {
@@ -685,14 +688,14 @@ struct CardInfoPane: View {
                     columns: [GridItem(.adaptive(minimum: 160), spacing: 10)],
                     spacing: 10
                 ) {
-                    idTile("Card", "\(card.id.rawValue)", tint: palette.accent)
-                    idTile("Note", "\(card.nid.rawValue)", tint: palette.cardStateMature)
-                    idTile("Deck", "\(card.did.rawValue)", tint: palette.info)
+                    idTile(L10n.text("card"), "\(card.id.rawValue)", tint: palette.accent)
+                    idTile(L10n.text("note"), "\(card.nid.rawValue)", tint: palette.cardStateMature)
+                    idTile(L10n.text("Deck"), "\(card.did.rawValue)", tint: palette.info)
                     if card.odid != DeckID(0) {
-                        idTile("Original deck", "\(card.odid.rawValue)", tint: palette.warning)
+                        idTile(L10n.text("Original deck"), "\(card.odid.rawValue)", tint: palette.warning)
                     }
                     if (card.flags & 0b111) != 0 {
-                        idTile("Flag", flagName(card.flags & 0b111), tint: flagColor(card.flags & 0b111))
+                        idTile(L10n.text("Flag"), flagName(card.flags & 0b111), tint: flagColor(card.flags & 0b111))
                     }
                 }
             }
@@ -706,7 +709,7 @@ struct CardInfoPane: View {
             copyToPasteboard(value)
         } label: {
             VStack(alignment: .leading, spacing: 6) {
-                Text(label.uppercased())
+                Text(label.uppercased(with: L10n.locale))
                     .amgiFont(.micro)
                     .foregroundStyle(tint)
                 Text(value)
@@ -721,8 +724,8 @@ struct CardInfoPane: View {
             .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: AmgiRadius.small, style: .continuous))
         }
         .buttonStyle(.pressScale)
-        .help("Copy \(label) ID")
-        .accessibilityLabel("\(label) \(value), copy")
+        .help(L10n.format("Copy %@ ID", [label]))
+        .accessibilityLabel(L10n.format("%@ %@, copy", [label, value]))
     }
 
     private func copyToPasteboard(_ value: String) {
@@ -747,12 +750,12 @@ struct CardInfoPane: View {
 
     private func ratingName(_ rating: Int32) -> String {
         switch rating {
-        case 1: "Again"
-        case 2: "Hard"
-        case 3: "Good"
-        case 4: "Easy"
-        case 0: "Manual"
-        default: "Rated \(rating)"
+        case 1: L10n.text("Again")
+        case 2: L10n.text("Hard")
+        case 3: L10n.text("Good")
+        case 4: L10n.text("Easy")
+        case 0: L10n.text("Manual")
+        default: L10n.format("Rated %lld", [Int64(rating)])
         }
     }
 
@@ -763,6 +766,7 @@ struct CardInfoPane: View {
             : TimeInterval(millisOrSecs)
         let date = Date(timeIntervalSince1970: secs)
         let fmt = DateFormatter()
+        fmt.locale = AppLocale.current
         fmt.dateStyle = .medium
         fmt.timeStyle = .short
         return fmt.string(from: date)
@@ -771,13 +775,13 @@ struct CardInfoPane: View {
     private func historyDetail(_ entry: RevlogEntry) -> String {
         var parts: [String] = []
         if entry.intervalSecs > 0 {
-            parts.append("interval \(formatSecs(entry.intervalSecs))")
+            parts.append(L10n.format("interval %@", [formatSecs(entry.intervalSecs)]))
         }
         if entry.easeFactor > 0 {
-            parts.append("ease \(entry.easeFactor)‰")
+            parts.append(L10n.format("ease %@‰", ["\(entry.easeFactor)"]))
         }
         if entry.takenSecs > 0 {
-            parts.append("took \(entry.takenSecs)s")
+            parts.append(L10n.format("took %@s", ["\(entry.takenSecs)"]))
         }
         return parts.joined(separator: " · ")
     }
@@ -791,17 +795,17 @@ struct CardInfoPane: View {
 
     private func typeName(_ type: Int16) -> String {
         switch type {
-        case 0: "New"
-        case 1: "Learning"
-        case 2: "Review"
-        case 3: "Relearning"
-        default: "type \(type)"
+        case 0: L10n.text("New")
+        case 1: L10n.text("Learning")
+        case 2: L10n.text("Review")
+        case 3: L10n.text("Relearning")
+        default: L10n.format("type %lld", [Int64(type)])
         }
     }
 
     private func queueStateName(_ card: CardRecord) -> String {
-        if card.queue < -1 { return "Buried" }
-        if card.queue == -1 { return "Suspended" }
+        if card.queue < -1 { return L10n.text("Buried") }
+        if card.queue == -1 { return L10n.text("Suspended") }
         return typeName(card.type)
     }
 
@@ -879,19 +883,20 @@ struct CardInfoPane: View {
         case 1, 3:
             let date = Date(timeIntervalSince1970: TimeInterval(card.due))
             let cal = Calendar.current
-            if cal.isDateInToday(date) { return "Today" }
-            if cal.isDateInTomorrow(date) { return "Tomorrow" }
+            if cal.isDateInToday(date) { return L10n.text("Today") }
+            if cal.isDateInTomorrow(date) { return L10n.text("Tomorrow") }
             let fmt = DateFormatter()
+            fmt.locale = AppLocale.current
             fmt.dateStyle = .medium
             fmt.timeStyle = .short
             return fmt.string(from: date)
         default:
-            return card.due <= 0 ? "Today" : "In \(card.due)d"
+            return card.due <= 0 ? L10n.text("Today") : L10n.format("In %lldd", [Int64(card.due)])
         }
     }
 
     private func flagName(_ flag: Int32) -> String {
-        ["None", "Red", "Orange", "Green", "Blue", "Pink", "Turquoise", "Purple"][Int(flag)]
+        [L10n.text("None"), L10n.text("Red"), L10n.text("Orange"), L10n.text("Green"), L10n.text("Blue"), L10n.text("Pink"), L10n.text("Turquoise"), L10n.text("Purple")][Int(flag)]
     }
 }
 
