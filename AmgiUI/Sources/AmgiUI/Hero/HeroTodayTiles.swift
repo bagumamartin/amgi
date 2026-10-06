@@ -8,20 +8,26 @@ import AmgiTheme
 struct HeroHeaderStatTiles: View {
     let today: HeroTodayStats
 
+    @Environment(\.locale) private var locale
+
     var body: some View {
-        HStack(spacing: 6) {
+        let studiedValue = today.studied == 1
+            ? AmgiL10n.text("1 card", locale: locale)
+            : AmgiL10n.format("%lld cards", [today.studied], locale: locale)
+        let timeValue = AmgiL10n.format("%.1f min", [Double(today.timeMillis) / 60_000], locale: locale)
+        return HStack(spacing: 6) {
             HeroStatTile(
-                eyebrow: "Studied",
-                value: today.studied == 1 ? "1 card" : "\(today.studied) cards",
-                accessibilityLabel: "Studied, \(today.studied == 1 ? "1 card" : "\(today.studied) cards")",
+                eyebrow: AmgiL10n.text("Studied", locale: locale),
+                value: studiedValue,
+                accessibilityLabel: AmgiL10n.format("Studied, %@", [studiedValue], locale: locale),
                 valueFontSize: 13,
                 verticalPadding: 6,
                 horizontalPadding: 2
             )
             HeroStatTile(
-                eyebrow: "Time",
-                value: String(format: "%.1f min", Double(today.timeMillis) / 60_000),
-                accessibilityLabel: "Time studied, \(String(format: "%.1f min", Double(today.timeMillis) / 60_000))",
+                eyebrow: AmgiL10n.text("Time", locale: locale),
+                value: timeValue,
+                accessibilityLabel: AmgiL10n.format("Time studied, %@", [timeValue], locale: locale),
                 valueFontSize: 13,
                 verticalPadding: 6,
                 horizontalPadding: 2
@@ -37,10 +43,11 @@ struct HeroRetentionTile: View {
     let today: HeroTodayStats
 
     @Environment(\.palette) private var palette
+    @Environment(\.locale) private var locale
 
     var body: some View {
         VStack(spacing: 3) {
-            Text("RETENTION")
+            Text(AmgiL10n.text("Retention", locale: locale).uppercased(with: locale))
                 .amgiFont(size: 10, weight: .semibold, tracking: 0.4, relativeTo: .caption)
                 .foregroundStyle(palette.textTertiary)
             HStack(spacing: 10) {
@@ -72,7 +79,7 @@ struct HeroRetentionTile: View {
                 .strokeBorder(palette.border, lineWidth: 0.5)
         )
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Retention, \(String(format: "%.0f%%", today.retentionPercent))")
+        .accessibilityLabel(AmgiL10n.format("Retention, %@", [String(format: "%.0f%%", today.retentionPercent)], locale: locale))
     }
 }
 
@@ -90,9 +97,11 @@ struct HeroStatTile: View {
 
     @Environment(\.palette) private var palette
 
+    @Environment(\.locale) private var locale
+
     var body: some View {
         VStack(spacing: 3) {
-            Text(eyebrow.uppercased())
+            Text(eyebrow.uppercased(with: locale))
                 .amgiFont(size: 10, weight: .semibold, tracking: 0.4, relativeTo: .caption)
                 .foregroundStyle(palette.textTertiary)
             Text(value)

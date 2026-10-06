@@ -12,6 +12,7 @@ public struct DeckListRowView: View {
     let onChangeIcon: () -> Void
 
     @Environment(\.palette) private var palette
+    @Environment(\.locale) private var locale
 
     public init(
         data: DeckRowViewData,
@@ -86,13 +87,13 @@ public struct DeckListRowView: View {
     private var metaLine: String {
         if data.isArchived {
             return data.subdeckCount == 0
-                ? "Archived"
-                : "Archived · \(data.subdeckCount) subdeck\(data.subdeckCount == 1 ? "" : "s")"
+                ? AmgiL10n.text("Archived", locale: locale)
+                : "\(AmgiL10n.text("Archived", locale: locale)) · \(AmgiL10n.format(data.subdeckCount == 1 ? "%lld subdeck" : "%lld subdecks", [data.subdeckCount], locale: locale))"
         }
         switch (data.totalCount, data.subdeckCount) {
-        case (0, _):           return "Up to date"
-        case (let n, 0):       return "\(n) due"
-        case (let n, let s):   return "\(n) due · \(s) subdeck\(s == 1 ? "" : "s")"
+        case (0, _):           return AmgiL10n.text("Up to date", locale: locale)
+        case (let n, 0):       return AmgiL10n.format("%lld due", [n], locale: locale)
+        case (let n, let s):   return "\(AmgiL10n.format("%lld due", [n], locale: locale)) · \(AmgiL10n.format(s == 1 ? "%lld subdeck" : "%lld subdecks", [s], locale: locale))"
         }
     }
 

@@ -10,6 +10,7 @@ public struct DeckTriageCard: View {
     public let onReviewAll: (() -> Void)?
     public let onReviewPaused: (() -> Void)?
     @Environment(\.palette) private var palette
+    @Environment(\.locale) private var locale
 
     public init(data: DeckTriageData,
                 onAction: @escaping (DeckTriageItem, DeckTriageAction) -> Void,
@@ -88,7 +89,7 @@ public struct DeckTriageCard: View {
             .padding(.vertical, 6)
             .background(palette.accentSoft, in: Capsule())
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Text("\(count) pending decisions"))
+            .accessibilityLabel(Text(AmgiL10n.format("%lld pending decisions", [count], locale: locale)))
     }
 
     private func decision(_ item: DeckTriageItem) -> some View {

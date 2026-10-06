@@ -10,6 +10,7 @@ public struct DeckSectionHeader: View {
     @Binding public var sortOrder: DeckSortOrder
 
     @Environment(\.palette) private var palette
+    @Environment(\.locale) private var locale
 
     public init(title: LocalizedStringKey, sortOrder: Binding<DeckSortOrder>) {
         self.title = title
@@ -26,13 +27,13 @@ public struct DeckSectionHeader: View {
             Spacer(minLength: 8)
 
             Menu {
-                Picker("Sort decks", selection: $sortOrder) {
+                Picker(AmgiL10n.text("Sort decks", locale: locale), selection: $sortOrder) {
                     ForEach(DeckSortOrder.allCases) { order in
-                        Text(order.menuLabel).tag(order)
+                        Text(AmgiL10n.text(order.menuLabel, locale: locale)).tag(order)
                     }
                 }
             } label: {
-                Label(sortOrder.title, systemImage: "arrow.up.arrow.down")
+                Label(AmgiL10n.text(sortOrder.title, locale: locale), systemImage: "arrow.up.arrow.down")
                     .amgiFont(.caption)
                     .foregroundStyle(palette.accent)
                     .labelStyle(.titleAndIcon)
@@ -53,6 +54,7 @@ public struct ArchivedSectionHeader: View {
     @Binding public var isExpanded: Bool
 
     @Environment(\.palette) private var palette
+    @Environment(\.locale) private var locale
 
     public init(count: Int, itemNoun: String, isExpanded: Binding<Bool>) {
         self.count = count
@@ -83,11 +85,11 @@ public struct ArchivedSectionHeader: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(
-            itemNoun == "decks"
-                ? Text("Archived, \(count) decks")
-                : Text("Archived, \(count) subdecks")
+            Text(itemNoun == "decks"
+                ? AmgiL10n.format("Archived, %lld decks", [count], locale: locale)
+                : AmgiL10n.format("Archived, %lld subdecks", [count], locale: locale))
         )
-        .accessibilityHint(isExpanded ? "Collapse" : "Expand")
+        .accessibilityHint(AmgiL10n.text(isExpanded ? "Collapse" : "Expand", locale: locale))
         .accessibilityAddTraits(.isButton)
     }
 }

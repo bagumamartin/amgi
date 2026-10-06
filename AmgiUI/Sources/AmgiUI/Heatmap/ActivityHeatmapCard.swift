@@ -22,6 +22,7 @@ public struct ActivityHeatmapCard: View {
 
     @Environment(\.palette) private var palette
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.locale) private var locale
 
     public init(data: HeatmapCardData, initialDays: Int = 180) {
         self.data = data
@@ -33,7 +34,7 @@ public struct ActivityHeatmapCard: View {
     private let weekdayLabelWidth: CGFloat = HeatmapGridMetrics.weekdayLabelWidth
 
     private var grid: HeatmapGrid {
-        gridCache.grid(weekCount: selectedDays / 7 + 1, counts: data.counts)
+        gridCache.grid(weekCount: selectedDays / 7 + 1, counts: data.counts, locale: locale)
     }
 
     // MARK: - Summary stats (filtered to selectedDays)
@@ -98,10 +99,11 @@ private enum HeatmapGridMetrics {
 private struct HeatmapHeaderRow: View {
     @Binding var selectedDays: Int
     @Environment(\.palette) private var palette
+    @Environment(\.locale) private var locale
 
     var body: some View {
         HStack {
-            Text("Activity")
+            Text(AmgiL10n.text("Activity", locale: locale))
                 .amgiFont(.sectionHeading)
                 .foregroundStyle(palette.textPrimary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -119,10 +121,10 @@ private struct HeatmapHeaderRow: View {
 
     private func rangeLabel(_ days: Int) -> String {
         switch days {
-        case 90:  return "Last 90 days"
-        case 180: return "Last 6 months"
-        case 365: return "Last 1 year"
-        default:  return "\(days) days"
+        case 90:  return AmgiL10n.text("Last 90 days", locale: locale)
+        case 180: return AmgiL10n.text("Last 6 months", locale: locale)
+        case 365: return AmgiL10n.text("Last 1 year", locale: locale)
+        default:  return AmgiL10n.format("%lld days", [days], locale: locale)
         }
     }
 }
@@ -180,13 +182,14 @@ private struct HeatmapSummaryRow: View {
     let spread: Bool
 
     @Environment(\.palette) private var palette
+    @Environment(\.locale) private var locale
 
     var body: some View {
         HStack(spacing: spread ? 0 : 28) {
-            summaryItem(value: summary.total, label: "Total")
-            summaryItem(value: summary.thisMonth, label: "Month")
-            summaryItem(value: summary.thisWeek, label: "Week")
-            summaryItem(value: summary.today, label: "Today")
+            summaryItem(value: summary.total, label: AmgiL10n.text("Total", locale: locale))
+            summaryItem(value: summary.thisMonth, label: AmgiL10n.text("Month", locale: locale))
+            summaryItem(value: summary.thisWeek, label: AmgiL10n.text("Week", locale: locale))
+            summaryItem(value: summary.today, label: AmgiL10n.text("Today", locale: locale))
             if !spread { Spacer(minLength: 0) }
         }
     }
@@ -329,11 +332,19 @@ private struct HeatmapCellGrid: View {
     }
 
     private func weekdayLabel(_ index: Int) -> String {
+        // Locale-aware initials (T2/T4/T6 in Vietnamese) instead of M/W/F.
+        let symbols = Calendar.current.veryShortWeekdaySymbols
+        // Grid rows are Monday-first: 1 = Monday, 3 = Wednesday, 5 = Friday.
+        func mondayFirst(_ weekday: Int) -> String {
+            let i = weekday % 7
+            guard symbols.indices.contains(i) else { return "" }
+            return symbols[i]
+        }
         switch index {
-        case 1: "M"
-        case 3: "W"
-        case 5: "F"
-        default: ""
+        case 1: return mondayFirst(2)
+        case 3: return mondayFirst(4)
+        case 5: return mondayFirst(6)
+        default: return ""
         }
     }
 }
@@ -349,13 +360,15 @@ private struct HeatmapCell: View {
     let onDismiss: () -> Void
 
     @Environment(\.palette) private var palette
+    @Environment(\.locale) private var locale
 
-    private static let dateFormatter: DateFormatter = {
+    private static func dateFormatter(for locale: Locale) -> DateFormatter {
         let f = DateFormatter()
+        f.locale = locale
         f.dateStyle = .medium
         f.timeStyle = .none
         return f
-    }()
+    }
 
     var body: some View {
         // The `.popover` is attached only to the cell actually showing one.
@@ -383,12 +396,18 @@ private struct HeatmapCell: View {
 
     private var tooltip: some View {
         VStack(spacing: 4) {
-            Text(Self.dateFormatter.string(from: day.date))
+            Text(Self.dateFormatter(for: locale).string(from: day.date))
                 .amgiFont(.captionBold)
-            Text(day.count == 0 ? "No reviews" : "\(day.count) review\(day.count == 1 ? "" : "s")")
+            Text(tooltipCountLabel)
                 .amgiFont(.caption)
         }
         .padding(10)
+    }
+
+    private var tooltipCountLabel: String {
+        if day.count == 0 { return AmgiL10n.text("No reviews", locale: locale) }
+        if day.count == 1 { return AmgiL10n.text("1 review", locale: locale) }
+        return AmgiL10n.format("Reviews: %lld", [day.count], locale: locale)
     }
 
     private var cellColor: Color {
@@ -402,10 +421,11 @@ private struct HeatmapCell: View {
 private struct HeatmapLegend: View {
     let cellSize: CGFloat
     @Environment(\.palette) private var palette
+    @Environment(\.locale) private var locale
 
     var body: some View {
         HStack(spacing: 4) {
-            Text("Less").amgiFont(.micro).foregroundStyle(palette.textSecondary)
+            Text(AmgiL10n.text("Less", locale: locale)).amgiFont(.micro).foregroundStyle(palette.textSecondary)
             ForEach(
                 Array(HeatmapColorRamp.legendColors(palette: palette).enumerated()),
                 id: \.offset
@@ -414,7 +434,7 @@ private struct HeatmapLegend: View {
                     .fill(color)
                     .frame(width: cellSize, height: cellSize)
             }
-            Text("More").amgiFont(.micro).foregroundStyle(palette.textSecondary)
+            Text(AmgiL10n.text("More", locale: locale)).amgiFont(.micro).foregroundStyle(palette.textSecondary)
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
     }

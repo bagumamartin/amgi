@@ -20,6 +20,7 @@ public struct LibraryHeroCard: View {
 
     @Environment(\.palette) private var palette
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.locale) private var locale
 
     public init(
         data: HeroData,
@@ -34,7 +35,7 @@ public struct LibraryHeroCard: View {
             header: {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text("Due today".uppercased())
+                        Text(AmgiL10n.text("Due today", locale: locale).uppercased(with: locale))
                             .amgiFont(size: 13, weight: .semibold, tracking: 0.4, relativeTo: .footnote)
                             .foregroundStyle(palette.textTertiary)
                         Spacer(minLength: 12)
@@ -71,14 +72,15 @@ public struct LibraryHeroCard: View {
     }
 
     private var paceTile: some View {
-        let pace = String(
-            format: "%.1f s/card",
-            (data.today ?? HeroTodayStats()).paceSecondsPerCard
+        let pace = AmgiL10n.format(
+            "%.1f s/card",
+            [(data.today ?? HeroTodayStats()).paceSecondsPerCard],
+            locale: locale
         )
         return HeroStatTile(
-            eyebrow: "Pace",
+            eyebrow: AmgiL10n.text("Pace", locale: locale),
             value: pace,
-            accessibilityLabel: "Pace, \(pace)",
+            accessibilityLabel: AmgiL10n.format("Pace, %@", [pace], locale: locale),
             valueFontSize: 14,
             verticalPadding: 6,
             horizontalPadding: 4
@@ -94,7 +96,11 @@ public struct LibraryHeroCard: View {
     }
 
     private var subtitleText: String {
-        "across \(data.deckCount) deck\(data.deckCount == 1 ? "" : "s")"
+        AmgiL10n.format(
+            data.deckCount == 1 ? "across %lld deck" : "across %lld decks",
+            [data.deckCount],
+            locale: locale
+        )
     }
 }
 

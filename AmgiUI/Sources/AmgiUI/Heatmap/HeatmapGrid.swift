@@ -60,17 +60,19 @@ public struct HeatmapGrid: Equatable, Sendable {
         self.weeks = weeks
     }
 
-    private static let monthFormatter: DateFormatter = {
+    private static func monthFormatter(locale: Locale) -> DateFormatter {
         let f = DateFormatter()
+        f.locale = locale
         f.dateFormat = "MMM"
         return f
-    }()
+    }
 
     /// Builds `weekCount` week-columns ending with the week containing `today`.
     public static func build(
         weekCount: Int,
         counts: [Int: Int],
-        today now: Date = Date()
+        today now: Date = Date(),
+        locale: Locale = .current
     ) -> HeatmapGrid {
         let cal = Calendar.current
         let today = cal.startOfDay(for: now)
@@ -99,7 +101,7 @@ public struct HeatmapGrid: Equatable, Sendable {
             guard let first = days.first else { break }
 
             let month = cal.component(.month, from: first.date)
-            let label = month == lastMonth ? nil : monthFormatter.string(from: first.date)
+            let label = month == lastMonth ? nil : monthFormatter(locale: locale).string(from: first.date)
             lastMonth = month
             weeks.append(HeatmapWeek(days: days, monthLabel: label))
 
@@ -123,6 +125,7 @@ public final class HeatmapGridCache {
         let weekCount: Int
         let counts: [Int: Int]
         let startOfToday: Date
+        let locale: Locale
     }
 
     private var key: Key?
@@ -132,11 +135,11 @@ public final class HeatmapGridCache {
 
     /// Returns the cached grid, rebuilding only when the range, the counts, or
     /// the current day actually changed.
-    public func grid(weekCount: Int, counts: [Int: Int], today: Date = Date()) -> HeatmapGrid {
+    public func grid(weekCount: Int, counts: [Int: Int], today: Date = Date(), locale: Locale = .current) -> HeatmapGrid {
         let startOfToday = Calendar.current.startOfDay(for: today)
-        let next = Key(weekCount: weekCount, counts: counts, startOfToday: startOfToday)
+        let next = Key(weekCount: weekCount, counts: counts, startOfToday: startOfToday, locale: locale)
         guard next != key else { return cached }
-        cached = HeatmapGrid.build(weekCount: weekCount, counts: counts, today: startOfToday)
+        cached = HeatmapGrid.build(weekCount: weekCount, counts: counts, today: startOfToday, locale: locale)
         key = next
         return cached
     }
