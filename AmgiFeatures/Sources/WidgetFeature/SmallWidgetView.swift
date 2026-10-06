@@ -33,7 +33,27 @@ struct SmallWidgetView: View {
 
             Spacer(minLength: 6)
 
-            WidgetConcentricRings(snapshot: snapshot, size: 110)
+            WidgetConcentricRings(snapshot: snapshot, size: 92)
+
+            Spacer(minLength: 4)
+
+            // Summary legend: coloured dots and numbers only, no words —
+            // with the done-today number at the right end past a divider.
+            HStack(spacing: 6) {
+                legendDot(color: palette.cardStateNew, count: snapshot.newCount)
+                legendDot(color: palette.cardStateLearning, count: snapshot.learnCount)
+                legendDot(color: palette.cardStateReview, count: snapshot.reviewCount)
+                Rectangle()
+                    .fill(.separator)
+                    .frame(width: 1)
+                Text("\(snapshot.completedToday)")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(palette.textSecondary)
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .frame(maxWidth: .infinity, alignment: .center)
 
             Spacer(minLength: 4)
         }
@@ -53,6 +73,22 @@ struct SmallWidgetView: View {
         }
         components.queryItems = items
         return components.url!
+    }
+}
+
+private extension SmallWidgetView {
+    func legendDot(color: Color, count: Int) -> some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(color)
+                .frame(width: 6, height: 6)
+            Text("\(count)")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(palette.textPrimary)
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
     }
 }
 

@@ -28376,6 +28376,14 @@
         }
       }
     },
+    "Restudy day": {
+      "comment": "Study history card: restudy everything answered in this span.",
+      "extractionState": "manual"
+    },
+    "Study ahead": {
+      "comment": "Study history card: study a future day early.",
+      "extractionState": "manual"
+    },
     "Reviewed": {
       "comment": "Stats summary: cards reviewed.",
       "extractionState": "manual",

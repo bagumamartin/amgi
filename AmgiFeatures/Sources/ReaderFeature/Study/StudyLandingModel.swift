@@ -32,6 +32,11 @@ final class StudyLandingModel {
     var spanDeckRows: [StudyTimeRow] = []
     var spanDeckRowsLoading = false
     var spanDeckTitle = L10n.text("Relevant decks")
+    /// Decks contributing to this day before the 12-row cap. Doubles as
+    /// the history card's "N decks due" — an approximation: it counts
+    /// decks with answers (past) or dues (future) found by search, and
+    /// daily limits may have held back further dues on the day.
+    var spanDeckTotalCount = 0
     var spanRowsError: String?
     var spanDeckRowsError: String?
     var workloadError: String?
@@ -59,7 +64,7 @@ final class StudyLandingModel {
     private var activitySearch = ""
     private var topLevelStudyDecks: [DeckTreeNode] = []
     private var supportsStability = false
-    private var relevantDeckCache: [Int: [StudyTimeRow]] = [:]
+    private var relevantDeckCache: [Int: (rows: [StudyTimeRow], total: Int)] = [:]
     /// Review counts keyed by days-before-today.
     private var reviewTotals: [Int: Int] = [:]
     private var reviewMillis: [Int: Int] = [:]
@@ -77,6 +82,7 @@ final class StudyLandingModel {
             forecast = nil
             todayAttentionRows = []
             spanDeckRows = []
+            spanDeckTotalCount = 0
             spanDeckRowsLoading = false
             spanRowsError = nil
             spanDeckRowsError = nil
@@ -226,22 +232,47 @@ final class StudyLandingModel {
         StudySpan.subtitle(grain: grain, todayStart: todayStart, anchor: dayOffset, locale: AppLocale.current)
     }
 
-    var spanHeadline: String {
-        guard !showsTodayDesk else { return "" }
+    /// Day card content for history spans: the period's own progress,
+    /// split for the card (Today keeps its richer hero instead).
+    /// One branch set backs title, count, and tense together so the
+    /// card's number, rings, and button can never disagree.
+    private var spanHeroStats: (count: Int, isFuture: Bool) {
         if grain == .day, dayOffset < 0 {
             let count = spanRows.first?.count ?? futureDueCounts[-dayOffset] ?? 0
-            return L10n.format("%lld due", [count])
+            return (count, true)
         }
         if !spanOffsets.isEmpty, spanOffsets.allSatisfy({ $0 < 0 }) {
             let count = spanOffsets.reduce(0) { $0 + activityCount($1) }
-            return L10n.format("%lld scheduled", [count])
+            return (count, true)
         }
         let count = spanRows.first { $0.id == "reviewed" }?.count ?? reviewedInSpan
-        let minutes = reviewedMillisInSpan / 60_000
-        if let duration = StudySpan.studiedDuration(minutes: minutes, locale: AppLocale.current) {
-            return "\(L10n.format("%lld reviewed", [count])) · \(duration)"
+        return (count, false)
+    }
+
+    var spanHeroTitle: String {
+        guard !showsTodayDesk else { return "" }
+        if grain == .day, dayOffset < 0 {
+            return L10n.format("%lld due", [spanHeroStats.count])
         }
-        return L10n.format("%lld reviewed", [count])
+        if !spanOffsets.isEmpty, spanOffsets.allSatisfy({ $0 < 0 }) {
+            return L10n.format("%lld scheduled", [spanHeroStats.count])
+        }
+        return L10n.format("%lld reviewed", [spanHeroStats.count])
+    }
+
+    var spanHeroCount: Int {
+        guard !showsTodayDesk else { return 0 }
+        return max(spanHeroStats.count, 0)
+    }
+
+    var spanHeroIsFuture: Bool {
+        !showsTodayDesk && spanHeroStats.isFuture
+    }
+
+    var spanHeroSubtitle: String? {
+        guard !showsTodayDesk, !spanHeroStats.isFuture else { return nil }
+        let minutes = reviewedMillisInSpan / 60_000
+        return StudySpan.studiedDuration(minutes: minutes, locale: AppLocale.current)
     }
 
     var showsJump: Bool {
@@ -395,6 +426,7 @@ final class StudyLandingModel {
         dayOffset = 0
         spanRows = []
         spanDeckRows = []
+        spanDeckTotalCount = 0
         spanDeckRowsLoading = false
         forecast = nil
         todayAttentionRows = []
@@ -409,6 +441,7 @@ final class StudyLandingModel {
         dayOffset = 1
         spanRows = []
         spanDeckRows = []
+        spanDeckTotalCount = 0
         spanDeckRowsLoading = false
         await reloadSpanRows()
     }
@@ -856,6 +889,7 @@ final class StudyLandingModel {
         let token = spanToken
         spanRows = []
         spanDeckRows = []
+        spanDeckTotalCount = 0
         spanDeckRowsLoading = false
         spanRowsError = nil
         spanDeckRowsError = nil
@@ -975,6 +1009,7 @@ final class StudyLandingModel {
             if token == spanToken {
                 spanDeckTitle = L10n.text("Relevant decks")
                 spanDeckRows = []
+                spanDeckTotalCount = 0
                 spanDeckRowsLoading = false
                 spanDeckRowsError = nil
             }
@@ -983,7 +1018,8 @@ final class StudyLandingModel {
 
         spanDeckTitle = dayOffset > 0 ? L10n.text("Decks with cards reviewed") : L10n.text("Decks with cards due")
         if let cached = relevantDeckCache[dayOffset] {
-            spanDeckRows = cached
+            spanDeckRows = cached.rows
+            spanDeckTotalCount = cached.total
             spanDeckRowsLoading = false
             return
         }
@@ -1047,9 +1083,10 @@ final class StudyLandingModel {
         }
         let capped = Array(rows.prefix(12))
         if !hadFailure {
-            relevantDeckCache[dayOffset] = capped
+            relevantDeckCache[dayOffset] = (capped, rows.count)
         }
         spanDeckRows = capped
+        spanDeckTotalCount = rows.count
         spanDeckRowsLoading = false
         if hadFailure {
             spanDeckRowsError = L10n.text("Some deck counts couldn't be loaded. Pull to refresh to try again.")

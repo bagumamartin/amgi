@@ -13,6 +13,12 @@ import AmgiTheme
 public struct StudyDueRing: View {
     public let summary: StudySummaryData
     public var diameter: CGFloat
+    /// Centre caption override. History spans pass their own tense
+    /// ("Reviewed"); nil keeps the ring's Today/Due-now wording.
+    public var centerCaption: String?
+    /// Accessibility override for non-Today summaries whose counts
+    /// would otherwise read as due today.
+    public var centerAccessibility: String?
 
     @Environment(\.palette) private var palette
     @Environment(\.locale) private var locale
@@ -43,9 +49,16 @@ public struct StudyDueRing: View {
         AmgiL10n.text("Done", locale: locale)
     }
 
-    public init(summary: StudySummaryData, diameter: CGFloat = 168) {
+    public init(
+        summary: StudySummaryData,
+        diameter: CGFloat = 168,
+        centerCaption: String? = nil,
+        centerAccessibility: String? = nil
+    ) {
         self.summary = summary
         self.diameter = diameter
+        self.centerCaption = centerCaption
+        self.centerAccessibility = centerAccessibility
     }
 
     public var body: some View {
@@ -57,11 +70,11 @@ public struct StudyDueRing: View {
         .animation(AmgiMotion.standard, value: summary)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Study progress")
-        .accessibilityValue(accessibilitySummary)
+        .accessibilityValue(centerAccessibility ?? accessibilitySummary)
         .accessibilityRepresentation {
             Image(systemName: "chart.circle.fill")
                 .accessibilityLabel("Study progress")
-                .accessibilityValue(accessibilitySummary)
+                .accessibilityValue(centerAccessibility ?? accessibilitySummary)
         }
     }
 
@@ -122,7 +135,7 @@ public struct StudyDueRing: View {
 
     private var centerContent: some View {
         VStack(spacing: 2) {
-            Text(AmgiL10n.text(summary.phase == .caughtUp ? "Today" : "DUE NOW", locale: locale))
+            Text(centerCaption ?? AmgiL10n.text(summary.phase == .caughtUp ? "Today" : "DUE NOW", locale: locale))
                 .textCase(.uppercase)
                 .amgiFont(.micro)
                 .foregroundStyle(palette.textSecondary)

@@ -95,7 +95,12 @@ public struct StudyLandingContent: View {
     let chart: StudyChartModel
     let showsTodayDesk: Bool
     let spanSubtitle: String
-    let spanHeadline: String
+    let spanTitle: String
+    let spanHeroTitle: String
+    let spanHeroSubtitle: String?
+    let spanHeroCount: Int
+    let spanHeroIsFuture: Bool
+    let spanDeckCount: Int
     let spanRows: [StudyTimeRow]
     let spanRowsLoading: Bool
     let canStepPast: Bool
@@ -140,7 +145,12 @@ public struct StudyLandingContent: View {
         chart: StudyChartModel = .bars([]),
         showsTodayDesk: Bool = true,
         spanSubtitle: String = "",
-        spanHeadline: String = "",
+        spanTitle: String = "",
+        spanHeroTitle: String = "",
+        spanHeroSubtitle: String? = nil,
+        spanHeroCount: Int = 0,
+        spanHeroIsFuture: Bool = false,
+        spanDeckCount: Int = 0,
         spanRows: [StudyTimeRow] = [],
         spanRowsLoading: Bool = false,
         canStepPast: Bool = true,
@@ -176,7 +186,12 @@ public struct StudyLandingContent: View {
         self.chart = chart
         self.showsTodayDesk = showsTodayDesk
         self.spanSubtitle = spanSubtitle
-        self.spanHeadline = spanHeadline
+        self.spanTitle = spanTitle
+        self.spanHeroTitle = spanHeroTitle
+        self.spanHeroSubtitle = spanHeroSubtitle
+        self.spanHeroCount = max(spanHeroCount, 0)
+        self.spanHeroIsFuture = spanHeroIsFuture
+        self.spanDeckCount = max(spanDeckCount, 0)
         self.spanRows = spanRows
         self.spanRowsLoading = spanRowsLoading
         self.canStepPast = canStepPast
@@ -411,16 +426,14 @@ public struct StudyLandingContent: View {
     private func historyLayout(layout: StudyContentLayout) -> some View {
         VStack(alignment: .leading, spacing: layout.columnSpacing) {
             spanControls
-            if !spanHeadline.isEmpty {
-                Text(spanHeadline)
-                    .amgiFont(.sectionHeading)
-                    .foregroundStyle(palette.textPrimary)
-            }
 
             if layout == .wide {
                 HStack(alignment: .top, spacing: 24) {
-                    activityCard(presentation: .wide)
-                        .frame(minWidth: 620, maxWidth: .infinity)
+                    VStack(alignment: .leading, spacing: layout.columnSpacing) {
+                        activityCard(presentation: .wide)
+                        historyHeroCard
+                    }
+                    .frame(minWidth: 620, maxWidth: .infinity)
                     studyCutsContent
                         .frame(minWidth: 340, idealWidth: 400, maxWidth: 440)
                 }
@@ -432,6 +445,7 @@ public struct StudyLandingContent: View {
                 }
             } else {
                 activityCard(presentation: layout.presentation)
+                historyHeroCard
                 studyCutsContent
                 if let spanRowsError {
                     inlineError(spanRowsError)
@@ -441,6 +455,187 @@ public struct StudyLandingContent: View {
                 }
             }
         }
+    }
+
+    /// The period's own card under its activity: the full Today hero
+    /// arrangement (copy, ring + legend, primary action) carrying that
+    /// span's progress instead of today's session.
+    private var historyHeroCard: some View {
+        AmgiCard(
+            background: .surfaceElevated,
+            shadow: palette.shadows.md,
+            cornerRadius: AmgiRadius.hero
+        ) {
+            VStack(alignment: .leading, spacing: AmgiSpacing.lg) {
+                VStack(alignment: .leading, spacing: AmgiSpacing.sm) {
+                    if !spanTitle.isEmpty {
+                        Text(spanTitle.uppercased(with: locale))
+                            .font(.footnote)
+                            .fontWeight(.semibold)
+                            .tracking(0.4)
+                            .foregroundStyle(palette.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if !spanHeroTitle.isEmpty {
+                        Text(spanHeroTitle)
+                            .font(.title)
+                            .fontWeight(.bold)
+                            .foregroundStyle(palette.textPrimary)
+                    }
+                    if spanDeckCount > 0 {
+                        Text(spanDeckCount == 1
+                             ? AmgiL10n.format("%lld deck due", [spanDeckCount], locale: locale)
+                             : AmgiL10n.format("%lld decks due", [spanDeckCount], locale: locale))
+                            .font(.subheadline)
+                            .foregroundStyle(palette.textPrimary)
+                    }
+                    if let subtitle = spanHeroSubtitle, !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(.body)
+                            .foregroundStyle(palette.textSecondary)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                if historyLegendRows.isEmpty {
+                    StudyDueRing(
+                        summary: historyRingSummary,
+                        diameter: 148,
+                        centerCaption: historyRingCaption,
+                        centerAccessibility: historyRingAccessibility
+                    )
+                    .frame(maxWidth: .infinity)
+                } else {
+                    HStack(alignment: .center, spacing: AmgiSpacing.lg) {
+                        StudyDueRing(
+                            summary: historyRingSummary,
+                            diameter: 148,
+                            centerCaption: historyRingCaption,
+                            centerAccessibility: historyRingAccessibility
+                        )
+                        .frame(maxWidth: .infinity)
+                        historyLegend
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                if let row = historyPrimaryRow {
+                    historyPrimaryButton(row)
+                }
+            }
+        }
+    }
+
+    /// Ring input for the span: past days arrive closed (reviewed ==
+    /// baseline, full rings), future days open at zero. The centre number
+    /// is the span's own count, not today's remaining.
+    private var historyRingSummary: StudySummaryData {
+        if spanHeroIsFuture {
+            StudySummaryData(
+                totalDue: spanHeroCount,
+                newCount: 0,
+                learnCount: 0,
+                reviewCount: 0,
+                todayLabel: "",
+                subtitleLabel: "",
+                deckCount: 0,
+                reviewedToday: 0,
+                dueBaselineToday: max(spanHeroCount, 1)
+            )
+        } else {
+            StudySummaryData(
+                totalDue: spanHeroCount,
+                newCount: 0,
+                learnCount: 0,
+                reviewCount: 0,
+                todayLabel: "",
+                subtitleLabel: "",
+                deckCount: 0,
+                reviewedToday: spanHeroCount,
+                dueBaselineToday: max(spanHeroCount, 1)
+            )
+        }
+    }
+
+    /// Past spans read REVIEWED in the centre; future spans keep the
+    /// ring's own DUE NOW.
+    private var historyRingCaption: String? {
+        spanHeroIsFuture
+            ? nil
+            : AmgiL10n.text("Reviewed", locale: locale)
+    }
+
+    private var historyRingAccessibility: String {
+        if let subtitle = spanHeroSubtitle, !subtitle.isEmpty {
+            return "\(spanHeroTitle). \(subtitle)."
+        }
+        return spanHeroTitle
+    }
+
+    /// The cut the card action opens: everything answered (past) or due
+    /// (future). Nil while rows load or when there is nothing to open.
+    private var historyPrimaryRow: StudyTimeRow? {
+        if let reviewed = spanRows.first(where: { $0.id == "reviewed" }),
+           reviewed.count > 0 {
+            return reviewed
+        }
+        if let due = spanRows.first(where: { $0.id == "due" }),
+           due.count > 0 {
+            return due
+        }
+        return nil
+    }
+
+    /// Top cuts below the primary one, most answers first. Dots share
+    /// one hue on purpose: per-rating colors would invent a mapping the
+    /// rings do not use.
+    private var historyLegendRows: [StudyTimeRow] {
+        let primaryID = historyPrimaryRow?.id
+        return Array(spanRows
+            .filter { $0.id != primaryID && $0.count > 0 }
+            .sorted {
+                if $0.count != $1.count { return $0.count > $1.count }
+                return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+            }
+            .prefix(3))
+    }
+
+    private var historyLegend: some View {
+        VStack(alignment: .leading, spacing: AmgiSpacing.xs) {
+            ForEach(historyLegendRows) { row in
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(palette.accent)
+                        .frame(width: 7, height: 7)
+                    Text(row.title)
+                        .font(.caption)
+                        .foregroundStyle(palette.textSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Text("\(row.count)")
+                        .font(.caption)
+                        .monospacedDigit()
+                        .foregroundStyle(palette.textPrimary)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(row.title), \(row.count)")
+            }
+        }
+    }
+
+    private func historyPrimaryButton(_ row: StudyTimeRow) -> some View {
+        Button {
+            onSelectTimeRow(row)
+        } label: {
+            HStack(spacing: AmgiSpacing.sm) {
+                Image(systemName: "play.fill")
+                    .font(.system(size: 14, weight: .bold))
+                Text(row.id == "due"
+                     ? AmgiL10n.text("Study ahead", locale: locale)
+                     : AmgiL10n.text("Restudy day", locale: locale))
+                    .bold()
+            }
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: 44)
+        }
+        .buttonStyle(AmgiPrimaryButtonStyle())
     }
 
     @ViewBuilder
