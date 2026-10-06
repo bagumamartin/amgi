@@ -1,4 +1,5 @@
 import SwiftUI
+import AmgiAppCore
 import AmgiUI
 import AnkiKit
 
@@ -35,16 +36,16 @@ struct ReviewCelebrationCard: View {
 
     private var title: String {
         let name = deckName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if name.isEmpty || name == "All Decks" { return "Done for today" }
+        if name.isEmpty || name == "All Decks" { return L10n.text("Done for today") }
         return name.components(separatedBy: "::").last ?? name
     }
 
     private var subtitle: String {
         let name = deckName.trimmingCharacters(in: .whitespacesAndNewlines)
         if name.isEmpty || name == "All Decks" {
-            return "Nothing left across your decks."
+            return L10n.text("Nothing left across your decks.")
         }
-        return "Nothing left in this deck."
+        return L10n.text("Nothing left in this deck.")
     }
 
     private func formattedTime(_ ms: Int) -> String {

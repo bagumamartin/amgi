@@ -40,17 +40,17 @@ package enum ExportReviewFailure: Error, Equatable {
     package var errorDescription: String {
         switch self {
         case .noSelection:
-            return "Choose a deck or selection to export."
+            return L10n.text("Choose a deck or selection to export.")
         case .noFormat:
-            return "Choose an export format to continue."
+            return L10n.text("Choose an export format to continue.")
         case .missingCollection:
-            return "The collection could not be found. Open a collection and try again."
+            return L10n.text("The collection could not be found. Open a collection and try again.")
         case .emptyOutput:
-            return "Ijuka finished the export but did not create a usable file. Try again."
+            return L10n.text("Ijuka finished the export but did not create a usable file. Try again.")
         case .invalidPackage:
-            return "The exported package could not be verified. It was not saved; try again."
+            return L10n.text("The exported package could not be verified. It was not saved; try again.")
         case .profileChanged:
-            return "The active profile changed while the export was being prepared. No file was saved."
+            return L10n.text("The active profile changed while the export was being prepared. No file was saved.")
         case .saveFailed(let detail):
             return detail
         case .exportFailed(let detail):
@@ -145,21 +145,52 @@ package final class ExportReviewModel {
 
     package var navigationTitle: String {
         switch phase {
-        case .preparing: "Export"
-        case .review: "Export"
-        case .exporting: "Exporting"
-        case .readyToSave: "Save Export"
-        case .completed: "Export Complete"
-        case .failed: "Can’t Export"
+        case .preparing: L10n.text("Export")
+        case .review: L10n.text("Export")
+        case .exporting: L10n.text("Exporting")
+        case .readyToSave: L10n.text("Save Export")
+        case .completed: L10n.text("Export Complete")
+        case .failed: L10n.text("Can’t Export")
         }
     }
 
     package var primaryActionTitle: String {
         switch format {
-        case .collectionPackage: "Create Collection Package"
-        case .deckPackage: "Create Anki Package"
-        case .noteText: "Export Notes"
-        case .cardText: "Export Cards"
+        case .collectionPackage: L10n.text("Create Collection Package")
+        case .deckPackage: L10n.text("Create Anki Package")
+        case .noteText: L10n.text("Export Notes")
+        case .cardText: L10n.text("Export Cards")
+        }
+    }
+
+    /// Localized scope title. Deck/note/card names are proper nouns and pass
+    /// through; only the built-in collection scope is translated here (the
+    /// AnkiKit `title` is English).
+    package var localizedScopeTitle: String {
+        if case .collection = scope { return L10n.text("Whole collection") }
+        return scope.title
+    }
+
+    /// Localized scope detail, same rule as the title.
+    package var localizedScopeDetail: String {
+        switch scope {
+        case .collection:
+            return L10n.text("All decks, notes, cards, scheduling, and settings")
+        case .deck:
+            return L10n.text("One deck and its subdecks")
+        case .notes(let ids, _):
+            return L10n.format(ids.count == 1 ? "%lld selected note" : "%lld selected notes", [ids.count])
+        case .cards(let ids, _):
+            return L10n.format(ids.count == 1 ? "%lld selected card" : "%lld selected cards", [ids.count])
+        }
+    }
+
+    package func localizedFormatTitle(_ format: ExportFormat) -> String {
+        switch format {
+        case .collectionPackage: L10n.text("Anki Collection Package")
+        case .deckPackage: L10n.text("Anki Deck Package")
+        case .noteText: L10n.text("Notes as Text")
+        case .cardText: L10n.text("Cards as Text")
         }
     }
 
@@ -716,6 +747,19 @@ extension ExportFormat {
             "UTF-8 text with one note per row, separated by tabs."
         case .cardText:
             "UTF-8 text with one card per row, separated by tabs."
+        }
+    }
+
+    package var localizedDetail: String {
+        switch self {
+        case .collectionPackage:
+            L10n.text("A complete collection backup, including media and settings.")
+        case .deckPackage:
+            L10n.text("An Anki package for sharing, merging, or importing into another collection.")
+        case .noteText:
+            L10n.text("UTF-8 text with one note per row, separated by tabs.")
+        case .cardText:
+            L10n.text("UTF-8 text with one card per row, separated by tabs.")
         }
     }
 }

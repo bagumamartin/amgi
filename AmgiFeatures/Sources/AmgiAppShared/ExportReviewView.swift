@@ -1,4 +1,5 @@
 package import SwiftUI
+import AmgiAppCore
 import AmgiTheme
 import AmgiUI
 import AnkiKit
@@ -81,15 +82,15 @@ package struct ExportReviewView: View {
         switch model.phase {
         case .preparing:
             progressView(
-                title: "Preparing Export",
-                detail: model.sourceName ?? model.scope.title
+                title: L10n.text("Preparing Export"),
+                detail: model.sourceName ?? model.localizedScopeTitle
             )
         case .review:
             reviewForm
         case .exporting:
             progressView(
-                title: "Creating \(model.format.title)",
-                detail: model.scope.title
+                title: L10n.format("Creating %@", [model.localizedFormatTitle(model.format)]),
+                detail: model.localizedScopeTitle
             )
         case .readyToSave:
             completionForm(isCompleted: false)
@@ -150,10 +151,10 @@ package struct ExportReviewView: View {
                     .frame(width: 36, height: 44)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(model.scope.title)
+                    Text(model.localizedScopeTitle)
                         .amgiFont(.bodyEmphasis)
                         .lineLimit(2)
-                    Text(model.scope.detail)
+                    Text(model.localizedScopeDetail)
                         .amgiFont(.caption)
                         .foregroundStyle(palette.textSecondary)
                 }
@@ -167,11 +168,11 @@ package struct ExportReviewView: View {
                     set: { model.selectScope($0) }
                 )) {
                     ForEach(model.availableScopes, id: \.self) { scope in
-                        Text(scope.title).tag(scope)
+                        Text(scope == .collection ? model.localizedScopeTitle : scope.title).tag(scope)
                     }
                 }
             } else {
-                LabeledContent("Scope", value: model.scope.title)
+                LabeledContent("Scope", value: model.localizedScopeTitle)
             }
 
             if let sourceName = model.sourceName {
@@ -194,7 +195,7 @@ package struct ExportReviewView: View {
                 set: { model.selectFormat($0) }
             )) {
                 ForEach(model.availableFormats) { format in
-                    Label(format.title, systemImage: format.systemImage)
+                    Label(model.localizedFormatTitle(format), systemImage: format.systemImage)
                         .tag(format)
                 }
             }
@@ -205,9 +206,9 @@ package struct ExportReviewView: View {
                     .foregroundStyle(palette.accent)
                     .frame(width: 22)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(model.format.title)
+                    Text(model.localizedFormatTitle(model.format))
                         .amgiFont(.bodyEmphasis)
-                    Text(model.format.detail)
+                    Text(model.format.localizedDetail)
                         .amgiFont(.caption)
                         .foregroundStyle(palette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
