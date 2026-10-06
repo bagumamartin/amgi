@@ -44,6 +44,13 @@ settings:
     # definition. Cascades compiler hardening onto every target; the runtime
     # half lives in AmgiApp.entitlements (com.apple.security.hardened-process*).
     ENABLE_ENHANCED_SECURITY: YES
+    # Hardened Runtime (macOS). Required by App Store Connect for every
+    # macOS binary in the archive (AmgiApp.app, AmgiWidget.appex,
+    # ijuka-mcp). ENABLE_ENHANCED_SECURITY alone does NOT set the
+    # `runtime` codesign option, so without this the upload is rejected
+    # with "must be rebuilt with support for the Hardened Runtime".
+    # Scoped to macosx SDK so iOS/watchOS slices are unaffected.
+    "ENABLE_HARDENED_RUNTIME[sdk=macosx*]": YES
     # ...but NOT arm64e. ENABLE_ENHANCED_SECURITY would otherwise cascade
     # ENABLE_POINTER_AUTHENTICATION: YES, and AnkiRustLib has no arm64e slice.
     ENABLE_POINTER_AUTHENTICATION: NO
