@@ -31,8 +31,8 @@ final class BrowseModel {
 
         var title: String {
             switch self {
-            case .notes: "Notes"
-            case .cards: "Cards"
+            case .notes: L10n.text("Notes")
+            case .cards: L10n.text("Cards")
             }
         }
     }
@@ -58,17 +58,17 @@ final class BrowseModel {
 
         var label: String {
             switch self {
-            case .due: "Due date"
-            case .createdDesc: "Date created"
-            case .modifiedDesc: "Date edited"
-            case .cardModifiedDesc: "Card modified"
-            case .sortFieldAsc: "Sort field"
-            case .notetypeAsc: "Note type"
-            case .tagsAsc: "Tags"
-            case .intervalDesc: "Interval"
-            case .easeDesc: "Ease"
-            case .repsDesc: "Reviews"
-            case .lapsesDesc: "Lapses"
+            case .due: L10n.text("Due date")
+            case .createdDesc: L10n.text("Date created")
+            case .modifiedDesc: L10n.text("Date edited")
+            case .cardModifiedDesc: L10n.text("Card modified")
+            case .sortFieldAsc: L10n.text("Sort field")
+            case .notetypeAsc: L10n.text("Note type")
+            case .tagsAsc: L10n.text("Tags")
+            case .intervalDesc: L10n.text("Interval")
+            case .easeDesc: L10n.text("Ease")
+            case .repsDesc: L10n.text("Reviews")
+            case .lapsesDesc: L10n.text("Lapses")
             }
         }
 

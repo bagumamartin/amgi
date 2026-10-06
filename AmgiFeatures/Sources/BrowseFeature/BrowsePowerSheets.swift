@@ -1,4 +1,5 @@
 import SwiftUI
+import AmgiAppCore
 import AmgiAppShared
 import Combine
 import Foundation
@@ -422,7 +423,7 @@ struct BrowserColumnsSheet: View {
                         .amgiFont(.caption)
                         .foregroundStyle(palette.textSecondary)
                 }
-                Section(model.mode == .notes ? "Notes columns" : "Cards columns") {
+                Section(model.mode == .notes ? L10n.text("Notes columns") : L10n.text("Cards columns")) {
                     ForEach(model.browserColumns, id: \.key) { col in
                         let isActive = activeKeys.contains(col.key)
                         Button {
@@ -440,12 +441,12 @@ struct BrowserColumnsSheet: View {
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel(model.mode == .notes ? col.notesLabel : col.cardsLabel)
-                        .accessibilityValue(isActive ? "Shown" : "Hidden")
+                        .accessibilityValue(isActive ? L10n.text("Shown") : L10n.text("Hidden"))
                         .accessibilityAddTraits(isActive ? .isSelected : [])
                         .accessibilityHint(
                             isActive
-                                ? "Double-click to hide this column"
-                                : "Double-click to show this column"
+                                ? L10n.text("Double-click to hide this column")
+                                : L10n.text("Double-click to show this column")
                         )
                     }
                 }

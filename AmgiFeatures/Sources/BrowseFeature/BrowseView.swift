@@ -1,4 +1,5 @@
 package import SwiftUI
+import AmgiAppCore
 import Foundation
 import AmgiAppShared
 import AmgiUI
@@ -408,7 +409,7 @@ package struct BrowseView: View {
                 ContentUnavailableView(
                     "No Selection",
                     systemImage: "doc.text.magnifyingglass",
-                    description: Text("Select a \(rowNoun) to view its details.")
+                    description: Text(L10n.format("Select a %@ to view its details.", [L10n.key(rowNoun)]))
                 )
                 .navigationTitle("Details")
                 #if os(iOS)
@@ -499,9 +500,13 @@ package struct BrowseView: View {
     private var searchPrompt: String {
         switch model.source {
         case .allDecks:
-            usesColumnSearch ? "Search decks and notes…" : "Search all \(rowNoun)s…"
+            usesColumnSearch
+                ? L10n.text("Search decks and notes…")
+                : (model.mode == .notes
+                    ? L10n.text("Search all notes…")
+                    : L10n.text("Search all cards…"))
         default:
-            "Search in \(sourceTitle)…"
+            L10n.format("Search in %@…", [sourceTitle])
         }
     }
 

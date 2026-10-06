@@ -183,18 +183,20 @@ struct BrowseListColumn: View {
 
     private var countLabel: String {
         let count = model.ids.count
-        let noun = model.mode == .notes ? "note" : "card"
-        let base = "\(count) \(noun)\(count == 1 ? "" : "s")"
+        let base: String
+        if model.mode == .notes {
+            base = count == 1 ? L10n.text("1 note") : L10n.format("%lld notes", [count])
+        } else {
+            base = count == 1 ? L10n.text("1 card") : L10n.format("%lld cards", [count])
+        }
         if selectionState.isEmpty { return base }
-        let sel = selectionState.count
-        let selNoun = model.mode == .notes ? "note" : "card"
-        return "\(base) · \(sel) selected \(selNoun)\(sel == 1 ? "" : "s")"
+        return "\(base) · \(L10n.format("%lld selected", [selectionState.count]))"
     }
 
     private var selectionSummary: String {
         let count = model.ids.count
-        if selectionState.isEmpty { return "\(count) results" }
-        return "\(count) results, \(selectionState.count) selected"
+        if selectionState.isEmpty { return L10n.format("%lld results", [count]) }
+        return L10n.format("%lld results, %lld selected", [count, selectionState.count])
     }
 
     private func searchErrorBanner(_ error: String) -> some View {

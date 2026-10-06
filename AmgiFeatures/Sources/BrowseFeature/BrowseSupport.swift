@@ -212,43 +212,43 @@ enum BrowseModelStateColor: Hashable {
 enum BrowseFilterSections {
     static func today() -> [FilterNode] {
         [
-            ("Due today", "clock.badge.checkmark", "prop:due=0"),
-            ("Added today", "plus.circle", "added:1"),
-            ("Edited today", "pencil", "edited:1"),
-            ("Studied today", "checkmark.seal", "rated:1"),
-            ("First review", "flag.checkered", "introduced:1"),
-            ("Again today", "arrow.uturn.backward", "rated:1:1"),
-            ("Rescheduled today", "arrow.triangle.2.circlepath", "resched:1"),
-            ("Overdue", "exclamationmark.triangle", "is:due -prop:due=0"),
+            (L10n.text("Due today"), "clock.badge.checkmark", "prop:due=0"),
+            (L10n.text("Added today"), "plus.circle", "added:1"),
+            (L10n.text("Edited today"), "pencil", "edited:1"),
+            (L10n.text("Studied today"), "checkmark.seal", "rated:1"),
+            (L10n.text("First review"), "flag.checkered", "introduced:1"),
+            (L10n.text("Again today"), "arrow.uturn.backward", "rated:1:1"),
+            (L10n.text("Rescheduled today"), "arrow.triangle.2.circlepath", "resched:1"),
+            (L10n.text("Overdue"), "exclamationmark.triangle", "is:due -prop:due=0"),
         ]
         .map { FilterNode(title: $0.0, systemImage: $0.1, fragment: $0.2, role: nil) }
     }
 
     static func cardStates() -> [FilterNode] {
         [
-            FilterNode(title: "New", systemImage: "circle", fragment: "is:new",
+            FilterNode(title: L10n.text("New"), systemImage: "circle", fragment: "is:new",
                        role: .state(.newState)),
-            FilterNode(title: "Learning", systemImage: "circle.fill", fragment: "is:learn",
+            FilterNode(title: L10n.text("Learning"), systemImage: "circle.fill", fragment: "is:learn",
                        role: .state(.learning)),
-            FilterNode(title: "Review", systemImage: "circle.circle", fragment: "is:review",
+            FilterNode(title: L10n.text("Review"), systemImage: "circle.circle", fragment: "is:review",
                        role: .state(.review)),
-            FilterNode(title: "Suspended", systemImage: "pause.circle", fragment: "is:suspended",
+            FilterNode(title: L10n.text("Suspended"), systemImage: "pause.circle", fragment: "is:suspended",
                        role: .state(.suspended)),
-            FilterNode(title: "Buried", systemImage: "archivebox", fragment: "is:buried",
+            FilterNode(title: L10n.text("Buried"), systemImage: "archivebox", fragment: "is:buried",
                        role: .state(.buried)),
         ]
     }
 
     static func flags() -> [FilterNode] {
         [
-            FilterNode(title: "No flag", systemImage: "flag.slash", fragment: "flag:0", role: nil),
-            FilterNode(title: "Red", systemImage: "flag.fill", fragment: "flag:1", role: .flag(1)),
-            FilterNode(title: "Orange", systemImage: "flag.fill", fragment: "flag:2", role: .flag(2)),
-            FilterNode(title: "Green", systemImage: "flag.fill", fragment: "flag:3", role: .flag(3)),
-            FilterNode(title: "Blue", systemImage: "flag.fill", fragment: "flag:4", role: .flag(4)),
-            FilterNode(title: "Pink", systemImage: "flag.fill", fragment: "flag:5", role: .flag(5)),
-            FilterNode(title: "Turquoise", systemImage: "flag.fill", fragment: "flag:6", role: .flag(6)),
-            FilterNode(title: "Purple", systemImage: "flag.fill", fragment: "flag:7", role: .flag(7)),
+            FilterNode(title: L10n.text("No flag"), systemImage: "flag.slash", fragment: "flag:0", role: nil),
+            FilterNode(title: L10n.text("Red"), systemImage: "flag.fill", fragment: "flag:1", role: .flag(1)),
+            FilterNode(title: L10n.text("Orange"), systemImage: "flag.fill", fragment: "flag:2", role: .flag(2)),
+            FilterNode(title: L10n.text("Green"), systemImage: "flag.fill", fragment: "flag:3", role: .flag(3)),
+            FilterNode(title: L10n.text("Blue"), systemImage: "flag.fill", fragment: "flag:4", role: .flag(4)),
+            FilterNode(title: L10n.text("Pink"), systemImage: "flag.fill", fragment: "flag:5", role: .flag(5)),
+            FilterNode(title: L10n.text("Turquoise"), systemImage: "flag.fill", fragment: "flag:6", role: .flag(6)),
+            FilterNode(title: L10n.text("Purple"), systemImage: "flag.fill", fragment: "flag:7", role: .flag(7)),
         ]
     }
 
