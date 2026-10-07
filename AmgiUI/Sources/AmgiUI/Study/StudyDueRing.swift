@@ -19,6 +19,8 @@ public struct StudyDueRing: View {
     /// Accessibility override for non-Today summaries whose counts
     /// would otherwise read as due today.
     public var centerAccessibility: String?
+    /// History is a reconstruction, without a measurable completion denominator.
+    public var showsProgress: Bool
 
     @Environment(\.palette) private var palette
     @Environment(\.locale) private var locale
@@ -34,7 +36,7 @@ public struct StudyDueRing: View {
     /// ring's fill and the centre percentage — per-category completion
     /// is not tracked, so no ring invents its own.
     private var progress: Double {
-        summary.todayProgressFraction
+        showsProgress ? summary.todayProgressFraction : 0
     }
 
     /// Clear width inside the innermost stroke. Centre text is pinned
@@ -53,12 +55,14 @@ public struct StudyDueRing: View {
         summary: StudySummaryData,
         diameter: CGFloat = 168,
         centerCaption: String? = nil,
-        centerAccessibility: String? = nil
+        centerAccessibility: String? = nil,
+        showsProgress: Bool = true
     ) {
         self.summary = summary
         self.diameter = diameter
         self.centerCaption = centerCaption
         self.centerAccessibility = centerAccessibility
+        self.showsProgress = showsProgress
     }
 
     public var body: some View {
@@ -69,11 +73,11 @@ public struct StudyDueRing: View {
         .frame(width: ringSize, height: ringSize)
         .animation(AmgiMotion.standard, value: summary)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Study progress")
+        .accessibilityLabel(showsProgress ? "Study progress" : "Historical cards")
         .accessibilityValue(centerAccessibility ?? accessibilitySummary)
         .accessibilityRepresentation {
             Image(systemName: "chart.circle.fill")
-                .accessibilityLabel("Study progress")
+                .accessibilityLabel(showsProgress ? "Study progress" : "Historical cards")
                 .accessibilityValue(centerAccessibility ?? accessibilitySummary)
         }
     }
@@ -150,15 +154,17 @@ public struct StudyDueRing: View {
                 .minimumScaleFactor(0.6)
                 .accessibilityHidden(true)
 
-            Text("\(summary.todayProgressPercent)%")
-                .amgiFont(.micro)
-                .monospacedDigit()
-                .foregroundStyle(palette.textTertiary)
-                .accessibilityHidden(true)
-            Text(doneText)
-                .amgiFont(.micro)
-                .foregroundStyle(palette.textTertiary)
-                .accessibilityHidden(true)
+            if showsProgress {
+                Text("\(summary.todayProgressPercent)%")
+                    .amgiFont(.micro)
+                    .monospacedDigit()
+                    .foregroundStyle(palette.textTertiary)
+                    .accessibilityHidden(true)
+                Text(doneText)
+                    .amgiFont(.micro)
+                    .foregroundStyle(palette.textTertiary)
+                    .accessibilityHidden(true)
+            }
         }
         .frame(maxWidth: innerClearWidth)
         // Optical nudge: the short "Done" line leaves headroom below,

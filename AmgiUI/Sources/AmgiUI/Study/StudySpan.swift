@@ -142,6 +142,10 @@ public struct StudyTimeRow: Identifiable, Equatable, Hashable, Sendable {
     public let detailTitle: String
     public let emptyMessage: String
     public let reschedulesByDefault: Bool
+    public let isReconstructed: Bool
+    public let suspensionUnknownCount: Int
+    /// Session eligibility is current state; historical membership stays in search.
+    public var reviewSearch: String { "(\(search)) -is:suspended -is:buried -deck:filtered" }
     /// A short explanation shown beside a row, such as "FSRS stability
     /// under 21 days" or "Includes subdecks".
     public let subtitle: String?
@@ -158,6 +162,8 @@ public struct StudyTimeRow: Identifiable, Equatable, Hashable, Sendable {
         detailTitle: String,
         emptyMessage: String,
         reschedulesByDefault: Bool,
+        isReconstructed: Bool = false,
+        suspensionUnknownCount: Int = 0,
         subtitle: String? = nil,
         initialDeckID: Int64? = nil,
         deckFullName: String? = nil
@@ -169,6 +175,8 @@ public struct StudyTimeRow: Identifiable, Equatable, Hashable, Sendable {
         self.detailTitle = detailTitle
         self.emptyMessage = emptyMessage
         self.reschedulesByDefault = reschedulesByDefault
+        self.isReconstructed = isReconstructed
+        self.suspensionUnknownCount = max(suspensionUnknownCount, 0)
         self.subtitle = subtitle
         self.initialDeckID = initialDeckID
         self.deckFullName = deckFullName

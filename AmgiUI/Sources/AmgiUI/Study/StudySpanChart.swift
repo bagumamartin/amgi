@@ -160,10 +160,6 @@ public struct StudySpanChart: View {
         GeometryReader { proxy in
             let horizontalInset = min(44, proxy.size.width / 4)
             ZStack {
-                Rectangle()
-                    .fill(palette.separator.opacity(0.8))
-                    .frame(height: 0.5)
-                    .offset(y: 1)
                 ForEach(marks.sorted { $0.slot < $1.slot }) { mark in
                     let rawX = CGFloat(mark.slot) / CGFloat(max(slots, 1)) * proxy.size.width
                     let x = min(max(rawX, horizontalInset), proxy.size.width - horizontalInset)

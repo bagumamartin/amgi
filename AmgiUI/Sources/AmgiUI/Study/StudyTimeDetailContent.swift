@@ -16,7 +16,6 @@ public struct StudyTimeDetailContent: View {
     let message: String?
     let onScopeChange: () -> Void
     let onStudy: () -> Void
-    let onBrowse: (() -> Void)?
 
     @Environment(\.palette) private var palette
     @Environment(\.locale) private var locale
@@ -32,8 +31,7 @@ public struct StudyTimeDetailContent: View {
         isBusy: Bool,
         message: String?,
         onScopeChange: @escaping () -> Void,
-        onStudy: @escaping () -> Void,
-        onBrowse: (() -> Void)? = nil
+        onStudy: @escaping () -> Void
     ) {
         self.row = row
         self.matchCount = matchCount
@@ -46,12 +44,14 @@ public struct StudyTimeDetailContent: View {
         self.message = message
         self.onScopeChange = onScopeChange
         self.onStudy = onStudy
-        self.onBrowse = onBrowse
     }
 
     public var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
+                if row.isReconstructed {
+                    reconstructionBlock
+                }
                 if let subtitle = row.subtitle {
                     Label(subtitle, systemImage: "info.circle")
                         .amgiFont(.caption)
@@ -90,11 +90,6 @@ public struct StudyTimeDetailContent: View {
                                 .foregroundStyle(palette.warning)
                             }
                             studyButton
-                            if let onBrowse {
-                                Button(AmgiL10n.text("Browse matching cards", locale: locale), action: onBrowse)
-                                    .buttonStyle(AmgiSecondaryButtonStyle())
-                                    .frame(maxWidth: .infinity)
-                            }
                             if let message {
                                 Text(message)
                                     .amgiFont(.caption)
@@ -114,6 +109,23 @@ public struct StudyTimeDetailContent: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
+    private var reconstructionBlock: some View {
+        VStack(alignment: .leading, spacing: AmgiSpacing.sm) {
+            Label(AmgiL10n.text("Reconstructed", locale: locale), systemImage: "clock.arrow.circlepath")
+                .amgiFont(.body)
+                .foregroundStyle(palette.textPrimary)
+            Text(AmgiL10n.format("%lld cards in this historical selection.", [row.count], locale: locale))
+            Text(AmgiL10n.text("Based on surviving cards and retained history. Cards inferred to be suspended at the selected boundary from retained modification timestamps are excluded.", locale: locale))
+            if row.suspensionUnknownCount > 0 {
+                Text(AmgiL10n.format("Past suspension state is unknown for %lld cards in this historical selection. Anki does not retain suspension changes after a card is modified again.", [row.suspensionUnknownCount], locale: locale))
+            }
+            Text(AmgiL10n.text("Daily new-card selection, past burying, imports, undo, and timezone or day-start changes may leave gaps. This review uses current deck placement and study state; currently suspended, buried, or filtered-deck cards are excluded from this session.", locale: locale))
+        }
+        .amgiFont(.caption)
+        .foregroundStyle(palette.textSecondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private var countBlock: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("\(matchCount)")
@@ -123,6 +135,11 @@ public struct StudyTimeDetailContent: View {
             Text(matchCount == 1 ? AmgiL10n.text("card", locale: locale) : AmgiL10n.text("Cards", locale: locale).lowercased(with: locale))
                 .amgiFont(.body)
                 .foregroundStyle(palette.textSecondary)
+            if row.isReconstructed {
+                Text(AmgiL10n.text("Available to review now", locale: locale))
+                    .amgiFont(.caption)
+                    .foregroundStyle(palette.textSecondary)
+            }
         }
     }
 

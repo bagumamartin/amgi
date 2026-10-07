@@ -22,6 +22,9 @@ extension StatsClient {
                 remainingLearn: 0,
                 remainingReview: 0
             )
+        },
+        studyHistory: { _, _, _ in
+            StudyHistory(learningIds: [1, 2], reviewIds: [3, 4, 5], newCandidateIds: [6, 7], unresolved: [])
         }
     )
 }

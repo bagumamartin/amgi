@@ -101,7 +101,10 @@ public struct StudyLandingContent: View {
     let spanHeroCount: Int
     let spanHeroIsFuture: Bool
     let spanDeckCount: Int
+    let spanDeckCountKnown: Bool
     let historyMix: StudyHistoryMix?
+    let spanShapeLine: String?
+    let spanRemainingRow: StudyTimeRow?
     let spanRows: [StudyTimeRow]
     let spanRowsLoading: Bool
     let canStepPast: Bool
@@ -152,7 +155,10 @@ public struct StudyLandingContent: View {
         spanHeroCount: Int = 0,
         spanHeroIsFuture: Bool = false,
         spanDeckCount: Int = 0,
+        spanDeckCountKnown: Bool = false,
         historyMix: StudyHistoryMix? = nil,
+        spanShapeLine: String? = nil,
+        spanRemainingRow: StudyTimeRow? = nil,
         spanRows: [StudyTimeRow] = [],
         spanRowsLoading: Bool = false,
         canStepPast: Bool = true,
@@ -194,7 +200,10 @@ public struct StudyLandingContent: View {
         self.spanHeroCount = max(spanHeroCount, 0)
         self.spanHeroIsFuture = spanHeroIsFuture
         self.spanDeckCount = max(spanDeckCount, 0)
+        self.spanDeckCountKnown = spanDeckCountKnown
         self.historyMix = historyMix
+        self.spanShapeLine = spanShapeLine
+        self.spanRemainingRow = spanRemainingRow
         self.spanRows = spanRows
         self.spanRowsLoading = spanRowsLoading
         self.canStepPast = canStepPast
@@ -460,9 +469,7 @@ public struct StudyLandingContent: View {
         }
     }
 
-    /// The period's own card under its activity: the full Today hero
-    /// arrangement (copy, ring + legend, primary action) carrying that
-    /// span's progress instead of today's session.
+    /// Historical schedules and candidates sit alongside recorded activity.
     private var historyHeroCard: some View {
         AmgiCard(
             background: .surfaceElevated,
@@ -485,12 +492,17 @@ public struct StudyLandingContent: View {
                             .fontWeight(.bold)
                             .foregroundStyle(palette.textPrimary)
                     }
-                    if spanDeckCount > 0 {
-                        Text(spanDeckCount == 1
-                             ? AmgiL10n.format("%lld deck due", [spanDeckCount], locale: locale)
-                             : AmgiL10n.format("%lld decks due", [spanDeckCount], locale: locale))
+                    if spanHeroIsFuture, spanDeckCount > 0 {
+                        Text(AmgiL10n.format("%lld decks due", [spanDeckCount], locale: locale))
                             .font(.subheadline)
                             .foregroundStyle(palette.textPrimary)
+                    } else if !spanHeroIsFuture {
+                        Text(spanDeckCountKnown
+                             ? AmgiL10n.format("%lld current decks", [spanDeckCount], locale: locale)
+                             : AmgiL10n.text(spanDeckRowsLoading ? "Finding current decks…" : "Current deck count unavailable", locale: locale))
+                            .font(.subheadline)
+                            .foregroundStyle(spanDeckCountKnown ? palette.textPrimary : palette.textSecondary)
+                            .lineLimit(1)
                     }
                     if let subtitle = spanHeroSubtitle, !subtitle.isEmpty {
                         Text(subtitle)
@@ -499,12 +511,13 @@ public struct StudyLandingContent: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                if historyLegendRows.isEmpty {
+                if historyMix == nil && historyLegendRows.isEmpty {
                     StudyDueRing(
                         summary: historyRingSummary,
                         diameter: 148,
                         centerCaption: historyRingCaption,
-                        centerAccessibility: historyRingAccessibility
+                        centerAccessibility: historyRingAccessibility,
+                        showsProgress: spanHeroIsFuture
                     )
                     .frame(maxWidth: .infinity)
                 } else {
@@ -513,37 +526,41 @@ public struct StudyLandingContent: View {
                             summary: historyRingSummary,
                             diameter: 148,
                             centerCaption: historyRingCaption,
-                            centerAccessibility: historyRingAccessibility
+                            centerAccessibility: historyRingAccessibility,
+                            showsProgress: spanHeroIsFuture
                         )
                         .frame(maxWidth: .infinity)
+                        Rectangle()
+                            .fill(palette.separator)
+                            .frame(width: 1)
                         historyLegend
                             .frame(maxWidth: .infinity)
                     }
                 }
                 if let row = historyPrimaryRow {
-                    historyPrimaryButton(row)
+                    VStack(spacing: AmgiSpacing.sm) {
+                        historyPrimaryButton(row)
+                        if let shapeLine = spanShapeLine, !shapeLine.isEmpty {
+                            Text(shapeLine)
+                                .amgiFont(.caption)
+                                .foregroundStyle(palette.textSecondary)
+                                .multilineTextAlignment(.center)
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
                 }
             }
         }
     }
 
-    /// Ring input for the span. With the backend mix, the centre number
-    /// is remaining dues and the fill is the answered share — the Due
-    /// photocopy of Today's card. Without it (future spans, loading,
-    /// failure), past days read closed on graph counts and future days
-    /// open at zero.
+    /// Historical rings show recovered scheduled work without a completion
+    /// denominator. Recorded answers remain the fallback while unavailable.
     private var historyRingSummary: StudySummaryData {
         if let mix = historyMix {
             return StudySummaryData(
-                totalDue: mix.remainingTotal,
-                newCount: 0,
-                learnCount: 0,
-                reviewCount: 0,
-                todayLabel: "",
-                subtitleLabel: "",
-                deckCount: 0,
-                reviewedToday: mix.answeredCards,
-                dueBaselineToday: max(mix.dueTotal, 1)
+                totalDue: mix.remainingTotal, newCount: 0,
+                learnCount: mix.remainingLearn, reviewCount: mix.remainingReview,
+                todayLabel: "", subtitleLabel: "", deckCount: 0
             )
         }
         if spanHeroIsFuture {
@@ -573,12 +590,10 @@ public struct StudyLandingContent: View {
         }
     }
 
-    /// Past spans read DUE in the centre once the mix lands (the numeral
-    /// is remaining); future spans keep the ring's own DUE NOW, and the
-    /// graph fallback keeps REVIEWED.
+    /// The historical numeral counts learning and reviews left then.
     private var historyRingCaption: String? {
-        if historyMix != nil {
-            return AmgiL10n.text("Due", locale: locale)
+        if let mix = historyMix {
+            return AmgiL10n.text(mix.suspensionUnknown > 0 ? "Possible left then" : mix.unresolved > 0 ? "Known left then" : "Left then", locale: locale)
         }
         return spanHeroIsFuture
             ? nil
@@ -586,18 +601,20 @@ public struct StudyLandingContent: View {
     }
 
     private var historyRingAccessibility: String {
+        if let mix = historyMix {
+            return AmgiL10n.format("%lld learning and %lld review cards left then. %lld new candidates. %lld uncertain histories. Past suspension state is unknown for %lld scheduled cards.",
+                [mix.remainingLearn, mix.remainingReview, mix.newCandidates, mix.unresolved, mix.suspensionUnknown], locale: locale)
+        }
         if let subtitle = spanHeroSubtitle, !subtitle.isEmpty {
             return "\(spanHeroTitle). \(subtitle)."
         }
         return spanHeroTitle
     }
 
-    /// The cut the card action opens: everything answered (past) or due
-    /// (future). Nil while rows load or when there is nothing to open.
+    /// Historical cards and future dues open the review setup screen.
     private var historyPrimaryRow: StudyTimeRow? {
-        if let reviewed = spanRows.first(where: { $0.id == "reviewed" }),
-           reviewed.count > 0 {
-            return reviewed
+        if let remaining = spanRemainingRow {
+            return remaining
         }
         if let due = spanRows.first(where: { $0.id == "due" }),
            due.count > 0 {
@@ -624,21 +641,13 @@ public struct StudyLandingContent: View {
     private var historyLegend: some View {
         if let mix = historyMix {
             VStack(alignment: .leading, spacing: AmgiSpacing.xs) {
-                historyMixRow(
-                    title: AmgiL10n.text("New", locale: locale),
-                    count: mix.dueNew,
-                    color: palette.cardStateNew
-                )
-                historyMixRow(
-                    title: AmgiL10n.text("Learn", locale: locale),
-                    count: mix.dueLearn,
-                    color: palette.cardStateLearning
-                )
-                historyMixRow(
-                    title: AmgiL10n.text("Review", locale: locale),
-                    count: mix.dueReview,
-                    color: palette.cardStateReview
-                )
+                historyMixRow(title: AmgiL10n.text("Learning", locale: locale), count: mix.remainingLearn, color: palette.cardStateLearning)
+                historyMixRow(title: AmgiL10n.text("Review", locale: locale), count: mix.remainingReview, color: palette.cardStateReview)
+                historyMixRow(title: AmgiL10n.text("New candidates", locale: locale), count: mix.newCandidates, color: palette.cardStateNew)
+                if mix.unresolved > 0 {
+                    historyMixRow(title: AmgiL10n.text("Uncertain history", locale: locale), count: mix.unresolved, color: palette.textTertiary)
+                }
+
             }
         } else {
             VStack(alignment: .leading, spacing: AmgiSpacing.xs) {
@@ -682,7 +691,8 @@ public struct StudyLandingContent: View {
     }
 
     private func historyPrimaryButton(_ row: StudyTimeRow) -> some View {
-        Button {
+        let isEnabled = row.count > 0
+        return Button {
             onSelectTimeRow(row)
         } label: {
             HStack(spacing: AmgiSpacing.sm) {
@@ -697,6 +707,9 @@ public struct StudyLandingContent: View {
             .frame(minHeight: 44)
         }
         .buttonStyle(AmgiPrimaryButtonStyle())
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.5)
+        .accessibilityHint(isEnabled ? "" : AmgiL10n.text("No scheduled remaining cards", locale: locale))
     }
 
     @ViewBuilder
@@ -760,6 +773,10 @@ public struct StudyLandingContent: View {
                         Text("Recorded answers")
                             .amgiFont(.caption)
                             .foregroundStyle(palette.textTertiary)
+                            // Match Today's 44pt Explore-history button so
+                            // the chart sits at the same height on every
+                            // desk — no drift paging day to day.
+                            .frame(minHeight: 44)
                     }
                 }
                 StudySpanChart(
@@ -770,12 +787,6 @@ public struct StudyLandingContent: View {
                 )
                 .contentShape(Rectangle())
                 .simultaneousGesture(periodSwipe)
-                if !showsTodayDesk {
-                    HStack(spacing: AmgiSpacing.md) {
-                        legendKey(title: "Answers", color: palette.accent)
-                        legendKey(title: "Scheduled", color: palette.textTertiary)
-                    }
-                }
             }
         }
     }
@@ -836,7 +847,7 @@ public struct StudyLandingContent: View {
         _ summary: StudySummaryData,
         includesPrimary: Bool,
         includesLegend: Bool = true,
-        titleFont: Font = .largeTitle
+        titleFont: Font = .title
     ) -> some View {
         VStack(alignment: .leading, spacing: AmgiSpacing.sm) {
             HStack(spacing: AmgiSpacing.sm) {
@@ -920,17 +931,6 @@ public struct StudyLandingContent: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(localizedTitle), \(count)")
         .accessibilityValue(AmgiL10n.format("%lld cards", [count], locale: locale))
-    }
-
-    private func legendKey(title: String, color: Color) -> some View {
-        HStack(spacing: AmgiSpacing.xs) {
-            Circle()
-                .fill(color)
-                .frame(width: 6, height: 6)
-            Text(AmgiL10n.text(title, locale: locale))
-                .font(.caption2)
-                .foregroundStyle(palette.textSecondary)
-        }
     }
 
     private func todayQueue(

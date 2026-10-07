@@ -48,6 +48,11 @@ extension StatsClient: DependencyKey {
                         overdueDays: overdueDays
                     ))
                 }
+            },
+            studyHistory: { scope, dayEndMs, rolloverHour in
+                try await backendOffload {
+                    try backend.invoke(.studyHistory(scope: scope, dayEndMs: dayEndMs, rolloverHour: rolloverHour))
+                }
             }
         )
     }()

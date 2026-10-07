@@ -32,31 +32,27 @@ final class StudyLandingModel {
     var spanDeckRows: [StudyTimeRow] = []
     var spanDeckRowsLoading = false
     var spanDeckTitle = L10n.text("Relevant decks")
-    /// Answered/remaining split for the current past span, backing the
-    /// history card's rings and legend. Nil on Today, on future spans,
-    /// while loading, and when the aggregation fails (the card falls
-    /// back to graph-based counts).
+    /// Recorded answer buckets for the selected span's session shape.
     var spanMix: StudyDayMix?
-    /// Decks contributing to this day before the 12-row cap. Doubles as
-    /// the history card's "N decks due" — an approximation: it counts
-    /// decks with answers (past) or dues (future) found by search, and
-    /// daily limits may have held back further dues on the day.
+    /// Reconstructed ID sets at the span's end; nil while unavailable.
+    var spanHistory: StudyHistory?
+    /// Current decks containing matching cards, before the 12-row cap.
     var spanDeckTotalCount = 0
-    /// History card numbers mapped from the backend day-mix DTO. Nil on
-    /// Today, on future spans, while loading, and when the aggregation
-    /// fails (the card falls back to graph-based counts).
+    /// False until the current-deck membership query completes without errors.
+    /// A failed reconstruction must not be presented as zero decks.
+    var spanDeckCountKnown = false
+    /// Counts and browse actions share the same deduplicated ID sets.
     var historyCardMix: StudyHistoryMix? {
-        guard let mix = spanMix else { return nil }
+        guard let history = spanHistory else { return nil }
         return StudyHistoryMix(
-            answeredCards: max(mix.answeredCards, 0),
-            dueNew: mix.dueNew,
-            dueLearn: mix.dueLearn,
-            dueReview: mix.dueReview,
-            dueTotal: mix.dueTotal,
-            remainingTotal: mix.remainingTotal,
-            progressFraction: mix.progressFraction
+            remainingLearn: history.learningIds.count,
+            remainingReview: history.reviewIds.count,
+            newCandidates: history.newCandidateIds.count,
+            unresolved: history.unresolved.count,
+            suspensionUnknown: Set(history.remainingIds).intersection(history.suspensionUnknownIds).count
         )
     }
+
     var spanRowsError: String?
     var spanDeckRowsError: String?
     var workloadError: String?
@@ -79,6 +75,11 @@ final class StudyLandingModel {
     private var loadToken = 0
     private var spanToken = 0
     private var bookToken = 0
+    @ObservationIgnored private let profile: ProfileContext
+
+    init(profile: ProfileContext = AccountStore.shared.selectedContext) {
+        self.profile = profile
+    }
     private var rolloverHour = 4
     private var hasActivitySnapshot = false
     private var activitySearch = ""
@@ -103,7 +104,9 @@ final class StudyLandingModel {
             todayAttentionRows = []
             spanDeckRows = []
             spanDeckTotalCount = 0
+            spanDeckCountKnown = false
             spanMix = nil
+            spanHistory = nil
             spanDeckRowsLoading = false
             spanRowsError = nil
             spanDeckRowsError = nil
@@ -272,6 +275,47 @@ final class StudyLandingModel {
         return (count, false)
     }
 
+    /// IDs come from historical evidence; later answers do not change this cut.
+    var spanRemainingRow: StudyTimeRow? {
+        guard !showsTodayDesk, !spanHeroStats.isFuture, let history = spanHistory else { return nil }
+        return historyRow(id: "remaining", title: L10n.text("Review"), ids: history.remainingIds)
+    }
+
+    private func historyRow(id: String, title: String, ids: [Int64], subtitle: String? = nil) -> StudyTimeRow {
+        StudyTimeRow(
+            id: id, title: title, count: ids.count,
+            search: StudyHistory.search(ids: ids),
+            detailTitle: "\(title) · \(spanTitle)",
+            emptyMessage: L10n.text("No matching cards"),
+            reschedulesByDefault: false,
+            isReconstructed: true,
+            suspensionUnknownCount: Set(ids).intersection(spanHistory?.suspensionUnknownIds ?? []).count,
+            subtitle: subtitle
+        )
+    }
+
+    private func historicalRows(_ history: StudyHistory) -> [StudyTimeRow] {
+        var rows: [StudyTimeRow] = [
+            historyRow(id: "history-learning", title: L10n.text("Learning left then"), ids: history.learningIds),
+            historyRow(id: "history-review", title: L10n.text("Reviews left then"), ids: history.reviewIds),
+            historyRow(id: "history-new", title: L10n.text("New candidates"), ids: history.newCandidateIds,
+                subtitle: L10n.text("Inferred new-card pool; daily selection is unknown."))
+        ].filter { $0.count > 0 }
+        for reason in [StudyHistory.Unresolved.Reason.incompleteLog, .manualSchedule, .ambiguousState, .learningRollover] {
+            let ids = history.unresolved.filter { $0.reason == reason }.map(\.cardId)
+            let subtitle = switch reason {
+            case .incompleteLog: L10n.text("The retained review log does not establish the earlier schedule.")
+            case .manualSchedule: L10n.text("A manual scheduling entry does not retain the due date.")
+            case .ambiguousState: L10n.text("The earlier learning or review state cannot be established.")
+            case .learningRollover: L10n.text("Learning delay variation may cross the day boundary.")
+            }
+            if !ids.isEmpty {
+                rows.append(historyRow(id: "history-uncertain-\(reason.rawValue)", title: L10n.text("Uncertain history"), ids: ids, subtitle: subtitle))
+            }
+        }
+        return rows
+    }
+
     var spanHeroTitle: String {
         guard !showsTodayDesk else { return "" }
         if grain == .day, dayOffset < 0 {
@@ -293,6 +337,28 @@ final class StudyLandingModel {
     }
 
     var spanHeroSubtitle: String? {
+        if let duration = spanStudiedDuration { return duration }
+        guard !showsTodayDesk, !spanHeroStats.isFuture else { return nil }
+        return L10n.format("%lld min", [0])
+    }
+
+    /// Button caption mirroring Today's session line: studied time plus
+    /// the answered-mix shape. Past spans retain a duration line even when
+    /// the recorded mix is unavailable.
+    var spanShapeLine: String? {
+        guard !showsTodayDesk, !spanHeroStats.isFuture else { return nil }
+        let duration = spanStudiedDuration ?? L10n.format("%lld min", [0])
+        guard let mix = spanMix else { return duration }
+        let shape = StudySummaryData.localizedSessionShape(
+            newCount: max(mix.answeredNew, 0),
+            learnCount: mix.answeredLearnTotal,
+            reviewCount: max(mix.answeredReview, 0),
+            locale: AppLocale.current
+        )
+        return shape.isEmpty ? duration : "\(duration) · \(shape)"
+    }
+
+    private var spanStudiedDuration: String? {
         guard !showsTodayDesk, !spanHeroStats.isFuture else { return nil }
         let minutes = reviewedMillisInSpan / 60_000
         return StudySpan.studiedDuration(minutes: minutes, locale: AppLocale.current)
@@ -450,7 +516,9 @@ final class StudyLandingModel {
         spanRows = []
         spanDeckRows = []
         spanDeckTotalCount = 0
+        spanDeckCountKnown = false
         spanMix = nil
+        spanHistory = nil
         spanDeckRowsLoading = false
         forecast = nil
         todayAttentionRows = []
@@ -466,7 +534,9 @@ final class StudyLandingModel {
         spanRows = []
         spanDeckRows = []
         spanDeckTotalCount = 0
+        spanDeckCountKnown = false
         spanMix = nil
+        spanHistory = nil
         spanDeckRowsLoading = false
         await reloadSpanRows()
     }
@@ -909,13 +979,16 @@ final class StudyLandingModel {
         return counts[hour]
     }
 
-    private func reloadSpanRows() async {
+    func reloadSpanRows() async {
+        guard profile.isCurrent(AccountStore.shared.selectedContext) else { return }
         spanToken += 1
         let token = spanToken
         spanRows = []
         spanDeckRows = []
         spanDeckTotalCount = 0
+        spanDeckCountKnown = false
         spanMix = nil
+        spanHistory = nil
         spanDeckRowsLoading = false
         spanRowsError = nil
         spanDeckRowsError = nil
@@ -924,6 +997,9 @@ final class StudyLandingModel {
             return
         }
         spanRowsLoading = true
+        spanDeckRowsLoading = grain == .day
+            ? dayOffset > 0
+            : spanOffsets.contains { $0 >= 0 }
         defer { if token == spanToken { spanRowsLoading = false } }
 
         let spanName = spanTitle
@@ -981,7 +1057,7 @@ final class StudyLandingModel {
         }
 
         let counts = await countCriteria(window: window, token: token)
-        guard token == spanToken else { return }
+        guard token == spanToken, profile.isCurrent(AccountStore.shared.selectedContext) else { return }
         var rows = StudySpan.ratingRows(
             counts: counts,
             oldest: window.oldest,
@@ -1023,64 +1099,135 @@ final class StudyLandingModel {
         await loadRelevantDecks(token: token)
     }
 
-    /// Answered/remaining split for a past rating window, backing the
-    /// history card's rings and legend. The window covers whole Anki days
-    /// (`ratingWindow` is past-only); still-due counts use the newest day
-    /// so mid-window dues that remain unanswered are included.
-    private func loadSpanMix(
-        window: (oldest: Int, newest: Int),
-        token: Int
-    ) async {
+    /// Reconstruct the state at the selected span's end, not today's backlog.
+    private func loadSpanMix(window: (oldest: Int, newest: Int), token: Int) async {
+        guard profile.isCurrent(AccountStore.shared.selectedContext) else { return }
         let calendar = Calendar.current
-        let startDate = StudySpan.date(
-            todayStart: todayStart, offset: window.oldest, calendar: calendar
-        )
-        let endDate = StudySpan.date(
-            todayStart: todayStart, offset: window.newest - 1, calendar: calendar
-        )
+        let startDate = StudySpan.date(todayStart: todayStart, offset: window.oldest, calendar: calendar)
+        let endDate = StudySpan.date(todayStart: todayStart, offset: window.newest - 1, calendar: calendar)
         let startMs = Int64(startDate.timeIntervalSince1970 * 1_000)
-        let nowMs = Int64(Date().timeIntervalSince1970 * 1_000)
-        let endMs = min(Int64(endDate.timeIntervalSince1970 * 1_000), nowMs)
-        guard endMs > startMs else {
-            if token == spanToken { spanMix = nil }
-            return
-        }
+        let endMs = min(Int64(endDate.timeIntervalSince1970 * 1_000), Int64(Date().timeIntervalSince1970 * 1_000))
+        guard endMs > startMs else { return }
         do {
-            let mix = try await statsClient.dayMix(
-                activitySearch, startMs, endMs, window.newest
-            )
-            if token == spanToken { spanMix = mix }
+            let history = try await statsClient.studyHistory(activitySearch, endMs, rolloverHour)
+            guard token == spanToken, !Task.isCancelled,
+                  profile.isCurrent(AccountStore.shared.selectedContext) else { return }
+            spanHistory = history
+            spanRows = historicalRows(history) + spanRows
         } catch {
-            Log.reader.error("Span mix failed: \(error)")
-            if token == spanToken { spanMix = nil }
+            guard token == spanToken, profile.isCurrent(AccountStore.shared.selectedContext) else { return }
+            spanRowsError = L10n.text("Historical card lists couldn't be reconstructed. Pull to refresh to try again.")
+        }
+        // Only the recorded answer buckets are used from this legacy endpoint.
+        // Its current-state remaining counts are never presented as history.
+        do {
+            let mix = try await statsClient.dayMix(activitySearch, startMs, endMs, window.newest)
+            if token == spanToken, !Task.isCancelled,
+               profile.isCurrent(AccountStore.shared.selectedContext) { spanMix = mix }
+        } catch {
+            Log.reader.error("Recorded answer mix failed: \(error)")
         }
     }
 
-    /// Finds the top-level decks that contributed answers or scheduled work
-    /// on an exact historical day. Deck terms include descendants, so a
-    /// parent row is a useful session target without double-counting nested
-    /// rows. Results are cached because the engine serializes searches.
-    /// The engine's revlog does not retain a card's deck at answer time, so
-    /// a historical row means "cards currently in this deck that were
-    /// reviewed/due then", not a perfect reconstruction of deck membership.
+    /// Current top-level decks containing the reconstructed cards (or future
+    /// dues). Historical membership is counted from the reconstructed IDs used
+    /// by Review; future dues keep the scheduler-backed search.
     private func loadRelevantDecks(token: Int) async {
-        guard grain == .day, dayOffset != 0,
+        guard profile.isCurrent(AccountStore.shared.selectedContext) else { return }
+
+        let isHistoricalSpan = !spanHeroStats.isFuture && (grain != .day || dayOffset > 0)
+        if isHistoricalSpan {
+            spanDeckTitle = L10n.text("Current decks of historical cards")
+            spanDeckRowsError = nil
+            spanDeckRowsLoading = true
+            if grain == .day {
+                // Historical IDs can change after imports and deck moves.
+                relevantDeckCache.removeValue(forKey: dayOffset)
+            }
+            guard let history = spanHistory else {
+                spanDeckRows = []
+                spanDeckTotalCount = 0
+                spanDeckCountKnown = false
+                spanDeckRowsLoading = false
+                return
+            }
+
+            let effectiveBase = StudyHistory.search(ids: history.remainingIds)
+            let unknownSuspensionIds = Set(history.suspensionUnknownIds)
+            let scopedBaseSearch = scopedActivitySearch(effectiveBase)
+            var rows: [StudyTimeRow] = []
+            var deckCount = 0
+            var hadFailure = false
+            for node in topLevelStudyDecks {
+                if Task.isCancelled || token != spanToken || !profile.isCurrent(AccountStore.shared.selectedContext) { return }
+                let scoped = activitySearch.isEmpty
+                    ? StudySpan.scopedSearch(
+                        effectiveBase,
+                        deckFullName: node.fullName,
+                        includeSubdecks: true
+                    )
+                    : scopedBaseSearch
+                let matches: [CardID]
+                do {
+                    matches = try await cardClient.searchIds(scoped, nil)
+                } catch {
+                    hadFailure = true
+                    continue
+                }
+                let count = matches.count
+                guard count > 0 else { continue }
+                deckCount += 1
+                if grain == .day {
+                    rows.append(StudyTimeRow(
+                        id: "day-deck-\(node.id.rawValue)",
+                        title: node.name,
+                        count: count,
+                        search: effectiveBase,
+                        detailTitle: "\(node.name) · \(spanTitle)",
+                        emptyMessage: "No matching cards in \(node.name)",
+                        reschedulesByDefault: false,
+                        isReconstructed: true,
+                        suspensionUnknownCount: Set(matches.map(\.rawValue)).intersection(unknownSuspensionIds).count,
+                        subtitle: node.children.isEmpty ? nil : L10n.text("Includes subdecks"),
+                        initialDeckID: node.id.rawValue,
+                        deckFullName: node.fullName
+                    ))
+                }
+            }
+            guard token == spanToken, !Task.isCancelled,
+                  profile.isCurrent(AccountStore.shared.selectedContext) else { return }
+            rows.sort {
+                if $0.count != $1.count { return $0.count > $1.count }
+                return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+            }
+            spanDeckRows = Array(rows.prefix(12))
+            spanDeckTotalCount = deckCount
+            spanDeckCountKnown = !hadFailure
+            spanDeckRowsLoading = false
+            if hadFailure {
+                spanDeckRowsError = L10n.text("Some deck counts couldn't be loaded. Pull to refresh to try again.")
+            }
+            return
+        }
+
+        guard grain == .day, dayOffset < 0,
               let baseSearch = StudySpan.relevanceSearch(dayOffset: dayOffset) else {
             if token == spanToken {
                 spanDeckTitle = L10n.text("Relevant decks")
                 spanDeckRows = []
                 spanDeckTotalCount = 0
-                spanMix = nil
+                spanDeckCountKnown = false
                 spanDeckRowsLoading = false
                 spanDeckRowsError = nil
             }
             return
         }
 
-        spanDeckTitle = dayOffset > 0 ? L10n.text("Decks with cards reviewed") : L10n.text("Decks with cards due")
+        spanDeckTitle = L10n.text("Decks with cards due")
         if let cached = relevantDeckCache[dayOffset] {
             spanDeckRows = cached.rows
             spanDeckTotalCount = cached.total
+            spanDeckCountKnown = true
             spanDeckRowsLoading = false
             return
         }
@@ -1090,9 +1237,10 @@ final class StudyLandingModel {
         var hadFailure = false
         let isFuture = dayOffset < 0
         let futureDaysAhead = isFuture ? -dayOffset : 0
-        let scopedBaseSearch = scopedActivitySearch(baseSearch)
+        let effectiveBase = baseSearch
+        let scopedBaseSearch = scopedActivitySearch(effectiveBase)
         for node in topLevelStudyDecks {
-            if Task.isCancelled || token != spanToken { return }
+            if Task.isCancelled || token != spanToken || !profile.isCurrent(AccountStore.shared.selectedContext) { return }
             let count: Int
             do {
                 if isFuture {
@@ -1112,7 +1260,7 @@ final class StudyLandingModel {
                 } else {
                     let scoped = activitySearch.isEmpty
                         ? StudySpan.scopedSearch(
-                            baseSearch,
+                            effectiveBase,
                             deckFullName: node.fullName,
                             includeSubdecks: true
                         )
@@ -1128,16 +1276,17 @@ final class StudyLandingModel {
                 id: "day-deck-\(node.id.rawValue)",
                 title: node.name,
                 count: count,
-                search: baseSearch,
+                search: effectiveBase,
                 detailTitle: "\(node.name) · \(spanTitle)",
                 emptyMessage: "No matching cards in \(node.name)",
-                reschedulesByDefault: true,
+                reschedulesByDefault: isFuture,
                 subtitle: node.children.isEmpty ? nil : L10n.text("Includes subdecks"),
                 initialDeckID: node.id.rawValue,
                 deckFullName: node.fullName
             ))
         }
-        guard token == spanToken, !Task.isCancelled else { return }
+        guard token == spanToken, !Task.isCancelled,
+              profile.isCurrent(AccountStore.shared.selectedContext) else { return }
         rows.sort {
             if $0.count != $1.count { return $0.count > $1.count }
             return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
@@ -1148,6 +1297,7 @@ final class StudyLandingModel {
         }
         spanDeckRows = capped
         spanDeckTotalCount = rows.count
+        spanDeckCountKnown = !hadFailure
         spanDeckRowsLoading = false
         if hadFailure {
             spanDeckRowsError = L10n.text("Some deck counts couldn't be loaded. Pull to refresh to try again.")

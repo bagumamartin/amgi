@@ -101,6 +101,27 @@ extension Request where Response == ImportLogSummary {
     }
 }
 
+extension Request where Response == StudyHistory {
+    public static func studyHistory(scope: String, dayEndMs: Int64, rolloverHour: Int) -> Self {
+        Self(
+            serviceId: ServiceID.aux,
+            methodId: AuxMethod.studyHistory,
+            encode: {
+                try JSONSerialization.data(withJSONObject: [
+                    "scope_search": scope,
+                    "day_end_ms": dayEndMs,
+                    "rollover_hour": rolloverHour,
+                ])
+            },
+            decode: { bytes in
+                let decoder = JSONDecoder()
+                decoder.keyDecodingStrategy = .convertFromSnakeCase
+                return try decoder.decode(StudyHistory.self, from: bytes)
+            }
+        )
+    }
+}
+
 extension Request where Response == StudyDayMix {
     /// Answered/remaining split for one past Anki-day window. Day
     /// boundaries are UTC millis (`revlog.id`); `overdueDays` is how far

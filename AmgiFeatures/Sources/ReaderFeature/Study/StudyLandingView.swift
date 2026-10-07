@@ -68,7 +68,10 @@ package struct StudyLandingView: View {
             spanHeroCount: model.spanHeroCount,
             spanHeroIsFuture: model.spanHeroIsFuture,
             spanDeckCount: model.spanDeckTotalCount,
+            spanDeckCountKnown: model.spanDeckCountKnown,
             historyMix: model.historyCardMix,
+            spanShapeLine: model.spanShapeLine,
+            spanRemainingRow: model.spanRemainingRow,
             spanRows: model.spanRows,
             spanRowsLoading: model.spanRowsLoading,
             canStepPast: model.canStepPast,
@@ -82,7 +85,9 @@ package struct StudyLandingView: View {
             onStepFuture: { model.step(towardsPast: false) },
             onSelectGrain: { model.selectGrain($0) },
             onSelectOffset: { model.focusDay($0) },
-            onSelectTimeRow: { timeRow = $0 },
+            onSelectTimeRow: { row in
+                timeRow = row
+            },
             onDoCoolingNow: onPullCooling,
             onSelectMonth: { model.selectMonth($0) },
             onExploreHistory: {
@@ -243,11 +248,7 @@ private struct StudyTimeDetailScreen: View {
             isBusy: busy,
             message: message,
             onScopeChange: { Task { await recount() } },
-            onStudy: study,
-            onBrowse: {
-                BrowseLauncher.shared.launch(query: activeSearch)
-                dismiss()
-            }
+            onStudy: study
         )
         .task {
             decks = await model.deckChoices()
@@ -262,7 +263,7 @@ private struct StudyTimeDetailScreen: View {
         let name = decks.first { $0.id == deckID }?.fullName
             ?? row.deckFullName
             ?? ""
-        return StudySpan.scopedSearch(row.search, deckFullName: name, includeSubdecks: includeSubdecks)
+        return StudySpan.scopedSearch(row.reviewSearch, deckFullName: name, includeSubdecks: includeSubdecks)
     }
 
     private func recount() async {

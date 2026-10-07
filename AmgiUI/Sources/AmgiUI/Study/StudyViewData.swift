@@ -2,38 +2,22 @@ public import Foundation
 
 // MARK: - DTOs (no AnkiKit / AnkiClients imports — pure view data)
 
-/// History card numbers for one past span. Mapped from the backend's
-/// day-mix DTO at the feature boundary (which owns both modules), so
-/// this file stays dependency-free. All counts are already clamped
-/// non-negative by the mapper.
+/// Reconstructed scheduled work at the span end. Candidate pools and unresolved
+/// history never participate in a historical completion denominator.
 public struct StudyHistoryMix: Equatable, Sendable {
-    /// Distinct cards answered in the span.
-    public let answeredCards: Int
-    /// Dues by state: introduced new assumed completed, the rest exact.
-    public let dueNew: Int
-    public let dueLearn: Int
-    public let dueReview: Int
-    public let dueTotal: Int
-    public let remainingTotal: Int
-    /// Answered share of dues; 1 exactly when nothing remains.
-    public let progressFraction: Double
+    public let remainingLearn: Int
+    public let remainingReview: Int
+    public let newCandidates: Int
+    public let unresolved: Int
+    public let suspensionUnknown: Int
+    public var remainingTotal: Int { remainingLearn + remainingReview }
 
-    public init(
-        answeredCards: Int,
-        dueNew: Int,
-        dueLearn: Int,
-        dueReview: Int,
-        dueTotal: Int,
-        remainingTotal: Int,
-        progressFraction: Double
-    ) {
-        self.answeredCards = answeredCards
-        self.dueNew = dueNew
-        self.dueLearn = dueLearn
-        self.dueReview = dueReview
-        self.dueTotal = dueTotal
-        self.remainingTotal = remainingTotal
-        self.progressFraction = progressFraction
+    public init(remainingLearn: Int, remainingReview: Int, newCandidates: Int, unresolved: Int, suspensionUnknown: Int = 0) {
+        self.remainingLearn = max(remainingLearn, 0)
+        self.remainingReview = max(remainingReview, 0)
+        self.newCandidates = max(newCandidates, 0)
+        self.unresolved = max(unresolved, 0)
+        self.suspensionUnknown = max(suspensionUnknown, 0)
     }
 }
 
@@ -246,6 +230,22 @@ public struct StudySummaryData: Equatable, Sendable {
     }
 
     public func localizedSessionShape(locale: Locale) -> String {
+        Self.localizedSessionShape(
+            newCount: newCount,
+            learnCount: learnCount,
+            reviewCount: reviewCount,
+            locale: locale
+        )
+    }
+
+    /// Session serving order for explicit counts. The instance variant
+    /// above feeds the Today hero; history feeds answered buckets.
+    public static func localizedSessionShape(
+        newCount: Int,
+        learnCount: Int,
+        reviewCount: Int,
+        locale: Locale
+    ) -> String {
         var parts: [String] = []
         if learnCount > 0 { parts.append(AmgiL10n.text("Learning first", locale: locale)) }
         switch (reviewCount > 0, newCount > 0) {

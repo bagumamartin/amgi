@@ -80,6 +80,9 @@ import Testing
                         answeredReview: 0, answeredCards: 0,
                         remainingLearn: 0, remainingReview: 0
                     )
+                },
+                studyHistory: { _, _, _ in
+                    StudyHistory(learningIds: [], reviewIds: [], newCandidateIds: [], unresolved: [])
                 }
             )
         } operation: {

@@ -158,6 +158,7 @@ enum AuxMethod {
     static let inspectMnemosyne: UInt32 = 2
     static let importMnemosyne: UInt32 = 3
     static let studyDayMix: UInt32 = 4
+    static let studyHistory: UInt32 = 5
 }
 
 /// BackendConfigService (9).
