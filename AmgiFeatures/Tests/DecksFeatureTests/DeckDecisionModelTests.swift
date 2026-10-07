@@ -55,7 +55,7 @@ import Testing
                 var graph = GraphsSnapshot()
                 graph.reviews.count[-47] = .init(learn: 0, relearn: 0, young: 1, mature: 0, filtered: 0)
                 return graph
-            }, graduatedToday: { _ in 0 }, learningDueToday: { _ in 0 }, lastRating: { _ in nil })
+            }, graduatedToday: { _ in 0 }, learningDueToday: { _ in 0 }, lastRating: { _ in nil }, dayMix: { _, _, _, _ in StudyDayMix(answeredNew: 0, answeredLearn: 0, answeredRelearn: 0, answeredReview: 0, answeredCards: 0, remainingLearn: 0, remainingReview: 0) })
         } operation: {
             let store = CollectionStore()
             return withDependencies { $0.collectionStore = store } operation: { DeckListModel() }

@@ -148,7 +148,14 @@ private final class SearchProbe: @unchecked Sendable {
                 fetchGraphs: { _, _ in GraphsSnapshot() },
                 graduatedToday: { _ in 0 },
                 learningDueToday: { _ in 0 },
-                lastRating: { _ in nil }
+                lastRating: { _ in nil },
+                dayMix: { _, _, _, _ in
+                    StudyDayMix(
+                        answeredNew: 0, answeredLearn: 0, answeredRelearn: 0,
+                        answeredReview: 0, answeredCards: 0,
+                        remainingLearn: 0, remainingReview: 0
+                    )
+                }
             )
         } operation: {
             let store = CollectionStore()
@@ -255,7 +262,14 @@ private final class SearchProbe: @unchecked Sendable {
                 fetchGraphs: { _, _ in GraphsSnapshot() },
                 graduatedToday: { _ in 0 },
                 learningDueToday: { _ in 0 },
-                lastRating: { _ in nil }
+                lastRating: { _ in nil },
+                dayMix: { _, _, _, _ in
+                    StudyDayMix(
+                        answeredNew: 0, answeredLearn: 0, answeredRelearn: 0,
+                        answeredReview: 0, answeredCards: 0,
+                        remainingLearn: 0, remainingReview: 0
+                    )
+                }
             )
         } operation: {
             let store = CollectionStore()

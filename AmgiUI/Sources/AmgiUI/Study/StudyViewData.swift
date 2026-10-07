@@ -2,6 +2,41 @@ public import Foundation
 
 // MARK: - DTOs (no AnkiKit / AnkiClients imports — pure view data)
 
+/// History card numbers for one past span. Mapped from the backend's
+/// day-mix DTO at the feature boundary (which owns both modules), so
+/// this file stays dependency-free. All counts are already clamped
+/// non-negative by the mapper.
+public struct StudyHistoryMix: Equatable, Sendable {
+    /// Distinct cards answered in the span.
+    public let answeredCards: Int
+    /// Dues by state: introduced new assumed completed, the rest exact.
+    public let dueNew: Int
+    public let dueLearn: Int
+    public let dueReview: Int
+    public let dueTotal: Int
+    public let remainingTotal: Int
+    /// Answered share of dues; 1 exactly when nothing remains.
+    public let progressFraction: Double
+
+    public init(
+        answeredCards: Int,
+        dueNew: Int,
+        dueLearn: Int,
+        dueReview: Int,
+        dueTotal: Int,
+        remainingTotal: Int,
+        progressFraction: Double
+    ) {
+        self.answeredCards = answeredCards
+        self.dueNew = dueNew
+        self.dueLearn = dueLearn
+        self.dueReview = dueReview
+        self.dueTotal = dueTotal
+        self.remainingTotal = remainingTotal
+        self.progressFraction = progressFraction
+    }
+}
+
 /// Where the Study desk is in today's sitting.
 public enum StudyDeskPhase: Equatable, Sendable {
     /// Cards are answerable and nothing has been graduated yet today.

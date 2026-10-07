@@ -17,6 +17,11 @@ public struct StatsClient: Sendable {
     /// The rating the card received on its most recent review, from the last
     /// revlog entry. `nil` for cards never reviewed (new cards).
     public var lastRating: @Sendable (_ cardId: Int64) async throws -> Rating?
+    /// Answered/remaining split for one past Anki-day window, backing the
+    /// Study history card's rings and legend. `scope` is a backend search
+    /// expression (`""` = whole collection); bounds are UTC millis
+    /// (`revlog.id`); `overdueDays` is how far back the window start sits.
+    public var dayMix: @Sendable (_ scope: String, _ dayStartMs: Int64, _ dayEndMs: Int64, _ overdueDays: Int) async throws -> StudyDayMix
 }
 
 extension StatsClient: TestDependencyKey {

@@ -11,7 +11,18 @@ extension StatsClient {
         },
         graduatedToday: { _ in 7 },
         learningDueToday: { _ in 3 },
-        lastRating: { _ in nil }
+        lastRating: { _ in nil },
+        dayMix: { _, _, _, _ in
+            StudyDayMix(
+                answeredNew: 5,
+                answeredLearn: 8,
+                answeredRelearn: 2,
+                answeredReview: 20,
+                answeredCards: 35,
+                remainingLearn: 0,
+                remainingReview: 0
+            )
+        }
     )
 }
 #endif

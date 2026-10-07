@@ -101,6 +101,7 @@ public struct StudyLandingContent: View {
     let spanHeroCount: Int
     let spanHeroIsFuture: Bool
     let spanDeckCount: Int
+    let historyMix: StudyHistoryMix?
     let spanRows: [StudyTimeRow]
     let spanRowsLoading: Bool
     let canStepPast: Bool
@@ -151,6 +152,7 @@ public struct StudyLandingContent: View {
         spanHeroCount: Int = 0,
         spanHeroIsFuture: Bool = false,
         spanDeckCount: Int = 0,
+        historyMix: StudyHistoryMix? = nil,
         spanRows: [StudyTimeRow] = [],
         spanRowsLoading: Bool = false,
         canStepPast: Bool = true,
@@ -192,6 +194,7 @@ public struct StudyLandingContent: View {
         self.spanHeroCount = max(spanHeroCount, 0)
         self.spanHeroIsFuture = spanHeroIsFuture
         self.spanDeckCount = max(spanDeckCount, 0)
+        self.historyMix = historyMix
         self.spanRows = spanRows
         self.spanRowsLoading = spanRowsLoading
         self.canStepPast = canStepPast
@@ -524,12 +527,27 @@ public struct StudyLandingContent: View {
         }
     }
 
-    /// Ring input for the span: past days arrive closed (reviewed ==
-    /// baseline, full rings), future days open at zero. The centre number
-    /// is the span's own count, not today's remaining.
+    /// Ring input for the span. With the backend mix, the centre number
+    /// is remaining dues and the fill is the answered share — the Due
+    /// photocopy of Today's card. Without it (future spans, loading,
+    /// failure), past days read closed on graph counts and future days
+    /// open at zero.
     private var historyRingSummary: StudySummaryData {
+        if let mix = historyMix {
+            return StudySummaryData(
+                totalDue: mix.remainingTotal,
+                newCount: 0,
+                learnCount: 0,
+                reviewCount: 0,
+                todayLabel: "",
+                subtitleLabel: "",
+                deckCount: 0,
+                reviewedToday: mix.answeredCards,
+                dueBaselineToday: max(mix.dueTotal, 1)
+            )
+        }
         if spanHeroIsFuture {
-            StudySummaryData(
+            return StudySummaryData(
                 totalDue: spanHeroCount,
                 newCount: 0,
                 learnCount: 0,
@@ -541,7 +559,7 @@ public struct StudyLandingContent: View {
                 dueBaselineToday: max(spanHeroCount, 1)
             )
         } else {
-            StudySummaryData(
+            return StudySummaryData(
                 totalDue: spanHeroCount,
                 newCount: 0,
                 learnCount: 0,
@@ -555,10 +573,14 @@ public struct StudyLandingContent: View {
         }
     }
 
-    /// Past spans read REVIEWED in the centre; future spans keep the
-    /// ring's own DUE NOW.
+    /// Past spans read DUE in the centre once the mix lands (the numeral
+    /// is remaining); future spans keep the ring's own DUE NOW, and the
+    /// graph fallback keeps REVIEWED.
     private var historyRingCaption: String? {
-        spanHeroIsFuture
+        if historyMix != nil {
+            return AmgiL10n.text("Due", locale: locale)
+        }
+        return spanHeroIsFuture
             ? nil
             : AmgiL10n.text("Reviewed", locale: locale)
     }
@@ -598,26 +620,65 @@ public struct StudyLandingContent: View {
             .prefix(3))
     }
 
+    @ViewBuilder
     private var historyLegend: some View {
-        VStack(alignment: .leading, spacing: AmgiSpacing.xs) {
-            ForEach(historyLegendRows) { row in
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(palette.accent)
-                        .frame(width: 7, height: 7)
-                    Text(row.title)
-                        .font(.caption)
-                        .foregroundStyle(palette.textSecondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    Text("\(row.count)")
-                        .font(.caption)
-                        .monospacedDigit()
-                        .foregroundStyle(palette.textPrimary)
+        if let mix = historyMix {
+            VStack(alignment: .leading, spacing: AmgiSpacing.xs) {
+                historyMixRow(
+                    title: AmgiL10n.text("New", locale: locale),
+                    count: mix.dueNew,
+                    color: palette.cardStateNew
+                )
+                historyMixRow(
+                    title: AmgiL10n.text("Learn", locale: locale),
+                    count: mix.dueLearn,
+                    color: palette.cardStateLearning
+                )
+                historyMixRow(
+                    title: AmgiL10n.text("Review", locale: locale),
+                    count: mix.dueReview,
+                    color: palette.cardStateReview
+                )
+            }
+        } else {
+            VStack(alignment: .leading, spacing: AmgiSpacing.xs) {
+                ForEach(historyLegendRows) { row in
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(palette.accent)
+                            .frame(width: 7, height: 7)
+                        Text(row.title)
+                            .font(.caption)
+                            .foregroundStyle(palette.textSecondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Text("\(row.count)")
+                            .font(.caption)
+                            .monospacedDigit()
+                            .foregroundStyle(palette.textPrimary)
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("\(row.title), \(row.count)")
                 }
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("\(row.title), \(row.count)")
             }
         }
+    }
+
+    private func historyMixRow(title: String, count: Int, color: Color) -> some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(color)
+                .frame(width: 7, height: 7)
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(palette.textSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text("\(count)")
+                .font(.caption)
+                .monospacedDigit()
+                .foregroundStyle(palette.textPrimary)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(title), \(count)")
     }
 
     private func historyPrimaryButton(_ row: StudyTimeRow) -> some View {
@@ -628,8 +689,8 @@ public struct StudyLandingContent: View {
                 Image(systemName: "play.fill")
                     .font(.system(size: 14, weight: .bold))
                 Text(row.id == "due"
-                     ? AmgiL10n.text("Study ahead", locale: locale)
-                     : AmgiL10n.text("Restudy day", locale: locale))
+                     ? AmgiL10n.text("Review Ahead", locale: locale)
+                     : AmgiL10n.text("Review", locale: locale))
                     .bold()
             }
             .frame(maxWidth: .infinity)

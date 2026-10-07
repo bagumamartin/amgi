@@ -32,11 +32,31 @@ final class StudyLandingModel {
     var spanDeckRows: [StudyTimeRow] = []
     var spanDeckRowsLoading = false
     var spanDeckTitle = L10n.text("Relevant decks")
+    /// Answered/remaining split for the current past span, backing the
+    /// history card's rings and legend. Nil on Today, on future spans,
+    /// while loading, and when the aggregation fails (the card falls
+    /// back to graph-based counts).
+    var spanMix: StudyDayMix?
     /// Decks contributing to this day before the 12-row cap. Doubles as
     /// the history card's "N decks due" — an approximation: it counts
     /// decks with answers (past) or dues (future) found by search, and
     /// daily limits may have held back further dues on the day.
     var spanDeckTotalCount = 0
+    /// History card numbers mapped from the backend day-mix DTO. Nil on
+    /// Today, on future spans, while loading, and when the aggregation
+    /// fails (the card falls back to graph-based counts).
+    var historyCardMix: StudyHistoryMix? {
+        guard let mix = spanMix else { return nil }
+        return StudyHistoryMix(
+            answeredCards: max(mix.answeredCards, 0),
+            dueNew: mix.dueNew,
+            dueLearn: mix.dueLearn,
+            dueReview: mix.dueReview,
+            dueTotal: mix.dueTotal,
+            remainingTotal: mix.remainingTotal,
+            progressFraction: mix.progressFraction
+        )
+    }
     var spanRowsError: String?
     var spanDeckRowsError: String?
     var workloadError: String?
@@ -83,6 +103,7 @@ final class StudyLandingModel {
             todayAttentionRows = []
             spanDeckRows = []
             spanDeckTotalCount = 0
+            spanMix = nil
             spanDeckRowsLoading = false
             spanRowsError = nil
             spanDeckRowsError = nil
@@ -245,7 +266,9 @@ final class StudyLandingModel {
             let count = spanOffsets.reduce(0) { $0 + activityCount($1) }
             return (count, true)
         }
-        let count = spanRows.first { $0.id == "reviewed" }?.count ?? reviewedInSpan
+        let count = spanMix?.answeredCards
+            ?? spanRows.first { $0.id == "reviewed" }?.count
+            ?? reviewedInSpan
         return (count, false)
     }
 
@@ -427,6 +450,7 @@ final class StudyLandingModel {
         spanRows = []
         spanDeckRows = []
         spanDeckTotalCount = 0
+        spanMix = nil
         spanDeckRowsLoading = false
         forecast = nil
         todayAttentionRows = []
@@ -442,6 +466,7 @@ final class StudyLandingModel {
         spanRows = []
         spanDeckRows = []
         spanDeckTotalCount = 0
+        spanMix = nil
         spanDeckRowsLoading = false
         await reloadSpanRows()
     }
@@ -890,6 +915,7 @@ final class StudyLandingModel {
         spanRows = []
         spanDeckRows = []
         spanDeckTotalCount = 0
+        spanMix = nil
         spanDeckRowsLoading = false
         spanRowsError = nil
         spanDeckRowsError = nil
@@ -993,7 +1019,41 @@ final class StudyLandingModel {
         }
         spanRows = rows
         spanRowsLoading = false
+        await loadSpanMix(window: window, token: token)
         await loadRelevantDecks(token: token)
+    }
+
+    /// Answered/remaining split for a past rating window, backing the
+    /// history card's rings and legend. The window covers whole Anki days
+    /// (`ratingWindow` is past-only); still-due counts use the newest day
+    /// so mid-window dues that remain unanswered are included.
+    private func loadSpanMix(
+        window: (oldest: Int, newest: Int),
+        token: Int
+    ) async {
+        let calendar = Calendar.current
+        let startDate = StudySpan.date(
+            todayStart: todayStart, offset: window.oldest, calendar: calendar
+        )
+        let endDate = StudySpan.date(
+            todayStart: todayStart, offset: window.newest - 1, calendar: calendar
+        )
+        let startMs = Int64(startDate.timeIntervalSince1970 * 1_000)
+        let nowMs = Int64(Date().timeIntervalSince1970 * 1_000)
+        let endMs = min(Int64(endDate.timeIntervalSince1970 * 1_000), nowMs)
+        guard endMs > startMs else {
+            if token == spanToken { spanMix = nil }
+            return
+        }
+        do {
+            let mix = try await statsClient.dayMix(
+                activitySearch, startMs, endMs, window.newest
+            )
+            if token == spanToken { spanMix = mix }
+        } catch {
+            Log.reader.error("Span mix failed: \(error)")
+            if token == spanToken { spanMix = nil }
+        }
     }
 
     /// Finds the top-level decks that contributed answers or scheduled work
@@ -1010,6 +1070,7 @@ final class StudyLandingModel {
                 spanDeckTitle = L10n.text("Relevant decks")
                 spanDeckRows = []
                 spanDeckTotalCount = 0
+                spanMix = nil
                 spanDeckRowsLoading = false
                 spanDeckRowsError = nil
             }

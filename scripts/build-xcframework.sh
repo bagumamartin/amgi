@@ -119,6 +119,12 @@ make_framework() {
 
     cp "$dylib" "$bin_dir/AnkiRustLib"
     chmod +x "$bin_dir/AnkiRustLib"
+    # Modern rustc linker-signs the dylib ad hoc, and `strip -S` below
+    # leaves that signature in a state downstream codesign cannot replace
+    # ("invalid or unsupported format for signature" when test bundles
+    # and archives re-sign the embedded framework). Drop it here so the
+    # shipped binary is unsigned and every consumer signs fresh.
+    codesign --remove-signature "$bin_dir/AnkiRustLib"
     cp "$HEADER" "$headers_dir/"
 
     cat > "$modules_dir/module.modulemap" <<'MODULEMAP'

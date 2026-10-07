@@ -100,3 +100,35 @@ extension Request where Response == ImportLogSummary {
         )
     }
 }
+
+extension Request where Response == StudyDayMix {
+    /// Answered/remaining split for one past Anki-day window. Day
+    /// boundaries are UTC millis (`revlog.id`); `overdueDays` is how far
+    /// back the window start sits, driving the still-due comparison.
+    /// `scope` is a backend search expression (`""` = whole collection).
+    public static func studyDayMix(
+        scope: String,
+        dayStartMs: Int64,
+        dayEndMs: Int64,
+        overdueDays: Int
+    ) -> Self {
+        Self(
+            serviceId: ServiceID.aux,
+            methodId: AuxMethod.studyDayMix,
+            encode: {
+                let payload: [String: Any] = [
+                    "scope_search": scope,
+                    "day_start_ms": dayStartMs,
+                    "day_end_ms": dayEndMs,
+                    "overdue_days": overdueDays,
+                ]
+                return try JSONSerialization.data(withJSONObject: payload)
+            },
+            decode: { bytes in
+                let decoder = JSONDecoder()
+                decoder.keyDecodingStrategy = .convertFromSnakeCase
+                return try decoder.decode(StudyDayMix.self, from: bytes)
+            }
+        )
+    }
+}

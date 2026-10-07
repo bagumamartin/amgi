@@ -38,6 +38,16 @@ extension StatsClient: DependencyKey {
             },
             lastRating: { cardId in
                 try await backendOffload { try backend.invoke(.lastCardRating(cardId: cardId)) }
+            },
+            dayMix: { scope, dayStartMs, dayEndMs, overdueDays in
+                try await backendOffload {
+                    try backend.invoke(.studyDayMix(
+                        scope: scope,
+                        dayStartMs: dayStartMs,
+                        dayEndMs: dayEndMs,
+                        overdueDays: overdueDays
+                    ))
+                }
             }
         )
     }()
