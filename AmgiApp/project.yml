@@ -328,7 +328,9 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.bagumamartin.ijuka.helper
         # Mac App Store ingestion requires every nested executable to opt in
         # to App Sandbox. A command-line helper must carry exactly these two
-        # sandbox entitlements so it inherits the launching process's sandbox.
+        # sandbox entitlements so it inherits the containing app's sandbox.
+        # External MCP clients must use scripts/install-mcp-helper.sh, which
+        # builds a separate standalone product without sandbox inheritance.
         CODE_SIGN_ENTITLEMENTS: IjukaMCPHelper.entitlements
         GENERATE_INFOPLIST_FILE: YES
         SKIP_INSTALL: YES

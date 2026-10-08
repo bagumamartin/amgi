@@ -14,11 +14,30 @@ cd "$ROOT_DIR"
 echo "==> Building ijuka-mcp (release, macOS)..."
 xcodebuild -project AmgiApp/AmgiApp.xcodeproj -target IjukaMCPHelper \
   -configuration Release -sdk macosx \
-  CONFIGURATION_BUILD_DIR="$ROOT_DIR/AmgiApp/build/Release" build
+  CONFIGURATION_BUILD_DIR="$ROOT_DIR/AmgiApp/build/MCPStandalone" \
+  CODE_SIGN_ENTITLEMENTS= CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
+  ENABLE_APP_SANDBOX=NO ENABLE_HARDENED_RUNTIME=YES \
+  'LD_RUNPATH_SEARCH_PATHS=$(inherited) @executable_path/ijuka-mcp-runtime' build
 
-mkdir -p "$INSTALL_DIR"
-cp "AmgiApp/build/Release/ijuka-mcp" "$INSTALL_PATH"
+# Keep the standalone binary and its Rust dependency together. Sign the
+# framework with the exact certificate used by Xcode for the executable,
+# so Hardened Runtime library validation accepts it.
+BUILD_DIR="$ROOT_DIR/AmgiApp/build/MCPStandalone"
+RUNTIME_DIR="$BUILD_DIR/ijuka-mcp-runtime"
+mkdir -p "$RUNTIME_DIR"
+cp -R "$BUILD_DIR/AnkiRustLib.framework" "$RUNTIME_DIR/"
+codesign --display --extract-certificates="$BUILD_DIR/signing-cert-" "$BUILD_DIR/ijuka-mcp"
+SIGN_IDENTITY="$(shasum -a 1 "$BUILD_DIR/signing-cert-0" | cut -d ' ' -f 1)"
+codesign --force --sign "$SIGN_IDENTITY" --options runtime "$RUNTIME_DIR/AnkiRustLib.framework"
+codesign --verify --strict "$RUNTIME_DIR/AnkiRustLib.framework"
+codesign --verify --strict "$BUILD_DIR/ijuka-mcp"
+"$BUILD_DIR/ijuka-mcp" --help >/dev/null
+
+mkdir -p "$INSTALL_DIR/ijuka-mcp-runtime"
+cp -R "$RUNTIME_DIR/AnkiRustLib.framework" "$INSTALL_DIR/ijuka-mcp-runtime/"
+cp "$BUILD_DIR/ijuka-mcp" "$INSTALL_PATH"
 chmod +x "$INSTALL_PATH"
+"$INSTALL_PATH" --help >/dev/null
 
 echo "==> Installed: $INSTALL_PATH"
 echo ""

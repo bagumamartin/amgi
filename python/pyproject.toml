@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ijuka-mcp"
-version = "1.2.0"
-description = "Ijuka MCP server — Python shim for uvx. Launches the bundled Ijuka helper."
+version = "1.2.1"
+description = "Ijuka MCP server — Python shim for uvx. Launches the standalone Ijuka helper."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "AGPL-3.0" }

@@ -117,7 +117,7 @@ struct MCPServerSettingsView: View {
         } header: {
             Text("Connect an AI assistant")
         } footer: {
-                Text("Works with any MCP client (Claude, Cursor, Codex, Zed, Gemini, Qwen, …): choose STDIO, Command uvx, Parameters ijuka-mcp — or paste the JSON. First launch downloads the tiny launcher from PyPI. If your client shows an error, run uvx ijuka-mcp --help once in Terminal to warm the cache, then restart the client. Works whether Ijuka is open or not.")
+                Text("Works with any MCP client (Claude, Cursor, Codex, Zed, Gemini, Qwen, …): install the standalone MCP helper, then choose STDIO and copy the command below — or paste the JSON. The helper bundled in the App Store app cannot be launched by external clients. Works whether Ijuka is open or not.")
         }
     }
 

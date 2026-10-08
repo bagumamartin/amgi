@@ -7,7 +7,9 @@ Command: uvx
 Parameters: ijuka-mcp
 ```
 
-The Swift helper is still the real server; this package just finds the bundled binary at `/Applications/<app>.app/Contents/Helpers/ijuka-mcp` (or the dev helpers in `~/bin`, `/usr/local/bin`, `DerivedData`) and `exec`s it, forwarding stdio.
+The Swift helper is the real server. Install its standalone build from the repository with `./scripts/install-mcp-helper.sh` first. This package finds it in `~/bin` or `/usr/local/bin` and `exec`s it, forwarding stdio. `IJUKA_MCP_HELPER_PATH` can select another standalone build.
+
+The App Store binary inside `Contents/Helpers` inherits the app's sandbox. External MCP clients cannot launch it directly; installing the app alone does not install a standalone MCP server.
 
 `uvx` (`uv tool run`) holds the uv cache lock for the lifetime of the server (`astral-sh/uv#15990`). With several clients all using `uvx` the spawns serialize and can hit the 10 s handshake timeout. For multi-client / daily use install once persistently.
 
@@ -17,7 +19,7 @@ The Swift helper is still the real server; this package just finds the bundled b
 # One-off / trial — no install, uses cached env after first run:
 uvx ijuka-mcp --help
 # Pin for reproducibility:
-uvx ijuka-mcp==1.2.0 --help
+uvx ijuka-mcp==1.2.1 --help
 
 # Daily / multi-client — persistent, fastest, no cache-lock contention:
 uv tool install ijuka-mcp
