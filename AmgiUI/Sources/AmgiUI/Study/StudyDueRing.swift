@@ -20,12 +20,12 @@ public struct StudyDueRing: View {
     /// would otherwise read as due today.
     public var centerAccessibility: String?
     /// History is a reconstruction, without a measurable completion denominator.
+    public var isLoading: Bool
+    public var animatesChanges: Bool
     public var showsProgress: Bool
 
     @Environment(\.palette) private var palette
     @Environment(\.locale) private var locale
-
-    @State private var displayedDue = 0
 
     private var ringSize: CGFloat { diameter }
     private var lineWidth: CGFloat { max(10, min(16, diameter * 0.075)) }
@@ -56,13 +56,17 @@ public struct StudyDueRing: View {
         diameter: CGFloat = 168,
         centerCaption: String? = nil,
         centerAccessibility: String? = nil,
-        showsProgress: Bool = true
+        showsProgress: Bool = true,
+        isLoading: Bool = false,
+        animatesChanges: Bool = true
     ) {
         self.summary = summary
         self.diameter = diameter
         self.centerCaption = centerCaption
         self.centerAccessibility = centerAccessibility
         self.showsProgress = showsProgress
+        self.isLoading = isLoading
+        self.animatesChanges = animatesChanges
     }
 
     public var body: some View {
@@ -71,7 +75,7 @@ public struct StudyDueRing: View {
             centerContent
         }
         .frame(width: ringSize, height: ringSize)
-        .animation(AmgiMotion.standard, value: summary)
+        .animation(animatesChanges ? AmgiMotion.standard : nil, value: summary)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(showsProgress ? "Study progress" : "Historical cards")
         .accessibilityValue(centerAccessibility ?? accessibilitySummary)
@@ -145,7 +149,7 @@ public struct StudyDueRing: View {
                 .foregroundStyle(palette.textSecondary)
                 .accessibilityHidden(true)
 
-            Text("\(displayedDue)")
+            Text(isLoading ? "—" : "\(summary.totalDue)")
                 .font(.title)
                 .fontWeight(.bold)
                 .foregroundStyle(palette.textPrimary)
@@ -155,7 +159,7 @@ public struct StudyDueRing: View {
                 .accessibilityHidden(true)
 
             if showsProgress {
-                Text("\(summary.todayProgressPercent)%")
+                Text(isLoading ? "—" : "\(summary.todayProgressPercent)%")
                     .amgiFont(.micro)
                     .monospacedDigit()
                     .foregroundStyle(palette.textTertiary)
@@ -170,16 +174,6 @@ public struct StudyDueRing: View {
         // Optical nudge: the short "Done" line leaves headroom below,
         // so the group sits slightly low and DUE NOW clears the top.
         .offset(y: 3)
-        .onAppear {
-            withAnimation(AmgiMotion.standard) {
-                displayedDue = summary.totalDue
-            }
-        }
-        .onChange(of: summary.totalDue) { _, newValue in
-            withAnimation(AmgiMotion.standard) {
-                displayedDue = newValue
-            }
-        }
         .accessibilityHidden(true)
     }
 

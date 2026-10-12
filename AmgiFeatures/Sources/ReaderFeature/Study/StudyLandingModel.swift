@@ -74,6 +74,47 @@ final class StudyLandingModel {
 
     private var loadToken = 0
     private var spanToken = 0
+    @ObservationIgnored private var spanTask: Task<Void, Never>?
+    @ObservationIgnored private var prefetchTask: Task<Void, Never>?
+    @ObservationIgnored private var spanCache: [SpanKey: SpanSnapshot] = [:]
+    @ObservationIgnored private var displayedSpanKey: SpanKey?
+
+    private struct SpanKey: Hashable {
+        let grain: StudyGrain
+        let offset: Int
+        let dayStart: Date
+        let locale: String
+    }
+
+    private var spanKey: SpanKey {
+        SpanKey(grain: grain, offset: dayOffset, dayStart: todayStart, locale: AppLocale.current.identifier)
+    }
+
+    /// Complete results for the card/cuts and for deck membership.
+    private struct SpanSnapshot {
+        let rows: [StudyTimeRow]
+        let decks: [StudyTimeRow]
+        let deckTitle: String
+        let deckCount: Int
+        let deckCountKnown: Bool
+        let mix: StudyDayMix?
+        let history: StudyHistory?
+        let rowsError: String?
+        let decksError: String?
+
+        @MainActor init(_ model: StudyLandingModel) {
+            rows = model.spanRows
+            decks = model.spanDeckRows
+            deckTitle = model.spanDeckTitle
+            deckCount = model.spanDeckTotalCount
+            deckCountKnown = model.spanDeckCountKnown
+            mix = model.spanMix
+            history = model.spanHistory
+            rowsError = model.spanRowsError
+            decksError = model.spanDeckRowsError
+        }
+    }
+
     private var bookToken = 0
     @ObservationIgnored private let profile: ProfileContext
 
@@ -112,6 +153,10 @@ final class StudyLandingModel {
             spanDeckRowsError = nil
             workloadError = nil
         }
+        spanTask?.cancel()
+        prefetchTask?.cancel()
+        spanToken += 1
+        spanCache.removeAll()
         relevantDeckCache = [:]
         do {
             // 1. Deck tree → top-level decks only. Parent counts already
@@ -262,7 +307,7 @@ final class StudyLandingModel {
     /// card's number, rings, and button can never disagree.
     private var spanHeroStats: (count: Int, isFuture: Bool) {
         if grain == .day, dayOffset < 0 {
-            let count = spanRows.first?.count ?? futureDueCounts[-dayOffset] ?? 0
+            let count = (spanRowsLoading ? nil : spanRows.first?.count) ?? futureDueCounts[-dayOffset] ?? 0
             return (count, true)
         }
         if !spanOffsets.isEmpty, spanOffsets.allSatisfy({ $0 < 0 }) {
@@ -300,7 +345,7 @@ final class StudyLandingModel {
             historyRow(id: "history-review", title: L10n.text("Reviews left then"), ids: history.reviewIds),
             historyRow(id: "history-new", title: L10n.text("New candidates"), ids: history.newCandidateIds,
                 subtitle: L10n.text("Inferred new-card pool; daily selection is unknown."))
-        ].filter { $0.count > 0 }
+        ]
         for reason in [StudyHistory.Unresolved.Reason.incompleteLog, .manualSchedule, .ambiguousState, .learningRollover] {
             let ids = history.unresolved.filter { $0.reason == reason }.map(\.cardId)
             let subtitle = switch reason {
@@ -319,6 +364,7 @@ final class StudyLandingModel {
     var spanHeroTitle: String {
         guard !showsTodayDesk else { return "" }
         if grain == .day, dayOffset < 0 {
+            if spanRowsLoading, futureDueCounts[-dayOffset] == nil { return L10n.text("Cards due") }
             return L10n.format("%lld due", [spanHeroStats.count])
         }
         if !spanOffsets.isEmpty, spanOffsets.allSatisfy({ $0 < 0 }) {
@@ -447,6 +493,11 @@ final class StudyLandingModel {
     }
 
     func step(towardsPast: Bool) {
+        moveSpan(towardsPast: towardsPast)
+        scheduleSpanReload()
+    }
+
+    private func moveSpan(towardsPast: Bool) {
         let sign = towardsPast ? 1 : -1
         switch grain {
         case .day:
@@ -464,12 +515,11 @@ final class StudyLandingModel {
             let moved = calendar.date(byAdding: .year, value: towardsPast ? -1 : 1, to: anchor) ?? anchor
             dayOffset = StudySpan.calendarClamped(StudySpan.offset(todayStart: todayStart, dayStart: moved, calendar: calendar))
         }
-        Task { await reloadSpanRows() }
     }
 
     func selectGrain(_ grain: StudyGrain) {
         self.grain = grain
-        Task { await reloadSpanRows() }
+        scheduleSpanReload()
     }
 
     /// Year opens that month with the day marked. Month opens the week.
@@ -490,20 +540,20 @@ final class StudyLandingModel {
             guard dayOffset != clamped else { return }
             dayOffset = clamped
         }
-        Task { await reloadSpanRows() }
+        scheduleSpanReload()
     }
 
     /// The year wall's month name opens that month.
     func selectMonth(_ offset: Int) {
         grain = .month
         dayOffset = StudySpan.calendarClamped(offset)
-        Task { await reloadSpanRows() }
+        scheduleSpanReload()
     }
 
     /// Back to the current period, keeping the grain.
     func returnToNow() {
         dayOffset = 0
-        Task { await reloadSpanRows() }
+        scheduleSpanReload()
     }
 
     /// Explicit deep-link/widget destination. Unlike `returnToNow`, this
@@ -979,7 +1029,177 @@ final class StudyLandingModel {
         return counts[hour]
     }
 
-    func reloadSpanRows() async {
+    private func scheduleSpanReload() {
+        spanTask?.cancel()
+        prefetchTask?.cancel()
+        // Invalidate before the task starts, so a previous selection cannot publish.
+        spanToken += 1
+        if let cached = spanCache[spanKey] {
+            applySpan(cached)
+            startSpanPrefetch()
+            return
+        }
+        if !showsTodayDesk { beginSpanLoading() }
+        spanTask = Task { await reloadSpanRows() }
+    }
+
+    func reloadSpanRows(refresh: Bool = false) async {
+        guard profile.isCurrent(AccountStore.shared.selectedContext), !Task.isCancelled else { return }
+        prefetchTask?.cancel()
+        spanToken += 1
+        let token = spanToken
+        let key = spanKey
+        if refresh { spanCache.removeValue(forKey: key) }
+        if let cached = spanCache[key] {
+            applySpan(cached)
+            startSpanPrefetch()
+            return
+        }
+        guard !showsTodayDesk else {
+            applySpan(SpanSnapshot(StudyLandingModel(profile: profile)))
+            startSpanPrefetch()
+            return
+        }
+
+        let staging = makeSpanLoader()
+        beginSpanLoading()
+        defer {
+            if token == spanToken {
+                spanRowsLoading = false
+                spanDeckRowsLoading = false
+            }
+        }
+        await staging.buildSpanRows(includingDecks: false)
+        guard token == spanToken, !Task.isCancelled,
+              key == spanKey,
+              profile.isCurrent(AccountStore.shared.selectedContext) else { return }
+        // The card and its actions can populate before slower deck membership
+        // queries finish. Keep deck rows mounted while their counts are pending.
+        let pendingDecks = spanDeckRows
+        let pendingDeckTitle = spanDeckTitle
+        let knownDeckCount = spanDeckTotalCount
+        let deckCountWasKnown = spanDeckCountKnown
+        applySpan(SpanSnapshot(staging))
+        spanDeckRows = pendingDecks
+        spanDeckTitle = pendingDeckTitle
+        spanDeckTotalCount = knownDeckCount
+        spanDeckCountKnown = deckCountWasKnown
+        spanDeckRowsLoading = !deckCountWasKnown
+        await staging.loadRelevantDecks(token: staging.spanToken)
+        guard token == spanToken, !Task.isCancelled,
+              key == spanKey,
+              profile.isCurrent(AccountStore.shared.selectedContext) else { return }
+        let result = SpanSnapshot(staging)
+        if result.rowsError == nil && result.decksError == nil {
+            // Bound memory for long browsing sessions with reconstructed ID lists.
+            if spanCache.count >= 32 { spanCache.removeAll() }
+            spanCache[key] = result
+        }
+        applySpan(result)
+        startSpanPrefetch()
+    }
+
+    private func makeSpanLoader() -> StudyLandingModel {
+        // The existing query helpers build into an isolated model. None of their
+        // sequential results are observable by the displayed screen.
+        let stats = statsClient
+        let cards = cardClient
+        let staging = withDependencies {
+            $0.statsClient = stats
+            $0.cardClient = cards
+        } operation: {
+            StudyLandingModel(profile: profile)
+        }
+        staging.grain = grain
+        staging.dayOffset = dayOffset
+        staging.rolloverHour = rolloverHour
+        staging.activitySearch = activitySearch
+        staging.topLevelStudyDecks = topLevelStudyDecks
+        staging.supportsStability = supportsStability
+        staging.futureDueCounts = futureDueCounts
+        return staging
+    }
+
+    private func startSpanPrefetch() {
+        guard hasActivitySnapshot else { return }
+        prefetchTask?.cancel()
+        prefetchTask = Task(priority: .background) { await prefetchAdjacentSpans() }
+    }
+
+    /// Warm only the immediate neighbours, without changing displayed values.
+    func prefetchAdjacentSpans() async {
+        let selectedKey = spanKey
+        let token = spanToken
+        for towardsPast in [true, false] {
+            guard !Task.isCancelled, token == spanToken,
+                  profile.isCurrent(AccountStore.shared.selectedContext) else { return }
+            let staging = makeSpanLoader()
+            staging.moveSpan(towardsPast: towardsPast)
+            let key = staging.spanKey
+            guard key != selectedKey, !staging.showsTodayDesk, spanCache[key] == nil else { continue }
+            await staging.buildSpanRows()
+            guard !Task.isCancelled, token == spanToken, selectedKey == spanKey,
+                  profile.isCurrent(AccountStore.shared.selectedContext) else { return }
+            let result = SpanSnapshot(staging)
+            if result.rowsError == nil && result.decksError == nil {
+                if spanCache.count >= 32 { spanCache.removeAll() }
+                spanCache[key] = result
+            }
+        }
+    }
+
+    private func beginSpanLoading() {
+        // A refresh of the displayed period retains its known values and IDs.
+        // A new selection gets the same row structure with unknown counts.
+        if displayedSpanKey == spanKey, !spanRowsLoading, !spanRows.isEmpty { return }
+        if let window = StudySpan.ratingWindow(offsets: spanOffsets) {
+            spanRows = historicalRows(StudyHistory(learningIds: [], reviewIds: [], newCandidateIds: [], unresolved: []))
+                + StudySpan.ratingRows(counts: [:], oldest: window.oldest, newest: window.newest,
+                    spanName: spanTitle, additionalSearch: activitySearch.isEmpty ? nil : activitySearch, locale: AppLocale.current)
+            if supportsStability {
+                spanRows.insert(StudySpan.unstableRow(count: 0, dayOffset: dayOffset, spanName: spanTitle, locale: AppLocale.current), at: 3)
+            }
+        } else if grain == .day {
+            spanRows = [StudySpan.dueRow(count: 0, daysAhead: -dayOffset, spanName: spanTitle,
+                search: scopedActivitySearch(StudySpan.dueSearch(daysAhead: -dayOffset)), locale: AppLocale.current)]
+            if supportsStability {
+                spanRows.append(StudySpan.unstableRow(count: 0, dayOffset: dayOffset, spanName: spanTitle, locale: AppLocale.current))
+            }
+        } else {
+            spanRows = []
+        }
+        spanDeckTitle = L10n.text(spanHeroIsFuture ? "Decks with cards due" : "Current decks of historical cards")
+        spanDeckRows = topLevelStudyDecks.map { node in
+            StudyTimeRow(id: "day-deck-\(node.id.rawValue)", title: node.name, count: 0, search: "",
+                detailTitle: "", emptyMessage: "", reschedulesByDefault: false,
+                subtitle: node.children.isEmpty ? nil : L10n.text("Includes subdecks"))
+        }
+        spanMix = nil
+        spanHistory = nil
+        spanDeckCountKnown = false
+        spanDeckTotalCount = 0
+        spanRowsError = nil
+        spanDeckRowsError = nil
+        spanRowsLoading = true
+        spanDeckRowsLoading = true
+    }
+
+    private func applySpan(_ result: SpanSnapshot) {
+        displayedSpanKey = spanKey
+        spanRows = result.rows
+        spanDeckRows = result.decks
+        spanDeckTitle = result.deckTitle
+        spanDeckTotalCount = result.deckCount
+        spanDeckCountKnown = result.deckCountKnown
+        spanMix = result.mix
+        spanHistory = result.history
+        spanRowsError = result.rowsError
+        spanDeckRowsError = result.decksError
+        spanRowsLoading = false
+        spanDeckRowsLoading = false
+    }
+
+    private func buildSpanRows(includingDecks: Bool = true) async {
         guard profile.isCurrent(AccountStore.shared.selectedContext) else { return }
         spanToken += 1
         let token = spanToken
@@ -1016,7 +1236,7 @@ final class StudyLandingModel {
             } else {
                 count = (try? await cardClient.searchIds(search, nil).count) ?? 0
             }
-            guard token == spanToken else { return }
+            guard token == spanToken, !Task.isCancelled else { return }
             var rows = [StudySpan.dueRow(
                 count: count,
                 daysAhead: ahead,
@@ -1041,23 +1261,24 @@ final class StudyLandingModel {
             }
             spanRows = rows
             spanRowsLoading = false
-            await loadRelevantDecks(token: token)
+            if includingDecks { await loadRelevantDecks(token: token) }
             return
         }
 
         guard let window = StudySpan.ratingWindow(offsets: spanOffsets) else {
-            guard token == spanToken else { return }
+            guard token == spanToken, !Task.isCancelled else { return }
             // An all-future period has no rating window. The chart remains the
             // source of truth for that forecast; avoid manufacturing empty
             // "reviewed" rows that look like real zeroes.
             spanRows = []
             spanRowsLoading = false
-            await loadRelevantDecks(token: token)
+            if includingDecks { await loadRelevantDecks(token: token) }
             return
         }
 
+        async let historyAndMix: Void = loadSpanMix(window: window, token: token)
         let counts = await countCriteria(window: window, token: token)
-        guard token == spanToken, profile.isCurrent(AccountStore.shared.selectedContext) else { return }
+        guard token == spanToken, !Task.isCancelled, profile.isCurrent(AccountStore.shared.selectedContext) else { return }
         var rows = StudySpan.ratingRows(
             counts: counts,
             oldest: window.oldest,
@@ -1093,35 +1314,37 @@ final class StudyLandingModel {
                 }
             }
         }
-        spanRows = rows
+        await historyAndMix
+        guard !Task.isCancelled, token == spanToken else { return }
+        spanRows = (spanHistory.map(historicalRows) ?? []) + rows
         spanRowsLoading = false
-        await loadSpanMix(window: window, token: token)
-        await loadRelevantDecks(token: token)
+        if includingDecks { await loadRelevantDecks(token: token) }
     }
 
     /// Reconstruct the state at the selected span's end, not today's backlog.
     private func loadSpanMix(window: (oldest: Int, newest: Int), token: Int) async {
-        guard profile.isCurrent(AccountStore.shared.selectedContext) else { return }
+        guard !Task.isCancelled, profile.isCurrent(AccountStore.shared.selectedContext) else { return }
         let calendar = Calendar.current
         let startDate = StudySpan.date(todayStart: todayStart, offset: window.oldest, calendar: calendar)
         let endDate = StudySpan.date(todayStart: todayStart, offset: window.newest - 1, calendar: calendar)
         let startMs = Int64(startDate.timeIntervalSince1970 * 1_000)
         let endMs = min(Int64(endDate.timeIntervalSince1970 * 1_000), Int64(Date().timeIntervalSince1970 * 1_000))
         guard endMs > startMs else { return }
+        async let historyRequest = statsClient.studyHistory(activitySearch, endMs, rolloverHour)
+        async let mixRequest = statsClient.dayMix(activitySearch, startMs, endMs, window.newest)
         do {
-            let history = try await statsClient.studyHistory(activitySearch, endMs, rolloverHour)
+            let history = try await historyRequest
             guard token == spanToken, !Task.isCancelled,
                   profile.isCurrent(AccountStore.shared.selectedContext) else { return }
             spanHistory = history
-            spanRows = historicalRows(history) + spanRows
         } catch {
-            guard token == spanToken, profile.isCurrent(AccountStore.shared.selectedContext) else { return }
+            guard token == spanToken, !Task.isCancelled, profile.isCurrent(AccountStore.shared.selectedContext) else { return }
             spanRowsError = L10n.text("Historical card lists couldn't be reconstructed. Pull to refresh to try again.")
         }
         // Only the recorded answer buckets are used from this legacy endpoint.
         // Its current-state remaining counts are never presented as history.
         do {
-            let mix = try await statsClient.dayMix(activitySearch, startMs, endMs, window.newest)
+            let mix = try await mixRequest
             if token == spanToken, !Task.isCancelled,
                profile.isCurrent(AccountStore.shared.selectedContext) { spanMix = mix }
         } catch {
@@ -1133,7 +1356,7 @@ final class StudyLandingModel {
     /// dues). Historical membership is counted from the reconstructed IDs used
     /// by Review; future dues keep the scheduler-backed search.
     private func loadRelevantDecks(token: Int) async {
-        guard profile.isCurrent(AccountStore.shared.selectedContext) else { return }
+        guard !Task.isCancelled, profile.isCurrent(AccountStore.shared.selectedContext) else { return }
 
         let isHistoricalSpan = !spanHeroStats.isFuture && (grain != .day || dayOffset > 0)
         if isHistoricalSpan {
@@ -1320,6 +1543,7 @@ final class StudyLandingModel {
                     )
                 )
                 group.addTask {
+                    guard !Task.isCancelled else { return (criterion.id, 0, false) }
                     do {
                         let count = try await client.searchIds(search, nil).count
                         return (criterion.id, count, false)

@@ -492,65 +492,48 @@ public struct StudyLandingContent: View {
                             .fontWeight(.bold)
                             .foregroundStyle(palette.textPrimary)
                     }
-                    if spanHeroIsFuture, spanDeckCount > 0 {
-                        Text(AmgiL10n.format("%lld decks due", [spanDeckCount], locale: locale))
-                            .font(.subheadline)
-                            .foregroundStyle(palette.textPrimary)
-                    } else if !spanHeroIsFuture {
-                        Text(spanDeckCountKnown
-                             ? AmgiL10n.format("%lld current decks", [spanDeckCount], locale: locale)
-                             : AmgiL10n.text(spanDeckRowsLoading ? "Finding current decks…" : "Current deck count unavailable", locale: locale))
-                            .font(.subheadline)
-                            .foregroundStyle(spanDeckCountKnown ? palette.textPrimary : palette.textSecondary)
-                            .lineLimit(1)
-                    }
-                    if let subtitle = spanHeroSubtitle, !subtitle.isEmpty {
-                        Text(subtitle)
-                            .font(.body)
-                            .foregroundStyle(palette.textSecondary)
-                    }
+                    Text(spanDeckCountKnown
+                         ? AmgiL10n.format(spanHeroIsFuture ? "%lld decks due" : "%lld current decks", [spanDeckCount], locale: locale)
+                         : spanDeckRowsLoading ? "—" : AmgiL10n.text(spanHeroIsFuture ? "Deck count unavailable" : "Current deck count unavailable", locale: locale))
+                        .font(.subheadline)
+                        .foregroundStyle(spanDeckCountKnown ? palette.textPrimary : palette.textSecondary)
+                        .lineLimit(1)
+                    Text(spanHeroSubtitle ?? "—")
+                        .font(.body)
+                        .foregroundStyle(palette.textSecondary)
+                        .opacity(spanHeroIsFuture && spanHeroSubtitle == nil ? 0 : 1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                if historyMix == nil && historyLegendRows.isEmpty {
+                HStack(alignment: .center, spacing: AmgiSpacing.lg) {
                     StudyDueRing(
                         summary: historyRingSummary,
                         diameter: 148,
                         centerCaption: historyRingCaption,
-                        centerAccessibility: historyRingAccessibility,
-                        showsProgress: spanHeroIsFuture
+                        centerAccessibility: spanRowsLoading ? AmgiL10n.text("Loading this period…", locale: locale) : historyRingAccessibility,
+                        showsProgress: spanHeroIsFuture,
+                        isLoading: spanRowsLoading,
+                        animatesChanges: false
                     )
                     .frame(maxWidth: .infinity)
-                } else {
-                    HStack(alignment: .center, spacing: AmgiSpacing.lg) {
-                        StudyDueRing(
-                            summary: historyRingSummary,
-                            diameter: 148,
-                            centerCaption: historyRingCaption,
-                            centerAccessibility: historyRingAccessibility,
-                            showsProgress: spanHeroIsFuture
-                        )
-                        .frame(maxWidth: .infinity)
-                        Rectangle()
-                            .fill(palette.separator)
-                            .frame(width: 1)
-                        historyLegend
-                            .frame(maxWidth: .infinity)
-                    }
+                    Rectangle()
+                        .fill(palette.separator)
+                        .frame(width: 1, height: 148)
+                    historyLegend
+                        .frame(maxWidth: .infinity, minHeight: 148)
                 }
-                if let row = historyPrimaryRow {
-                    VStack(spacing: AmgiSpacing.sm) {
-                        historyPrimaryButton(row)
-                        if let shapeLine = spanShapeLine, !shapeLine.isEmpty {
-                            Text(shapeLine)
-                                .amgiFont(.caption)
-                                .foregroundStyle(palette.textSecondary)
-                                .multilineTextAlignment(.center)
-                                .frame(maxWidth: .infinity)
-                        }
-                    }
+                VStack(spacing: AmgiSpacing.sm) {
+                    historyPrimaryButton(historyPrimaryRow)
+                    Text(spanRowsLoading ? "—" : (spanShapeLine ?? "—"))
+                        .amgiFont(.caption)
+                        .lineLimit(2, reservesSpace: true)
+                        .foregroundStyle(palette.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
+                        .opacity(spanHeroIsFuture ? 0 : 1)
                 }
             }
         }
+        .transaction { $0.animation = nil }
     }
 
     /// Historical rings show recovered scheduled work without a completion
@@ -597,7 +580,7 @@ public struct StudyLandingContent: View {
         }
         return spanHeroIsFuture
             ? nil
-            : AmgiL10n.text("Reviewed", locale: locale)
+            : AmgiL10n.text(spanRowsLoading ? "Left then" : "Reviewed", locale: locale)
     }
 
     private var historyRingAccessibility: String {
@@ -639,8 +622,9 @@ public struct StudyLandingContent: View {
 
     @ViewBuilder
     private var historyLegend: some View {
-        if let mix = historyMix {
+        if !spanHeroIsFuture, spanRowsLoading || historyMix != nil {
             VStack(alignment: .leading, spacing: AmgiSpacing.xs) {
+                let mix = historyMix ?? StudyHistoryMix(remainingLearn: 0, remainingReview: 0, newCandidates: 0, unresolved: 0)
                 historyMixRow(title: AmgiL10n.text("Learning", locale: locale), count: mix.remainingLearn, color: palette.cardStateLearning)
                 historyMixRow(title: AmgiL10n.text("Review", locale: locale), count: mix.remainingReview, color: palette.cardStateReview)
                 historyMixRow(title: AmgiL10n.text("New candidates", locale: locale), count: mix.newCandidates, color: palette.cardStateNew)
@@ -651,7 +635,7 @@ public struct StudyLandingContent: View {
             }
         } else {
             VStack(alignment: .leading, spacing: AmgiSpacing.xs) {
-                ForEach(historyLegendRows) { row in
+                ForEach(spanHeroIsFuture ? Array(spanRows.prefix(3)) : historyLegendRows) { row in
                     HStack(spacing: 6) {
                         Circle()
                             .fill(palette.accent)
@@ -660,13 +644,13 @@ public struct StudyLandingContent: View {
                             .font(.caption)
                             .foregroundStyle(palette.textSecondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                        Text("\(row.count)")
+                        Text(spanRowsLoading ? "—" : "\(row.count)")
                             .font(.caption)
                             .monospacedDigit()
                             .foregroundStyle(palette.textPrimary)
                     }
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("\(row.title), \(row.count)")
+                    .accessibilityLabel(spanRowsLoading ? "\(row.title), loading" : "\(row.title), \(row.count)")
                 }
             }
         }
@@ -681,24 +665,24 @@ public struct StudyLandingContent: View {
                 .font(.caption)
                 .foregroundStyle(palette.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Text("\(count)")
+            Text(spanRowsLoading ? "—" : "\(count)")
                 .font(.caption)
                 .monospacedDigit()
                 .foregroundStyle(palette.textPrimary)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(title), \(count)")
+        .accessibilityLabel(spanRowsLoading ? "\(title), loading" : "\(title), \(count)")
     }
 
-    private func historyPrimaryButton(_ row: StudyTimeRow) -> some View {
-        let isEnabled = row.count > 0
+    private func historyPrimaryButton(_ row: StudyTimeRow?) -> some View {
+        let isEnabled = !spanRowsLoading && (row?.count ?? 0) > 0
         return Button {
-            onSelectTimeRow(row)
+            if let row { onSelectTimeRow(row) }
         } label: {
             HStack(spacing: AmgiSpacing.sm) {
                 Image(systemName: "play.fill")
                     .font(.system(size: 14, weight: .bold))
-                Text(row.id == "due"
+                Text(spanHeroIsFuture
                      ? AmgiL10n.text("Review Ahead", locale: locale)
                      : AmgiL10n.text("Review", locale: locale))
                     .bold()
@@ -709,33 +693,26 @@ public struct StudyLandingContent: View {
         .buttonStyle(AmgiPrimaryButtonStyle())
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : 0.5)
-        .accessibilityHint(isEnabled ? "" : AmgiL10n.text("No scheduled remaining cards", locale: locale))
+        .accessibilityHint(isEnabled ? "" : AmgiL10n.text(spanRowsLoading ? "Loading this period…" : "No scheduled remaining cards", locale: locale))
     }
 
-    @ViewBuilder
     private var studyCutsContent: some View {
-        if spanRowsLoading && spanRows.isEmpty {
-            loadingCard(message: "Loading this period…")
-        } else if !spanRows.isEmpty {
-            VStack(alignment: .leading, spacing: AmgiSpacing.sm) {
-                Text("Study cuts")
-                    .amgiFont(.sectionHeading)
-                    .foregroundStyle(palette.textPrimary)
+        VStack(alignment: .leading, spacing: AmgiSpacing.sm) {
+            Text("Study cuts")
+                .amgiFont(.sectionHeading)
+                .foregroundStyle(palette.textPrimary)
+            if !spanRows.isEmpty {
                 timeRowsSection
-            }
-        } else {
-            VStack(alignment: .leading, spacing: AmgiSpacing.sm) {
-                Text("Study cuts")
-                    .amgiFont(.sectionHeading)
-                    .foregroundStyle(palette.textPrimary)
+            } else {
                 Text("No study cuts in this period.")
                     .amgiFont(.caption)
                     .foregroundStyle(palette.textTertiary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
                     .padding(AmgiSpacing.lg)
                     .background(palette.surfaceElevated, in: RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous))
             }
         }
+        .transaction { $0.animation = nil }
     }
 
     private func activityCard(presentation: StudyDashboardPresentation) -> some View {
@@ -964,10 +941,8 @@ public struct StudyLandingContent: View {
             Text("Counts use each card's current deck placement.")
                 .amgiFont(.caption)
                 .foregroundStyle(palette.textTertiary)
-            if spanDeckRowsLoading {
-                loadingCard(message: "Finding relevant decks…")
-            } else if !spanDeckRows.isEmpty {
-                timeRowList(spanDeckRows)
+            if !spanDeckRows.isEmpty {
+                timeRowList(spanDeckRows, isLoading: spanDeckRowsLoading)
             } else {
                 Text("No deck activity to show for this day.")
                     .amgiFont(.caption)
@@ -1097,10 +1072,10 @@ public struct StudyLandingContent: View {
     }
 
     private var timeRowsSection: some View {
-        timeRowList(spanRows)
+        timeRowList(spanRows, isLoading: spanRowsLoading)
     }
 
-    private func timeRowList(_ rows: [StudyTimeRow]) -> some View {
+    private func timeRowList(_ rows: [StudyTimeRow], isLoading: Bool = false) -> some View {
         VStack(spacing: 0) {
             ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                 Button {
@@ -1120,7 +1095,7 @@ public struct StudyLandingContent: View {
                             }
                         }
                         Spacer(minLength: AmgiSpacing.md)
-                        Text("\(row.count)")
+                        Text(isLoading ? "—" : "\(row.count)")
                             .amgiFont(.body, .monospacedDigits)
                             .foregroundStyle(palette.textSecondary)
                         Image(systemName: "chevron.right")
@@ -1134,7 +1109,8 @@ public struct StudyLandingContent: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.pressScale)
-                .accessibilityLabel(accessibilityLabel(for: row))
+                .disabled(isLoading)
+                .accessibilityLabel(isLoading ? "\(row.title), loading" : accessibilityLabel(for: row))
                 if index < rows.count - 1 {
                     Rectangle()
                         .fill(palette.border)
