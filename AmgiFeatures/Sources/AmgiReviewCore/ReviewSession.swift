@@ -171,7 +171,10 @@ public final class ReviewSession {
     /// Seconds until the next Anki day rollover, resolved once at start from
     /// the stats `rolloverHour`. Drives the graduation check (a "day" is not
     /// a fixed 24h).
-    private var secondsUntilNextDayStart: UInt32 = 0
+    // Until the asynchronous startup stats resolve, use a full day as the
+    // conservative boundary. Zero would incorrectly mark every answer as
+    // graduated if the user rates the first card before that read returns.
+    private var secondsUntilNextDayStart: UInt32 = 86_400
     /// Streak before the most recent answer, restored when that answer is
     /// undone.
     private var streakBeforeAnswer: Int = 0
@@ -287,6 +290,13 @@ public final class ReviewSession {
     private func beginActivityMutation() -> Bool {
         guard let activityLease,
               ReviewSessionCoordinator.shared.beginMutation(for: activityLease)
+        else { return false }
+        return true
+    }
+
+    private func beginActivityRead() -> Bool {
+        guard let activityLease,
+              ReviewSessionCoordinator.shared.beginRead(for: activityLease)
         else { return false }
         return true
     }
@@ -459,8 +469,14 @@ public final class ReviewSession {
         let statsClient = self.statsClient
         let deckId = self.deckId
         let allDeckScope = self.isAllDecksScope
+        var loadStartupStatsAfterStart = false
         Task {
-            defer { finishActivityMutation() }
+            defer {
+                finishActivityMutation()
+                if loadStartupStatsAfterStart, !isEnding, isProfileCurrent {
+                    loadStartupStats(statsClient: statsClient)
+                }
+            }
             do {
                 if pullCoolingOnStart {
                     if originalLearnAheadSecs.withLock({ $0 }) == nil {
@@ -544,22 +560,10 @@ public final class ReviewSession {
                     sessionInitialCounts = remainingCounts
                     publishLiveCounts()
                     Log.review.info("Started with \(self.cardQueue.count) cards, counts: new=\(queue.newCount) learn=\(queue.learningCount) review=\(queue.reviewCount)")
-                    // First paint ASAP: everything below refines counts or
-                    // fills progress UI that can land a beat after the first
-                    // card. Each is a backend round trip behind the same
-                    // global lock an in-flight sync may hold, so awaiting them
-                    // here used to park the "Preparing cards" screen.
                     await AppSignpost.measure("ReviewStartFirstCard") {
                         await advanceToNextCard(notes: notes, notetypes: notetypes, notetypesClient: notetypesClient, cardRendering: cardRendering, statsClient: statsClient)
                     }
-                    await AppSignpost.measure("ReviewStartRefine") {
-                        await refineRemainingLearning(statsClient: statsClient)
-                    }
-                    sessionInitialCounts = remainingCounts
-                    publishLiveCounts()
-                    await AppSignpost.measure("ReviewStartDailyProgress") {
-                        await loadDailyProgress(statsClient: statsClient)
-                    }
+                    loadStartupStatsAfterStart = true
                 } else {
                     let scopeSearch = allDeckScope ? "" : DeckSearch.term(foundName)
                     let learnDue = (try? await statsClient.learningDueToday(search: scopeSearch)) ?? 0
@@ -600,23 +604,50 @@ public final class ReviewSession {
 
     /// Fetches today's graduated count and the rollover hour for the current
     /// scope. Best-effort: a failure never blocks the session.
-    private func loadDailyProgress(statsClient: StatsClient) async {
+    private func loadStartupStats(statsClient: StatsClient) {
+        guard beginActivityRead() else { return }
+        let mutationCountAtStart = successfulMutationCount
+        Task {
+            defer {
+                ReviewSessionCoordinator.shared.endRead()
+                if isEnding { restoreLearnAheadThenRelease() }
+            }
+            guard isProfileCurrent, !isEnding else { return }
+
+            let remainingLearning = await fetchRemainingLearning(statsClient: statsClient)
+            guard isProfileCurrent, !isEnding, !isAdvancing,
+                  successfulMutationCount == mutationCountAtStart else { return }
+            if let remainingLearning {
+                remainingCounts.learnCount = remainingLearning
+                sessionInitialCounts = remainingCounts
+                publishLiveCounts()
+            }
+
+            let progress = await fetchDailyProgress(statsClient: statsClient)
+            guard isProfileCurrent, !isEnding, !isAdvancing,
+                  successfulMutationCount == mutationCountAtStart else { return }
+            dailyBaseGraduatedToday = progress.graduated
+            secondsUntilNextDayStart = progress.secondsUntilNextDayStart
+            publishContext()
+        }
+    }
+
+    private func fetchDailyProgress(statsClient: StatsClient) async -> (graduated: Int, secondsUntilNextDayStart: UInt32) {
         let search = isAllDecksScope ? "" : DeckSearch.term(deckName)
 
         do {
             let graphs = try await statsClient.fetchGraphs(search, 1)
             let graduated = try await statsClient.graduatedToday(search: search)
-            dailyBaseGraduatedToday = graduated
-            secondsUntilNextDayStart = DailyProgressCalculator.secondsUntilNextDayStart(
-                rolloverHour: graphs.rolloverHour
+            return (
+                graduated,
+                DailyProgressCalculator.secondsUntilNextDayStart(rolloverHour: graphs.rolloverHour)
             )
         } catch {
-            dailyBaseGraduatedToday = 0
             // Conservative rollover fallback: with the boundary unknown,
             // sub-day intervals must NOT count as graduated (0 would make
             // every learning step `secs >= 0` → instant graduation). A full
             // 24h is the longest a day can be, so nothing graduates early.
-            secondsUntilNextDayStart = 86_400
+            return (0, 86_400)
         }
     }
 
@@ -1109,10 +1140,14 @@ public final class ReviewSession {
     /// compares against the next day start) and excludes buried/suspended.
     /// Best-effort: on failure the queue-derived count stands.
     private func refineRemainingLearning(statsClient: StatsClient) async {
-        let search = isAllDecksScope ? "" : DeckSearch.term(deckName)
-        if let learning = try? await statsClient.learningDueToday(search: search) {
+        if let learning = await fetchRemainingLearning(statsClient: statsClient) {
             remainingCounts.learnCount = learning
         }
+    }
+
+    private func fetchRemainingLearning(statsClient: StatsClient) async -> Int? {
+        let search = isAllDecksScope ? "" : DeckSearch.term(deckName)
+        return try? await statsClient.learningDueToday(search: search)
     }
 
     public func bumpReplayRequest() {

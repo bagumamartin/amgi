@@ -61,6 +61,7 @@ public final class ReviewSessionCoordinator {
 
     private var activeLease: ReviewSessionLease?
     private var activeMutation: Bool = false
+    private var activeReads = 0
     private var isDraining = false
 
     /// Public for deterministic isolated tests. Production callers use
@@ -98,9 +99,23 @@ public final class ReviewSessionCoordinator {
     /// can never release a newer session's lease.
     @discardableResult
     public func releaseSession(_ lease: ReviewSessionLease) -> Bool {
-        guard !activeMutation, activeLease == lease else { return false }
+        guard !activeMutation, activeReads == 0, activeLease == lease else { return false }
         activeLease = nil
         return true
+    }
+
+    /// Admits a profile-scoped read alongside scheduler mutations. Backend
+    /// RPCs serialize individually; this token keeps profile draining from
+    /// closing the collection while the read is queued or in flight.
+    public func beginRead(for lease: ReviewSessionLease) -> Bool {
+        guard !isDraining, activeLease == lease else { return false }
+        activeReads += 1
+        return true
+    }
+
+    public func endRead() {
+        precondition(activeReads > 0, "Review session read ended without a matching begin")
+        activeReads -= 1
     }
 
     /// Starts one lease-owned engine transaction.
@@ -129,7 +144,7 @@ public final class ReviewSessionCoordinator {
     /// with `endDrain()` after closing/reopening the collection.
     public func drain() async {
         isDraining = true
-        while activeMutation {
+        while activeMutation || activeReads > 0 {
             await Task.yield()
         }
         activeLease = nil
