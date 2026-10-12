@@ -20,7 +20,7 @@ import AppKit
 /// is the correct English string.
 ///
 /// These assertions run against the *hosted* app, so `Bundle.main` is the
-/// real `AmgiApp.app` rather than a test bundle.
+/// real `Ijuka.app` rather than a test bundle.
 @MainActor
 final class LocalizationCatalogTests: XCTestCase {
     private let app = Bundle.main

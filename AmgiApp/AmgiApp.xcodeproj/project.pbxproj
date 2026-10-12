@@ -23,6 +23,7 @@
 		2F6CCEA4FF8B775FCA9299DA /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2B60A11C277A30E8180CB0F1 /* WidgetKit.framework */; platformFilters = (ios, macos, ); };
 		300C45BEA20065427F563AAD /* AmgiAppCore in Frameworks */ = {isa = PBXBuildFile; productRef = 22DC7EB8B98A3ED9E71AC3D1 /* AmgiAppCore */; };
 		339EC538CEC308C49867748B /* SearchTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98C4A1BE226DE11015C01ECE /* SearchTools.swift */; };
+		384EBF6BD0E58D0D62D4F7B2 /* InitializeCompatibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = 065BDB726D33765FC31CD890 /* InitializeCompatibility.swift */; };
 		3CB95234D82698C991CAF239 /* IPCProxy.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB2A988052DE9E9211CBE4C3 /* IPCProxy.swift */; };
 		42CCA60F7928A2819C6B396D /* IjukaMCPMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 196DD326CA05E30DCDB7B13A /* IjukaMCPMain.swift */; };
 		4806E64030A4EBAA1A2DF239 /* AnkiKit in Frameworks */ = {isa = PBXBuildFile; productRef = AB49118FC7A518B48ED09051 /* AnkiKit */; };
@@ -123,11 +124,13 @@
 
 /* Begin PBXFileReference section */
 		050871108FCAF3E20418130D /* ChangeNotifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangeNotifier.swift; sourceTree = "<group>"; };
+		065BDB726D33765FC31CD890 /* InitializeCompatibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InitializeCompatibility.swift; sourceTree = "<group>"; };
 		06F4556D1D24AD60E31C6EAE /* AmgiEmbeddings */ = {isa = PBXFileReference; lastKnownFileType = folder; name = AmgiEmbeddings; path = ../AmgiEmbeddings; sourceTree = SOURCE_ROOT; };
 		196DD326CA05E30DCDB7B13A /* IjukaMCPMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IjukaMCPMain.swift; sourceTree = "<group>"; };
 		1B84A2ADB8D6A599253D2E78 /* Review */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Review; path = Resources/Review; sourceTree = SOURCE_ROOT; };
 		20B1543BD569468BABE06195 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		2B60A11C277A30E8180CB0F1 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		2BC0FEF6657954D9945C893F /* Ijuka.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Ijuka.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		2C2CD939552B0A4CB501E99D /* AmgiAppAdaptiveUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AmgiAppAdaptiveUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		308AC2057FB8232A7A730D15 /* mathjax */ = {isa = PBXFileReference; lastKnownFileType = folder; name = mathjax; path = Resources/mathjax; sourceTree = SOURCE_ROOT; };
 		32D10E5F584CDD7816F8408A /* Fonts */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Fonts; path = Resources/Fonts; sourceTree = SOURCE_ROOT; };
@@ -162,7 +165,6 @@
 		C57E0A30A0C5B7FE232BF0C3 /* amgi */ = {isa = PBXFileReference; lastKnownFileType = folder; name = amgi; path = ..; sourceTree = SOURCE_ROOT; };
 		CAE0DE68DC7E04F773A57E14 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		CD26BCBEDE891D0BEB7EA8A5 /* NoteTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteTools.swift; sourceTree = "<group>"; };
-		DE61E854280804F08BB1DD31 /* AmgiApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = AmgiApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DF32098FA1CB8EEA33D2EEA2 /* es */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = es; path = es.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		E52A1F699FA8746826E4EAB0 /* AmgiWatchApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AmgiWatchApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E5D39FB1485D22E90682A2FB /* hu */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = hu; path = hu.lproj/InfoPlist.strings; sourceTree = "<group>"; };
@@ -320,6 +322,7 @@
 				6E616F2C1C40311BFF40247B /* EngineCaller.swift */,
 				8B7E366EDFEDB47A52008B90 /* EngineHolder.swift */,
 				196DD326CA05E30DCDB7B13A /* IjukaMCPMain.swift */,
+				065BDB726D33765FC31CD890 /* InitializeCompatibility.swift */,
 				FB2A988052DE9E9211CBE4C3 /* IPCProxy.swift */,
 				669B560BB02A588DCA87B768 /* MCPGuidance.swift */,
 				69732ABBA700D0E8F1D4C877 /* Resolver.swift */,
@@ -436,12 +439,12 @@
 		F25D5B8FD2D15F7D2AD5DB36 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				DE61E854280804F08BB1DD31 /* AmgiApp.app */,
 				2C2CD939552B0A4CB501E99D /* AmgiAppAdaptiveUITests.xctest */,
 				C4E1BF55165FBA317A5B42C7 /* AmgiAppIntentsUITests.xctest */,
 				FEF6D1A33091968455963805 /* AmgiAppTests.xctest */,
 				E52A1F699FA8746826E4EAB0 /* AmgiWatchApp.app */,
 				A837EB0A30B6E90B20D5C1CD /* AmgiWidget.appex */,
+				2BC0FEF6657954D9945C893F /* Ijuka.app */,
 				A1260ECF4FE2678C38F6F6FA /* IjukaMCPHelper */,
 			);
 			name = Products;
@@ -544,7 +547,7 @@
 				15D6B29D8F8E89420C74F4C5 /* WidgetFeature */,
 			);
 			productName = AmgiApp;
-			productReference = DE61E854280804F08BB1DD31 /* AmgiApp.app */;
+			productReference = 2BC0FEF6657954D9945C893F /* Ijuka.app */;
 			productType = "com.apple.product-type.application";
 		};
 		9B3B324834735D7AA9620491 /* AmgiWidget */ = {
@@ -827,6 +830,7 @@
 				A9822492EFB283A36B4023D6 /* EngineHolder.swift in Sources */,
 				3CB95234D82698C991CAF239 /* IPCProxy.swift in Sources */,
 				42CCA60F7928A2819C6B396D /* IjukaMCPMain.swift in Sources */,
+				384EBF6BD0E58D0D62D4F7B2 /* InitializeCompatibility.swift in Sources */,
 				932DEB0B222880168F999F84 /* MCPGuidance.swift in Sources */,
 				E837F827FE3322843F74EA5B /* NoteTools.swift in Sources */,
 				EC59F23FEFF37EC91CC81D36 /* RenderStatsTools.swift in Sources */,
@@ -1062,8 +1066,8 @@
 				SWIFT_CXX_INTEROPERABILITY_MODE = default;
 				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AmgiApp.app/AmgiApp";
-				"TEST_HOST[sdk=macosx*]" = "$(BUILT_PRODUCTS_DIR)/AmgiApp.app/Contents/MacOS/AmgiApp";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Ijuka.app/Ijuka";
+				"TEST_HOST[sdk=macosx*]" = "$(BUILT_PRODUCTS_DIR)/Ijuka.app/Contents/MacOS/Ijuka";
 			};
 			name = Debug;
 		};
@@ -1099,6 +1103,7 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Ijuka;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -1109,6 +1114,8 @@
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -cxx-interoperability-mode=default";
 				PRODUCT_BUNDLE_IDENTIFIER = com.bagumamartin.ijuka;
+				PRODUCT_MODULE_NAME = AmgiApp;
+				PRODUCT_NAME = Ijuka;
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
 				SUPPORTS_MACCATALYST = NO;
@@ -1186,8 +1193,8 @@
 				SWIFT_CXX_INTEROPERABILITY_MODE = default;
 				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AmgiApp.app/AmgiApp";
-				"TEST_HOST[sdk=macosx*]" = "$(BUILT_PRODUCTS_DIR)/AmgiApp.app/Contents/MacOS/AmgiApp";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Ijuka.app/Ijuka";
+				"TEST_HOST[sdk=macosx*]" = "$(BUILT_PRODUCTS_DIR)/Ijuka.app/Contents/MacOS/Ijuka";
 			};
 			name = Release;
 		};
@@ -1348,6 +1355,7 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Ijuka;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -1358,6 +1366,8 @@
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -cxx-interoperability-mode=default";
 				PRODUCT_BUNDLE_IDENTIFIER = com.bagumamartin.ijuka;
+				PRODUCT_MODULE_NAME = AmgiApp;
+				PRODUCT_NAME = Ijuka;
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
 				SUPPORTS_MACCATALYST = NO;

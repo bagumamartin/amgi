@@ -14,13 +14,8 @@ import Observation
 final class MCPManager {
     static let shared = MCPManager()
 
-    /// Where clients look for the helper, in priority order:
-    /// 1. User override (`defaults write ijuka.mcp.helperPath …`)
-    /// 2. Bundled with the app under Contents/Helpers/ijuka-mcp.
-    ///    This is the normal case for end users: installing the app is
-    ///    all that's needed, and the path survives app updates.
-    /// 3. PATH installs (~/bin, /usr/local/bin) — developer convenience
-    ///    from scripts/install-mcp-helper.sh.
+    /// External clients require a standalone helper. The App Store helper
+    /// inherits the app sandbox and cannot be launched directly by clients.
     private static func realHomeDirectory() -> String {
         if let pw = getpwuid(getuid()), let dir = pw.pointee.pw_dir {
             return String(cString: dir)
@@ -30,14 +25,6 @@ final class MCPManager {
 
     private static var candidatePaths: [String] {
         var paths: [String] = []
-        // The bundled helper lives inside whichever .app bundle is
-        // running — DerivedData for DEBUG, /Applications for RELEASE.
-        // Bundle.main resolves correctly for both.
-        let contents = Bundle.main.bundleURL
-            .appendingPathComponent("Contents", isDirectory: true)
-        paths.append(contents.appendingPathComponent("Helpers/ijuka-mcp").path)
-        // Fallback layout in case the copy phase destination changes.
-        paths.append(contents.appendingPathComponent("MacOS/ijuka-mcp").path)
         paths.append("\(realHomeDirectory())/bin/ijuka-mcp")
         paths.append("/usr/local/bin/ijuka-mcp")
         return paths
@@ -96,10 +83,9 @@ final class MCPManager {
         var id: String { label }
     }
 
-    /// The one industry-standard registration: `uvx ijuka-mcp` over stdio.
-    /// Every MCP client speaks this (Claude Desktop/Code, Cursor, Codex,
-    /// Zed, Gemini, Qwen, Hermes, …). The PyPI shim finds the bundled
-    /// helper itself, so no absolute paths and no per-client formats.
+    /// Use uvx even when a standalone helper is installed: some clients
+    /// restrict STDIO commands to uvx/npx. The launcher resolves the native
+    /// helper afresh whenever a client starts it.
     var connectionSnippets: [ConnectionSnippet] {
         [
             .init(

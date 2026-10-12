@@ -21,7 +21,7 @@ import SyncFeature
 /// accepted sessions use a bounded worker pool so one slow agent cannot
 /// prevent the app from serving others.
 /// The master switch in Settings → Agent is honored live: each new
-/// connection re-reads mcp.json and is refused when disabled.
+/// request re-reads mcp.json and is refused when disabled.
 package enum MCPBridgeServer {
     /// Called once from App.init after prepareDependencies — on the main
     /// actor, where dependency resolution sees the opened backend.
@@ -100,7 +100,34 @@ package enum MCPBridgeServer {
                 &timeout, socklen_t(MemoryLayout.size(ofValue: timeout))
             )
 
-            // Kill switch honored live: refuse connections when disabled.
+            var buffer = Data()
+            var scratch = [UInt8](repeating: 0, count: 65_536)
+            while true {
+                do {
+                    if let parsed = try MCPBridge.decodeFrame(from: buffer), parsed.consumed > 0 {
+                        buffer.removeSubrange(buffer.startIndex..<buffer.startIndex + parsed.consumed)
+                        handleFrame(parsed.frame, client: client)
+                        continue
+                    }
+                } catch {
+                    reply(
+                        client,
+                        status: .unavailable,
+                        payload: Data(error.localizedDescription.utf8)
+                    )
+                    return
+                }
+                let n = recv(client, &scratch, scratch.count, 0)
+                if n <= 0 { return }  // EOF or error → done with this client
+                buffer.append(contentsOf: scratch[0..<n])
+                if buffer.count > MCPBridge.maximumPayloadBytes + 8_192 { return }
+            }
+        }
+
+        private func handleFrame(_ frame: MCPBridge.Frame, client: Int32) {
+            // A tool can retain its connection across multiple RPCs. Refresh
+            // authorization for each frame so a settings change applies to
+            // existing connections as well as newly connected clients.
             let settings: MCPSettings
             do {
                 settings = try MCPSettings.loadStrict(
@@ -120,35 +147,6 @@ package enum MCPBridgeServer {
                 return
             }
 
-            var buffer = Data()
-            var scratch = [UInt8](repeating: 0, count: 65_536)
-            while true {
-                do {
-                    if let parsed = try MCPBridge.decodeFrame(from: buffer), parsed.consumed > 0 {
-                        buffer.removeSubrange(buffer.startIndex..<buffer.startIndex + parsed.consumed)
-                        handleFrame(parsed.frame, client: client, settings: settings)
-                        continue
-                    }
-                } catch {
-                    reply(
-                        client,
-                        status: .unavailable,
-                        payload: Data(error.localizedDescription.utf8)
-                    )
-                    return
-                }
-                let n = recv(client, &scratch, scratch.count, 0)
-                if n <= 0 { return }  // EOF or error → done with this client
-                buffer.append(contentsOf: scratch[0..<n])
-                if buffer.count > MCPBridge.maximumPayloadBytes + 8_192 { return }
-            }
-        }
-
-        private func handleFrame(
-            _ frame: MCPBridge.Frame,
-            client: Int32,
-            settings: MCPSettings
-        ) {
             let activeProfile = UserDefaults.standard.string(forKey: "amgi.selectedUser")
                 ?? "default"
             guard frame.profileID == activeProfile else {

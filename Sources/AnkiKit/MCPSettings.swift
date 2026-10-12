@@ -33,8 +33,15 @@ public struct MCPSettings: Codable, Sendable {
     public var enabled: Bool
     /// Highest capability tier exposed to connected clients.
     public var tier: ToolTier
-    /// When true, mutating tools fail while Amgi.app is running.
+    /// Optional user policy, independent of collection ownership: when true,
+    /// mutating tools fail while Ijuka is running. Normally writes use its bridge.
     public var blockWritesWhileAppRunning: Bool
+    /// Positive wording for the Settings toggle. Keep the persisted blocking
+    /// key compatible with existing helpers without reversing the user's intent.
+    public var allowsWritesWhileAppRunning: Bool {
+        get { !blockWritesWhileAppRunning }
+        set { blockWritesWhileAppRunning = !newValue }
+    }
     /// Snapshot `collection.anki2` before destructive operations.
     public var snapshotsBeforeDestructive: Bool
     /// Profile exposed over MCP. nil = follow the app's active profile

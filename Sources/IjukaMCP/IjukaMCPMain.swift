@@ -210,19 +210,29 @@ struct IjukaMCPMain {
     static func startStdinRelay(into writeFD: Int32) {
         Thread.detachNewThread {
             var buffer = [UInt8](repeating: 0, count: 4096)
+            var pending = Data()
             while true {
                 let n = buffer.withUnsafeMutableBytes { mut in
                     read(0, mut.baseAddress, mut.count)
                 }
                 if n <= 0 { break }
-                var offset = 0
+                pending.append(contentsOf: buffer.prefix(n))
                 var writeFailed = false
-                buffer.withUnsafeBytes { raw in
-                    while offset < n {
-                        let written = write(writeFD, raw.baseAddress!.advanced(by: offset), n - offset)
-                        if written <= 0 { writeFailed = true; return }
-                        offset += written
+                while let newline = pending.firstIndex(of: 0x0A) {
+                    let line = Data(pending[..<newline])
+                    pending.removeSubrange(...newline)
+                    var frame = InitializeCompatibility.normalize(line)
+                    frame.append(0x0A)
+                    var offset = 0
+                    frame.withUnsafeBytes { raw in
+                        while offset < frame.count {
+                            let written = write(writeFD, raw.baseAddress!.advanced(by: offset), frame.count - offset)
+                            if written < 0 && errno == EINTR { continue }
+                            if written <= 0 { writeFailed = true; return }
+                            offset += written
+                        }
                     }
+                    if writeFailed { break }
                 }
                 if writeFailed { break }
             }

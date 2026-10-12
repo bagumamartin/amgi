@@ -7,9 +7,13 @@ Command: uvx
 Parameters: ijuka-mcp
 ```
 
-The Swift helper is still the real server; this package just finds the bundled binary at `/Applications/<app>.app/Contents/Helpers/ijuka-mcp` (or the dev helpers in `~/bin`, `/usr/local/bin`, `DerivedData`) and `exec`s it, forwarding stdio.
+The Swift helper is the real server. Install its standalone build from the repository with `./scripts/install-mcp-helper.sh` first. This package finds it in `~/bin` or `/usr/local/bin` and `exec`s it, forwarding stdio. `IJUKA_MCP_HELPER_PATH` can select another standalone build.
 
-`uvx` (`uv tool run`) holds the uv cache lock for the lifetime of the server (`astral-sh/uv#15990`). With several clients all using `uvx` the spawns serialize and can hit the 10 s handshake timeout. For multi-client / daily use install once persistently.
+Updating the native helper does not require clearing uv’s cache: the launcher discovers the helper on every new connection. Restart already-running MCP clients after upgrading the helper. To refresh the Python launcher itself, quit its clients first, then run `uvx --refresh-package ijuka-mcp ijuka-mcp --help`. A persistent `uv tool install` is upgraded separately with `uv tool upgrade ijuka-mcp`.
+
+The App Store binary inside `Contents/Helpers` inherits the app's sandbox. External MCP clients cannot launch it directly; installing the app alone does not install a standalone MCP server.
+
+Multiple clients can use `uvx ijuka-mcp` simultaneously. While Ijuka is open, requests use its live engine through the local bridge; while it is closed, helpers take turns opening the collection and release it after each tool call. Keep “Allow changes while Ijuka is open” enabled in Agent settings to permit writes in both modes.
 
 ## Install / run
 
@@ -17,9 +21,9 @@ The Swift helper is still the real server; this package just finds the bundled b
 # One-off / trial — no install, uses cached env after first run:
 uvx ijuka-mcp --help
 # Pin for reproducibility:
-uvx ijuka-mcp==1.2.0 --help
+uvx ijuka-mcp==1.2.1 --help
 
-# Daily / multi-client — persistent, fastest, no cache-lock contention:
+# Optional persistent launcher:
 uv tool install ijuka-mcp
 ijuka-mcp --help
 
@@ -41,6 +45,22 @@ ijuka-mcp --help
 ijuka-mcp --profile work
 ```
 
-### Troubleshooting: `uvx` timeout or `Waiting to acquire lock`
+### Troubleshooting
 
-If several AI clients launch `uvx ijuka-mcp` at once and one times out, either switch that client to the persistent `ijuka-mcp` command or re-run the failing `uvx` once - `uv cache` is shared and `uvx` retains a shared lock for the server lifetime. `uv tool install` avoids the lock entirely.
+For connection problems, run `uvx ijuka-mcp --help`, then restart the client. The native helper must be a standalone build with a valid signature and its Rust framework alongside it; a sandbox-inheriting App Store helper cannot be launched by an external client.
+
+If reads work but writes fail only while Ijuka is open, check “Allow changes while Ijuka is open” in Agent settings. Older app builds reversed this toggle; updating Ijuka corrects its meaning. The underlying `blockWritesWhileAppRunning` setting must be `false` to allow simultaneous writes.
+
+Avoid running `uv cache clean` while uvx servers are alive. uv retains a shared cache lock for their lifetime, so cleanup can wait for those processes to exit ([uv PR #15990](https://github.com/astral-sh/uv/pull/15990)); this is different from a collection lock.
+
+Development regression checks:
+
+```sh
+python3 scripts/check-mcp-handshake.py
+# With Ijuka running:
+uv run --with mcp python scripts/check-mcp-access.py --mode bridged
+# With Ijuka quit:
+uv run --with mcp python scripts/check-mcp-access.py --mode direct
+```
+
+The SDK check runs two concurrent uvx clients. It reads only by default; `--write-key <existing-config-key>` also rewrites that value unchanged and verifies read-back.

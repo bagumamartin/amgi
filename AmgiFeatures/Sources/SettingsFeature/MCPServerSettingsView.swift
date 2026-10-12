@@ -8,9 +8,7 @@ import AppKit
 #endif
 
 /// Agent access settings — deliberately free of implementation
-/// vocabulary. From the user's point of view there is no "helper",
-/// "server", or "binary": installing Ijuka is the entire setup, and this
-/// pane only answers three questions: who may connect, how much they
+/// vocabulary where possible. This pane explains setup and answers: who may connect, how much they
 /// may do, and how to point an assistant at Ijuka.
 #if os(macOS)
 struct MCPServerSettingsView: View {
@@ -44,7 +42,7 @@ struct MCPServerSettingsView: View {
                 }
                 .pickerStyle(.radioGroup)
 
-                Toggle("Allow changes while Ijuka is open", isOn: blockBinding)
+                Toggle("Allow changes while Ijuka is open", isOn: allowsWritesBinding)
                 Toggle("Keep an automatic backup before any deletion", isOn: snapshotsBinding)
             }
         } header: {
@@ -87,7 +85,7 @@ struct MCPServerSettingsView: View {
     /// speaks stdio + `uvx` — no per-client formats, no absolute paths.
     private var setupSection: some View {
         Section {
-            if manager.detectedHelperPath != nil {
+            Group {
                 ForEach(manager.connectionSnippets) { snippet in
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
@@ -110,14 +108,15 @@ struct MCPServerSettingsView: View {
                             )
                     }
                 }
-            } else {
-                Text("This copy of Ijuka is missing part of the assistant feature. Updating or reinstalling Ijuka restores it.")
+            }
+            if manager.detectedHelperPath == nil {
+                Text("Install the standalone MCP helper before connecting your assistant.")
                     .foregroundStyle(palette.textSecondary)
             }
         } header: {
             Text("Connect an AI assistant")
         } footer: {
-                Text("Works with any MCP client (Claude, Cursor, Codex, Zed, Gemini, Qwen, …): choose STDIO, Command uvx, Parameters ijuka-mcp — or paste the JSON. First launch downloads the tiny launcher from PyPI. If your client shows an error, run uvx ijuka-mcp --help once in Terminal to warm the cache, then restart the client. Works whether Ijuka is open or not.")
+                Text("Works with any MCP client (Claude, Cursor, Codex, Zed, Gemini, Qwen, …): choose STDIO, select uvx, and copy the Parameters below — or paste the JSON. The launcher requires the standalone MCP helper to be installed. Works whether Ijuka is open or not.")
         }
     }
 
@@ -145,10 +144,10 @@ struct MCPServerSettingsView: View {
             set: { newValue in manager.update { $0.tier = newValue } }
         )
     }
-    private var blockBinding: Binding<Bool> {
+    private var allowsWritesBinding: Binding<Bool> {
         Binding(
-            get: { manager.settings.blockWritesWhileAppRunning },
-            set: { newValue in manager.update { $0.blockWritesWhileAppRunning = newValue } }
+            get: { manager.settings.allowsWritesWhileAppRunning },
+            set: { newValue in manager.update { $0.allowsWritesWhileAppRunning = newValue } }
         )
     }
     private var snapshotsBinding: Binding<Bool> {

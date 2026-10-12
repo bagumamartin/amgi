@@ -17,6 +17,7 @@ final class EngineHolder: Sendable {
     struct State {
         var proxyActive = false
         var localBackend: AnkiBackend?
+        var directLease: DirectCollectionLease?
         var lastError: String?
         var activeToolCalls = 0
     }
@@ -49,6 +50,7 @@ final class EngineHolder: Sendable {
                 state.lastError = "direct collection close failed: \(error.localizedDescription)"
             }
             state.localBackend = nil
+            state.directLease = nil
         }
     }
 
@@ -79,7 +81,8 @@ final class EngineHolder: Sendable {
             )
             if case .live(let session) = probe {
                 state.proxyActive = true
-                state.localBackend = nil
+                // A concurrent direct call may still be unwinding during
+                // app startup. Its backend and lease close in endToolCall.
                 state.lastError = nil
                 return EngineCaller(kind: .bridged(session: session))
             }
@@ -105,6 +108,13 @@ final class EngineHolder: Sendable {
                 return EngineCaller(kind: .local(existing))
             }
             do {
+                // rslib rejects a second process rather than waiting. All
+                // standalone helpers coordinate their request-scoped opens
+                // so multiple uvx clients can share the closed-app path.
+                let lease = try DirectCollectionLease.acquire(directory: paths.directory)
+                guard !AppRunningCheck.isIjukaRunning else {
+                    throw ToolError.blocked("Ijuka is starting; retry through its bridge in a moment.")
+                }
                 // The user's languages, not a literal. The helper is a CLI
                 // tool with no UI, so this is the system list; it matters
                 // because the engine owns the error text and the note-type
@@ -119,6 +129,7 @@ final class EngineHolder: Sendable {
                     mediaDbPath: paths.mediaDbPath
                 )
                 state.localBackend = backend
+                state.directLease = lease
                 state.lastError = nil
                 monitorForAppLaunch(whileOwning: backend)
                 return EngineCaller(kind: .local(backend))
@@ -129,6 +140,48 @@ final class EngineHolder: Sendable {
                     "another process may be finishing a request. Retry in a moment. " +
                     "(\(error.localizedDescription))"
                 )
+            }
+        }
+    }
+
+    /// Held only while a direct backend is open. The app still owns the
+    /// actual rslib collection lock; this advisory lock queues MCP helpers.
+    final class DirectCollectionLease: Sendable {
+        private let fd: Int32
+
+        private init(fd: Int32) { self.fd = fd }
+
+        deinit {
+            flock(fd, LOCK_UN)
+            close(fd)
+        }
+
+        static func acquire(directory: URL) throws -> DirectCollectionLease {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let path = directory.appendingPathComponent("mcp-access.lock").path
+            let fd = open(path, O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, S_IRUSR | S_IWUSR)
+            guard fd >= 0 else {
+                throw ToolError.blocked("Could not acquire the MCP collection lease (errno \(errno)).")
+            }
+            let deadline = DispatchTime.now().uptimeNanoseconds + 10_000_000_000
+            while true {
+                if flock(fd, LOCK_EX | LOCK_NB) == 0 {
+                    return DirectCollectionLease(fd: fd)
+                }
+                let lockError = errno
+                guard lockError == EWOULDBLOCK || lockError == EINTR else {
+                    close(fd)
+                    throw ToolError.blocked("Could not acquire the MCP collection lease (errno \(lockError)).")
+                }
+                guard !AppRunningCheck.isIjukaRunning else {
+                    close(fd)
+                    throw ToolError.blocked("Ijuka is starting; retry through its bridge in a moment.")
+                }
+                guard DispatchTime.now().uptimeNanoseconds < deadline else {
+                    close(fd)
+                    throw ToolError.blocked("Another MCP request is still using this collection; retry in a moment.")
+                }
+                Thread.sleep(forTimeInterval: 0.025)
             }
         }
     }

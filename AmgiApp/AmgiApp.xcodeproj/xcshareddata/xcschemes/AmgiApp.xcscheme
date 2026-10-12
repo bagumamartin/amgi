@@ -16,7 +16,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "95284AD6E89B9B84191749DE"
-               BuildableName = "AmgiApp.app"
+               BuildableName = "Ijuka.app"
                BlueprintName = "AmgiApp"
                ReferencedContainer = "container:AmgiApp.xcodeproj">
             </BuildableReference>
@@ -53,7 +53,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "95284AD6E89B9B84191749DE"
-            BuildableName = "AmgiApp.app"
+            BuildableName = "Ijuka.app"
             BlueprintName = "AmgiApp"
             ReferencedContainer = "container:AmgiApp.xcodeproj">
          </BuildableReference>
@@ -78,7 +78,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "95284AD6E89B9B84191749DE"
-            BuildableName = "AmgiApp.app"
+            BuildableName = "Ijuka.app"
             BlueprintName = "AmgiApp"
             ReferencedContainer = "container:AmgiApp.xcodeproj">
          </BuildableReference>
@@ -97,7 +97,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "95284AD6E89B9B84191749DE"
-            BuildableName = "AmgiApp.app"
+            BuildableName = "Ijuka.app"
             BlueprintName = "AmgiApp"
             ReferencedContainer = "container:AmgiApp.xcodeproj">
          </BuildableReference>
