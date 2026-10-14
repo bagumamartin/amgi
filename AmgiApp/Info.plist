@@ -145,6 +145,8 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Ijuka uses the camera to add pictures to your cards.</string>
+	<key>NSCameraUseContinuityCameraDeviceType</key>
+	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Ijuka uses the microphone to record audio notes for your cards.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

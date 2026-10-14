@@ -1,4 +1,5 @@
 // AmgiApp/Sources/Browse/BrowseInspector.swift
+import AssistantFeature
 import SwiftUI
 import AmgiAppCore
 import AmgiUI
@@ -83,6 +84,7 @@ struct BrowseDetailTabs: View {
 
             content
         }
+        .preference(key: AssistantScreenContextKey.self, value: note.map { AssistantContext(title: "Selected note", reference: $0.flds, deckID: deckID?.rawValue, noteID: $0.id.rawValue, kind: "note") })
         .amgiScreenCanvas()
         .navigationTitle(tab == .edit ? "" : "Details")
         .toolbar { detailChrome }

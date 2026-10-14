@@ -24,6 +24,12 @@ public enum CollectionLayout {
     public static func rootDirectory(
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> URL {
+        if let fixture = environment["AMGI_UI_FIXTURE"], !fixture.isEmpty {
+            // A QA run lives in the app's own sandbox temp directory on every
+            // platform. Never replace or migrate a user's real collection.
+            let safe = fixture.filter { $0.isLetter || $0.isNumber || $0 == "-" }
+            return FileManager.default.temporaryDirectory.appendingPathComponent("ijuka-fixture-" + safe, isDirectory: true)
+        }
         #if os(macOS)
         if let override = environment["AMGI_COLLECTION_ROOT"], !override.isEmpty {
             return URL(fileURLWithPath: override, isDirectory: true)
@@ -169,7 +175,7 @@ public enum CollectionLayout {
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) {
         #if os(macOS)
-        guard environment["AMGI_COLLECTION_ROOT"] == nil else { return }
+        guard environment["AMGI_COLLECTION_ROOT"] == nil, environment["AMGI_UI_FIXTURE"] == nil else { return }
         let fm = FileManager.default
         let canonical = rootDirectory(environment: environment)
 

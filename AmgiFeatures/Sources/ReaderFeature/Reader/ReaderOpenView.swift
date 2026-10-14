@@ -1,3 +1,4 @@
+import AssistantFeature
 import AmgiReader
 import AmgiTheme
 import SwiftUI
@@ -13,6 +14,8 @@ struct ReaderOpenView: View {
 
     @State private var savedProgress: ReaderSavedProgress?
     @State private var hasLoadedProgress = false
+    @State private var showAssistant = false
+    @State private var assistantContext: AssistantContext?
 
     init(book: ReaderBook, progress: ReaderProgressCoordinator) {
         self.book = book
@@ -27,6 +30,19 @@ struct ReaderOpenView: View {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+        }
+        .transformPreference(AssistantScreenContextKey.self) { value in
+            if value == nil { value = AssistantContext(title: book.title, reference: "Source book:\(book.id)", kind: "reader") }
+        }
+        .onPreferenceChange(AssistantScreenContextKey.self) { assistantContext = $0 }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button("Ask AI", systemImage: "sparkles") { showAssistant = true }.labelStyle(.iconOnly)
+            }
+        }
+        .sheet(isPresented: $showAssistant) {
+            StudyAssistantView(context: assistantContext ?? AssistantContext(title: book.title, reference: "Source book:\(book.id)", kind: "reader"))
+                .presentationDetents([.large])
         }
         .task {
             savedProgress = await progress.resolved(bookID: book.id)

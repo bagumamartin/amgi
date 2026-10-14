@@ -9,6 +9,7 @@ import SwiftUI
 final class RootSceneActions {
     var isReaderEnabled = true
     var selectSection: (MainSection) -> Void = { _ in }
+    var presentSettings: () -> Void = {}
     var presentSync: () -> Void = {}
     var presentImport: () -> Void = {}
     var presentExport: () -> Void = {}
@@ -36,6 +37,7 @@ final class RootSceneActions {
 
     func invalidate() {
         selectSection = { _ in }
+        presentSettings = {}
         presentSync = {}
         presentImport = {}
         presentExport = {}

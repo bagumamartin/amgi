@@ -2,6 +2,7 @@ import AmgiReader
 import AmgiTheme
 import AmgiUI
 import AmgiAppCore
+import AssistantFeature
 import SwiftUI
 
 /// Top-level EPUB reading screen. The iOS host uses native UIKit page-curl
@@ -203,6 +204,7 @@ struct EPUBChapterReaderView: View {
         .toolbarVisibility(.hidden, for: .navigationBar)
         .toolbarVisibility(.hidden, for: .tabBar)
         #endif
+        .preference(key: AssistantScreenContextKey.self, value: AssistantContext(title: book.title, reference: "Source book:\(book.id), chapter:\(currentChapter?.id ?? 0). \(currentChapter?.content ?? "")", kind: "reader"))
         .task {
             prepareAnnotations()
             await model.preloadChapterContents(for: book)

@@ -1,3 +1,4 @@
+import AssistantFeature
 import AmgiAppCore
 import AmgiAppShared
 import AnkiKit
@@ -56,13 +57,19 @@ enum MainSection: String, CaseIterable, Identifiable {
 /// `NavigationSplitView` with the profile row at the bottom.
 struct MainTabView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    let sceneActions: RootSceneActions
     let refreshID: UUID
     let showReaderTab: Bool
     let studyTodayRequest: Int
     let studyTodayDeckID: Int64?
     let onSelectStudyDeck: (DeckID) -> Void
     let onPullCooling: () -> Void
-    let onOpenAssistant: () -> Void
+    let onOpenAssistant: (AssistantContext) -> Void
+    var assistantIsPresented = false
+    @State private var screenContext: AssistantContext?
+    @State private var captureKind: QuickCaptureKind?
+    @State private var compactChrome = false
+    @State private var lastScrollOffset: CGFloat = 0
 
     /// Persisted so menu commands and the sidebar share one source of truth.
     @Shared(.appStorage(NavigationPreferences.rootSection)) private var sectionRaw: String = MainSection.study.rawValue
@@ -139,7 +146,17 @@ struct MainTabView: View {
                 #endif
             }
         }
+        .overlay(alignment: .bottomTrailing) {
+            if usesFloatingEntry && !assistantIsPresented {
+                FloatingAssistantEntry(showsAssistant: screenContext?.kind != "reader", openAssistant: openAssistant, capture: { captureKind = $0 })
+                    .padding(20)
+            }
+        }
+        .onPreferenceChange(AssistantScreenContextKey.self) { screenContext = $0 }
+        .onAppear { sceneActions.presentSettings = { accountDestination = .settings } }
+        .sheet(item: $captureKind) { QuickCaptureView(kind: $0) }
         .onChange(of: selection) { oldValue, newValue in
+            screenContext = nil
             if newValue == .browse, oldValue != .browse {
                 previousSection = oldValue
             }
@@ -158,7 +175,7 @@ struct MainTabView: View {
         .accountChrome(
             showsMenu: false,
             destination: $accountDestination,
-            openAssistant: onOpenAssistant
+            openAssistant: openAssistant
         )
     }
 
@@ -176,6 +193,16 @@ struct MainTabView: View {
         .onChange(of: pdfReaderWindowState.isActive) { _, isActive in
             splitColumnVisibility = isActive ? .detailOnly : .all
         }
+    }
+
+    private func openAssistant() { onOpenAssistant(screenContext ?? AssistantContext(title: selection.title)) }
+
+    private var usesFloatingEntry: Bool {
+        #if os(macOS)
+        true
+        #else
+        horizontalSizeClass != .compact
+        #endif
     }
 
     private var rootSidebar: some View {
@@ -213,7 +240,20 @@ struct MainTabView: View {
         }
         .tabViewStyle(.sidebarAdaptable)
         .defaultAdaptableTabBarPlacement(.sidebar)
-        .tabBarAlwaysVisibleIfAvailable()
+        .toolbar(horizontalSizeClass == .compact ? .hidden : .automatic, for: .tabBar)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if horizontalSizeClass == .compact {
+                AssistantEntryChrome(sections: sections, selection: selectionBinding, compact: $compactChrome, showsAssistant: screenContext?.kind != "reader", openAssistant: openAssistant, capture: { captureKind = $0 })
+            }
+        }
+        .onScrollGeometryChange(for: CGFloat.self) { geometry in
+            geometry.contentOffset.y + geometry.contentInsets.top
+        } action: { oldOffset, offset in
+            let delta = offset - oldOffset
+            if abs(delta) > 5 {
+                withAnimation(.smooth(duration: 0.3)) { compactChrome = offset > 40 && delta > 0 }
+            }
+        }
         .tabViewSidebarBottomBar {
             AccountSidebarFooterHost(open: $accountDestination)
         }
@@ -229,7 +269,7 @@ struct MainTabView: View {
                     .accountChrome(
                         showsMenu: showsAccountMenu,
                         destination: $accountDestination,
-                        openAssistant: onOpenAssistant
+                        openAssistant: openAssistant
                     )
             }
         case .read:
@@ -238,7 +278,7 @@ struct MainTabView: View {
                     .accountChrome(
                         showsMenu: showsAccountMenu,
                         destination: $accountDestination,
-                        openAssistant: onOpenAssistant
+                        openAssistant: openAssistant
                     )
             }
         case .study:
@@ -256,7 +296,7 @@ struct MainTabView: View {
                     .accountChrome(
                         showsMenu: showsAccountMenu,
                         destination: $accountDestination,
-                        openAssistant: onOpenAssistant
+                        openAssistant: openAssistant
                     )
             }
         case .stats:
@@ -265,7 +305,7 @@ struct MainTabView: View {
                     .accountChrome(
                         showsMenu: showsAccountMenu,
                         destination: $accountDestination,
-                        openAssistant: onOpenAssistant
+                        openAssistant: openAssistant
                     )
             }
         case .browse:
@@ -276,7 +316,7 @@ struct MainTabView: View {
                 .accountChrome(
                     showsMenu: showsAccountMenu,
                     destination: $accountDestination,
-                    openAssistant: onOpenAssistant
+                    openAssistant: openAssistant
                 )
         }
     }
@@ -309,15 +349,7 @@ private extension View {
                 accountMenuDestinations(destination)
             }
         }
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button(action: openAssistant) {
-                    Image(systemName: "sparkles")
-                }
-                .accessibilityLabel("Study Assistant")
-                .help("Study Assistant")
-            }
-        }
+
     }
 }
 

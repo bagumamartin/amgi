@@ -47,7 +47,7 @@ struct PrivacyPolicyView: View {
                     Label("On-device Assistance", systemImage: "sparkles")
                         .amgiFont(.bodyEmphasis)
                         .foregroundStyle(palette.textPrimary)
-                    Text("When enabled and available, Study Assistant sends a bounded set of matching note fields to Apple’s on-device system model. Ijuka does not proxy these requests through an Ijuka server. The assistant cannot rate, schedule, edit, or delete cards in this release.")
+                    Text("When enabled and available, Study Assistant sends a bounded set of matching note fields to Apple’s on-device system model. Ijuka does not proxy these requests through an Ijuka server. Collection changes require your review before saving; active reviews are never rated automatically.")
                         .amgiFont(.caption)
                         .foregroundStyle(palette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)

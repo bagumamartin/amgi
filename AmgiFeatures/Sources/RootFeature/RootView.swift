@@ -1,5 +1,6 @@
 public import SwiftUI
 import UniformTypeIdentifiers
+import AmgiEmbeddings
 import AmgiUI
 import AmgiAppCore
 import AmgiAppShared
@@ -88,6 +89,8 @@ public struct RootView: View {
                 exportRequestRouter.discardPending()
                 appNavigation.discardPending()
             }
+            .task(id: store.generation) { CollectionRetrievalCoordinator.shared.refresh() }
+            .onReceive(NotificationCenter.default.publisher(for: .amgiModelAssetChanged)) { _ in CollectionRetrievalCoordinator.shared.refresh() }
             .onChange(of: scenePhase) { _, newPhase in
                 handleScenePhaseChange(newPhase)
             }
@@ -359,6 +362,7 @@ public struct RootView: View {
 
     private var main: some View {
         MainTabView(
+            sceneActions: sceneActions,
             refreshID: refreshID,
             showReaderTab: showReaderTab,
             studyTodayRequest: studyTodayRequest,
@@ -371,9 +375,10 @@ public struct RootView: View {
                 pullCooling = true
                 presentReview(deckId: DeckID(0), pullCooling: true)
             },
-            onOpenAssistant: {
-                assistantSheet = AssistantSheetRequest(prompt: nil)
-            }
+            onOpenAssistant: { context in
+                assistantSheet = AssistantSheetRequest(prompt: nil, context: context)
+            },
+            assistantIsPresented: assistantSheet != nil
         )
         .alert(
             "Couldn't switch profile",
@@ -477,19 +482,7 @@ public struct RootView: View {
                 }
             )
         }
-        .sheet(item: $assistantSheet, onDismiss: {
-            presentNavigationRequestIfPossible()
-        }) { request in
-            StudyAssistantView(initialPrompt: request.prompt) { citation in
-                guard let profile = citation.profile,
-                      profile.isCurrent(AccountStore.shared.selectedContext)
-                else { return }
-                appNavigation.submit(.openNote(noteID: citation.id), profile: profile)
-            }
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
-            .presentationBackgroundInteraction(.enabled(upThrough: .medium))
-        }
+        .modifier(AssistantPresentation(request: $assistantSheet, onDismiss: { presentNavigationRequestIfPossible() }, onRoute: handleAssistantRoute, onOpenNote: handleAssistantNote))
         .fullScreenCover(item: $pendingReviewDeckId) { deckId in
             let profile = AccountStore.shared.selectedContext
             let deckEntity = DeckEntity(
@@ -513,10 +506,115 @@ public struct RootView: View {
         // tabs and every sheet/cover presented above.
         .environment(\.lookupPopup, ReaderLookupPopup())
         .environment(\.accountMenuProvider, RootAccountMenu())
+        .environment(\.assistantSceneNavigation, AssistantSceneNavigation(route: handleAssistantRoute, note: handleAssistantNote))
     }
+    private func handleAssistantRoute(_ route: AssistantRoute) {
+        assistantSheet = nil
+        switch route {
+        case .section(let section): if let selection = MainSection(rawValue: section) { sceneActions.select(selection) }
+        case .settings: sceneActions.presentSettings()
+        case .sync: sceneActions.sync()
+        case .importFile: sceneActions.importFile()
+        case .exportCollection: sceneActions.exportCollection()
+        case .browse(let query): appNavigation.submit(.browse(query: query), profile: AccountStore.shared.selectedContext)
+        case .review(let id): appNavigation.submit(.review(deckID: id), profile: AccountStore.shared.selectedContext)
+        }
+    }
+    private func handleAssistantNote(_ citation: AssistantCitation) {
+        guard let profile = citation.profile, profile.isCurrent(AccountStore.shared.selectedContext) else { return }
+        assistantSheet = nil
+        appNavigation.submit(.openNote(noteID: citation.id), profile: profile)
+    }
+
 }
 
 private struct AssistantSheetRequest: Identifiable {
     let id = UUID()
     let prompt: String?
+    let context: AssistantContext
+    init(prompt: String?, context: AssistantContext = AssistantContext()) { self.prompt = prompt; self.context = context }
+}
+
+private struct AssistantPresentation: ViewModifier {
+    @Binding var request: AssistantSheetRequest?
+    let onDismiss: () -> Void
+    let onRoute: @MainActor (AssistantRoute) -> Void
+    let onOpenNote: (AssistantCitation) -> Void
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var panelSize = CGSize(width: 440, height: 640)
+    @State private var resizeOrigin: CGSize?
+
+    private var floats: Bool {
+        #if os(macOS)
+        true
+        #else
+        horizontalSizeClass != .compact
+        #endif
+    }
+    private func close() {
+        request = nil
+        if floats { onDismiss() } // Compact sheets invoke their own onDismiss.
+    }
+
+    @ViewBuilder private func surface(_ request: AssistantSheetRequest) -> some View {
+        StudyAssistantView(initialPrompt: request.prompt, context: request.context, onRoute: onRoute, onOpenNote: onOpenNote, onClose: close)
+    }
+
+    func body(content: Content) -> some View {
+        Group {
+            #if os(macOS)
+            floating(content)
+            #else
+            if floats { floating(content) }
+            else {
+                content.sheet(item: $request, onDismiss: onDismiss) { request in
+                    surface(request)
+                        .presentationDetents([.large])
+                        .presentationDragIndicator(.visible)
+                        .presentationCornerRadius(32)
+                }
+            }
+            #endif
+        }
+    }
+
+    private func floating(_ content: Content) -> some View {
+        content.overlay(alignment: .bottomTrailing) {
+            GeometryReader { geometry in
+                if let request {
+                    let width = min(panelSize.width, max(0, geometry.size.width - 32))
+                    let height = min(panelSize.height, max(0, geometry.size.height - 32))
+                    surface(request)
+                        .frame(width: width, height: height)
+                        .clipShape(.rect(cornerRadius: 28))
+                        .overlay { RoundedRectangle(cornerRadius: 28).strokeBorder(.primary.opacity(0.08), lineWidth: 1) }
+                        .shadow(color: .black.opacity(0.13), radius: 20, x: 0, y: 8)
+                        #if os(macOS)
+                        .overlay(alignment: .bottomLeading) {
+                            Image(systemName: "arrow.up.right.and.arrow.down.left")
+                                .font(.caption2).foregroundStyle(.tertiary)
+                                .frame(width: 28, height: 28).contentShape(Rectangle())
+                                .gesture(DragGesture(minimumDistance: 2)
+                                    .onChanged { value in
+                                        if resizeOrigin == nil { resizeOrigin = panelSize }
+                                        guard let origin = resizeOrigin else { return }
+                                        panelSize = CGSize(width: min(700, max(360, origin.width - value.translation.width)), height: max(380, origin.height - value.translation.height))
+                                    }.onEnded { _ in resizeOrigin = nil })
+                                .accessibilityLabel("Resize assistant")
+                                .accessibilityAdjustableAction { direction in
+                                    let delta: CGFloat = direction == .increment ? 40 : -40
+                                    panelSize.width = min(700, max(360, panelSize.width + delta))
+                                    panelSize.height = max(380, panelSize.height + delta)
+                                }
+                        }
+                        #endif
+                        .padding(16)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                        .transition(reduceMotion ? .opacity : .scale(scale: 0.96, anchor: .bottomTrailing).combined(with: .opacity))
+                }
+            }
+        }
+        .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: request?.id)
+    }
 }

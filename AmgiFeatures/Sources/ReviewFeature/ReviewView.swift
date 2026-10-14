@@ -1,4 +1,5 @@
 package import SwiftUI
+import AssistantFeature
 import AmgiCardWeb
 import AmgiTheme
 import AmgiUI
@@ -49,6 +50,7 @@ package struct ReviewView: View {
     @State private var destination: ReviewDestination?
     @State private var toreDownSession = false
     @State private var endedSession = false
+    @State private var showAssistant = false
 
     private let accountStore = AccountStore.shared
     @Dependency(\.deckClient) private var deckClient
@@ -76,6 +78,15 @@ package struct ReviewView: View {
             destination: $destination,
             onDismiss: dismiss
         )
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button("Ask AI", systemImage: "sparkles") { showAssistant = true }.labelStyle(.iconOnly)
+            }
+        }
+        .sheet(isPresented: $showAssistant) {
+            StudyAssistantView(context: AssistantContext(title: "Review", reference: ReviewSessionContext.shared.encodedSnapshot().flatMap { String(data: $0, encoding: .utf8) } ?? "No active card", deckID: deckId.rawValue))
+                .presentationDetents([.large])
+        }
         .task {
             ReviewAudioSession.apply(playInSilent: playAudioInSilentMode)
             // A post-review flush may be sleeping toward launch; drop it so

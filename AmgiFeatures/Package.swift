@@ -40,7 +40,7 @@ let package = Package(
     // resolves `String(localized:bundle:)` against it. "en" is the source
     // language, not a promise that English is the only shipped language.
     defaultLocalization: "en",
-    platforms: [.iOS(.v18), .macOS(.v15), .watchOS(.v11)],
+    platforms: [.iOS("26.0"), .macOS("26.0"), .watchOS(.v11)],
     products: [
         .library(name: "AmgiAppCore", targets: ["AmgiAppCore"]),
         .library(name: "AmgiAppShared", targets: ["AmgiAppShared"]),
@@ -66,6 +66,7 @@ let package = Package(
         .package(path: "../AmgiReader"),
         .package(path: "../AmgiIcons"),
         .package(path: "../AmgiEmbeddings"),
+        .package(url: "https://github.com/ManifoldKit/ManifoldKit.git", exact: "0.79.0"),
         .package(url: "https://github.com/pointfreeco/swift-dependencies", from: "1.0.0"),
         .package(url: "https://github.com/pointfreeco/swift-sharing", from: "2.0.0"),
         .package(url: "https://github.com/pointfreeco/swift-navigation", from: "2.0.0"),
@@ -99,6 +100,8 @@ let package = Package(
         .target(
             name: "AmgiAppShared",
             dependencies: [
+                "AmgiReviewCore",
+                .product(name: "AmgiReader", package: "AmgiReader"),
                 "AmgiAppCore",
                 .product(name: "AnkiKit", package: "amgi"),
                 .product(name: "AnkiBackend", package: "amgi"),
@@ -153,6 +156,11 @@ let package = Package(
         .target(
             name: "AssistantFeature",
             dependencies: [
+                .product(name: "AnkiBackend", package: "amgi"),
+                .product(name: "AnkiProtoBridge", package: "amgi"),
+                .product(name: "ManifoldKit", package: "ManifoldKit"),
+                .product(name: "AmgiEmbeddings", package: "AmgiEmbeddings"),
+                .product(name: "AnkiServices", package: "amgi"),
                 "AmgiAppCore",
                 "AmgiAppShared",
                 "AmgiReviewCore",
@@ -168,6 +176,12 @@ let package = Package(
         .testTarget(
             name: "AssistantFeatureTests",
             dependencies: [
+                .product(name: "ManifoldKit", package: "ManifoldKit"),
+                .product(name: "Dependencies", package: "swift-dependencies"),
+                .product(name: "AnkiClients", package: "amgi"),
+                .product(name: "AnkiBackend", package: "amgi"),
+                .product(name: "AnkiProtoBridge", package: "amgi"),
+                .product(name: "AnkiServices", package: "amgi"),
                 "AssistantFeature",
                 "AmgiAppCore",
             ],
@@ -240,6 +254,9 @@ let package = Package(
         .target(
             name: "BrowseFeature",
             dependencies: [
+                "AssistantFeature",
+                .product(name: "AmgiEmbeddings", package: "AmgiEmbeddings"),
+                "AmgiReviewCore",
                 "AmgiAppCore",
                 "AmgiAppShared",
                 .product(name: "AnkiKit", package: "amgi"),
@@ -302,6 +319,7 @@ let package = Package(
         .target(
             name: "DecksFeature",
             dependencies: [
+                "AssistantFeature",
                 "AmgiAppCore",
                 "AmgiAppShared",
                 "BrowseFeature",
@@ -343,6 +361,7 @@ let package = Package(
         .target(
             name: "ReviewFeature",
             dependencies: [
+                "AssistantFeature",
                 "AmgiAppCore",
                 "AmgiAppShared",
                 "AmgiReviewCore",
@@ -389,6 +408,7 @@ let package = Package(
         .target(
             name: "ReaderFeature",
             dependencies: [
+                "AssistantFeature",
                 "AmgiAppCore",
                 "AmgiAppShared",
                 "AmgiReviewCore",
@@ -555,6 +575,7 @@ let package = Package(
         .target(
             name: "RootFeature",
             dependencies: [
+                .product(name: "AmgiEmbeddings", package: "AmgiEmbeddings"),
                 "AmgiAppCore",
                 "AmgiAppShared",
                 "AppIntentsFeature",

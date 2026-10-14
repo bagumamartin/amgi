@@ -4,6 +4,7 @@ import AmgiTheme
 import AmgiUI
 import PDFKit
 import Sharing
+import AssistantFeature
 import SwiftUI
 
 #if os(macOS)
@@ -115,6 +116,7 @@ struct PDFReaderView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .preference(key: AssistantScreenContextKey.self, value: AssistantContext(title: book.title, reference: "Source book:\(book.id), page:\(navigation.pageIndex + 1). Page text: \(String((model.document?.page(at: navigation.pageIndex)?.string ?? "").prefix(5000))). Selected text: \(selection?.text ?? "")", kind: "reader"))
         .task { await open() }
         .onAppear {
             #if os(macOS)

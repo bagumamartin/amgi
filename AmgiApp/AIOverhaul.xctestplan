@@ -1,0 +1,58 @@
+{
+  "configurations": [
+    {
+      "id": "629C7428-7FC0-4505-B312-0F096817007A",
+      "name": "AI overhaul",
+      "options": {}
+    }
+  ],
+  "defaultOptions": {
+    "targetForVariableExpansion": {
+      "containerPath": "container:AmgiApp.xcodeproj",
+      "identifier": "95284AD6E89B9B84191749DE",
+      "name": "AmgiApp"
+    },
+    "environmentVariableEntries": [
+      {
+        "key": "DYLD_FRAMEWORK_PATH",
+        "value": "$(BUILT_PRODUCTS_DIR)/Ijuka.app/Contents/Frameworks",
+        "isEnabled": true
+      }
+    ]
+  },
+  "testTargets": [
+    {
+      "target": {
+        "containerPath": "container:../AmgiFeatures",
+        "name": "AssistantFeatureTests",
+        "identifier": "AssistantFeatureTests"
+      },
+      "parallelizable": false
+    },
+    {
+      "target": {
+        "containerPath": "container:../AmgiEmbeddings",
+        "name": "AmgiEmbeddingsTests",
+        "identifier": "AmgiEmbeddingsTests"
+      },
+      "parallelizable": false
+    },
+    {
+      "target": {
+        "containerPath": "container:../AmgiFeatures",
+        "name": "SyncFeatureTests",
+        "identifier": "SyncFeatureTests"
+      },
+      "parallelizable": false
+    },
+    {
+      "target": {
+        "containerPath": "container:AmgiApp.xcodeproj",
+        "name": "AmgiAppAdaptiveUITests",
+        "identifier": "19A9FA0B51A65BD9EDF4DD4E"
+      },
+      "parallelizable": false
+    }
+  ],
+  "version": 1
+}

@@ -1,3 +1,4 @@
+import AssistantFeature
 import SwiftUI
 import AmgiAppCore
 import AmgiAppShared
@@ -175,6 +176,7 @@ struct DeckDetailView: View {
             .animation(AmgiMotion.momentum, value: model.rebuildFeedback)
             // Keyed on the store's generation so mutations (subdeck create,
             // rebuild/empty, import) reload this screen via Invalidation.
+            .preference(key: AssistantScreenContextKey.self, value: AssistantContext(title: deck.name, deckID: deck.id.rawValue, kind: "deck"))
             .task(id: store.generation) {
                 await model.loadCounts()
                 await model.loadChildren()

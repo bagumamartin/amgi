@@ -41,6 +41,27 @@ public struct AssistantCitation: Identifiable, Hashable, Sendable {
     }
 }
 
+/// Stable, profile-local source identity. Activation fences are rebound when
+/// opening a saved chat, rather than persisting an obsolete window activation.
+struct AssistantSource: Codable, Hashable, Identifiable, Sendable {
+    let id: String
+    let sourceID: String
+    let title: String
+    let excerpt: String
+    let anchor: String
+    let url: URL?
+    let modality: String
+    var noteID: Int64? { sourceID.hasPrefix("note:") ? Int64(sourceID.dropFirst(5)) : nil }
+    init(citation: AssistantCitation) {
+        id = "note:\(citation.id)"; sourceID = id; title = citation.title
+        excerpt = ""; anchor = ""; url = nil; modality = "text"
+    }
+    init(id: String, sourceID: String, title: String, excerpt: String, anchor: String, url: URL?, modality: String) {
+        self.id = id; self.sourceID = sourceID; self.title = title
+        self.excerpt = excerpt; self.anchor = anchor; self.url = url; self.modality = modality
+    }
+}
+
 public struct AssistantMessage: Identifiable, Equatable, Sendable {
     public enum Role: Equatable, Sendable {
         case user

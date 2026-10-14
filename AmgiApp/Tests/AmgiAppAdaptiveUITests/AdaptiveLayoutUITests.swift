@@ -15,11 +15,58 @@ final class AdaptiveLayoutUITests: XCTestCase {
         // under test must reach its first frame before XCTest can enable
         // automation, and CI hosts may not have an unlockable keychain.
         app.launchEnvironment["AMGI_IN_MEMORY_KEYCHAIN"] = "1"
+        app.launchEnvironment["AMGI_UI_FIXTURE"] = UUID().uuidString
         app.launch()
         XCTAssertTrue(
             app.wait(for: .runningForeground, timeout: 20),
             "The adaptive root must reach the foreground on every supported device class."
         )
+    }
+
+
+    func testAssistantReopensItsDraftWithoutOpeningKeyboardInitially() {
+        let entry = app.buttons["Ask AI"].firstMatch
+        XCTAssertTrue(entry.waitForExistence(timeout: 10))
+        entry.tap()
+        let composer = app.descendants(matching: .any)["assistant.composer"].firstMatch
+        XCTAssertTrue(composer.waitForExistence(timeout: 10))
+        #if os(iOS)
+        XCTAssertEqual(app.keyboards.count, 0)
+        #endif
+        composer.tap()
+        composer.typeText("Draft for this profile")
+        app.buttons["assistant.close"].tap()
+        entry.tap()
+        XCTAssertTrue(composer.waitForExistence(timeout: 10))
+        XCTAssertTrue(String(describing: composer.value).contains("Draft for this profile"))
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "Assistant resumed draft"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    func testQuickCaptureHasExactlyCameraAndText() {
+        let capture = app.buttons["Quick Capture"].firstMatch
+        XCTAssertTrue(capture.waitForExistence(timeout: 10))
+        capture.tap()
+        let camera = app.buttons["Capture camera"].firstMatch
+        let text = app.buttons["Capture text"].firstMatch
+        #if os(macOS)
+        XCTAssertTrue(app.menuItems["Camera"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.menuItems["Text"].exists)
+        app.menuItems["Text"].tap()
+        #else
+        XCTAssertTrue(camera.waitForExistence(timeout: 5))
+        XCTAssertTrue(text.exists)
+        text.tap()
+        #endif
+        XCTAssertTrue(app.buttons["capture.close"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["capture.save"].exists)
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "Quick Capture actual fields"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        app.buttons["capture.close"].tap()
     }
 
     func testPrimarySectionsRemainReachable() {
@@ -90,8 +137,10 @@ final class AdaptiveLayoutUITests: XCTestCase {
     }
 
     func testLandscapeScreenshot() {
+        #if os(iOS)
         XCUIDevice.shared.orientation = .landscapeLeft
         defer { XCUIDevice.shared.orientation = .portrait }
+        #endif
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "Ijuka adaptive landscape root"
         attachment.lifetime = .keepAlways

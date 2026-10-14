@@ -1,6 +1,7 @@
 public import SwiftUI
 import AmgiAppCore
 import AmgiAppShared
+import AmgiEmbeddings
 import AmgiTheme
 import AmgiUI
 
@@ -21,6 +22,7 @@ public struct AssistantSettingsView: View {
             VStack(alignment: .leading, spacing: AmgiSpacing.xl) {
                 statusPanel
                 generationPanel
+                retrievalPanel
                 systemSearchPanel
                 privacyPanel
             }
@@ -32,6 +34,38 @@ public struct AssistantSettingsView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+    }
+
+    private var retrievalPanel: some View {
+        let retrieval = CollectionRetrievalCoordinator.shared
+        return VStack(alignment: .leading, spacing: AmgiSpacing.sm) {
+            AssistantSettingsHeader("Collection retrieval")
+            AssistantSettingsPanel {
+                VStack(alignment: .leading, spacing: 16) {
+                    ModelAssetStatusView()
+                    Divider()
+                    if retrieval.isIndexing {
+                        ProgressView(value: Double(retrieval.completed), total: Double(max(1, retrieval.total))) {
+                            Text("Indexing \(retrieval.completed) of \(retrieval.total) sources")
+                        }
+                        Button("Pause indexing") { retrieval.pause() }
+                    } else {
+                        Button("Resume indexing", systemImage: "arrow.clockwise") { retrieval.resume() }
+                            .disabled(!ModelAssetManager.isModelInstalled)
+                    }
+                    Text("Search covers this profile's notes, managed media and reader library. Indexing resumes from verified segments and pauses during low power or high temperature.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    if !retrieval.failures.isEmpty {
+                        DisclosureGroup("\(retrieval.failures.count) sources need attention") {
+                            ForEach(Array(retrieval.failures.prefix(50).enumerated()), id: \.offset) { _, message in
+                                Text(message).font(.caption).textSelection(.enabled)
+                            }
+                            Button("Retry indexing") { retrieval.resume() }
+                        }
+                    }
+                }.padding(AmgiSpacing.lg)
+            }
+        }
     }
 
     private var statusPanel: some View {
@@ -109,7 +143,7 @@ public struct AssistantSettingsView: View {
                 VStack(alignment: .leading, spacing: AmgiSpacing.md) {
                     Label("On-device by default", systemImage: "iphone.gen3")
                         .amgiFont(.bodyEmphasis)
-                    Text("Study Assistant sends only a bounded set of matching note fields to Apple's system model. Ijuka does not proxy those requests through its own server, and the assistant cannot rate, schedule, edit, or delete cards.")
+                    Text("Study Assistant sends only a bounded set of matching note fields to Apple's system model. Ijuka does not proxy those requests through its own server, and collection changes require your review before saving.")
                         .amgiFont(.caption)
                         .foregroundStyle(palette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)

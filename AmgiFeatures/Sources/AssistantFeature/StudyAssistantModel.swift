@@ -33,14 +33,6 @@ public final class StudyAssistantModel {
             errorMessage = userFacingMessage(for: error)
         }
         guard initialProfile.isCurrent(AccountStore.shared.selectedContext) else { return }
-        if messages.isEmpty {
-            messages.append(
-                AssistantMessage(
-                    role: .assistant,
-                    text: welcomeText
-                )
-            )
-        }
         if let initialPrompt,
            !initialPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             await ask(initialPrompt)
@@ -225,7 +217,12 @@ public final class StudyAssistantModel {
         profile: ProfileContext
     ) async throws -> AssistantResult {
         @Dependency(\.noteClient) var noteClient
-        let searchQuery = String(question.prefix(500))
+        let tokens = question.components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }
+        let ignored: Set<String> = ["what", "which", "where", "how", "why", "is", "are", "the", "a", "an", "my", "about", "find", "show", "me", "in", "of", "to", "for"]
+        let keywords = tokens.filter { !ignored.contains($0.lowercased()) }.prefix(10)
+        let hasAnkiSyntax = question.range(of: #"(?:^|\s)-?[A-Za-z_]+:"#, options: .regularExpression) != nil
+        let searchQuery = hasAnkiSyntax ? question : keywords.map { "\"\($0)\"" }.joined(separator: " OR ")
+        guard !searchQuery.isEmpty else { return AssistantResult(text: "Enter a topic or distinctive phrase to search your notes.", citations: []) }
         let records = try await noteClient.searchAll(searchQuery, 5)
         try ensureProfileUnchanged(profile)
         guard !records.isEmpty else {

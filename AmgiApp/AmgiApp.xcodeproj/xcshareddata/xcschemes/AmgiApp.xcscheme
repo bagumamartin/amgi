@@ -48,6 +48,9 @@
             default = "YES"
             reference = "container:AmgiApp.xctestplan">
          </TestPlanReference>
+         <TestPlanReference
+            reference = "container:AIOverhaul.xctestplan">
+         </TestPlanReference>
       </TestPlans>
       <MacroExpansion>
          <BuildableReference
