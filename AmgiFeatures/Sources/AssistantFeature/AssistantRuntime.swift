@@ -250,7 +250,9 @@ final class AssistantRuntime {
         return created
     }
     private init(directory: URL) throws {
-        container = try ModelContainerFactory.makeContainer(configurations: [ModelConfiguration(url: directory.appendingPathComponent("chats.store"))])
+        let storeURL = directory.appendingPathComponent("chats.store")
+        let config = ModelConfiguration(url: storeURL, cloudKitDatabase: .none)
+        container = try ModelContainerFactory.makeContainer(configurations: [config])
         metadataURL = directory.appendingPathComponent("metadata.json")
         metadata = (try? Data(contentsOf: metadataURL)).flatMap { try? JSONDecoder().decode(AssistantRuntime.ChatMetadata.self, from: $0) } ?? AssistantRuntime.ChatMetadata()
     }
