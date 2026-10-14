@@ -1,608 +1,219 @@
-import CoreML
 import CryptoKit
 import Foundation
-import ZIPFoundation
-#if canImport(UIKit)
-import UIKit
-#endif
 
-/// Owns the e5-small CoreML weight lifecycle.
-///
-/// The ~200MB weight archive is NOT bundled (it would bloat every install and
-/// can't live in git on a public fork). Instead the app fetches it once from
-/// the asset CDN (after explicit user consent) and installs it into the
-/// app-group container, versioned so future model swaps clean up after
-/// themselves:
-///
-/// ```
-/// <group>/AmgiEmbeddings/models/v1/MultilingualE5Small.mlmodelc/
-/// <group>/AmgiEmbeddings/models/v1/receipt.json
-/// ```
-///
-/// `TextEmbedder` reads the installed model through
-/// `installedCompiledModelURL()`; until the install completes every consumer
-/// degrades gracefully (name-token icon matching, no semantic fallback), so
-/// this manager must never block app startup — `ensureModelAvailable()` is
-/// driven by the app's consent coordinator, never fired blindly.
+/// Modular, pinned MLX assets. Receipts publish only after SHA-256 validation.
 public actor ModelAssetManager {
     public static let shared = ModelAssetManager()
-
-    /// CDN manifest endpoint. The manifest's `url` may be relative — it is
-    /// resolved against this URL.
-    public let manifestURL: URL
-
-    public init(
-        manifestURL: URL = URL(string: "https://amgiassets.bagumamartin.com/manifest.json")!
-    ) {
-        self.manifestURL = manifestURL
+    public enum Module: String, Codable, CaseIterable, Sendable {
+        case text = "text-q8", vision = "vision-q8", audio = "audio-bf16"
     }
-
-    // MARK: - Status
-
     public enum Status: Sendable, Equatable {
-        case unknown
-        case notInstalled
+        case unknown, notInstalled
         case downloading(fraction: Double, receivedBytes: Int64, totalBytes: Int64?)
-        case verifying
-        case extracting
-        case compiling
-        case ready(Int)
-        case failed(String)
+        case verifying, extracting, compiling
+        case ready(Int), failed(String)
     }
-
+    public struct ManifestInfo: Sendable, Equatable { public var version: Int; public var byteSize: Int64 }
+    struct Manifest: Codable, Sendable {
+        struct File: Codable, Sendable { let bytes: Int64; let sha256: String }
+        let files: [String: File]
+    }
+    public static let revision = "06b4e075e6b3772e3c29df9f2a2ace7bd4950bdd"
+    public static let modelIdentity = "embeddinggemma2:\(revision):text-q8:vision-q8:audio-bf16:768:preprocessing-v3"
+    public let manifestURL: URL
+    private let baseURL: URL
+    public init(manifestURL: URL = URL(string: "https://huggingface.co/Nurymanau/EmbeddingGemma-2-MLX-Swift/resolve/\(ModelAssetManager.revision)/manifest.json")!) {
+        self.manifestURL = manifestURL; baseURL = manifestURL.deletingLastPathComponent()
+    }
     public private(set) var status: Status = .unknown
-
-    /// Subscribes to status changes. The current status is yielded immediately,
-    /// then every transition until the stream terminates (cancelling the
-    /// consuming task unregisters the observer).
-    public func observe() -> AsyncStream<Status> {
-        let current = status
-        return AsyncStream { continuation in
-            let id = UUID()
-            observers[id] = continuation
-            continuation.yield(current)
-            continuation.onTermination = { [weak self] _ in
-                Task { await self?.removeObserver(id) }
-            }
-        }
-    }
-
     private var observers: [UUID: AsyncStream<Status>.Continuation] = [:]
-
-    private func removeObserver(_ id: UUID) {
-        observers.removeValue(forKey: id)
-    }
-
-    private func setStatus(_ next: Status) {
-        status = next
-        for continuation in observers.values { continuation.yield(next) }
-        // Terminal transitions only (progress fractions would spam): lets
-        // plain NotificationCenter observers (Settings rows) refresh without
-        // holding a stream task.
-        switch next {
-        case .ready, .notInstalled, .failed:
-            NotificationCenter.default.post(name: .amgiModelAssetChanged, object: nil)
-        default:
-            break
+    private var activeTask: URLSessionDownloadTask?
+    private var activeResumeURL: URL?
+    private var inFlight = false
+    private var userCancelled = false
+    public func observe() -> AsyncStream<Status> {
+        let id = UUID()
+        return AsyncStream { continuation in
+            observers[id] = continuation; continuation.yield(status)
+            continuation.onTermination = { [weak self] _ in Task { await self?.removeObserver(id) } }
         }
-        #if DEBUG
-        print("[ModelAsset] \(next)")
-        #endif
     }
-
-    // MARK: - Install locations (shared with TextEmbedder)
-
-    static let compiledDirName = "MultilingualE5Small.mlmodelc"
-    static let receiptName = "receipt.json"
-
-    /// Resume-data sidecar for an interrupted download, stored at the models
-    /// root (NOT staging — staging is wiped on every exit including cancel).
-    /// Versioned by filename so a manifest bump invalidates stale state.
-    nonisolated static func resumeFile(version: Int) -> URL {
-        modelsRootURL.appendingPathComponent(".resume-v\(version).dat", isDirectory: false)
+    private func removeObserver(_ id: UUID) { observers[id] = nil }
+    private func setStatus(_ value: Status) {
+        status = value
+        for observer in observers.values { observer.yield(value) }
+        switch value {
+        case .ready, .failed, .notInstalled: NotificationCenter.default.post(name: .amgiModelAssetChanged, object: nil)
+        default: break
+        }
     }
-
-    /// Test hook: redirects the entire store into a scratch directory so
-    /// tests never touch the real install. Test-only — production leaves
-    /// this nil.
     public nonisolated(unsafe) static var modelsRootOverride: URL?
-
-    /// Group-container root for all model versions:
-    /// `<group>/AmgiEmbeddings/models`, next to the `AnkiCollection` root —
-    /// one visible home for all Amgi data instead of scattered sandboxes.
-    /// Falls back to sandbox Application Support when the group container
-    /// is unavailable (unentitled contexts: `swift test`, previews).
-    /// Excluded from backup — a re-downloadable 200MB asset must not burn
-    /// iCloud quota.
     public nonisolated static var modelsRootURL: URL {
-        if let override = modelsRootOverride { return override }
-        if let groupModels = groupContainerModelsRoot() { return groupModels }
-        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("AmgiEmbeddings", isDirectory: true)
-            .appendingPathComponent("models", isDirectory: true)
+        if let modelsRootOverride { return modelsRootOverride }
+        let support = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.bagumamartin.ijuka")
+            ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        return support.appendingPathComponent("AmgiEmbeddings/models/Gemma2-\(revision)", isDirectory: true)
     }
 
-    /// Resolves `<group>/AmgiEmbeddings/models` via the entitled container.
-    /// The group ID is kept in sync with `AppGroup.identifier` (AmgiTheme)
-    /// and the `APP_GROUP_IDENTIFIER`
-    /// build setting by hand; this package must not depend on AmgiTheme
-    /// (wrong direction) or AnkiKit (Rust-linked) for six lines.
-    nonisolated static func groupContainerModelsRoot() -> URL? {
-        let groupID = "group.com.bagumamartin.ijuka"
-        guard let groupDir = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: groupID
-        ) else { return nil }
-        return groupDir
-            .appendingPathComponent("AmgiEmbeddings", isDirectory: true)
-            .appendingPathComponent("models", isDirectory: true)
-    }
-
-    /// One-time moves into the group container, oldest first:
-    /// sandbox `AmgiIcons/models` (pre-2026-09 package layout) then sandbox
-    /// `AmgiEmbeddings/models` (pre-group layout). The app never shipped
-    /// either layout, so these only ever fire on dev machines.
-    nonisolated static func migrateLegacyStoreIfNeeded() {
-        // Nowhere to migrate to without the group container (unentitled
-        // contexts fall back to the sandbox copy in place).
-        guard let destination = groupContainerModelsRoot() else { return }
-        let fm = FileManager.default
-        let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    /// Removes only the previous E5 model's known install and partial-download
+    /// artifacts. Gemma assets, retrieval indexes, and unrelated files remain
+    /// untouched. Called at app startup so cleanup does not depend on opting in
+    /// to the new model download.
+    public nonisolated static func removeLegacyE5Assets() {
+        guard modelsRootOverride == nil else { return }
+        let fileManager = FileManager.default
+        let applicationSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let legacyGroupIDs = [
             "group.com.bagumamartin.AmgiApp",
             "39557WW39R.group.com.bagumamartin.AmgiApp",
             "group.com.amgiapp",
         ]
-        let legacyRoots = [
-            appSupport
-                .appendingPathComponent("AmgiIcons", isDirectory: true)
-                .appendingPathComponent("models", isDirectory: true),
-            appSupport
-                .appendingPathComponent("AmgiEmbeddings", isDirectory: true)
-                .appendingPathComponent("models", isDirectory: true),
-        ] + legacyGroupIDs.compactMap { groupID in
-            fm.containerURL(forSecurityApplicationGroupIdentifier: groupID)?
-                .appendingPathComponent("AmgiEmbeddings", isDirectory: true)
-                .appendingPathComponent("models", isDirectory: true)
+        var roots = [
+            applicationSupport.appendingPathComponent("AmgiEmbeddings/models", isDirectory: true),
+            applicationSupport.appendingPathComponent("AmgiIcons/models", isDirectory: true),
+        ]
+        for groupID in ["group.com.bagumamartin.ijuka"] + legacyGroupIDs {
+            guard let container = fileManager.containerURL(forSecurityApplicationGroupIdentifier: groupID) else { continue }
+            roots.append(container.appendingPathComponent("AmgiEmbeddings/models", isDirectory: true))
         }
-        for legacyModels in legacyRoots {
-            var isDir: ObjCBool = false
-            guard fm.fileExists(atPath: legacyModels.path, isDirectory: &isDir), isDir.boolValue else { continue }
-            try? fm.createDirectory(
-                at: destination.deletingLastPathComponent(), withIntermediateDirectories: true
-            )
-            if !fm.fileExists(atPath: destination.path) {
-                try? fm.moveItem(at: legacyModels, to: destination)
-            } else {
-                let children = (try? fm.contentsOfDirectory(
-                    at: legacyModels,
-                    includingPropertiesForKeys: nil
-                )) ?? []
-                for child in children {
-                    let target = destination.appendingPathComponent(child.lastPathComponent)
-                    if !fm.fileExists(atPath: target.path) {
-                        try? fm.moveItem(at: child, to: target)
-                    }
+
+        for root in Set(roots) {
+            guard let entries = try? fileManager.contentsOfDirectory(
+                at: root, includingPropertiesForKeys: [.isDirectoryKey]
+            ) else { continue }
+            for entry in entries {
+                let name = entry.lastPathComponent
+                if name.range(of: #"^\.staging-v[0-9]+$"#, options: .regularExpression) != nil {
+                    try? fileManager.removeItem(at: entry)
+                    continue
+                }
+                if name.range(of: #"^\.resume-v[0-9]+\.dat$"#, options: .regularExpression) != nil {
+                    try? fileManager.removeItem(at: entry)
+                    continue
+                }
+                guard name.range(of: #"^v[0-9]+$"#, options: .regularExpression) != nil else { continue }
+                let model = entry.appendingPathComponent("MultilingualE5Small.mlmodelc", isDirectory: true)
+                guard fileManager.fileExists(atPath: model.path) else { continue }
+                try? fileManager.removeItem(at: model)
+                try? fileManager.removeItem(at: entry.appendingPathComponent("receipt.json"))
+                if (try? fileManager.contentsOfDirectory(atPath: entry.path).isEmpty) == true {
+                    try? fileManager.removeItem(at: entry)
                 }
             }
-            let legacyParent = legacyModels.deletingLastPathComponent()
-            if (try? fm.contentsOfDirectory(at: legacyParent, includingPropertiesForKeys: nil))?.isEmpty == true {
-                try? fm.removeItem(at: legacyParent)
-            }
         }
     }
 
-    nonisolated static func versionDir(version: Int) -> URL {
-        modelsRootURL.appendingPathComponent("v\(version)", isDirectory: true)
-    }
-
-    nonisolated static func compiledModelURL(version: Int) -> URL {
-        versionDir(version: version)
-            .appendingPathComponent(compiledDirName, isDirectory: true)
-    }
-
-    /// Highest installed version whose compiled model exists on disk, if any.
-    public nonisolated static func installedVersion() -> Int? {
-        let fm = FileManager.default
-        guard let entries = try? fm.contentsOfDirectory(
-            at: modelsRootURL, includingPropertiesForKeys: nil
-        ) else { return nil }
-        var best: Int?
-        for url in entries where url.lastPathComponent.hasPrefix("v") {
-            guard let version = Int(url.lastPathComponent.dropFirst()) else { continue }
-            var isDir: ObjCBool = false
-            let compiled = url.appendingPathComponent(compiledDirName, isDirectory: true)
-            guard fm.fileExists(atPath: compiled.path, isDirectory: &isDir), isDir.boolValue else { continue }
-            if best == nil || version > best! { best = version }
+    public nonisolated static func directory(for module: Module) -> URL { modelsRootURL.appendingPathComponent(module.rawValue, isDirectory: true) }
+    public nonisolated static func isInstalled(_ module: Module) -> Bool {
+        let dir = directory(for: module)
+        guard let receipt = try? String(contentsOf: dir.appendingPathComponent(".verified"), encoding: .utf8), receipt == modelIdentity,
+              let manifest = try? bundledManifest() else { return false }
+        return manifest.files.filter { $0.key.hasPrefix(module.rawValue + "/") }.allSatisfy { path, file in
+            (try? modelsRootURL.appendingPathComponent(path).resourceValues(forKeys: [.fileSizeKey]).fileSize) == Int(file.bytes)
         }
-        return best
     }
-
-    /// Compiled model ready for `MLModel(contentsOf:)`, preferring the newest
-    /// installed version. Used by `TextEmbedder`; nil until the CDN install
-    /// (or a dev-machine bundled copy) exists.
-    public nonisolated static func installedCompiledModelURL() -> URL? {
-        guard let version = installedVersion() else { return nil }
-        return compiledModelURL(version: version)
-    }
-
-    /// Engine-gated tests and UI use this to skip/degrade without touching the actor.
-    public nonisolated static var isModelInstalled: Bool {
-        installedCompiledModelURL() != nil
-    }
-
-    /// On-disk size of the installed model, for Settings display. Nil when absent.
+    public nonisolated static var isModelInstalled: Bool { isInstalled(.text) }
+    public nonisolated static func installedVersion() -> Int? { isModelInstalled ? 2 : nil }
     public nonisolated static func installedSizeBytes() -> Int64? {
-        guard let root = installedCompiledModelURL() else { return nil }
-        guard let enumerator = FileManager.default.enumerator(
-            at: root, includingPropertiesForKeys: [.fileSizeKey]
-        ) else { return nil }
-        var total: Int64 = 0
-        for case let url as URL in enumerator {
-            total += (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
-        }
-        return total
+        guard isModelInstalled, let manifest = try? bundledManifest() else { return nil }
+        return manifest.files.filter { path, _ in Module.allCases.contains { path.hasPrefix($0.rawValue + "/") && isInstalled($0) } }.values.reduce(0) { $0 + $1.bytes }
     }
-
-    // MARK: - Entry point
-
-    private var inFlight = false
-    private var userCancelled = false
-    private var activeTask: URLSessionDownloadTask?
-    private var activeVersion: Int?
-    private var activeStagingDir: URL?
-    private var resumeData: Data?
-
-    /// Ensures the model from the CDN manifest is installed. Idempotent and
-    /// safe to call on every launch: returns immediately when the manifest
-    /// version is already installed or a download is in flight. Never throws —
-    /// failures land in `status` (`.failed`) for UI retry, and every embedder
-    /// consumer already degrades while the model is absent.
-    public func ensureModelAvailable(allowExpensiveNetwork: Bool = false) async {
-        if inFlight { return }
-        if Self.modelsRootOverride == nil { Self.migrateLegacyStoreIfNeeded() }
-        if let installed = Self.installedVersion() {
-            // Fast path, but still check the manifest: a version bump must
-            // trigger an upgrade download rather than sitting on stale weights.
-            do {
-                let manifest = try await fetchManifest()
-                if manifest.version <= installed {
-                    setStatus(.ready(installed))
-                    return
-                }
-            } catch {
-                // Manifest unreachable — stay on the installed model; the next
-                // launch retries. Never surface this as a failure when a good
-                // model is already on disk.
-                setStatus(.ready(installed))
-                return
-            }
-        }
-        inFlight = true
-        userCancelled = false
-        defer {
-            inFlight = false
-            activeTask = nil
-            activeVersion = nil
-            activeStagingDir = nil
-        }
+    nonisolated static func bundledManifest() throws -> Manifest {
+        guard let url = Bundle.module.url(forResource: "manifest", withExtension: "json", subdirectory: "Gemma2") else { throw ModelAssetError.badManifest("Missing pinned manifest") }
+        return try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: url))
+    }
+    public nonisolated static func downloadSize(for module: Module) -> Int64 {
+        (try? bundledManifest().files.filter { $0.key.hasPrefix(module.rawValue + "/") }.values.reduce(Int64(0)) { $0 + $1.bytes }) ?? 0
+    }
+    public func loadRemoteManifest() throws -> ManifestInfo {
+        let manifest = try Self.bundledManifest()
+        return ManifestInfo(version: 2, byteSize: manifest.files.filter { $0.key.hasPrefix("text-q8/") }.values.reduce(0) { $0 + $1.bytes })
+    }
+    /// Caller must obtain explicit module consent. Automatic retries honor its network policy.
+    public func ensureModelAvailable(allowExpensiveNetwork: Bool = false) async { await install(.text, allowExpensiveNetwork: allowExpensiveNetwork) }
+    public func install(_ module: Module, allowExpensiveNetwork: Bool = false) async {
+        guard !inFlight else { return }
+        if Self.isInstalled(module) { setStatus(.ready(2)); return }
+        inFlight = true; userCancelled = false
+        defer { inFlight = false; activeTask = nil; activeResumeURL = nil }
         do {
-            let manifest = try await fetchManifest()
-            if let installed = Self.installedVersion(), manifest.version <= installed {
-                setStatus(.ready(installed))
-                return
+            let manifest = try Self.bundledManifest()
+            let files = manifest.files.filter { $0.key.hasPrefix(module.rawValue + "/") }.sorted { $0.key < $1.key }
+            guard !files.isEmpty else { throw ModelAssetError.badManifest("Empty module") }
+            let total = files.reduce(Int64(0)) { $0 + $1.value.bytes }
+            let staging = Self.modelsRootURL.appendingPathComponent(".staging-\(module.rawValue)", isDirectory: true)
+            try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+            var excluded = Self.modelsRootURL
+            var values = URLResourceValues(); values.isExcludedFromBackup = true; try excluded.setResourceValues(values)
+            var complete: Int64 = 0
+            for (path, file) in files {
+                guard !userCancelled else { throw CancellationError() }; try Task.checkCancellation()
+                let name = URL(fileURLWithPath: path).lastPathComponent
+                let destination = staging.appendingPathComponent(name)
+                if (try? Self.verify(destination, file: file)) == nil {
+                    activeResumeURL = staging.appendingPathComponent(name + ".resume")
+                    let previous = complete
+                    setStatus(.downloading(fraction: Double(complete) / Double(total), receivedBytes: complete, totalBytes: total))
+                    try await download(baseURL.appendingPathComponent(path), destination: destination, allowExpensive: allowExpensiveNetwork, progress: { [weak self] bytes in
+                        Task { await self?.progress(received: previous + bytes, total: total) }
+                    })
+                    setStatus(.verifying); try Self.verify(destination, file: file)
+                    if let activeResumeURL { try? FileManager.default.removeItem(at: activeResumeURL) }
+                }
+                complete += file.bytes
             }
-            try await downloadAndInstall(manifest: manifest, allowExpensiveNetwork: allowExpensiveNetwork)
+            guard !userCancelled else { throw CancellationError() }
+            try Self.modelIdentity.write(to: staging.appendingPathComponent(".verified"), atomically: true, encoding: .utf8)
+            let destination = Self.directory(for: module)
+            if FileManager.default.fileExists(atPath: destination.path) { try FileManager.default.removeItem(at: destination) }
+            try FileManager.default.moveItem(at: staging, to: destination)
+            await TextEmbedder.shared.resetEngineForModelInstall(); setStatus(.ready(2))
+        } catch { setStatus(userCancelled || error is CancellationError ? .notInstalled : .failed(error.localizedDescription)) }
+    }
+    nonisolated static func verify(_ url: URL, file: Manifest.File) throws {
+        let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? -1
+        guard Int64(size) == file.bytes else { throw ModelAssetError.sizeMismatch(expected: file.bytes, actual: Int64(size)) }
+        let handle = try FileHandle(forReadingFrom: url); defer { try? handle.close() }
+        var hasher = SHA256()
+        while let data = try handle.read(upToCount: 1 << 20), !data.isEmpty { hasher.update(data: data) }
+        guard hasher.finalize().map({ String(format: "%02x", $0) }).joined() == file.sha256 else { throw ModelAssetError.checksumMismatch }
+    }
+    private func progress(received: Int64, total: Int64) {
+        guard case .downloading = status else { return }
+        setStatus(.downloading(fraction: min(1, Double(received) / Double(total)), receivedBytes: received, totalBytes: total))
+    }
+    private func download(_ url: URL, destination: URL, allowExpensive: Bool, progress: @escaping @Sendable (Int64) -> Void) async throws {
+        let config = URLSessionConfiguration.default
+        config.allowsExpensiveNetworkAccess = allowExpensive; config.allowsConstrainedNetworkAccess = false
+        let delegate = ModelDownloadDelegate(destination: destination) { received, _ in progress(received) }
+        let session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
+        defer { session.finishTasksAndInvalidate() }
+        let resume = activeResumeURL.flatMap { try? Data(contentsOf: $0) }
+        let task = resume.map { session.downloadTask(withResumeData: $0) } ?? session.downloadTask(with: url)
+        activeTask = task
+        do {
+            _ = try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, any Error>) in
+                    delegate.continuation = continuation; delegate.task = task; task.resume()
+                }
+            } onCancel: { task.cancel() }
         } catch {
-            if userCancelled || error is CancellationError {
-                userCancelled = false
-                setStatus(.notInstalled)
-            } else {
-                setStatus(.failed(error.localizedDescription))
-            }
+            if !userCancelled, let activeResumeURL { try? FileManager.default.removeItem(at: activeResumeURL) }
+            throw error
         }
     }
-
-    /// Cancels an in-flight download (user action or pre-retry reset).
-    /// Produces resume data when the server cooperates, so the next
-    /// `ensureModelAvailable()` continues where it stopped instead of
-    /// restarting. Status returns to `.notInstalled` — neutral, not an error.
-    /// No-op when nothing is downloading.
     public func cancelDownload() {
-        #if DEBUG
-        print("[ModelAsset] cancel requested, inFlight=\(inFlight), taskState=\(activeTask.map { "\($0.state.rawValue)" } ?? "nil")")
-        #endif
-        guard inFlight, let task = activeTask else { return }
         userCancelled = true
-        task.cancel(byProducingResumeData: { [weak self] data in
-            Task { await self?.storeResumeData(data) }
-        })
+        let resumeURL = activeResumeURL
+        activeTask?.cancel { data in if let data, let resumeURL { try? data.write(to: resumeURL, options: .atomic) } }
     }
-
-    private func storeResumeData(_ data: Data?) {
-        resumeData = data
-        // Persist at the models root so a relaunch (not just a same-process
-        // retry) can resume: downloadAndInstall reads it back, and the
-        // staging wipe can't touch it. Best-effort — absence means fresh.
-        if let data, let version = activeVersion {
-            try? data.write(to: Self.resumeFile(version: version))
-        }
-    }
-
-    /// Deletes every installed model version (Settings reclaim-space). The
-    /// next `ensureModelAvailable()` re-downloads.
     public func removeInstalledModel() async throws {
-        let fm = FileManager.default
-        let root = Self.modelsRootURL
-        if fm.fileExists(atPath: root.path) {
-            try fm.removeItem(at: root)
-        }
+        guard !inFlight else { cancelDownload(); throw ModelAssetError.downloadFailed("Wait for the download to stop before removing models") }
         await TextEmbedder.shared.resetEngineForModelInstall()
+        if FileManager.default.fileExists(atPath: Self.modelsRootURL.path) { try FileManager.default.removeItem(at: Self.modelsRootURL) }
         setStatus(.notInstalled)
     }
-
-    // MARK: - Manifest
-
-    struct RemoteManifest: Codable, Sendable {
-        var version: Int
-        var url: String
-        var sha256: String
-        var byteSize: Int64
-    }
-
-    /// Consent-dialog payload: what the CDN currently offers, without
-    /// starting a download. Throws when offline or the manifest is bad —
-    /// the coordinator turns that into the offline branch of the dialog.
-    public struct ManifestInfo: Sendable, Equatable {
-        public var version: Int
-        public var byteSize: Int64
-    }
-
-    public func loadRemoteManifest() async throws -> ManifestInfo {
-        let manifest = try await fetchManifest()
-        return ManifestInfo(version: manifest.version, byteSize: manifest.byteSize)
-    }
-
-    private func fetchManifest() async throws -> RemoteManifest {
-        var request = URLRequest(url: manifestURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw ModelAssetError.badManifest("manifest HTTP \((response as? HTTPURLResponse)?.statusCode ?? -1)")
-        }
-        do {
-            return try JSONDecoder().decode(RemoteManifest.self, from: data)
-        } catch {
-            throw ModelAssetError.badManifest("undecodable manifest: \(error.localizedDescription)")
-        }
-    }
-
-    /// Resolves the manifest's archive reference: absolute URLs pass through,
-    /// relative paths resolve against the manifest endpoint itself.
-    func archiveURL(for manifest: RemoteManifest) throws -> URL {
-        if let absolute = URL(string: manifest.url), absolute.scheme != nil { return absolute }
-        guard let resolved = URL(string: manifest.url, relativeTo: manifestURL)?.absoluteURL else {
-            throw ModelAssetError.badManifest("unresolvable archive URL: \(manifest.url)")
-        }
-        return resolved
-    }
-
-    // MARK: - Download + install
-
-    private func downloadAndInstall(manifest: RemoteManifest, allowExpensiveNetwork: Bool) async throws {
-        let fm = FileManager.default
-        let root = Self.modelsRootURL
-        #if DEBUG
-        print("[ModelAsset] installing into \(root.path), override=\(Self.modelsRootOverride?.path ?? "nil")")
-        #endif
-        try fm.createDirectory(at: root, withIntermediateDirectories: true)
-        try excludeFromBackup(root)
-
-        let versionDir = Self.versionDir(version: manifest.version)
-        let stagingDir = root.appendingPathComponent(".staging-v\(manifest.version)", isDirectory: true)
-        // Pick up resume data from a previous cancelled/interrupted download
-        // of THIS manifest version (memory first, then the persisted sidecar).
-        // Anything else — older versions, corrupt data — falls back to fresh.
-        if resumeData == nil {
-            resumeData = try? Data(contentsOf: Self.resumeFile(version: manifest.version))
-        }
-        if fm.fileExists(atPath: stagingDir.path) { try? fm.removeItem(at: stagingDir) }
-        try fm.createDirectory(at: stagingDir, withIntermediateDirectories: true)
-        activeVersion = manifest.version
-        activeStagingDir = stagingDir
-        defer { try? fm.removeItem(at: stagingDir) }
-
-        let archiveURL = try archiveURL(for: manifest)
-        let zipURL = stagingDir.appendingPathComponent("model.zip", isDirectory: false)
-
-        setStatus(.downloading(fraction: 0, receivedBytes: 0, totalBytes: manifest.byteSize))
-        #if canImport(UIKit)
-        let bgID = await MainActor.run {
-            UIApplication.shared.beginBackgroundTask(withName: "AmgiModelDownload")
-        }
-        defer {
-            Task { @MainActor in
-                if bgID != .invalid { UIApplication.shared.endBackgroundTask(bgID) }
-            }
-        }
-        #endif
-        try await downloadFile(
-            from: archiveURL,
-            to: zipURL,
-            expectedTotal: manifest.byteSize,
-            allowExpensiveNetwork: allowExpensiveNetwork
-        )
-        // Download verified complete below — resume state is spent either way.
-        resumeData = nil
-        try? fm.removeItem(at: Self.resumeFile(version: manifest.version))
-
-        setStatus(.verifying)
-        try verifyDownload(at: zipURL, manifest: manifest)
-
-        setStatus(.extracting)
-        let unpackedDir = stagingDir.appendingPathComponent("unpacked", isDirectory: true)
-        try fm.unzipItem(at: zipURL, to: unpackedDir)
-        guard let packageURL = findPackage(in: unpackedDir) else {
-            throw ModelAssetError.noPackageInArchive
-        }
-
-        setStatus(.compiling)
-        let compiledTemp = try await MLModel.compileModel(at: packageURL)
-        defer { try? fm.removeItem(at: compiledTemp) }
-        if fm.fileExists(atPath: versionDir.path) { try fm.removeItem(at: versionDir) }
-        try fm.createDirectory(at: versionDir, withIntermediateDirectories: true)
-        try fm.moveItem(at: compiledTemp, to: Self.compiledModelURL(version: manifest.version))
-        let receipt = try JSONEncoder().encode(manifest)
-        try receipt.write(to: versionDir.appendingPathComponent(Self.receiptName))
-
-        pruneOlderVersions(keeping: manifest.version)
-        await TextEmbedder.shared.resetEngineForModelInstall()
-        setStatus(.ready(manifest.version))
-    }
-
-    private func excludeFromBackup(_ url: URL) throws {
-        var values = URLResourceValues()
-        values.isExcludedFromBackup = true
-        var mutable = url
-        try mutable.setResourceValues(values)
-    }
-
-    /// Depth-first search for the first `*.mlpackage` directory. The zip is
-    /// expected to contain one top-level package folder, but matching by
-    /// extension keeps this robust to repackaging.
-    private func findPackage(in dir: URL) -> URL? {
-        guard let enumerator = FileManager.default.enumerator(
-            at: dir, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]
-        ) else { return nil }
-        for case let url as URL in enumerator {
-            guard url.pathExtension == "mlpackage",
-                  (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-            else { continue }
-            return url
-        }
-        return nil
-    }
-
-    private func pruneOlderVersions(keeping version: Int) {
-        let fm = FileManager.default
-        guard let entries = try? fm.contentsOfDirectory(
-            at: Self.modelsRootURL, includingPropertiesForKeys: nil
-        ) else { return }
-        for url in entries {
-            let name = url.lastPathComponent
-            if name.hasPrefix(".resume-v"), name != ".resume-v\(version).dat" {
-                try? fm.removeItem(at: url)
-                continue
-            }
-            guard name.hasPrefix("v"), name != "v\(version)",
-                  Int(name.dropFirst()) != nil
-            else { continue }
-            try? fm.removeItem(at: url)
-        }
-    }
-
-    private func verifyDownload(at url: URL, manifest: RemoteManifest) throws {
-        let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? -1
-        guard size == manifest.byteSize else {
-            throw ModelAssetError.sizeMismatch(expected: manifest.byteSize, actual: size)
-        }
-        let handle = try FileHandle(forReadingFrom: url)
-        defer { try? handle.close() }
-        var hasher = SHA256()
-        while let chunk = try handle.read(upToCount: 1 << 20), !chunk.isEmpty {
-            hasher.update(data: chunk)
-        }
-        let digest = hasher.finalize().map { String(format: "%02x", $0) }.joined()
-        guard digest == manifest.sha256.lowercased() else {
-            throw ModelAssetError.checksumMismatch
-        }
-    }
-
-    // MARK: - Download transport
-
-    /// Downloads the archive, resuming from `resumeData` when present (server
-    /// must cooperate — resume data the server rejects throws immediately, in
-    /// which case we fall back to exactly one fresh attempt). Progress is
-    /// reported against the manifest's authoritative byte size.
-    private func downloadFile(
-        from url: URL,
-        to destination: URL,
-        expectedTotal: Int64,
-        allowExpensiveNetwork: Bool
-    ) async throws {
-        do {
-            try await performDownload(
-                from: url,
-                to: destination,
-                expectedTotal: expectedTotal,
-                allowExpensiveNetwork: allowExpensiveNetwork,
-                resumeData: resumeData
-            )
-        } catch {
-            // A rejected resume blob must not poison the retry: drop it and
-            // go fresh once. A user cancel must NEVER retry — resuming here
-            // would defeat the cancel (the resume data it just produced
-            // would immediately restart the transfer). Cancelled errors
-            // rethrow so ensureModelAvailable() lands on `.notInstalled`.
-            guard !userCancelled, resumeData != nil else { throw error }
-            resumeData = nil
-            if let version = activeVersion {
-                try? FileManager.default.removeItem(at: Self.resumeFile(version: version))
-            }
-            try await performDownload(
-                from: url,
-                to: destination,
-                expectedTotal: expectedTotal,
-                allowExpensiveNetwork: allowExpensiveNetwork,
-                resumeData: nil
-            )
-        }
-    }
-
-    private func performDownload(
-        from url: URL,
-        to destination: URL,
-        expectedTotal: Int64,
-        allowExpensiveNetwork: Bool,
-        resumeData: Data?
-    ) async throws {
-        let configuration = URLSessionConfiguration.default
-        configuration.allowsExpensiveNetworkAccess = allowExpensiveNetwork
-        configuration.allowsConstrainedNetworkAccess = allowExpensiveNetwork
-        configuration.timeoutIntervalForRequest = 60
-        let delegate = ModelDownloadDelegate(destination: destination) { [weak self] received, _ in
-            Task { await self?.updateProgress(received: received, total: expectedTotal) }
-        }
-        let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
-        defer { session.finishTasksAndInvalidate() }
-        do {
-            let task: URLSessionDownloadTask
-            if let resumeData {
-                task = session.downloadTask(withResumeData: resumeData)
-            } else {
-                task = session.downloadTask(with: url)
-            }
-            activeTask = task
-            _ = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, any Error>) in
-                delegate.continuation = continuation
-                delegate.task = task
-                task.resume()
-            }
-            activeTask = nil
-        } catch {
-            activeTask = nil
-            try? FileManager.default.removeItem(at: destination)
-            throw ModelAssetError.downloadFailed(error.localizedDescription)
-        }
-    }
-
-    private func updateProgress(received: Int64, total: Int64) {
-        // Only meaningful mid-download; terminal states own the status.
-        guard case .downloading = status else { return }
-        let fraction = total > 0 ? min(1, Double(received) / Double(total)) : 0
-        setStatus(.downloading(fraction: fraction, receivedBytes: received, totalBytes: total))
-    }
 }
-
 // MARK: - Download delegate
 
 /// `URLSessionDownloadDelegate` bridge with progress reporting. State is only

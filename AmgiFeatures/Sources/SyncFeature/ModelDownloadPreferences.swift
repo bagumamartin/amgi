@@ -1,6 +1,6 @@
 import Foundation
 
-/// Consent + network policy for the e5 model download (AmgiEmbeddings).
+/// Consent + network policy for the EmbeddingGemma 2 download (AmgiEmbeddings).
 /// The download only ever starts after explicit consent; the policy governs
 /// automatic retries and future version upgrades.
 ///
@@ -14,9 +14,9 @@ package enum ModelDownloadPreferences {
         package var id: String { rawValue }
     }
 
-    package static let consentGivenKey = "model_pref_consent_given"
+    package static let consentGivenKey = "model_gemma2_q8_consent_given"
     package static let policyKey = "model_pref_network_policy"
-    package static let lastPromptAtKey = "model_pref_last_prompt_at"
+    package static let lastPromptAtKey = "model_gemma2_last_prompt_at"
 
     package static var consentGiven: Bool {
         UserDefaults.standard.bool(forKey: consentGivenKey)

@@ -2,23 +2,14 @@ import Foundation
 import AmgiEmbeddings
 import PhosphorSwift
 
-/// Semantic deck-icon suggestion over the bundled Phosphor tag embeddings.
+/// Semantic deck-icon suggestion using the installed EmbeddingGemma 2 catalog.
 ///
-/// Pipeline: text → `"query: "`-prefixed e5-small embedding (CoreML via
-/// ``TextEmbedder``) → dot-product scan against the pre-normalized
-/// `IconEmbeddings.json` catalog (cosine similarity = plain dot product).
+/// Tag descriptions and queries use the same installed, normalized Q8 model.
 public actor IconSuggester {
     public static let shared = IconSuggester()
 
-    /// Below this top-1 cosine score the suggester distrusts the semantic
-    /// result and falls back to icon-name token matching.
-    ///
-    /// Calibrated empirically (2026-08) over realistic deck names: e5-small
-    /// similarities compress into a narrow ~0.82–0.88 band across the whole
-    /// catalog — even nonsense input ("Random junk xyzzy") scores ≥0.84, so
-    /// the spec's original 0.75 floor never fires. 0.80 catches only
-    /// genuinely poor matches while keeping weak-but-relevant hits (e.g.
-    /// cross-lingual queries at ~0.82).
+    /// Conservative initial floor; retrieval acceptance requires our own
+    /// multilingual deck-title fixtures before calibrating this threshold.
     public static let confidenceThreshold: Float = 0.80
 
     /// Ultimate fallback when nothing else resolves.
@@ -62,7 +53,7 @@ public actor IconSuggester {
 
         do {
             let queryVector = try await embedder.embed(trimmed, prefix: .query)
-            let entries = try catalog()
+            let entries = try await catalog()
 
             var bestIndex = -1
             var bestScore: Float = -1
@@ -103,7 +94,7 @@ public actor IconSuggester {
 
         do {
             let queryVector = try await embedder.embed(trimmed, prefix: .query)
-            let entries = try catalog()
+            let entries = try await catalog()
             var scored = entries.map { ($0.name, TextEmbedder.cosine(queryVector, $0.vector)) }
             scored.sort { $0.1 > $1.1 }
             return Array(scored.prefix(topK).map(\.0))
@@ -121,35 +112,54 @@ public actor IconSuggester {
 
     // MARK: - Catalog
 
-    private func catalog() throws -> [Entry] {
-        if let error = catalogError { throw error }
-        if let catalogEntries { return catalogEntries }
-        do {
-            let loaded = try Self.loadEntries()
-            guard !loaded.isEmpty else { throw IconSuggesterError.emptyCatalog }
-            catalogError = nil
-            catalogEntries = loaded
-            return loaded
-        } catch {
-            catalogError = error
-            throw error
-        }
-    }
 
-    private static func loadEntries() throws -> [Entry] {
-        guard let url = Bundle.module.url(forResource: "IconEmbeddings", withExtension: "json") else {
-            throw IconSuggesterError.missingEmbeddingsResource
+    private struct CatalogCache: Codable {
+        var identity: String
+        var vectors: [String: [Float]]
+    }
+    private var preparation: Task<Void, Never>?
+    private static var catalogURL: URL {
+        ModelAssetManager.modelsRootURL.appendingPathComponent("icon-catalog-768.json")
+    }
+    /// Old E5 vectors are never read. Build the full tag catalog using the same
+    /// installed Q8 engine, checkpointing periodically for interrupted runs.
+    public func prepareCatalog() {
+        guard preparation == nil, ModelAssetManager.isModelInstalled else { return }
+        preparation = Task(priority: .utility) { [weak self] in await self?.buildCatalog() }
+    }
+    private func catalog() async throws -> [Entry] {
+        if let catalogEntries { return catalogEntries }
+        if let data = try? Data(contentsOf: Self.catalogURL),
+           let cache = try? JSONDecoder().decode(CatalogCache.self, from: data), cache.identity == TextEmbedder.modelIdentity,
+           let tagsURL = Bundle.module.url(forResource: "IconTags", withExtension: "json"),
+           let tags = try? JSONDecoder().decode([String: String].self, from: Data(contentsOf: tagsURL)),
+           cache.vectors.count == tags.count,
+           cache.vectors.values.allSatisfy({ $0.count == TextEmbedder.dimensionValue && $0.allSatisfy(\.isFinite) }) {
+            let entries = cache.vectors.map { Entry(name: $0.key, vector: $0.value) }.sorted { $0.name < $1.name }
+            catalogEntries = entries; return entries
         }
-        let data = try Data(contentsOf: url)
-        let decoded = try JSONDecoder().decode([String: [Float]].self, from: data)
-        return decoded
-            .compactMap { name, vector in
-                guard vector.count == 384 else { return nil }
-                var v = vector
-                normalize(&v)
-                return Entry(name: name, vector: v)
+        prepareCatalog()
+        throw IconSuggesterError.emptyCatalog
+    }
+    private func buildCatalog() async {
+        defer { preparation = nil }
+        guard let tagsURL = Bundle.module.url(forResource: "IconTags", withExtension: "json"),
+              let tags = try? JSONDecoder().decode([String: String].self, from: Data(contentsOf: tagsURL)) else { return }
+        var cache = (try? Data(contentsOf: Self.catalogURL)).flatMap { try? JSONDecoder().decode(CatalogCache.self, from: $0) }
+            ?? CatalogCache(identity: TextEmbedder.modelIdentity, vectors: [:])
+        if cache.identity != TextEmbedder.modelIdentity { cache = CatalogCache(identity: TextEmbedder.modelIdentity, vectors: [:]) }
+        do {
+            for (name, text) in tags.sorted(by: { $0.key < $1.key }) {
+                try Task.checkCancellation()
+                while ProcessInfo.processInfo.isLowPowerModeEnabled || ProcessInfo.processInfo.thermalState == .serious || ProcessInfo.processInfo.thermalState == .critical { try await Task.sleep(for: .seconds(2)) }
+                if cache.vectors[name]?.count == TextEmbedder.dimensionValue { continue }
+                cache.vectors[name] = try await embedder.embed(text, prefix: .passage)
+                if cache.vectors.count % 25 == 0 { try JSONEncoder().encode(cache).write(to: Self.catalogURL, options: .atomic) }
+                await Task.yield()
             }
-            .sorted { $0.name < $1.name }
+            try JSONEncoder().encode(cache).write(to: Self.catalogURL, options: .atomic)
+            catalogEntries = cache.vectors.map { Entry(name: $0.key, vector: $0.value) }.sorted { $0.name < $1.name }
+        } catch { logEngineFailure(error) }
     }
 
     private static func normalize(_ vector: inout [Float]) {
@@ -181,7 +191,7 @@ enum IconSuggesterError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .missingEmbeddingsResource: "IconEmbeddings.json not found in bundle"
+        case .missingEmbeddingsResource: "Icon tag descriptions not found in bundle"
         case .emptyCatalog: "Icon embedding catalog is empty"
         }
     }

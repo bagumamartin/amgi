@@ -11,8 +11,12 @@ import Testing
 /// production.
 enum ModelStoreTestSupport {
     private actor Serializer {
+        private var busy = false
         func run<T: Sendable>(_ work: @Sendable () async throws -> T) async rethrows -> T {
-            try await work()
+            while busy { await Task.yield() }
+            busy = true
+            defer { busy = false }
+            return try await work()
         }
     }
 
@@ -33,7 +37,9 @@ enum ModelStoreTestSupport {
                 try? FileManager.default.removeItem(at: scratch)
             }
             do {
-                return try await work(ModelAssetManager())
+                let result = try await work(ModelAssetManager())
+                await TextEmbedder.shared.resetEngineForModelInstall()
+                return result
             } catch {
                 await TextEmbedder.shared.resetEngineForModelInstall()
                 throw error

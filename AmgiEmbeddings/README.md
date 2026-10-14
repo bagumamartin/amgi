@@ -1,39 +1,33 @@
 # AmgiEmbeddings
 
-Shared e5-small text-embedding engine + its CDN weight lifecycle. Used by
-`AmgiIcons` (deck-icon suggestion) and Browse (semantic search) so only ONE
-resident CoreML model instance exists. Split out of AmgiIcons 2026-09 —
-icons-only there, engine here.
+Shared native MLX EmbeddingGemma 2 engine for Ijuka retrieval, duplicate
+comparison and icon suggestions. Text and vision weights use 8-bit quantization;
+audio weights use BF16. Outputs are normalized 768-dimensional Float32 vectors.
+Minimum deployment: iOS/iPadOS 26 and macOS 26. This package is excluded from the
+watch target graph.
 
-## Contents
+The compatible model revision and each file's SHA-256/length are pinned in
+`Sources/AmgiEmbeddings/Resources/Gemma2/manifest.json`. Text, vision and audio
+are separate downloads with explicit consent. Model files are not committed.
+E5 assets and consent are not reused. The vendored native implementation and
+its notices live in `../Libraries/EmbeddingGemma2`.
 
-- `TextEmbedder` — public actor; `"query: "` / `"passage: "` prefixed
-  embeddings (384-dim L2-normalized) over the bundled `Tokenizer/`.
-- `ModelAssetManager` — downloads the ~200MB `.mlpackage.zip` from
-  `https://amgiassets.bagumamartin.com` (manifest-pinned version + SHA-256),
-  verifies, unzips (ZIPFoundation), compiles into the app-group container
-  (`<group>/AmgiEmbeddings/models/v<N>/`, next to `AnkiCollection`;
-  backup-excluded, sandbox fallback when unentitled), prunes old versions.
-  Supports cancel + resume-data across launches. Never starts on its own —
-  the app's consent coordinator drives it.
-- `ModelAssetStatusView` — one-line Settings status (progress / version /
-  retry).
+`TextEmbedder.shared` owns the serial engine and bounded cache. `RetrievalIndex`
+commits FTS, vectors and source anchors together in SQLite. `MediaIndexer` visits
+only app-owned source URLs supplied by the profile coordinator; it does not
+crawl arbitrary directories.
 
-## Dev workflow — run the app once
+Use the app's `AIOverhaul` test plan for offline tests. The live reference test
+requires `AMGI_E2E_MODEL_DOWNLOAD=1` and `AMGI_E2E_MEDIA=1` in the test target's
+environment. Its Swift Testing selector is
+`ModelAssetE2ETests/allModalitiesReference()` (including parentheses).
 
-Weights are not bundled and not in git. Accept the in-app consent dialog
-once; the download lands in the app-group container next to
-`AnkiCollection`. Engine tests skip cleanly until a model exists. A precompiled `MultilingualE5Small.mlmodelc` placed
-next to the sources is still honored (lookup fallback) but nothing guides
-you there.
+Physical iOS devices require an app-hosted test bundle. The separate
+`AmgiModelGates` Xcode scheme builds a collection-free app with its own bundle
+identifier. Running that scheme opts into verified model downloads in temporary
+storage and attaches reference-vector, timing and MLX memory measurements to the
+XCTest result. It does not replace the installed Ijuka app.
 
-## Tests
-
-- Offline unit tests: CDN contract, URL resolution, store isolation.
-- `AMGI_E2E_MODEL_DOWNLOAD=1`: live download + cancel tests. Store is
-  redirected to a temp dir (`modelsRootOverride`, serialized across suites)
-  so the host machine is never polluted — verified CLEAN after every run.
-
-If the model is ever swapped, regenerate `IconEmbeddings.json` in AmgiIcons
-via `scripts/icon-embeddings/precompute_embeddings.py` so the vector space
-stays in sync with the encoder.
+See [the implementation and validation record](../docs/ai-overhaul.md) for exact
+pins, migration behavior, results and outstanding acceptance gates. Model parity
+is distinct from retrieval quality and sustained device performance.

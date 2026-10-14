@@ -1,8 +1,8 @@
 import AmgiEmbeddings
 import Foundation
 
-/// Bridge between Browse's semantic index and the shared e5 engine
-/// (TextEmbedder inside the AmgiEmbeddings package — one resident CoreML
+/// Bridge between Browse's semantic index and the shared MLX engine
+/// (TextEmbedder inside the AmgiEmbeddings package — one resident native
 /// model instance serves both deck-icon suggestion and card search).
 ///
 /// This indirection exists for one narrow reason: under the current
@@ -19,7 +19,20 @@ package enum NoteEmbedderBridge {
     }
 
     package static func embedPassage(_ text: String) async -> [Float]? {
-        try? await TextEmbedder.shared.embed(text, prefix: .passage)
+        // Duplicate comparison needs one vector per note. Pool bounded text
+        // passages so a long field cannot abort the remaining Browse window.
+        // Retrieval itself keeps the individual passage vectors and anchors.
+        var pooled = [Float](repeating: 0, count: TextEmbedder.dimensionValue)
+        do {
+            for passage in MediaIndexer.passages(text) {
+                try Task.checkCancellation()
+                let vector = try await TextEmbedder.shared.embed(passage, prefix: .passage)
+                for i in pooled.indices { pooled[i] += vector[i] * Float(passage.count) }
+            }
+            let norm = pooled.reduce(Float(0)) { $0 + $1 * $1 }.squareRoot()
+            guard norm.isFinite, norm > 0 else { return nil }
+            return pooled.map { $0 / norm }
+        } catch { return nil }
     }
 
     /// Identity of the currently installed embedding model. Persisted vectors

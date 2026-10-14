@@ -1,105 +1,42 @@
+import CryptoKit
 import Foundation
 import Testing
 @testable import AmgiEmbeddings
 
-/// CDN contract + install-state consistency for the e5 weight download.
-/// Never touches the network: the manifest sample mirrors the live endpoint,
-/// and the state assertions hold with or without an installed model.
-@Suite("ModelAssetManager")
+@Suite("Pinned Gemma 2 assets", .serialized)
 struct ModelAssetManagerTests {
-    // Mirrors https://amgiassets.bagumamartin.com/manifest.json (v1).
-    private let sampleManifest = """
-        {
-          "version": 1,
-          "url": "models/e5-small-coreml/1/MultilingualE5Small.mlpackage.zip",
-          "sha256": "f339314e01c7206505b54164b5479ff737bd03e299e199cf2a7a7b57dbd8d043",
-          "byteSize": 216411873
+    @Test func pinnedManifestCoversEveryModule() throws {
+        let manifest = try ModelAssetManager.bundledManifest()
+        for module in ModelAssetManager.Module.allCases {
+            let files = manifest.files.filter { $0.key.hasPrefix(module.rawValue + "/") }
+            #expect(!files.isEmpty)
+            #expect(files.values.allSatisfy { $0.bytes > 0 && $0.sha256.count == 64 })
         }
-        """
-
-    @Test("Manifest decodes the CDN format")
-    func manifestDecodes() throws {
-        let manifest = try JSONDecoder().decode(
-            ModelAssetManager.RemoteManifest.self,
-            from: Data(sampleManifest.utf8)
-        )
-        #expect(manifest.version == 1)
-        #expect(manifest.url.hasSuffix(".mlpackage.zip"))
-        #expect(manifest.sha256.count == 64)
-        #expect(manifest.byteSize > 200_000_000)
+        #expect(ModelAssetManager.modelIdentity.contains("768"))
+        #expect(ModelAssetManager.modelIdentity.contains("audio-bf16"))
     }
-
-    @Test("Relative archive URL resolves against the manifest endpoint")
-    func relativeURLResolves() async throws {
-        let manager = ModelAssetManager()
-        let manifest = try JSONDecoder().decode(
-            ModelAssetManager.RemoteManifest.self,
-            from: Data(sampleManifest.utf8)
-        )
-        let resolved = try await manager.archiveURL(for: manifest)
-        #expect(resolved.absoluteString == "https://amgiassets.bagumamartin.com/models/e5-small-coreml/1/MultilingualE5Small.mlpackage.zip")
+    @Test func fileVerificationRejectsCorruption() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let data = Data("verified bytes".utf8)
+        let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        try data.write(to: url)
+        let file = ModelAssetManager.Manifest.File(bytes: Int64(data.count), sha256: digest)
+        try ModelAssetManager.verify(url, file: file)
+        try Data("corrupt bytes!".utf8).write(to: url)
+        #expect(throws: (any Error).self) { try ModelAssetManager.verify(url, file: file) }
     }
-
-    @Test("Absolute archive URL passes through untouched")
-    func absoluteURLPassesThrough() async throws {
-        let manager = ModelAssetManager(
-            manifestURL: URL(string: "https://example.com/other/manifest.json")!
-        )
-        let manifest = ModelAssetManager.RemoteManifest(
-            version: 2,
-            url: "https://cdn.example.com/m/model.zip",
-            sha256: String(repeating: "0", count: 64),
-            byteSize: 1
-        )
-        let resolved = try await manager.archiveURL(for: manifest)
-        #expect(resolved.absoluteString == "https://cdn.example.com/m/model.zip")
-    }
-
-    @Test("Install-state accessors agree with each other")
-    func installStateConsistent() async {
-        // Serialized against isolated suites: the real-store reading is only
-        // valid when no override is active.
-        await ModelStoreTestSupport.withRealStore {
-            #expect(ModelAssetManager.isModelInstalled == (ModelAssetManager.installedCompiledModelURL() != nil))
-            if let version = ModelAssetManager.installedVersion() {
-                #expect(ModelAssetManager.installedCompiledModelURL()?.lastPathComponent == "MultilingualE5Small.mlmodelc")
-                #expect(version > 0)
-            }
-        }
-    }
-
-    @Test("Store override isolates tests from the real install")
-    func storeOverrideIsolates() async {
-        await ModelStoreTestSupport.withRealStore {
-            let scratch = FileManager.default.temporaryDirectory
-                .appendingPathComponent("amgi-store-override-\(UUID().uuidString)", isDirectory: true)
+    @Test func legacyE5IsNeverAnInstalledGemmaModel() async throws {
+        try await ModelStoreTestSupport.withRealStore {
+            let scratch = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
             ModelAssetManager.modelsRootOverride = scratch
-            defer {
-                ModelAssetManager.modelsRootOverride = nil
-                try? FileManager.default.removeItem(at: scratch)
-            }
-            // A nonexistent scratch dir reads as "nothing installed" even when
-            // the real group container holds a model.
-            #expect(ModelAssetManager.installedVersion() == nil)
+            defer { ModelAssetManager.modelsRootOverride = nil; try? FileManager.default.removeItem(at: scratch) }
+            try FileManager.default.createDirectory(at: scratch.appendingPathComponent("v1/MultilingualE5Small.mlmodelc"), withIntermediateDirectories: true)
             #expect(!ModelAssetManager.isModelInstalled)
-            #expect(ModelAssetManager.modelsRootURL == scratch)
+            #expect(ModelAssetManager.installedVersion() == nil)
         }
     }
-
-    @Test("Unentitled processes fall back to sandbox Application Support")
-    func groupFallback() {
-        // `swift test` carries no app-group entitlement, so containerURL is
-        // nil here: the store must resolve to the sandbox fallback, never
-        // crash, and never claim the group path it cannot reach.
-        if ModelAssetManager.groupContainerModelsRoot() != nil {
-            // Entitled host (e.g. running inside the app process) — the
-            // group root is correct and covered by integration runs.
-            #expect(ModelAssetManager.modelsRootURL.path.hasSuffix("AmgiEmbeddings/models"))
-        } else {
-            let fallback = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("AmgiEmbeddings", isDirectory: true)
-                .appendingPathComponent("models", isDirectory: true)
-            #expect(ModelAssetManager.modelsRootURL == fallback)
-        }
+    @Test func invalidVectorCannotBeCompared() {
+        #expect(TextEmbedder.cosine(Array(repeating: 1, count: 384), Array(repeating: 1, count: 768)) == -.infinity)
     }
 }

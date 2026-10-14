@@ -1117,7 +1117,7 @@ final class BrowseModel {
             // Extracted as a function value: some Xcode 26.5 whole-module
             // plans mislabel this closure call otherwise.
             let searchAll = self.noteClient.searchAll
-            let limit: Int? = SemanticNoteIndex.corpusCap
+            let limit: Int? = nil
             guard let records = try? await searchAll("deck:*", limit),
                   !records.isEmpty else { return }
             await SemanticNoteIndex.shared.updateCorpus(with: records)

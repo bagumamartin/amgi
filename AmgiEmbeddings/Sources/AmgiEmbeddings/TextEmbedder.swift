@@ -1,216 +1,136 @@
-import CoreML
+import EmbeddingGemma2
 import Foundation
-import Tokenizers
 
-/// Generic multilingual-e5-small text embedder shared by icon suggestion
-/// AND Browse semantic search (browse-redesign-spec D4 / §4.6).
-///
-/// Owns the one resident CoreML engine (fp16, 384-dim L2-normalized
-/// output) plus tokenizer; callers choose the e5 task prefix:
-/// `"query: "` for searches, `"passage: "` for corpus documents. Using
-/// matching prefixes matters for retrieval quality.
+/// One serial native MLX runtime shared by retrieval, duplicate checks and icons.
+/// Q8 weights, BF16 activations (audio weights BF16), normalized Float32 outputs.
 public actor TextEmbedder {
     public static let shared = TextEmbedder()
-
-    public enum Prefix: String, Sendable {
-        case query = "query: "
-        case passage = "passage: "
+    public enum Prefix: String, Sendable { case query, passage }
+    public enum Input: Sendable {
+        case text(String), image(URL), audio(samples: [Float]), videoFrame(URL, timestamp: TimeInterval?)
     }
-
-    private let sequenceLength = 256
-    private let dimension = 384
-
-    private struct Engine {
-        var tokenizer: any Tokenizer
-        var model: MLModel
-        var inputIDs: MLMultiArray
-        var attentionMask: MLMultiArray
-        var padID: Int32
-    }
-
-    private var engine: Engine?
-    private var engineError: (any Error)?
-    /// Memoized vectors keyed by already-prefixed text.
+    private var engine: TextEncoder?
+    private var loading: Task<TextEncoder, any Error>?
+    private var idleUnload: Task<Void, Never>?
     private var vectorCache: [String: [Float]] = [:]
-
+    private var visionLoaded = false
+    private var audioLoaded = false
+    private var activeForwards = 0
+    private var isResetting = false
     public init() {}
+    public static var dimensionValue: Int { 768 }
+    public static var modelIdentity: String { ModelAssetManager.modelIdentity }
+    public func memoryDiagnostics() async -> [String: Int] { await engine?.memory() ?? [:] }
 
-    public static var dimensionValue: Int { 384 }
-
-    /// Embeds one text; throws if the bundled model is unavailable.
     public func embed(_ text: String, prefix: Prefix) async throws -> [Float] {
-        let key = prefix.rawValue + text
-        if let cached = vectorCache[key] { return cached }
-
+        guard !isResetting else { throw CancellationError() }
+        activeForwards += 1
+        defer { activeForwards -= 1 }
+        let key = prefix.rawValue + ":" + text
+        if let value = vectorCache[key] { return value }
         let loaded = try await engineIfNeeded()
-        var vector = try run(text, prefix: prefix, into: loaded)
-        normalize(&vector)
-        if vectorCache.count > 1024 { vectorCache.removeAll(keepingCapacity: true) }
+        try Task.checkCancellation()
+        let vector = try await loaded.encode([text], task: prefix == .query ? .search : .document)[0]
+        try validate(vector)
+        if vectorCache.count >= 256 { vectorCache.removeAll(keepingCapacity: true) }
         vectorCache[key] = vector
+        scheduleUnload()
         return vector
     }
-
-    // MARK: - Engine lifecycle
-
-    private func engineIfNeeded() async throws -> Engine {
-        if let error = engineError { throw error }
+    public func embedImage(_ url: URL, maxSoftTokens: Int = 280) async throws -> [Float] {
+        guard !isResetting else { throw CancellationError() }
+        activeForwards += 1
+        defer { activeForwards -= 1 }
+        let loaded = try await engineIfNeeded()
+        try await enableVision(loaded)
+        let result = try await loaded.encodeImage(url: url, maxSoftTokens: maxSoftTokens)
+        try validate(result); scheduleUnload(); return result
+    }
+    public func embedAudio(samples: [Float]) async throws -> [Float] {
+        guard !isResetting else { throw CancellationError() }
+        activeForwards += 1
+        defer { activeForwards -= 1 }
+        let loaded = try await engineIfNeeded()
+        try await enableAudio(loaded)
+        let result = try await loaded.encodeAudio(AudioProcessor.prepare(samples: samples))
+        try validate(result); scheduleUnload(); return result
+    }
+    /// Joint contextual forward, preserving input order. Never averages vectors.
+    /// Each audio part must be a bounded 16 kHz mono window (at most 30 seconds).
+    public func embedMixed(_ inputs: [Input]) async throws -> [Float] {
+        guard !isResetting else { throw CancellationError() }
+        activeForwards += 1
+        defer { activeForwards -= 1 }
+        let loaded = try await engineIfNeeded()
+        var parts: [EmbeddingInput] = []
+        for input in inputs {
+            try Task.checkCancellation()
+            switch input {
+            case .text(let text): parts.append(.text(text))
+            case .image(let url): try await enableVision(loaded); parts.append(.image(try ImageProcessor.prepare(RGBImage.load(url))))
+            case .videoFrame(let url, let timestamp):
+                try await enableVision(loaded)
+                parts.append(.videoFrame(try ImageProcessor.prepare(RGBImage.load(url), maxSoftTokens: 70), timestamp: timestamp))
+            case .audio(let samples): try await enableAudio(loaded); parts.append(.audio(try AudioProcessor.prepare(samples: samples)))
+            }
+        }
+        let result = try await loaded.encodeMixed(parts)
+        try validate(result); scheduleUnload(); return result
+    }
+    private func enableVision(_ loaded: TextEncoder) async throws {
+        guard ModelAssetManager.isInstalled(.vision) else { throw EmbedderError.moduleNotInstalled("Image") }
+        if !visionLoaded { try await loaded.enableVision(directory: ModelAssetManager.directory(for: .vision)); visionLoaded = true }
+    }
+    private func enableAudio(_ loaded: TextEncoder) async throws {
+        guard ModelAssetManager.isInstalled(.audio) else { throw EmbedderError.moduleNotInstalled("Audio") }
+        if !audioLoaded { try await loaded.enableAudio(directory: ModelAssetManager.directory(for: .audio)); audioLoaded = true }
+    }
+    private func engineIfNeeded() async throws -> TextEncoder {
+        idleUnload?.cancel()
         if let engine { return engine }
-        do {
-            let loaded = try await loadEngine()
-            engineError = nil
-            engine = loaded
-            return loaded
-        } catch {
-            engineError = error
-            throw error
+        guard ModelAssetManager.isModelInstalled else { throw EmbedderError.missingModelResource }
+        if let loading { return try await loading.value }
+        let task = Task { try await TextEncoder(directory: ModelAssetManager.directory(for: .text)) }
+        loading = task
+        defer { loading = nil }
+        let result = try await task.value
+        guard !isResetting else { throw CancellationError() }
+        engine = result; return result
+    }
+    private func scheduleUnload() {
+        idleUnload?.cancel()
+        idleUnload = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(60)); await self?.resetEngineForModelInstall() } catch {}
         }
     }
-
-    private func loadEngine() async throws -> Engine {
-        let config = MLModelConfiguration()
-        config.computeUnits = .all
-        let model = try MLModel(contentsOf: await compiledModelURL(), configuration: config)
-
-        guard let folder = Self.tokenizerFolderURL else {
-            throw EmbedderError.missingTokenizerResources
-        }
-        let tokenizer = try await AutoTokenizer.from(modelFolder: folder)
-
-        let shape: [NSNumber] = [1, NSNumber(value: sequenceLength)]
-        return Engine(
-            tokenizer: tokenizer,
-            model: model,
-            inputIDs: try MLMultiArray(shape: shape, dataType: .int32),
-            attentionMask: try MLMultiArray(shape: shape, dataType: .int32),
-            padID: Int32(tokenizer.convertTokenToId("<pad>") ?? 1)
-        )
+    public func resetEngineForModelInstall() async {
+        guard !isResetting else { return }
+        isResetting = true
+        idleUnload?.cancel(); idleUnload = nil
+        loading?.cancel()
+        while activeForwards > 0 { await Task.yield() }
+        await engine?.clearTransientCache()
+        loading = nil; engine = nil
+        visionLoaded = false; audioLoaded = false; vectorCache.removeAll(keepingCapacity: false)
+        isResetting = false
     }
-
-    private func run(_ text: String, prefix: Prefix, into engine: Engine) throws -> [Float] {
-        var ids = engine.tokenizer.encode(text: prefix.rawValue + text)
-        ids.truncateForInference(maxLength: sequenceLength)
-        // Capture BEFORE padding: the attention mask must cover only the
-        // real tokens, not the pad fill (icon-pipeline lesson).
-        let realCount = ids.count
-        while ids.count < sequenceLength { ids.append(Int(engine.padID)) }
-
-        fill(engine.inputIDs, with: Array(ids.map(Int32.init)))
-        var mask = [Int32](repeating: 0, count: sequenceLength)
-        for i in 0..<realCount { mask[i] = 1 }
-        fill(engine.attentionMask, with: mask)
-
-        let provider = try MLDictionaryFeatureProvider(dictionary: [
-            "input_ids": MLFeatureValue(multiArray: engine.inputIDs),
-            "attention_mask": MLFeatureValue(multiArray: engine.attentionMask),
-        ])
-        let output = try engine.model.prediction(from: provider)
-        guard let multiArray = output.featureValue(for: "embeddings")?.multiArrayValue,
-              multiArray.count == dimension
-        else { throw EmbedderError.unexpectedModelOutput }
-
-        var vector = [Float](repeating: 0, count: dimension)
-        for i in 0..<dimension { vector[i] = multiArray[i].floatValue }
-        return vector
+    private func validate(_ vector: [Float]) throws {
+        guard vector.count == Self.dimensionValue, vector.allSatisfy(\.isFinite) else { throw EmbedderError.unexpectedModelOutput }
     }
-
-    // MARK: - Resources (CDN-installed model, dev-machine bundle fallback)
-
-    /// Lookup order: (1) CDN-installed model in Application Support (the
-    /// production path — ModelAssetManager downloads + compiles it on first
-    /// launch); (2) precompiled copy in the package bundle (dev machines that
-    /// still build one locally); (3) raw `.mlpackage` in the bundle compiled
-    /// to Caches (legacy dev path). Absence throws and every caller degrades
-    /// (name-token icons, no semantic fallback) until the download lands.
-    private func compiledModelURL() async throws -> URL {
-        if let installed = ModelAssetManager.installedCompiledModelURL(),
-           FileManager.default.fileExists(atPath: installed.path) {
-            return installed
-        }
-
-        if let precompiled = Bundle.module.url(
-            forResource: "MultilingualE5Small", withExtension: "mlmodelc"
-        ) { return precompiled }
-
-        guard let package = Bundle.module.url(
-            forResource: "MultilingualE5Small", withExtension: "mlpackage"
-        ) else { throw EmbedderError.missingModelResource }
-
-        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        let destination = caches
-            .appendingPathComponent("AmgiIcons", isDirectory: true)
-            .appendingPathComponent("MultilingualE5Small.mlmodelc", isDirectory: true)
-        let fm = FileManager.default
-        if fm.fileExists(atPath: destination.path) { return destination }
-        try fm.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if fm.fileExists(atPath: destination.path) {
-            try? fm.removeItem(at: destination)
-        }
-        let compiled = try await MLModel.compileModel(at: package)
-        _ = try? fm.replaceItemAt(destination, withItemAt: compiled)
-        return destination
-    }
-
-    /// Called by `ModelAssetManager` after a fresh install: engine load
-    /// failures are memoized in `engineError`, so without this reset an embed
-    /// attempted before the download finished would keep throwing forever.
-    public func resetEngineForModelInstall() {
-        engine = nil
-        engineError = nil
-        vectorCache.removeAll(keepingCapacity: true)
-    }
-
-    private static var tokenizerFolderURL: URL? {
-        if let folder = Bundle.module.url(forResource: "Tokenizer", withExtension: nil),
-           (try? folder.checkResourceIsReachable()) == true || isDirectory(folder) {
-            return folder
-        }
-        return Bundle.module.resourceURL
-    }
-
-    private static func isDirectory(_ url: URL) -> Bool {
-        var isDir: ObjCBool = false
-        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue
-    }
-
-    // MARK: - Math
-
     public static func cosine(_ lhs: [Float], _ rhs: [Float]) -> Float {
-        var sum: Float = 0
-        for i in 0..<min(lhs.count, rhs.count) { sum += lhs[i] * rhs[i] }
-        return sum
-    }
-
-    private func normalize(_ vector: inout [Float]) {
-        var sum: Float = 0
-        for v in vector { sum += v * v }
-        let norm = sum.squareRoot()
-        guard norm > 0 else { return }
-        for i in vector.indices { vector[i] /= norm }
-    }
-
-    private func fill(_ array: MLMultiArray, with values: [Int32]) {
-        let pointer = array.dataPointer.bindMemory(to: Int32.self, capacity: values.count)
-        for i in 0..<values.count { pointer[i] = values[i] }
+        guard lhs.count == dimensionValue, rhs.count == dimensionValue,
+              lhs.allSatisfy(\.isFinite), rhs.allSatisfy(\.isFinite) else { return -.infinity }
+        return zip(lhs, rhs).reduce(0) { $0 + $1.0 * $1.1 }
     }
 }
 
 enum EmbedderError: LocalizedError {
-    case missingModelResource
-    case missingTokenizerResources
-    case unexpectedModelOutput
-
+    case missingModelResource, unexpectedModelOutput, moduleNotInstalled(String)
     var errorDescription: String? {
         switch self {
-        case .missingModelResource: "e5 model not installed yet — background download pending"
-        case .missingTokenizerResources: "tokenizer resources not found in bundle"
-        case .unexpectedModelOutput: "CoreML model produced unexpected output"
+        case .missingModelResource: "Download the EmbeddingGemma 2 text model to enable semantic retrieval."
+        case .moduleNotInstalled(let name): "Download the \(name.lowercased()) retrieval module in Settings first."
+        case .unexpectedModelOutput: "The embedding model produced invalid output."
         }
-    }
-}
-
-private extension Array where Element == Int {
-    mutating func truncateForInference(maxLength: Int) {
-        guard count > maxLength else { return }
-        self = Array(self.prefix(maxLength))
     }
 }

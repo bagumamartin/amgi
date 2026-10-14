@@ -113,6 +113,13 @@ public final class ReviewSessionCoordinator {
         return true
     }
 
+    /// App-agent/indexer reads are drained before the collection closes too.
+    public func beginExternalRead() -> Bool {
+        guard !isDraining else { return false }
+        activeReads += 1
+        return true
+    }
+
     public func endRead() {
         precondition(activeReads > 0, "Review session read ended without a matching begin")
         activeReads -= 1

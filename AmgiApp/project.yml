@@ -16,8 +16,8 @@ options:
   # target's sources, or Xcode silently drops it from the build.
   knownRegions: [en, es, fr, hu, vi, Base]
   deploymentTarget:
-    iOS: "18.0"
-    macOS: "15.0"
+    iOS: "26.0"
+    macOS: "26.0"
     watchOS: "11.0"
   defaultSourceDirectoryType: syncedFolder
   # Nest the Resources/* folder references under a single "Resources" group in
@@ -111,6 +111,8 @@ settings:
       ONLY_ACTIVE_ARCH: NO
       ENABLE_TESTABILITY: NO
 packages:
+  AmgiEmbeddings:
+    path: ../AmgiEmbeddings
   AnkiBridge:
     path: ..
   AmgiUI:
@@ -157,6 +159,7 @@ schemes:
       testPlans:
         - path: AmgiApp.xctestplan
           defaultPlan: true
+        - path: AIOverhaul.xctestplan
   AmgiAppMac:
     build:
       targets:
@@ -168,8 +171,19 @@ schemes:
       testPlans:
         - path: AmgiAppMac.xctestplan
           defaultPlan: true
+        - path: AIOverhaul.xctestplan
     archive:
       config: Release
+
+  AmgiModelGates:
+    build:
+      targets:
+        AmgiModelGates: all
+    test:
+      config: Debug
+      targets: [AmgiModelGateTests]
+      environmentVariables:
+        AMGI_E2E_MODEL_DOWNLOAD: "1"
 
   AmgiWatchApp:
     build:
@@ -188,6 +202,7 @@ targets:
         excludes:
           - "Widgets"
           - "Watch"
+          - "ModelGates"
       - path: Resources/Assets.xcassets
       - path: AppIcon.icon
       - path: Resources/mathjax
@@ -490,3 +505,33 @@ targets:
         SWIFT_ENABLE_EXPLICIT_MODULES: NO
         COMPILATION_CACHE_ENABLE_CACHING: NO
         OTHER_SWIFT_FLAGS: "$(inherited) -cxx-interoperability-mode=default"
+
+  AmgiModelGates:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources/ModelGates
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.bagumamartin.ijuka.modelgates
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Ijuka Model Gates
+        TARGETED_DEVICE_FAMILY: "1,2"
+
+  AmgiModelGateTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests/ModelGates
+      - path: ../AmgiEmbeddings/Tests/AmgiEmbeddingsTests/Fixtures/DigUpReference
+        type: folder
+    dependencies:
+      - target: AmgiModelGates
+      - package: AmgiEmbeddings
+        product: AmgiEmbeddings
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.bagumamartin.ijuka.modelgatetests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/AmgiModelGates.app/AmgiModelGates
+        BUNDLE_LOADER: $(TEST_HOST)

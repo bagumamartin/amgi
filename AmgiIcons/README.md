@@ -1,7 +1,9 @@
 # AmgiIcons
 
-Deck-icon suggestion + picker for Amgi: a CoreML multilingual-e5-small
-encoder ranks Phosphor icon names semantically against the deck title.
+Deck-icon suggestion and picker for Ijuka. The shared native MLX EmbeddingGemma 2
+engine ranks Phosphor tag descriptions against the deck title. The model-specific
+768-dimensional catalog builds locally and checkpoints for interrupted runs.
+Legacy E5 vectors are not loaded.
 
 Icons-only package: the embedding engine lives in the sibling
 `AmgiEmbeddings` package (shared with Browse semantic search). Until its

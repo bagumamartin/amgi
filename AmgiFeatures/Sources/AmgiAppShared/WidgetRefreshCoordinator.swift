@@ -21,6 +21,7 @@ public final class WidgetRefreshCoordinator {
     /// Schedules a refresh after a short quiet period. Repeated requests
     /// replace the pending debounce rather than creating a writer storm.
     public func request(reason _: String, debounce: Duration = .seconds(5)) {
+        guard ProcessInfo.processInfo.environment["AMGI_UI_FIXTURE"] == nil else { return }
         guard !isDraining else {
             needsRefresh = true
             return
@@ -43,6 +44,7 @@ public final class WidgetRefreshCoordinator {
     /// switches and successful syncs, where stale data is especially visible.
     @discardableResult
     public func refreshNow() async -> Bool {
+        guard ProcessInfo.processInfo.environment["AMGI_UI_FIXTURE"] == nil else { return false }
         if isDraining, let drainTask {
             needsRefresh = true
             _ = await drainTask.value

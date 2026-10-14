@@ -1,3 +1,4 @@
+import AmgiEmbeddings
 // AmgiApp/Sources/Browse/BrowseSupport.swift
 //
 // NOTE: deliberately no `import AmgiIcons` here. Under this project's
@@ -317,9 +318,8 @@ private extension Color {
 /// and fuzzy near-duplicate detection. Never lives in col.conf (whole-blob
 /// LWW would thrash); resides beside the profile's collection folder.
 ///
-/// MVP sizing honesty: brute-force cosine over ≤~2000 indexed notes costs
-/// single-digit milliseconds via plain dot products — no ANN needed until
-/// measured evidence says otherwise.
+/// Duplicate comparison is scoped; full-library retrieval uses the shared
+/// profile coordinator and its persisted passage index.
 @MainActor
 @Observable
 package final class SemanticNoteIndex {
@@ -334,13 +334,11 @@ package final class SemanticNoteIndex {
     private struct DiskShape: Codable {
         var version: Int
         var modelVersion: Int?
+        var modelIdentity: String?
         var entries: [Int64: Entry]
     }
 
-    static let version = 1
-    /// Corpus cap keeps the initial build bounded (~2000 × ~1 KB fp16-less
-    /// JSON ≈ few MB). Scan cost stays trivially fast at this size.
-    static let corpusCap = 2000
+    static let version = 2
     /// Cosine threshold above which two texts are near-duplicates.
     static let nearDupeThreshold: Float = 0.95
 
@@ -350,6 +348,7 @@ package final class SemanticNoteIndex {
     private var isBuilding = false
     private var profileGeneration = 0
     private var activeModelVersion: Int?
+    private var activeModelIdentity: String?
 
     var isReady: Bool { !entries.isEmpty }
     var progressDescription: String? { isBuilding ? "Building semantic index…" : nil }
@@ -367,8 +366,10 @@ package final class SemanticNoteIndex {
 
     private func synchronizeModelIdentity() {
         let current = NoteEmbedderBridge.installedModelVersion
-        guard current != activeModelVersion else { return }
+        let identity = current == nil ? nil : TextEmbedder.modelIdentity
+        guard current != activeModelVersion || identity != activeModelIdentity else { return }
         activeModelVersion = current
+        activeModelIdentity = identity
         profileGeneration &+= 1
         entries.removeAll(keepingCapacity: false)
         fileURL = nil
@@ -384,14 +385,16 @@ package final class SemanticNoteIndex {
         guard let data = try? Data(contentsOf: url),
               let shape = try? JSONDecoder().decode(DiskShape.self, from: data),
               shape.version == Self.version,
-              shape.modelVersion == activeModelVersion else { return }
-        entries = shape.entries.filter { $0.value.vector.count == 384 }
+              shape.modelVersion == activeModelVersion,
+              shape.modelIdentity == activeModelIdentity else { return }
+        entries = shape.entries.filter { $0.value.vector.count == 768 && $0.value.vector.allSatisfy(\.isFinite) }
     }
 
     private func persist() {
         let shape = DiskShape(
             version: Self.version,
             modelVersion: activeModelVersion,
+            modelIdentity: activeModelIdentity,
             entries: entries
         )
         if let data = try? JSONEncoder().encode(shape) {
@@ -410,7 +413,7 @@ package final class SemanticNoteIndex {
         isBuilding = false
     }
 
-    /// Embeds any changed/new notes (bounded corpus), evicting stale ones.
+    /// Updates the loaded Browse window; the full coordinator owns retrieval.
     /// Failures degrade silently — semantic features simply stay sparse.
     func updateCorpus(with records: [NoteRecord]) async {
         guard !records.isEmpty, !isBuilding else { return }
@@ -420,10 +423,8 @@ package final class SemanticNoteIndex {
         let modelVersion = activeModelVersion
         defer { if profileGeneration == generation { isBuilding = false } }
 
-        // Recent-first keeps the most useful slice under the cap.
         var changed: [(Int64, String, UInt64)] = []
-        let liveIDs = Set(records.prefix(Self.corpusCap).map(\.id.rawValue))
-        for record in records.prefix(Self.corpusCap) {
+        for record in records {
             let text = Self.corpusText(of: record)
             let hash = BrowseFnv.fnv1a(text)
             if let existing = entries[record.id.rawValue], existing.textHash == hash { continue }
@@ -431,48 +432,41 @@ package final class SemanticNoteIndex {
             changed.append((record.id.rawValue, text, hash))
         }
 
-        for (id, text, hash) in changed.prefix(Self.corpusCap) {
-            guard let vector = await NoteEmbedderBridge.embedPassage(text) else { break }
+        for (id, text, hash) in changed {
+            guard !Task.isCancelled else { return }
+            guard let vector = await NoteEmbedderBridge.embedPassage(text) else { continue }
             guard profileGeneration == generation,
                   activeModelVersion == modelVersion else { return }
             entries[id] = Entry(textHash: hash, vector: vector)
         }
-        // Drop ids that vanished from the corpus.
-        let removed = entries.keys.filter { !liveIDs.contains($0) }
-        for key in removed { entries.removeValue(forKey: key) }
+        // Browse supplies a partial window, so it cannot authoritatively prune
+        // the collection. The full profile coordinator owns source deletion.
+        if !changed.isEmpty { persist() }
 
-        if !changed.isEmpty || !removed.isEmpty { persist() }
     }
 
-    /// First non-empty trimmed field, HTML-stripped (fields split on \u{1f}).
+    /// All note fields and tags, with markup removed.
     static func corpusText(of record: NoteRecord) -> String {
         let fields = record.flds.split(separator: "\u{1f}", omittingEmptySubsequences: false)
             .map(String.init)
-        let raw = fields.first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            ?? record.sfld
+        let raw = fields.joined(separator: "\n") + "\nTags: " + record.tags
         return raw.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+
     }
 
     /// Top-k note ids semantically similar to `query`. nil ⇒ engine or
     /// index unusable right now (UI hides the affordance).
     func search(_ query: String, topK: Int = 50) async -> [Int64]? {
-        loadIfNeeded()
-        guard isReady, !query.isEmpty else { return nil }
-        let generation = profileGeneration
-        let modelVersion = activeModelVersion
-        guard let queryVector = await NoteEmbedderBridge.embedQuery(query) else {
-            return nil
-        }
-        guard profileGeneration == generation,
-              activeModelVersion == modelVersion else { return nil }
-        var scored: [(Int64, Float)] = []
-        scored.reserveCapacity(entries.count)
-        for (id, entry) in entries {
-            scored.append((id, NoteEmbedderBridge.cosine(queryVector, entry.vector)))
-        }
-        scored.sort { $0.1 > $1.1 }
-        return Array(scored.prefix(topK).map(\.0))
+        do {
+            let hits = try await CollectionRetrievalCoordinator.shared.search(query, limit: topK)
+            let ids = hits.compactMap { hit -> Int64? in
+                guard hit.segment.sourceID.hasPrefix("note:") else { return nil }
+                return Int64(hit.segment.sourceID.dropFirst(5))
+            }
+            return ids.isEmpty ? nil : ids
+        } catch { return nil }
+
     }
 
     /// Groups of near-duplicate texts (cosine ≥ threshold). Scope-limited:

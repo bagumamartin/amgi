@@ -2,7 +2,7 @@ import SwiftUI
 import AmgiEmbeddings
 import Foundation
 
-/// Owns the e5 model download UX: first-launch consent ("always ask"),
+/// Owns the EmbeddingGemma 2 model download UX: first-launch consent ("always ask"),
 /// policy-aware auto-retry, and the progress/success/failure toast.
 ///
 /// Nothing downloads before explicit consent. When the model is already
@@ -33,11 +33,13 @@ final class ModelDownloadCoordinator {
     }
 
     var consentSizeText: String {
-        guard let bytes = consent?.byteSize, bytes > 0 else { return "≈200 MB" }
+        guard let bytes = consent?.byteSize, bytes > 0 else { return "≈320 MB" }
         return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 
     func onAppear() {
+        guard !ProcessInfo.processInfo.arguments.contains("--ui-testing") else { return }
+        ModelAssetManager.removeLegacyE5Assets()
         NetworkMonitor.shared.start()
         guard !started else { return }
         started = true
@@ -61,6 +63,9 @@ final class ModelDownloadCoordinator {
             return
         }
         guard !ModelDownloadPreferences.consentGiven else { return }
+        // A deferred download must not interrupt every scene reconstruction.
+        let lastPrompt = UserDefaults.standard.double(forKey: ModelDownloadPreferences.lastPromptAtKey)
+        guard Date().timeIntervalSince1970 - lastPrompt >= 86_400 else { return }
         // Tiny JSON fetch for the exact size; offline lands in the offline
         // branch of the dialog instead of failing silently.
         do {
