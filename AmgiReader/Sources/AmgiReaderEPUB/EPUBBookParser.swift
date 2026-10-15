@@ -60,7 +60,7 @@ public actor EPUBBookParser {
             contentDirectory: document.contentDirectory
         )
 
-        let coverURL = document.cover
+        let coverURL = document.cover ?? Self.epub3CoverURL(in: document)
         let coverPath = coverURL?.path
 
         let book = ReaderBook(
@@ -83,6 +83,17 @@ public actor EPUBBookParser {
             language: language,
             pageCount: mapped.totalPageEstimate
         )
+    }
+
+    /// EPUB3 declares its cover with `properties="cover-image"` on the
+    /// manifest item; EPUBKit's `cover` only reads the EPUB2
+    /// `<meta name="cover">` form, so EPUB3-only books came in coverless.
+    private static func epub3CoverURL(in document: EPUBDocument) -> URL? {
+        document.manifest.items.values
+            .first { item in
+                item.property?.split(separator: " ").contains("cover-image") == true
+            }
+            .map { document.contentDirectory.appendingPathComponent($0.path) }
     }
 
     /// SHA-1 of file bytes, hex-encoded, prefixed with `"epub-"`.

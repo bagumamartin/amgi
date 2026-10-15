@@ -348,6 +348,14 @@ public actor EPUBLibraryStore {
                 ) else { continue }
                 let metadata = cloudMetadata(from: entry)
                 let existing = remoteMetadata[entry.bookID]
+                // Another device changed this book more recently (a rename):
+                // take its metadata rather than upload this device's older
+                // copy over it.
+                if let existing, let cloudDate = existing.updatedAt,
+                   cloudDate > (entry.updatedAt ?? .distantPast) {
+                    adoptCloudMetadata(existing, cloudDate: cloudDate)
+                    continue
+                }
                 let alreadyMirrored: Bool
                 if let existing,
                    existing.updatedAt == metadata.updatedAt,
@@ -659,7 +667,11 @@ public actor EPUBLibraryStore {
         }
         let entry = index.entries[position]
         let rebuilt = await rebuildBook(from: entry)
-        if let book = rebuilt.book {
+        if var book = rebuilt.book {
+            // The library's title and author are the user's (they may have
+            // renamed the book); the file's own metadata only seeds them.
+            book.title = entry.title
+            book.author = entry.author
             bookCache[bookID] = book
             if index.entries[position].chapters == nil {
                 index.entries[position].chapters = book.chapters.map {
@@ -735,7 +747,11 @@ public actor EPUBLibraryStore {
         contentRootCache.removeValue(forKey: bookID)
         let entry = index.entries[position]
         let rebuilt = await rebuildBook(from: entry)
-        if let book = rebuilt.book {
+        if var book = rebuilt.book {
+            // The library's title and author are the user's (they may have
+            // renamed the book); the file's own metadata only seeds them.
+            book.title = entry.title
+            book.author = entry.author
             bookCache[bookID] = book
             return book
         }
@@ -767,6 +783,35 @@ public actor EPUBLibraryStore {
         // repaired book is immediately readable.
         bookCache[bookID] = book
         return book
+    }
+
+    /// Renames a book in the library. The title is the user's from now on:
+    /// it outranks the one embedded in the file (re-parsing keeps it), and
+    /// it reaches other devices through the next iCloud sync, which also
+    /// renames the book's file in iCloud Drive.
+    public func rename(bookID: String, to title: String) async throws {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        guard let idx = index.entries.firstIndex(where: { $0.bookID == bookID && !$0.isDeleted }) else {
+            throw StoreError.bookNotFound
+        }
+        guard index.entries[idx].title != trimmed else { return }
+        index.entries[idx].title = trimmed
+        index.entries[idx].updatedAt = nextSyncDate(after: index.entries[idx].syncDate)
+        bookCache[bookID]?.title = trimmed
+        try writeIndex()
+        scheduleICloudSync()
+    }
+
+    /// Takes a newer title and author from another device's metadata.
+    private func adoptCloudMetadata(_ metadata: EPUBCloudBookMetadata, cloudDate: Date) {
+        guard let idx = index.entries.firstIndex(where: { $0.bookID == metadata.bookID }) else { return }
+        index.entries[idx].title = metadata.title
+        index.entries[idx].author = metadata.author
+        index.entries[idx].updatedAt = cloudDate
+        bookCache[metadata.bookID]?.title = metadata.title
+        bookCache[metadata.bookID]?.author = metadata.author
+        try? writeIndex()
     }
 
     public func delete(bookID: String) async throws {

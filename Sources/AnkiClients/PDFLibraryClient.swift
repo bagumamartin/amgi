@@ -29,6 +29,8 @@ public struct PDFLibraryClient: Sendable {
         throw PDFLibraryStore.StoreError.bookNotFound
     }
     public var deleteBook: @Sendable (_ bookID: String) async throws -> Void
+    /// Renames a book in the library; the new title syncs to other devices.
+    public var renameBook: @Sendable (_ bookID: String, _ title: String) async throws -> Void = { _, _ in }
     /// Repair state for every managed book, keyed by book ID. A book whose
     /// source went missing or stopped parsing is reported here instead of
     /// silently vanishing from `listBooks`.
@@ -98,6 +100,9 @@ extension PDFLibraryClient: DependencyKey {
                 let store = SharedPDFLibraryStore.store()
                 try await store.delete(bookID: bookID)
                 await store.scheduleICloudSync()
+            },
+            renameBook: { bookID, title in
+                try await SharedPDFLibraryStore.store().rename(bookID: bookID, to: title)
             },
             bookHealth: { await SharedPDFLibraryStore.store().bookHealth() },
             retryBook: { bookID in await SharedPDFLibraryStore.store().retryBook(bookID: bookID) },

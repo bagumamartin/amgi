@@ -68,6 +68,27 @@ struct PDFLibraryStoreTests {
         #expect(health[imported.id]?.isReady == true)
     }
 
+    @Test("a rename survives annotation reloads and a cold launch")
+    func renameSurvivesReloads() async throws {
+        let temporary = TemporaryLibrary()
+        defer { temporary.cleanUp() }
+        let source = try temporary.write(PDFDocumentFixture.outlined(), named: "book.pdf")
+        let root = temporary.root.appendingPathComponent("library")
+        let store = PDFLibraryStore(rootDirectory: root)
+        let book = try await store.importPDF(from: source)
+
+        try await store.rename(bookID: book.id, to: "Typography Notes")
+        #expect(await store.books().first?.title == "Typography Notes")
+
+        // Saving an annotation reloads the file, whose embedded title differs.
+        _ = try await store.reload(bookID: book.id)
+        #expect(await store.books().first?.title == "Typography Notes")
+
+        let cold = PDFLibraryStore(rootDirectory: root)
+        #expect(await cold.book(bookID: book.id)?.title == "Typography Notes")
+        #expect(await cold.books().first?.title == "Typography Notes")
+    }
+
     @Test("chapters come from the document outline")
     func chaptersComeFromTheOutline() async throws {
         let temporary = TemporaryLibrary()

@@ -180,6 +180,40 @@ struct EPUBLibraryStoreTests {
         #expect(FileManager.default.fileExists(atPath: publicBook.path))
     }
 
+    @Test("a rename sticks through re-parsing and a cold launch, and reaches another device")
+    func renameSticksAndSyncs() async throws {
+        let fixtureRoot = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+        let sourceURL = fixtureRoot.appendingPathComponent("source.epub")
+        try makeValidEPUB(at: sourceURL)
+        let cloudRoot = fixtureRoot.appendingPathComponent("icloud", isDirectory: true)
+        let firstRoot = fixtureRoot.appendingPathComponent("first", isDirectory: true)
+        let firstStore = EPUBLibraryStore(testingRootDirectory: firstRoot, cloudRoot: cloudRoot)
+        let secondStore = EPUBLibraryStore(
+            testingRootDirectory: fixtureRoot.appendingPathComponent("second", isDirectory: true),
+            cloudRoot: cloudRoot
+        )
+
+        let imported = try await firstStore.importEPUB(from: sourceURL)
+        _ = await firstStore.synchronizeWithICloud()
+        _ = await secondStore.synchronizeWithICloud()
+        #expect(await secondStore.books().first?.title == "Test Publication")
+
+        try await firstStore.rename(bookID: imported.id, to: "  My Edition  ")
+        #expect(await firstStore.books().first?.title == "My Edition")
+
+        // A cold store re-parses the EPUB, whose own title must not win.
+        let cold = EPUBLibraryStore(testingRootDirectory: firstRoot, cloudRoot: cloudRoot)
+        #expect(await cold.book(bookID: imported.id)?.title == "My Edition")
+
+        // The other device adopts the newer title instead of uploading its own.
+        _ = await firstStore.synchronizeWithICloud()
+        _ = await secondStore.synchronizeWithICloud()
+        #expect(await secondStore.books().first?.title == "My Edition")
+        _ = await firstStore.synchronizeWithICloud()
+        #expect(await firstStore.books().first?.title == "My Edition")
+    }
+
     @Test("books in the pre-public layout move to readable names in Documents/Books")
     func legacyICloudLayoutMigrates() async throws {
         let fixtureRoot = FileManager.default.temporaryDirectory

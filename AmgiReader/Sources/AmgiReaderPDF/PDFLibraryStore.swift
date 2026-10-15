@@ -367,6 +367,14 @@ public actor PDFLibraryStore {
                 ) else { continue }
                 let metadata = cloudMetadata(from: entry)
                 let existing = remoteMetadata[entry.bookID]
+                // Another device changed this book more recently (a rename):
+                // take its metadata rather than upload this device's older
+                // copy over it.
+                if let existing, let cloudDate = existing.updatedAt,
+                   cloudDate > (entry.updatedAt ?? .distantPast) {
+                    adoptCloudMetadata(existing, cloudDate: cloudDate)
+                    continue
+                }
                 let alreadyMirrored: Bool
                 if let existing,
                    existing.updatedAt == metadata.updatedAt,
@@ -678,7 +686,11 @@ public actor PDFLibraryStore {
         }
         let entry = index.entries[position]
         let outcome = await rebuildBook(from: entry)
-        if let book = outcome.book {
+        if var book = outcome.book {
+            // The library's title and author are the user's (they may have
+            // renamed the book); the file's own metadata only seeds them.
+            book.title = entry.title
+            book.author = entry.author
             bookCache[bookID] = book
             if index.entries[position].chapters == nil {
                 index.entries[position].chapters = book.chapters.map {
@@ -726,11 +738,13 @@ public actor PDFLibraryStore {
         index.entries[position].faultDetail = nil
         bookCache[bookID] = nil
         descriptorCache[bookID] = nil
-        let outcome = await rebuildBook(from: index.entries[position])
-        if let book = outcome.book {
-            bookCache[bookID] = book
-        }
-        return outcome.book
+        let entry = index.entries[position]
+        let outcome = await rebuildBook(from: entry)
+        guard var book = outcome.book else { return nil }
+        book.title = entry.title
+        book.author = entry.author
+        bookCache[bookID] = book
+        return book
     }
 
     /// Points a book at a replacement file on disk.
@@ -799,6 +813,35 @@ public actor PDFLibraryStore {
     /// The file is left on disk. A tombstone rather than a deletion is what
     /// stops a later sync from restoring a book the user removed on this
     /// device, and it costs a directory that can be swept later.
+    /// Renames a book in the library. The title is the user's from now on:
+    /// it outranks the one embedded in the file (re-parsing keeps it), and
+    /// it reaches other devices through the next iCloud sync, which also
+    /// renames the book's file in iCloud Drive.
+    public func rename(bookID: String, to title: String) async throws {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        guard let position = index.entries.firstIndex(where: { $0.bookID == bookID && !$0.isDeleted }) else {
+            throw StoreError.bookNotFound
+        }
+        guard index.entries[position].title != trimmed else { return }
+        index.entries[position].title = trimmed
+        index.entries[position].updatedAt = max(Date(), index.entries[position].syncDate.addingTimeInterval(0.001))
+        bookCache[bookID]?.title = trimmed
+        try writeIndex()
+        scheduleICloudSync()
+    }
+
+    /// Takes a newer title and author from another device's metadata.
+    private func adoptCloudMetadata(_ metadata: PDFCloudBookMetadata, cloudDate: Date) {
+        guard let position = index.entries.firstIndex(where: { $0.bookID == metadata.bookID }) else { return }
+        index.entries[position].title = metadata.title
+        index.entries[position].author = metadata.author
+        index.entries[position].updatedAt = cloudDate
+        bookCache[metadata.bookID]?.title = metadata.title
+        bookCache[metadata.bookID]?.author = metadata.author
+        try? writeIndex()
+    }
+
     public func delete(bookID: String) async throws {
         guard let position = index.entries.firstIndex(where: { $0.bookID == bookID }) else {
             throw StoreError.bookNotFound
@@ -870,16 +913,19 @@ public actor PDFLibraryStore {
         let bytes = try Self.readBytes(at: url)
         let descriptor = try parser.parse(bytes: bytes, bookID: bookID)
         descriptorCache[bookID] = descriptor
-        bookCache[bookID] = makeBook(from: descriptor, sourceURL: url.deletingLastPathComponent())
+        var book = makeBook(from: descriptor, sourceURL: url.deletingLastPathComponent())
         if let position = index.entries.firstIndex(where: { $0.bookID == bookID }) {
+            // Title and author stay the library's: saving an annotation must
+            // not undo a rename by copying the file's embedded title back.
+            book.title = index.entries[position].title
+            book.author = index.entries[position].author
             index.entries[position].pageCount = descriptor.pageCount
-            index.entries[position].title = descriptor.title
-            index.entries[position].author = descriptor.author
             index.entries[position].fault = nil
             index.entries[position].faultDetail = nil
             index.entries[position].updatedAt = nextSyncDate(after: index.entries[position].updatedAt)
             try? writeIndex()
         }
+        bookCache[bookID] = book
         return descriptor
     }
 
@@ -915,8 +961,10 @@ public actor PDFLibraryStore {
         guard !bytes.isEmpty else {
             throw StoreError.importFailed(underlying: "The file is empty.")
         }
-        if let file = try? PDFAppendableFile(bytes: bytes),
-           let identifier = file.fileIdentifier,
+        // The trailer alone, not a full load: identical result, a fraction
+        // of the time — this runs on every import, and once per library PDF
+        // when checking whether a picked file is already in the library.
+        if let identifier = PDFAppendableFile.fileIdentifier(in: bytes),
            !identifier.isEmpty {
             return "pdf-" + digest(identifier)
         }
