@@ -102,13 +102,14 @@ struct ReaderPageTransitionTests {
         #expect(labels == ["Curl", "Slide", "Fast Fade", "Scroll"])
     }
 
-    @Test("Curl is the only effect without an interactive pan")
-    func onlyCurlLacksInteractivePan() {
-        // Worth asserting because it is the trade-off the settings UI warns
-        // about: UIKit's page-curl controller drops its pan gesture.
+    @Test("every effect, Curl included, follows a finger")
+    func everyEffectSupportsInteractivePan() {
+        // Curl used to be the exception, and the settings UI warned about it.
+        // Since 4d45f8e7 curl runs on UIPageViewController's native
+        // interactive page turn, so a drag turns the page in every mode.
         for transition in ReaderPageTransition.allCases {
             #expect(
-                transition.supportsInteractivePan == (transition != .curl),
+                transition.supportsInteractivePan,
                 "unexpected pan support for \(transition.label)"
             )
         }
