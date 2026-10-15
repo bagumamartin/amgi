@@ -16,6 +16,9 @@ let package = Package(
         .product(name: "MLX", package: "mlx-swift"),
         .product(name: "MLXNN", package: "mlx-swift"),
         .product(name: "Tokenizers", package: "swift-transformers"),
-    ], resources: [.copy("Resources")])],
+    // Copy `Notices` itself, not `Resources`: a top-level `Resources/` dir in
+    // an iOS bundle reads to codesign as a macOS layout and fails with
+    // "bundle format unrecognized, invalid, or unsuitable".
+    ], resources: [.copy("Resources/Notices")])],
     swiftLanguageModes: [.v6]
 )
