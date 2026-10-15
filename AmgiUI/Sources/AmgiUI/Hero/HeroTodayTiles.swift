@@ -3,8 +3,8 @@ import AmgiTheme
 
 /// Today's-stats tiles for the hero, adapted from the Onigiri add-on's
 /// dashboard cards (same revlog-derived values via `HeroTodayStats`).
-/// One shared tile chrome; the hero composes them into the eyebrow row
-/// (Studied/Time), the numeral row (Pace) and the footer band (Retention).
+/// One shared tile chrome; the hero stacks them in its right column:
+/// Studied/Time, then Pace, then Retention, all the same width.
 struct HeroHeaderStatTiles: View {
     let today: HeroTodayStats
 
@@ -36,9 +36,8 @@ struct HeroHeaderStatTiles: View {
     }
 }
 
-/// Retention alone: percent and stars share one row so the tile stays the
-/// same height as the value-only tiles, with a few points of air between
-/// the figure and the star group.
+/// Retention: percent and stars share one row so the tile stays the same
+/// height as the value-only tiles, and fits the Pace tile's width.
 struct HeroRetentionTile: View {
     let today: HeroTodayStats
 
@@ -50,7 +49,7 @@ struct HeroRetentionTile: View {
             Text(AmgiL10n.text("Retention", locale: locale).uppercased(with: locale))
                 .amgiFont(size: 10, weight: .semibold, tracking: 0.4, relativeTo: .caption)
                 .foregroundStyle(palette.textTertiary)
-            HStack(spacing: 10) {
+            HStack(spacing: 6) {
                 Text(String(format: "%.0f%%", today.retentionPercent))
                     .amgiFont(size: 14, weight: .semibold, relativeTo: .body)
                     .monospacedDigit()
@@ -67,9 +66,10 @@ struct HeroRetentionTile: View {
                 .accessibilityHidden(true)
             }
         }
-        .frame(maxWidth: .infinity)
         .padding(.vertical, 6)
         .padding(.horizontal, 4)
+        // Fills its grid row so it matches the streak chip beside it.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             palette.surface,
             in: RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous)
@@ -136,16 +136,18 @@ struct HeroStatTile: View {
         .environment(\.palette, .vividLight)
 }
 
-#Preview("Retention band") {
+#Preview("Retention tile") {
     HeroRetentionTile(today: .sample)
         .padding(16)
+        .frame(width: 180)
         .background(Color.gray.opacity(0.1))
         .environment(\.palette, .vividLight)
 }
 
-#Preview("Retention band — unreviewed") {
+#Preview("Retention tile — unreviewed") {
     HeroRetentionTile(today: HeroTodayStats(studied: 3, timeMillis: 128_100))
         .padding(16)
+        .frame(width: 180)
         .background(Color.gray.opacity(0.1))
         .environment(\.palette, .vividLight)
 }

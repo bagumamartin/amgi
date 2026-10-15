@@ -1,10 +1,12 @@
 public import SwiftUI
 import AmgiTheme
 
-/// Library hero card. Built on `AmgiHeroSummary`. Wraps it to supply the
-/// streak pill (top-right decoration slot), today's review stats (footer
-/// strip) and the 14-day sparkline (sidecar — stacked on compact, beside
-/// copy on regular).
+/// Library hero card. Built on `AmgiHeroSummary`. The header is two
+/// columns: due numeral, deck count and streak chip (`HeroStreakIndicator`)
+/// on the left; today's
+/// Studied/Time, Pace and Retention tiles stacked on the right. The footer
+/// band is unused, which keeps the card short. The 14-day sparkline is the
+/// sidecar (stacked on compact, beside copy on regular).
 ///
 /// The due numeral and sparkline are collection facts. Starting today's
 /// session belongs to Study, so this card does not play the queue.
@@ -33,36 +35,53 @@ public struct LibraryHeroCard: View {
     public var body: some View {
         AmgiHeroSummary(
             header: {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text(AmgiL10n.text("Due today", locale: locale).uppercased(with: locale))
-                            .amgiFont(size: 13, weight: .semibold, tracking: 0.4, relativeTo: .footnote)
-                            .foregroundStyle(palette.textTertiary)
-                        Spacer(minLength: 12)
-                        StreakBadge(days: data.streak)
-                            .redacted(reason: activityPending ? .placeholder : [])
-                    }
-                    HStack(alignment: .top, spacing: 8) {
+                // A grid, not two stacks: the streak chip and Retention share
+                // a row, so they line up top and bottom whatever the numeral
+                // column's height. Column 0 is sized by the numeral block;
+                // the chip takes that width without widening it.
+                Grid(alignment: .topLeading, horizontalSpacing: 8, verticalSpacing: 8) {
+                    GridRow {
                         VStack(alignment: .leading, spacing: 0) {
+                            Text(AmgiL10n.text("Due today", locale: locale).uppercased(with: locale))
+                                .amgiFont(size: 13, weight: .semibold, tracking: 0.4, relativeTo: .footnote)
+                                .foregroundStyle(palette.textTertiary)
+                            // Digits have no descenders and the eyebrow
+                            // already gives headroom: trim the line box to
+                            // roughly the glyphs so the block matches the
+                            // two tile rows beside it.
                             Text("\(data.totalDue)")
                                 .amgiFont(size: 56, weight: .bold, tracking: -1.2, relativeTo: .largeTitle)
                                 .foregroundStyle(palette.textPrimary)
+                                .padding(.top, -4)
+                                .padding(.bottom, -7)
                             Text(subtitleText)
                                 .amgiFont(size: 15, weight: .regular, relativeTo: .subheadline)
                                 .foregroundStyle(palette.textSecondary)
                         }
-                        .layoutPriority(1)
+                        .fixedSize()
                         VStack(spacing: 8) {
                             HeroHeaderStatTiles(today: data.today ?? HeroTodayStats())
                                 .redacted(reason: activityPending ? .placeholder : [])
                             paceTile
                         }
                     }
+                    GridRow {
+                        HeroStreakIndicator(
+                            summary: HeroStreakSummary(streak: data.streak, dayTotals: data.recentDayTotals)
+                        )
+                        .redacted(reason: activityPending ? .placeholder : [])
+                        .disabled(activityPending)
+                        .gridCellUnsizedAxes(.horizontal)
+                        HeroRetentionTile(today: data.today ?? HeroTodayStats())
+                            .redacted(reason: activityPending ? .placeholder : [])
+                    }
                 }
+                // Ideal heights, so the equal-height chip/Retention pair
+                // stretches only to each other, never to a List proposal.
+                .fixedSize(horizontal: false, vertical: true)
             },
             footer: {
-                HeroRetentionTile(today: data.today ?? HeroTodayStats())
-                    .redacted(reason: activityPending ? .placeholder : [])
+                EmptyView()
             },
             sidecar: {
                 sparkline
@@ -101,32 +120,6 @@ public struct LibraryHeroCard: View {
             [data.deckCount],
             locale: locale
         )
-    }
-}
-
-// MARK: - Streak pill
-
-private struct StreakBadge: View {
-    let days: Int
-
-    @Environment(\.palette) private var palette
-
-    var body: some View {
-        if days > 0 {
-            HStack(spacing: 4) {
-                Image(systemName: "flame.fill")
-                    .amgiFont(size: 12, weight: .bold, relativeTo: .footnote)
-                    .symbolRenderingMode(.monochrome)
-                    .foregroundStyle(palette.warning)
-                Text("\(days)")
-                    .amgiFont(size: 14, weight: .semibold, relativeTo: .footnote)
-                    .monospacedDigit()
-                    .foregroundStyle(palette.textPrimary)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(palette.accentSoft, in: Capsule())
-        }
     }
 }
 
@@ -245,7 +238,7 @@ private struct SparklineBars: View {
     .environment(\.palette, .vividLight)
 }
 
-#Preview("Streak zero — badge hidden") {
+#Preview("Streak zero — fresh chip") {
     LibraryHeroCard(
         data: HeroData(
             totalDue: 42,

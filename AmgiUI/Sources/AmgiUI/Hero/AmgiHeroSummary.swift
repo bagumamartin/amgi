@@ -1,10 +1,10 @@
 public import SwiftUI
 import AmgiTheme
 
-/// Library-hero card: `surfaceElevated` fill. The header holds the
-/// eyebrow row (title, today's Studied/Time tiles, streak) and the numeral
-/// row (due count with the Pace tile beside it); the footer band holds
-/// Retention alone; the sidecar holds the sparkline.
+/// Library-hero card: `surfaceElevated` fill. The header holds the main
+/// content (for the Library hero: due numeral + streak beside the stat
+/// tiles); the optional footer band sits under it; the sidecar holds the
+/// sparkline.
 /// Type uses palette text roles; accent belongs on data, not the field.
 ///
 /// Compact: header, band, sidecar stacked (iPhone). Regular: the same
