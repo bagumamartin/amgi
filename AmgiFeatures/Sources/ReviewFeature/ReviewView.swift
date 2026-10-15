@@ -84,7 +84,7 @@ package struct ReviewView: View {
             }
         }
         .sheet(isPresented: $showAssistant) {
-            StudyAssistantView(context: AssistantContext(title: "Review", reference: ReviewSessionContext.shared.encodedSnapshot().flatMap { String(data: $0, encoding: .utf8) } ?? "No active card", deckID: deckId.rawValue))
+            StudyAssistantView(context: AssistantContext(title: "Review", reference: ReviewSessionContext.shared.encodedSnapshot().flatMap { String(data: $0, encoding: .utf8) } ?? "No active card", deckID: deckId.rawValue, kind: "review"))
                 .presentationDetents([.large])
         }
         .task {
