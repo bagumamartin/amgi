@@ -68,8 +68,9 @@ struct MainTabView: View {
     var assistantIsPresented = false
     @State private var screenContext: AssistantContext?
     @State private var captureKind: QuickCaptureKind?
-    @State private var compactChrome = false
-    @State private var lastScrollOffset: CGFloat = 0
+    @State private var showsCaptureOptions = false
+    @State private var captureRowFrame: CGRect = .zero
+    @State private var captureButtonFrame: CGRect = .zero
 
     /// Persisted so menu commands and the sidebar share one source of truth.
     @Shared(.appStorage(NavigationPreferences.rootSection)) private var sectionRaw: String = MainSection.study.rawValue
@@ -157,6 +158,7 @@ struct MainTabView: View {
         .sheet(item: $captureKind) { QuickCaptureView(kind: $0) }
         .onChange(of: selection) { oldValue, newValue in
             screenContext = nil
+            showsCaptureOptions = false
             if newValue == .browse, oldValue != .browse {
                 previousSection = oldValue
             }
@@ -218,41 +220,51 @@ struct MainTabView: View {
     }
 
     #if os(iOS)
+    /// Outline when inactive, filled when selected. The tab bar fills every
+    /// symbol by default, so the variant is pinned per tab from the selection.
+    private func tabLabel(_ section: MainSection) -> some View {
+        Label(LocalizedStringKey(section.title), systemImage: section.systemImage)
+            .environment(\.symbolVariants, selection == section ? .fill : .none)
+    }
+
     private var iosTabView: some View {
         TabView(selection: selectionBinding) {
-            Tab(LocalizedStringKey(MainSection.library.title), systemImage: MainSection.library.systemImage, value: MainSection.library) {
+            Tab(value: MainSection.library) {
                 tabContent(for: .library)
-            }
+            } label: { tabLabel(.library) }
             if showReaderTab {
-                Tab(LocalizedStringKey(MainSection.read.title), systemImage: MainSection.read.systemImage, value: MainSection.read) {
+                Tab(value: MainSection.read) {
                     tabContent(for: .read)
-                }
+                } label: { tabLabel(.read) }
             }
-            Tab(LocalizedStringKey(MainSection.study.title), systemImage: MainSection.study.systemImage, value: MainSection.study) {
+            Tab(value: MainSection.study) {
                 tabContent(for: .study)
-            }
-            Tab(LocalizedStringKey(MainSection.stats.title), systemImage: MainSection.stats.systemImage, value: MainSection.stats) {
+            } label: { tabLabel(.study) }
+            Tab(value: MainSection.stats) {
                 tabContent(for: .stats)
-            }
-            Tab(LocalizedStringKey(MainSection.browse.title), systemImage: MainSection.browse.systemImage, value: MainSection.browse) {
+            } label: { tabLabel(.stats) }
+            Tab(value: MainSection.browse) {
                 tabContent(for: .browse)
-            }
+            } label: { tabLabel(.browse) }
         }
         .tabViewStyle(.sidebarAdaptable)
         .defaultAdaptableTabBarPlacement(.sidebar)
-        .toolbar(horizontalSizeClass == .compact ? .hidden : .automatic, for: .tabBar)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if horizontalSizeClass == .compact {
-                AssistantEntryChrome(sections: sections, selection: selectionBinding, compact: $compactChrome, showsAssistant: screenContext?.kind != "reader", openAssistant: openAssistant, capture: { captureKind = $0 })
-            }
+        .tabBarMinimizeBehavior(.onScrollDown)
+        .assistantEntryAccessory(isEnabled: horizontalSizeClass == .compact && screenContext?.kind != "reader") {
+            AssistantEntryRow(
+                openAssistant: openAssistant,
+                showsCapture: $showsCaptureOptions,
+                onRowFrame: { captureRowFrame = $0 },
+                onCaptureButtonFrame: { captureButtonFrame = $0 }
+            )
         }
-        .onScrollGeometryChange(for: CGFloat.self) { geometry in
-            geometry.contentOffset.y + geometry.contentInsets.top
-        } action: { oldOffset, offset in
-            let delta = offset - oldOffset
-            if abs(delta) > 5 {
-                withAnimation(.smooth(duration: 0.3)) { compactChrome = offset > 40 && delta > 0 }
-            }
+        .overlay {
+            QuickCaptureOverlay(
+                isPresented: $showsCaptureOptions,
+                rowFrame: captureRowFrame,
+                buttonFrame: captureButtonFrame,
+                capture: { captureKind = $0 }
+            )
         }
         .tabViewSidebarBottomBar {
             AccountSidebarFooterHost(open: $accountDestination)

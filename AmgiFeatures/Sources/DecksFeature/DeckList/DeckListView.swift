@@ -133,7 +133,8 @@ package struct DeckListView: View {
             }
             .accessibilityLabel("Export")
             .help("Export a deck, collection, or notes")
-            Button("New Deck", systemImage: "plus") {
+            // Deck-specific glyph: the bare `+` belongs to Quick Capture.
+            Button("New Deck", systemImage: "rectangle.stack.badge.plus") {
                 showCreateSheet = true
             }
         }
