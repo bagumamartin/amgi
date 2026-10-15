@@ -33,10 +33,28 @@ struct ReaderProgressCoordinator: Sendable {
         self.store = store
     }
 
-    /// Returns the resolved progress for a book, preferring the more
-    /// recent of local vs. iCloud. If iCloud holds the newer payload, it's
-    /// also written back locally so subsequent reads don't round-trip.
+    /// The book's position, local first.
+    ///
+    /// Opening a book must never wait on iCloud: the manifest read can sit
+    /// out a download timeout, which held every reader on an "Opening…"
+    /// screen for a local file. When this device has a position it is
+    /// returned at once, and iCloud is checked in the background — a newer
+    /// position from another device is written locally for the next open
+    /// (the library's own background merge usually got there first). Only a
+    /// book with no local position waits for the cloud one.
     func resolved(bookID: String) async -> ReaderSavedProgress? {
+        if let local = store.load(bookID: bookID) {
+            Task.detached(priority: .utility) { [self] in
+                _ = await self.resolvedFromCloud(bookID: bookID)
+            }
+            return local
+        }
+        return await resolvedFromCloud(bookID: bookID)
+    }
+
+    /// Local vs. iCloud, newer wins; a newer iCloud payload is written back
+    /// locally so later reads don't round-trip.
+    private func resolvedFromCloud(bookID: String) async -> ReaderSavedProgress? {
         let local = store.load(bookID: bookID)
         let cloud = (try? await sync.loadManifest()?.entries[bookID]) ?? nil
 

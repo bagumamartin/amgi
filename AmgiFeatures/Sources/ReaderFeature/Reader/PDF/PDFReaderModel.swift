@@ -82,10 +82,17 @@ final class PDFReaderModel {
         managedURL = managed
         thumbnailCache.clear()
         self.document = document
-        self.descriptor = await client.descriptor(book.id)
         refreshAnnotations()
         refreshBookmarks()
         state = .ready
+        // The descriptor is a full parse of the file and only supplies page
+        // labels ("iv" rather than "4"); the page shows without waiting for
+        // it, and labels fall back to numbers until it lands.
+        let client = client, bookID = book.id
+        Task { [weak self] in
+            let descriptor = await client.descriptor(bookID)
+            self?.descriptor = descriptor
+        }
     }
 
     var pageCount: Int { document?.pageCount ?? 0 }

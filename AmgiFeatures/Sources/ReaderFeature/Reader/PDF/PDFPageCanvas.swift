@@ -119,8 +119,13 @@ final class PDFViewCoordinator: NSObject {
         guard let view else { return }
         if hasUserZoom {
             applyUserScale(to: view, scale: savedUserScale)
-        } else {
+        } else if !didInitialFit, view.bounds.width > 0 {
             applyFit(to: view)
+            didInitialFit = true
+        } else {
+            // A resize keeps the reader where it was rather than jumping a
+            // long page back to its top.
+            applyFit(to: view, scrollToTop: false)
         }
     }
 
@@ -293,7 +298,10 @@ final class PDFViewCoordinator: NSObject {
             isApplyingModelChange = false
         }
 
-        if !didInitialFit {
+        // The first fit waits for a real width: a view not laid out yet
+        // cannot tell a tall page from an ordinary one, and `layoutChanged`
+        // finishes the job once it can.
+        if !didInitialFit, view.bounds.width > 0 {
             applyFit(to: view)
             didInitialFit = true
         }
@@ -363,16 +371,40 @@ final class PDFViewCoordinator: NSObject {
         }
     }
 
-    private func applyFit(to view: PDFView) {
+    /// The reader's resting zoom. Ordinary pages fit whole. A page much
+    /// taller than the view — a stitched screenshot, a web capture, a
+    /// continuous export — would shrink to an unreadable strip that way, so
+    /// it fits the view's width instead and starts at its top, the way a
+    /// browser shows a long page.
+    private func applyFit(to view: PDFView, scrollToTop: Bool = true) {
         isApplyingModelChange = true
         view.minScaleFactor = 0.25
         view.maxScaleFactor = 5.0
         view.autoScales = false
         let fit = view.scaleFactorForSizeToFit
-        if fit > 0 {
+        if let page = view.currentPage ?? view.document?.page(at: navigation.pageIndex),
+           let widthFit = Self.widthFitScale(for: page, in: view, pageFit: fit) {
+            view.scaleFactor = widthFit
+            if scrollToTop {
+                let bounds = page.bounds(for: view.displayBox)
+                view.go(to: PDFDestination(page: page, at: CGPoint(x: bounds.minX, y: bounds.maxY)))
+            }
+        } else if fit > 0 {
             view.scaleFactor = fit
         }
         isApplyingModelChange = false
+    }
+
+    /// The scale that makes `page` span the view's width, when fitting the
+    /// whole page would leave it narrower than 70% of the view; nil for
+    /// pages that fit well whole.
+    static func widthFitScale(for page: PDFPage, in view: PDFView, pageFit: CGFloat) -> CGFloat? {
+        var size = page.bounds(for: view.displayBox).size
+        if abs(page.rotation) % 180 == 90 { size = CGSize(width: size.height, height: size.width) }
+        let viewWidth = view.bounds.width
+        guard size.width > 0, viewWidth > 0, pageFit > 0 else { return nil }
+        guard size.width * pageFit < viewWidth * 0.7 else { return nil }
+        return min(viewWidth / size.width, view.maxScaleFactor)
     }
 
     private func applyUserScale(to view: PDFView, scale: CGFloat) {
@@ -411,7 +443,9 @@ final class PDFViewCoordinator: NSObject {
 
     @objc func handleDoubleTap(_ recognizer: UITapGestureRecognizer) {
         guard let view else { return }
-        let fit = view.scaleFactorForSizeToFit
+        let pageFit = view.scaleFactorForSizeToFit
+        let fit = view.currentPage
+            .flatMap { Self.widthFitScale(for: $0, in: view, pageFit: pageFit) } ?? pageFit
         let target = (view.scaleFactor > fit * 1.2) ? fit : min(fit * 2.2, view.maxScaleFactor)
         UIView.animate(withDuration: 0.25) {
             view.scaleFactor = target
@@ -604,7 +638,8 @@ enum PDFPageCanvasSupport {
         navigation: PDFReaderNavigation,
         theme: ReaderTypographyPreferences.Theme
     ) -> PDFView {
-        let view = PDFView()
+        let view = ReaderPDFView()
+        view.onWidthChange = { [weak coordinator] in coordinator?.layoutChanged() }
         view.autoScales = true
         view.minScaleFactor = 0.25
         view.maxScaleFactor = 5.0
@@ -649,3 +684,31 @@ enum PDFPageCanvasSupport {
         coordinator.apply(navigation)
     }
 }
+
+/// A `PDFView` that reports when its width changes. The resting zoom depends
+/// on the width (a tall page fits it), and the first real width arrives in
+/// layout — after `configure` ran against a zero-sized view — so this is
+/// what makes the very first fit happen at all, on every platform.
+final class ReaderPDFView: PDFView {
+    var onWidthChange: (() -> Void)?
+    private var lastWidth: CGFloat = 0
+
+    #if canImport(UIKit) && !os(macOS)
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        reportWidthChange()
+    }
+    #else
+    override func layout() {
+        super.layout()
+        reportWidthChange()
+    }
+    #endif
+
+    private func reportWidthChange() {
+        guard bounds.width != lastWidth else { return }
+        lastWidth = bounds.width
+        onWidthChange?()
+    }
+}
+
