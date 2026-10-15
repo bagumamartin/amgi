@@ -1,3 +1,4 @@
+import AmgiUI
 import BrowseFeature
 import SwiftUI
 #if os(iOS)
@@ -16,7 +17,11 @@ struct FloatingAssistantEntry: View {
             HStack(spacing: 10) {
                 if showsAssistant {
                     Button(action: openAssistant) {
-                        Label("Ask AI", systemImage: "sparkles")
+                        Label {
+                            Text("Ask AI")
+                        } icon: {
+                            AssistantHead(.idle).frame(width: 26, height: 26)
+                        }
                             .font(.body.weight(.medium))
                             .padding(.horizontal, 20)
                             .frame(minHeight: 48)
@@ -71,12 +76,13 @@ struct AssistantEntryRow: View {
         GlassEffectContainer(spacing: 10) {
             HStack(spacing: 10) {
                 Button(action: openAssistant) {
-                    HStack(spacing: 12) {
-                        Image(systemName: "sparkles")
+                    HStack(spacing: 10) {
+                        AssistantHead(.idle).frame(width: 28, height: 28)
                         Text("Ask AI").foregroundStyle(.secondary)
                         Spacer(minLength: 0)
                     }
-                    .padding(.horizontal, 18)
+                    .padding(.leading, 11)
+                    .padding(.trailing, 18)
                     .frame(height: 48)
                     .frame(maxWidth: .infinity)
                     .contentShape(Capsule())
