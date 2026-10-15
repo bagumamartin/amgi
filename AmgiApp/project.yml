@@ -29,7 +29,7 @@ settings:
   base:
     SWIFT_VERSION: "6.0"
     MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: 6
+    CURRENT_PROJECT_VERSION: 7
     # The packaged macOS XCFramework is universal (arm64 + x86_64). Do not
     # force a project-wide architecture: iOS/watchOS retain their own SDK
     # defaults while Release macOS builds can link both Mac architectures.

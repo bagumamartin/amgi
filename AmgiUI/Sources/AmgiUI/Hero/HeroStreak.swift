@@ -128,10 +128,17 @@ struct HeroStreakIndicator: View {
             "\(AmgiL10n.text("Streak", locale: locale)), \(summary.headline(locale: locale)). \(summary.status(locale: locale))"
         )
         .accessibilityAddTraits(.isButton)
+        #if os(watchOS)
+        // AmgiUI is compiled for the watch, which has no popover.
+        .sheet(isPresented: $showsDetails) {
+            HeroStreakDetails(summary: summary)
+        }
+        #else
         .popover(isPresented: $showsDetails) {
             HeroStreakDetails(summary: summary)
                 .presentationCompactAdaptation(.popover)
         }
+        #endif
     }
 
     @ViewBuilder

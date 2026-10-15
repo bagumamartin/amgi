@@ -1041,7 +1041,10 @@ public struct StudyLandingContent: View {
                     Text(AmgiL10n.text(item.title, locale: locale)).tag(item)
                 }
             }
+            #if !os(watchOS)
+            // AmgiUI also compiles for the watch, which has neither style.
             .pickerStyle(.segmented)
+            #endif
             .accessibilityLabel(accessibilityLabel)
             stepButton(
                 systemName: "chevron.right",

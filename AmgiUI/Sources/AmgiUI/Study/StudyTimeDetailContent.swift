@@ -150,7 +150,10 @@ public struct StudyTimeDetailContent: View {
                     Text(deck.id == StudyDeckChoice.all.id ? AmgiL10n.text("All decks", locale: locale) : deck.title).tag(deck.id)
                 }
             }
+            #if !os(watchOS)
+            // AmgiUI also compiles for the watch, which has neither style.
             .pickerStyle(.menu)
+            #endif
             .onChange(of: deckID) { _, _ in onScopeChange() }
             if deckID != StudyDeckChoice.all.id {
                 Toggle(AmgiL10n.text("Include subdecks", locale: locale), isOn: $includeSubdecks)

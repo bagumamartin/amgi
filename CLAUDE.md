@@ -492,12 +492,25 @@ Two servers may be connected; pick the branch by what's available this session:
   the active run destination is set; freshly added test files may still show
   "No result" — fall back to `xcodebuild test -only-testing:` to confirm.
 
-Either branch: SPM tests are compile-verified only under `swift test` because
-`AnkiRustLib` now includes iOS/iPadOS, watchOS simulator, and macOS slices; use an explicit simulator or `platform=macOS` destination.
+Either branch: run the root package's tests with an explicit destination —
+`xcodebuild test -scheme AnkiBridge-Package -destination 'platform=macOS'`
+(all suites run and pass; `-only-testing:AnkiClientsTests/<Suite>` narrows
+it). Plain `swift test` doesn't fit, because `AnkiRustLib` ships iOS/iPadOS,
+watchOS simulator, and macOS slices.
+(Corrected 2026-10-15. This used to call package tests "compile-verified
+only". The real cause was that `build-xcframework.sh` shipped the framework
+**unsigned**: apps re-sign it when they embed it, but macOS test bundles load
+it as-is and died with "Trying to load an unsigned library". The script now
+signs as its last step via `scripts/sign-xcframework.sh`. If that error comes
+back, run that script; don't go back to stripping the signature.)
 
 Either branch: the iOS scheme does **not** build `AmgiWatchApp`. Changes to
-`Sources/Watch/`, to `AmgiReviewCore`/`AmgiCharts`/`AmgiAppCore` (the products
-the watch links), or to project.yml's target wiring need their own build:
+`Sources/Watch/`, to `AmgiReviewCore`/`AmgiCharts`/`AmgiAppCore`/`AmgiUI` (the
+products the watch links), or to project.yml's target wiring need their own
+build. That gap has already let breakage through unnoticed: on 2026-10-15 the
+watch build was failing in `AmgiUI` (`.popover`, `.pickerStyle(.segmented)`,
+`.pickerStyle(.menu)`) and `AmgiCharts` (`KeyPress`), all unavailable on
+watchOS. Guard iOS/macOS-only modifiers with `#if !os(watchOS)`:
 ```bash
 xcodebuild build -project AmgiApp/AmgiApp.xcodeproj -scheme AmgiWatchApp \
   -destination 'generic/platform=watchOS Simulator' ARCHS=arm64
@@ -519,6 +532,12 @@ iOS test suite; those failures are the flag, not the code.
 #   - anki-upstream/ is updated
 #   - a .proto file is added/changed (and protos are regenerated)
 ./scripts/build-xcframework.sh
+
+# Re-sign the existing XCFramework without rebuilding Rust (build-xcframework
+# runs this itself). Defaults to the keychain's Apple Development identity;
+# CODESIGN_IDENTITY=- signs ad hoc. Xcode re-signs the embedded copy with the
+# app's own identity, so this does not affect distribution.
+./scripts/sign-xcframework.sh
 
 # Regenerate Swift protobuf types from anki-upstream/proto/anki/*.proto
 ./scripts/generate-protos.sh

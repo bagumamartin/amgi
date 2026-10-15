@@ -61,16 +61,20 @@ internal struct EPUBCloudBookMetadata: Codable, Sendable, Hashable {
     var language: String?
     var pageCount: Int
     var updatedAt: Date?
+    /// The book's file in the public `Documents/Books` folder. Nil only in
+    /// version-1 metadata, which kept the file beside it as `original.*`.
+    var fileName: String?
 
     init(
-        version: Int = 1,
+        version: Int = 2,
         bookID: String,
         title: String,
         author: String?,
         coverFileName: String?,
         language: String?,
         pageCount: Int,
-        updatedAt: Date?
+        updatedAt: Date?,
+        fileName: String? = nil
     ) {
         self.version = version
         self.bookID = bookID
@@ -80,32 +84,49 @@ internal struct EPUBCloudBookMetadata: Codable, Sendable, Hashable {
         self.language = language
         self.pageCount = pageCount
         self.updatedAt = updatedAt
+        self.fileName = fileName
     }
 }
 
+internal struct EPUBICloudLocations: Sendable {
+    /// Private sidecars: `Library/EPUB/books/{bookID}/metadata.json` + cover.
+    let metadataRoot: URL
+    /// Public book files: `Documents/Books/{Readable Title}.epub`.
+    let booksFolder: URL
+    /// The layout before the container went public:
+    /// `Documents/EPUB/books/{bookID}/original.epub` beside its metadata.
+    let legacyRoot: URL
+}
+
 internal enum EPUBICloudStorage {
-    static func libraryURL(
+    /// Where this library lives in the container. Book files go to the
+    /// shared public `Documents/Books` folder under readable names; the
+    /// per-book metadata and cover that tie a file back to its book ID stay
+    /// private under `Library/EPUB`.
+    static func locations(
         containerIdentifier: String,
         overrideRoot: URL?
-    ) -> URL? {
-        let base: URL
-        if let overrideRoot {
-            base = overrideRoot
-        } else if FileManager.default.ubiquityIdentityToken != nil,
-                  let container = FileManager.default.url(
-                      forUbiquityContainerIdentifier: containerIdentifier
-                  ) {
-            base = container
-        } else {
-            return nil
-        }
+    ) -> EPUBICloudLocations? {
+        guard let container = ReaderICloudConfiguration.containerURL(
+            identifier: containerIdentifier,
+            overrideRoot: overrideRoot
+        ) else { return nil }
+        let name = EPUBICloudConfiguration.libraryDirectoryName
+        return EPUBICloudLocations(
+            metadataRoot: ReaderICloudConfiguration.privateURL(name, in: container),
+            booksFolder: ReaderICloudConfiguration.booksFolderURL(in: container),
+            legacyRoot: ReaderICloudConfiguration.legacyDocumentsURL(name, in: container)
+        )
+    }
 
-        return base
-            .appendingPathComponent("Documents", isDirectory: true)
-            .appendingPathComponent(
-                EPUBICloudConfiguration.libraryDirectoryName,
-                isDirectory: true
-            )
+    /// The public book file a metadata record points at.
+    static func bookFileURL(
+        for metadata: EPUBCloudBookMetadata,
+        in booksFolder: URL
+    ) -> URL? {
+        guard let fileName = metadata.fileName,
+              ReaderICloudBookNaming.isSafeFileName(fileName) else { return nil }
+        return booksFolder.appendingPathComponent(fileName)
     }
 
     static func isSafeBookID(_ bookID: String) -> Bool {

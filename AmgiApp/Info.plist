@@ -151,6 +151,18 @@
 	<string>Ijuka uses the microphone to record audio notes for your cards.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Ijuka shows your recent photos so you can add pictures to your cards.</string>
+	<key>NSUbiquitousContainers</key>
+	<dict>
+		<key>iCloud.com.bagumamartin.ijuka</key>
+		<dict>
+			<key>NSUbiquitousContainerIsDocumentScopePublic</key>
+			<true/>
+			<key>NSUbiquitousContainerName</key>
+			<string>Ijuka</string>
+			<key>NSUbiquitousContainerSupportedFolderLevels</key>
+			<string>Any</string>
+		</dict>
+	</dict>
 	<key>UIAppFonts</key>
 	<array>
 		<string>Fonts/SarasaMonoK-Regular.ttf</string>

@@ -271,15 +271,25 @@ public actor PDFLibraryStore {
 
     private func uploadBook(
         localEntry: PDFLibraryIndexEntry,
-        to cloudDirectory: URL
+        to cloudDirectory: URL,
+        booksFolder: URL,
+        existingFileName: String?,
+        claimedByOthers: Set<String>
     ) async throws -> Bool {
         let sourceURL = localEntrySourceURL(localEntry.bookID)
         guard FileManager.default.fileExists(atPath: sourceURL.path) else {
             return false
         }
+        let fileName = ReaderICloudBookNaming.uploadFileName(
+            forTitle: localEntry.title,
+            fileExtension: "pdf",
+            existing: existingFileName,
+            claimedByOthers: claimedByOthers,
+            in: booksFolder
+        )
         try await PDFICloudStorage.replaceItem(
             at: sourceURL,
-            with: cloudDirectory.appendingPathComponent(Self.sourceFileName)
+            with: booksFolder.appendingPathComponent(fileName)
         )
 
         if let relativeCover = localEntry.coverRelativePath {
@@ -296,10 +306,18 @@ public actor PDFLibraryStore {
                 )
             }
         }
-        try await PDFICloudStorage.writeMetadata(
-            cloudMetadata(from: localEntry),
-            at: cloudDirectory
-        )
+        var metadata = cloudMetadata(from: localEntry)
+        metadata.fileName = fileName
+        try await PDFICloudStorage.writeMetadata(metadata, at: cloudDirectory)
+        // The title changed since the last upload, so the book now lives
+        // under a new name: drop the old file rather than leave a duplicate.
+        if let existingFileName, existingFileName != fileName,
+           !claimedByOthers.contains(existingFileName),
+           ReaderICloudBookNaming.isSafeFileName(existingFileName) {
+            try? ReaderICloudFiles.coordinatedRemove(
+                at: booksFolder.appendingPathComponent(existingFileName)
+            )
+        }
         return true
     }
 
@@ -308,7 +326,7 @@ public actor PDFLibraryStore {
     /// There is no shared catalog and no cloud deletion propagation; local
     /// tombstones keep a deleted book deleted on the device that deleted it.
     public func synchronizeWithICloud() async -> PDFICloudSyncResult {
-        guard let cloudLibraryURL = PDFICloudStorage.libraryURL(
+        guard let locations = PDFICloudStorage.locations(
             containerIdentifier: cloudContainerIdentifier,
             overrideRoot: cloudRootOverride
         ) else {
@@ -318,31 +336,69 @@ public actor PDFLibraryStore {
         do {
             let fileManager = FileManager.default
             try fileManager.createDirectory(
-                at: cloudLibraryURL.appendingPathComponent("books", isDirectory: true),
+                at: locations.metadataRoot.appendingPathComponent("books", isDirectory: true),
                 withIntermediateDirectories: true
             )
+            try fileManager.createDirectory(
+                at: locations.booksFolder,
+                withIntermediateDirectories: true
+            )
+            await migrateLegacyICloudLayout(locations)
+
+            // Every book's metadata, read once: it says which public file
+            // each book owns, so an upload never takes a name another book
+            // holds. Metadata that is still an undownloaded placeholder is
+            // simply absent here and is picked up on a later pass.
+            var remoteMetadata: [String: PDFCloudBookMetadata] = [:]
+            for bookID in try PDFICloudStorage.remoteBookIDs(in: locations.metadataRoot) {
+                guard let directory = PDFICloudStorage.bookDirectory(
+                    bookID,
+                    under: locations.metadataRoot
+                ), let metadata = try? PDFICloudStorage.readMetadata(at: directory),
+                   metadata.bookID == bookID else { continue }
+                remoteMetadata[bookID] = metadata
+            }
 
             var uploadedBookIDs: [String] = []
             for entry in index.entries where !entry.isDeleted {
                 guard let cloudDirectory = PDFICloudStorage.bookDirectory(
                     entry.bookID,
-                    under: cloudLibraryURL
+                    under: locations.metadataRoot
                 ) else { continue }
-                let cloudSource = cloudDirectory.appendingPathComponent(Self.sourceFileName)
                 let metadata = cloudMetadata(from: entry)
+                let existing = remoteMetadata[entry.bookID]
                 let alreadyMirrored: Bool
-                if let existing = try? PDFICloudStorage.readMetadata(
-                    at: cloudDirectory
-                ), existing.bookID == entry.bookID,
-                    existing.updatedAt == metadata.updatedAt {
-                    alreadyMirrored = fileManager.fileExists(atPath: cloudSource.path)
+                if let existing,
+                   existing.updatedAt == metadata.updatedAt,
+                   let cloudSource = PDFICloudStorage.bookFileURL(
+                       for: existing,
+                       in: locations.booksFolder
+                   ) {
+                    alreadyMirrored = ReaderICloudBookNaming.isTaken(
+                        cloudSource.lastPathComponent,
+                        in: locations.booksFolder
+                    )
                 } else {
                     alreadyMirrored = false
                 }
                 guard !alreadyMirrored else { continue }
 
-                if try await uploadBook(localEntry: entry, to: cloudDirectory) {
+                let claimedByOthers = Set(
+                    remoteMetadata
+                        .filter { $0.key != entry.bookID }
+                        .compactMap(\.value.fileName)
+                )
+                if try await uploadBook(
+                    localEntry: entry,
+                    to: cloudDirectory,
+                    booksFolder: locations.booksFolder,
+                    existingFileName: existing?.fileName,
+                    claimedByOthers: claimedByOthers
+                ) {
                     uploadedBookIDs.append(entry.bookID)
+                    if let written = try? PDFICloudStorage.readMetadata(at: cloudDirectory) {
+                        remoteMetadata[entry.bookID] = written
+                    }
                 }
             }
 
@@ -362,7 +418,7 @@ public actor PDFLibraryStore {
                     }
                     .map(\.bookID)
             )
-            let remoteBookIDs = try PDFICloudStorage.remoteBookIDs(in: cloudLibraryURL)
+            let remoteBookIDs = try PDFICloudStorage.remoteBookIDs(in: locations.metadataRoot)
             for remoteBookID in remoteBookIDs where !localBookIDs.contains(remoteBookID) {
                 do {
                     _ = try await restoreFromICloud(bookID: remoteBookID)
@@ -393,21 +449,109 @@ public actor PDFLibraryStore {
         }
     }
 
+    /// Moves books out of the pre-public layout, where each sat in
+    /// `Documents/PDF/books/{bookID}/original.pdf` — an opaque folder name
+    /// in Files — into the public `Documents/Books` folder under its title,
+    /// with its metadata and cover moved to the private side.
+    ///
+    /// Coordinated moves rename iCloud items in place, so this works on books
+    /// that were never downloaded to this device and costs no transfer.
+    /// Best effort per book: anything that cannot move stays where it is and
+    /// is retried on the next pass.
+    private func migrateLegacyICloudLayout(_ locations: PDFICloudLocations) async {
+        let legacyBooks = locations.legacyRoot.appendingPathComponent("books", isDirectory: true)
+        guard FileManager.default.fileExists(atPath: legacyBooks.path) else { return }
+
+        let bookIDs = (try? PDFICloudStorage.remoteBookIDs(in: locations.legacyRoot)) ?? []
+        for bookID in bookIDs {
+            guard let legacyDirectory = PDFICloudStorage.bookDirectory(
+                bookID,
+                under: locations.legacyRoot
+            ), let newDirectory = PDFICloudStorage.bookDirectory(
+                bookID,
+                under: locations.metadataRoot
+            ) else { continue }
+
+            // Another device already migrated this book.
+            if let migrated = try? PDFICloudStorage.readMetadata(at: newDirectory),
+               let file = PDFICloudStorage.bookFileURL(for: migrated, in: locations.booksFolder),
+               ReaderICloudBookNaming.isTaken(file.lastPathComponent, in: locations.booksFolder) {
+                try? ReaderICloudFiles.coordinatedRemove(at: legacyDirectory)
+                continue
+            }
+
+            let legacySource = legacyDirectory.appendingPathComponent("original.pdf")
+            guard ReaderICloudBookNaming.isTaken("original.pdf", in: legacyDirectory) else {
+                continue
+            }
+            try? await PDFICloudStorage.ensureDownloaded(
+                at: PDFICloudStorage.metadataURL(for: legacyDirectory)
+            )
+            let localEntry = index.entries.first { $0.bookID == bookID }
+            var metadata = (try? PDFICloudStorage.readMetadata(at: legacyDirectory))
+                .flatMap { $0.bookID == bookID ? $0 : nil }
+                ?? localEntry.map(cloudMetadata(from:))
+                ?? PDFCloudBookMetadata(
+                    bookID: bookID,
+                    title: "Untitled",
+                    author: nil,
+                    coverFileName: nil,
+                    language: nil,
+                    pageCount: 0,
+                    updatedAt: nil
+                )
+            let fileName = ReaderICloudBookNaming.availableFileName(
+                forTitle: metadata.title,
+                fileExtension: "pdf",
+                in: locations.booksFolder
+            )
+            do {
+                try ReaderICloudFiles.coordinatedMove(
+                    from: legacySource,
+                    to: locations.booksFolder.appendingPathComponent(fileName)
+                )
+            } catch {
+                continue
+            }
+            if let coverFileName = metadata.coverFileName,
+               ReaderICloudBookNaming.isSafeFileName(coverFileName),
+               ReaderICloudBookNaming.isTaken(coverFileName, in: legacyDirectory) {
+                try? ReaderICloudFiles.coordinatedMove(
+                    from: legacyDirectory.appendingPathComponent(coverFileName),
+                    to: newDirectory.appendingPathComponent(coverFileName)
+                )
+            }
+            metadata.version = 2
+            metadata.fileName = fileName
+            do {
+                try await PDFICloudStorage.writeMetadata(metadata, at: newDirectory)
+                try? ReaderICloudFiles.coordinatedRemove(at: legacyDirectory)
+            } catch {
+                // The file moved but its metadata did not land. Leave the
+                // legacy folder (its metadata) in place; the next pass finds
+                // no `original.pdf` there and skips it, and the next upload
+                // from a device holding the book writes fresh metadata.
+            }
+        }
+        ReaderICloudFiles.removeIfEmpty(legacyBooks)
+        ReaderICloudFiles.removeIfEmpty(locations.legacyRoot)
+    }
+
     /// IDs of books currently visible in the iCloud backup, for a future
     /// explicit restore surface. Normal background sync restores additive
     /// entries while retaining local deletion tombstones.
     public func remoteBookIDs() async -> [String] {
-        guard let cloudLibraryURL = PDFICloudStorage.libraryURL(
+        guard let locations = PDFICloudStorage.locations(
             containerIdentifier: cloudContainerIdentifier,
             overrideRoot: cloudRootOverride
         ) else { return [] }
-        return (try? PDFICloudStorage.remoteBookIDs(in: cloudLibraryURL)) ?? []
+        return (try? PDFICloudStorage.remoteBookIDs(in: locations.metadataRoot)) ?? []
     }
 
     /// Explicitly restore one cloud book through the same validated local
     /// import pipeline used for user-selected files.
     public func restoreFromICloud(bookID: String) async throws -> ReaderBook {
-        guard let cloudLibraryURL = PDFICloudStorage.libraryURL(
+        guard let locations = PDFICloudStorage.locations(
             containerIdentifier: cloudContainerIdentifier,
             overrideRoot: cloudRootOverride
         ) else {
@@ -415,15 +559,26 @@ public actor PDFLibraryStore {
         }
         guard let cloudDirectory = PDFICloudStorage.bookDirectory(
             bookID,
-            under: cloudLibraryURL
+            under: locations.metadataRoot
         ) else {
             throw PDFLibraryCloudError.invalidBookID
         }
 
-        let cloudSource = cloudDirectory.appendingPathComponent(Self.sourceFileName)
-        let metadata = (try? PDFICloudStorage.readMetadata(at: cloudDirectory))
-            .flatMap { $0.bookID == bookID ? $0 : nil }
-        guard FileManager.default.fileExists(atPath: cloudSource.path) else {
+        // The metadata is what names the book's public file, so it has to be
+        // here before anything else can be found.
+        try? await PDFICloudStorage.ensureDownloaded(
+            at: PDFICloudStorage.metadataURL(for: cloudDirectory)
+        )
+        guard let metadata = (try? PDFICloudStorage.readMetadata(at: cloudDirectory))
+                .flatMap({ $0.bookID == bookID ? $0 : nil }),
+              let cloudSource = PDFICloudStorage.bookFileURL(
+                  for: metadata,
+                  in: locations.booksFolder
+              ),
+              ReaderICloudBookNaming.isTaken(
+                  cloudSource.lastPathComponent,
+                  in: locations.booksFolder
+              ) else {
             throw PDFLibraryCloudError.bookNotFound
         }
         try await PDFICloudStorage.ensureDownloaded(at: cloudSource)
@@ -446,8 +601,7 @@ public actor PDFLibraryStore {
         guard book.id == bookID else {
             throw PDFLibraryCloudError.sourceUnavailable
         }
-        if let metadata,
-           let position = index.entries.firstIndex(where: { $0.bookID == bookID }) {
+        if let position = index.entries.firstIndex(where: { $0.bookID == bookID }) {
             var restoredEntry = index.entries[position]
             if let coverFileName = metadata.coverFileName,
                !coverFileName.contains("/"),

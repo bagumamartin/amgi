@@ -119,12 +119,6 @@ make_framework() {
 
     cp "$dylib" "$bin_dir/AnkiRustLib"
     chmod +x "$bin_dir/AnkiRustLib"
-    # Modern rustc linker-signs the dylib ad hoc, and `strip -S` below
-    # leaves that signature in a state downstream codesign cannot replace
-    # ("invalid or unsupported format for signature" when test bundles
-    # and archives re-sign the embedded framework). Drop it here so the
-    # shipped binary is unsigned and every consumer signs fresh.
-    codesign --remove-signature "$bin_dir/AnkiRustLib"
     cp "$HEADER" "$headers_dir/"
 
     cat > "$modules_dir/module.modulemap" <<'MODULEMAP'
@@ -203,6 +197,12 @@ FRAMEWORK_ARGS+=(
 xcodebuild -create-xcframework \
     "${FRAMEWORK_ARGS[@]}" \
     -output "$OUTPUT_DIR"
+
+# Sign last: `strip -S` above rewrites the binary, so any signature from
+# before it (rustc linker-signs ad hoc) is stale. Shipping unsigned instead
+# broke every macOS package test bundle — see sign-xcframework.sh.
+echo "==> Signing XCFramework..."
+"$SCRIPT_DIR/sign-xcframework.sh" "$OUTPUT_DIR"
 
 echo "==> Done! XCFramework at: $OUTPUT_DIR"
 echo "==> Contents:"

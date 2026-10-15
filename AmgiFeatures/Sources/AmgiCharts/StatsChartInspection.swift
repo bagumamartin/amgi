@@ -91,6 +91,8 @@ struct StatsChartXInspectionModifier<Value: Equatable>: ViewModifier {
         }
     }
 
+    // Only the macOS branch of `body` uses it, and watchOS has no KeyPress.
+    #if os(macOS)
     private func handle(_ press: KeyPress) -> KeyPress.Result {
         guard !values.isEmpty else { return .ignored }
         let currentIndex = selection.flatMap { selected in
@@ -119,6 +121,7 @@ struct StatsChartXInspectionModifier<Value: Equatable>: ViewModifier {
         selection = values[nextIndex]
         return .handled
     }
+    #endif
 }
 
 extension View {

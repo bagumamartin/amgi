@@ -1,4 +1,5 @@
 import Foundation
+import AmgiReader
 
 /// Configuration for the app-owned iCloud Drive container used by the PDF
 /// library. The container itself is shared with the rest of the reader — see
@@ -59,16 +60,20 @@ internal struct PDFCloudBookMetadata: Codable, Sendable, Hashable {
     var language: String?
     var pageCount: Int
     var updatedAt: Date?
+    /// The book's file in the public `Documents/Books` folder. Nil only in
+    /// version-1 metadata, which kept the file beside it as `original.*`.
+    var fileName: String?
 
     init(
-        version: Int = 1,
+        version: Int = 2,
         bookID: String,
         title: String,
         author: String?,
         coverFileName: String? = nil,
         language: String? = nil,
         pageCount: Int,
-        updatedAt: Date?
+        updatedAt: Date?,
+        fileName: String? = nil
     ) {
         self.version = version
         self.bookID = bookID
@@ -78,32 +83,49 @@ internal struct PDFCloudBookMetadata: Codable, Sendable, Hashable {
         self.language = language
         self.pageCount = pageCount
         self.updatedAt = updatedAt
+        self.fileName = fileName
     }
 }
 
+internal struct PDFICloudLocations: Sendable {
+    /// Private sidecars: `Library/PDF/books/{bookID}/metadata.json` + cover.
+    let metadataRoot: URL
+    /// Public book files: `Documents/Books/{Readable Title}.pdf`.
+    let booksFolder: URL
+    /// The layout before the container went public:
+    /// `Documents/PDF/books/{bookID}/original.pdf` beside its metadata.
+    let legacyRoot: URL
+}
+
 internal enum PDFICloudStorage {
-    static func libraryURL(
+    /// Where this library lives in the container. Book files go to the
+    /// shared public `Documents/Books` folder under readable names; the
+    /// per-book metadata and cover that tie a file back to its book ID stay
+    /// private under `Library/PDF`.
+    static func locations(
         containerIdentifier: String,
         overrideRoot: URL?
-    ) -> URL? {
-        let base: URL
-        if let overrideRoot {
-            base = overrideRoot
-        } else if FileManager.default.ubiquityIdentityToken != nil,
-                  let container = FileManager.default.url(
-                      forUbiquityContainerIdentifier: containerIdentifier
-                  ) {
-            base = container
-        } else {
-            return nil
-        }
+    ) -> PDFICloudLocations? {
+        guard let container = ReaderICloudConfiguration.containerURL(
+            identifier: containerIdentifier,
+            overrideRoot: overrideRoot
+        ) else { return nil }
+        let name = PDFICloudConfiguration.libraryDirectoryName
+        return PDFICloudLocations(
+            metadataRoot: ReaderICloudConfiguration.privateURL(name, in: container),
+            booksFolder: ReaderICloudConfiguration.booksFolderURL(in: container),
+            legacyRoot: ReaderICloudConfiguration.legacyDocumentsURL(name, in: container)
+        )
+    }
 
-        return base
-            .appendingPathComponent("Documents", isDirectory: true)
-            .appendingPathComponent(
-                PDFICloudConfiguration.libraryDirectoryName,
-                isDirectory: true
-            )
+    /// The public book file a metadata record points at.
+    static func bookFileURL(
+        for metadata: PDFCloudBookMetadata,
+        in booksFolder: URL
+    ) -> URL? {
+        guard let fileName = metadata.fileName,
+              ReaderICloudBookNaming.isSafeFileName(fileName) else { return nil }
+        return booksFolder.appendingPathComponent(fileName)
     }
 
     static func isSafeBookID(_ bookID: String) -> Bool {

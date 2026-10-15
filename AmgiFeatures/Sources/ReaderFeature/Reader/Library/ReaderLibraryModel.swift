@@ -39,6 +39,13 @@ final class ReaderLibraryModel {
     @ObservationIgnored @Dependency(\.epubLibraryClient) private var epubLibraryClient
     @ObservationIgnored @Dependency(\.pdfLibraryClient) private var pdfLibraryClient
     @ObservationIgnored private var reloadTask: Task<Void, Never>?
+    /// iCloud work that follows a reload: flushing pending progress pushes,
+    /// then merging newer positions from other devices. Kept off `reload` so
+    /// the library (and pull-to-refresh) never waits on the network.
+    @ObservationIgnored private var cloudProgressTask: Task<Void, Never>?
+    /// The query the visible rows were last built for, so the late iCloud
+    /// merge rebuilds for whatever the user is looking at by then.
+    @ObservationIgnored private var lastQuery: (searchText: String, sortMode: BookshelfSortMode)?
 
     /// Shared with `ReaderLibraryContent` so the list and the loader resolve
     /// saved progress through the same store.
@@ -61,10 +68,6 @@ final class ReaderLibraryModel {
 
     func reload(searchText: String, sortMode: BookshelfSortMode) async {
         if books.isEmpty { state = .loading }
-
-        // Retry any collection-side progress write that was lost to a
-        // backgrounding or force-quit after a chapter closed.
-        await progress.flushPendingPushes()
 
         // Both file-backed stores are asked at once rather than in sequence.
         // They are independent — separate directories, separate indexes — so
@@ -173,9 +176,10 @@ final class ReaderLibraryModel {
         if Task.isCancelled { return }
         repairs = foundRepairs
 
-        let progressSnapshot = await progress.resolveAll(bookIDs: merged.map(\.id))
-        if Task.isCancelled { return }
-        progressByBook = progressSnapshot
+        // Local positions only. Everything above is on-device too, so the
+        // library appears at the same speed with or without a network.
+        progressByBook = progress.localAll(bookIDs: merged.map(\.id))
+        startCloudProgressMerge(bookIDs: merged.map(\.id))
 
         if merged.isEmpty {
             if let firstError {
@@ -191,8 +195,29 @@ final class ReaderLibraryModel {
         rebuildViewData(searchText: searchText, sortMode: sortMode)
     }
 
+    /// Pushes any reading positions that never reached iCloud, then folds in
+    /// newer positions from other devices and rebuilds the rows if anything
+    /// changed. Best effort: offline, both steps give up and the library keeps
+    /// showing local positions.
+    private func startCloudProgressMerge(bookIDs: [String]) {
+        cloudProgressTask?.cancel()
+        let progress = progress
+        cloudProgressTask = Task { [weak self] in
+            // Retry any progress write that was lost to a backgrounding or
+            // force-quit after a chapter closed.
+            await progress.flushPendingPushes()
+            let resolved = await progress.resolveAll(bookIDs: bookIDs)
+            guard !Task.isCancelled, let self, resolved != self.progressByBook else { return }
+            self.progressByBook = resolved
+            if let query = self.lastQuery {
+                self.rebuildViewData(searchText: query.searchText, sortMode: query.sortMode)
+            }
+        }
+    }
+
     func rebuildViewData(searchText: String, sortMode: BookshelfSortMode) {
         guard !books.isEmpty else { return }
+        lastQuery = (searchText, sortMode)
         let coverURLs = localCoverURLs
         let firstPages = localFirstPages
         let repairSnapshot = repairs

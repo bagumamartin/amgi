@@ -1,5 +1,6 @@
 import AmgiReader
 import Foundation
+import os
 
 /// Failures from the iCloud Drive progress mirror. The local
 /// `ReaderProgressStore` remains the source of truth, so every failure here
@@ -17,7 +18,9 @@ enum ReaderProgressICloudError: Error, Sendable {
 
 /// iCloud Drive mirror for per-book reading progress.
 ///
-/// Layout under `<container>/Documents/ReaderProgress/`:
+/// Layout under `<container>/Library/ReaderProgress/` — private, so it never
+/// shows in the public Files folder (it lived under `Documents/` until the
+/// container went public, and is moved on first lookup):
 /// ```
 /// {profileID}/manifest.json
 /// ```
@@ -51,22 +54,49 @@ enum ReaderProgressICloudStore {
     // MARK: - Paths
 
     static func manifestURL(profileID: String, overrideRoot: URL? = nil) -> URL? {
-        let base: URL
-        if let overrideRoot {
-            base = overrideRoot
-        } else if FileManager.default.ubiquityIdentityToken != nil,
-                  let container = FileManager.default.url(
-                      forUbiquityContainerIdentifier: ReaderICloudConfiguration.defaultContainerIdentifier
-                  ) {
-            base = container
-        } else {
+        guard let container = ReaderICloudConfiguration.containerURL(
+            overrideRoot: overrideRoot
+        ) else {
             return nil
         }
-        return base
-            .appendingPathComponent("Documents", isDirectory: true)
-            .appendingPathComponent(directoryName, isDirectory: true)
-            .appendingPathComponent(sanitized(profileID), isDirectory: true)
+        let profileDirectory = sanitized(profileID)
+        let url = ReaderICloudConfiguration.privateURL(directoryName, in: container)
+            .appendingPathComponent(profileDirectory, isDirectory: true)
             .appendingPathComponent(manifestFileName)
+        migrateLegacyManifestIfNeeded(
+            to: url,
+            container: container,
+            profileDirectory: profileDirectory
+        )
+        return url
+    }
+
+    /// The manifest used to live under `Documents/`, which the container now
+    /// exposes in Files. Move it to the private side the first time it is
+    /// looked up. A coordinated move renames the iCloud item in place, so it
+    /// works offline and on a manifest that was never downloaded here.
+    private static func migrateLegacyManifestIfNeeded(
+        to url: URL,
+        container: URL,
+        profileDirectory: String
+    ) {
+        let legacyRoot = ReaderICloudConfiguration.legacyDocumentsURL(directoryName, in: container)
+        let legacyDirectory = legacyRoot.appendingPathComponent(profileDirectory, isDirectory: true)
+        guard ReaderICloudBookNaming.isTaken(manifestFileName, in: legacyDirectory),
+              !ReaderICloudBookNaming.isTaken(
+                  manifestFileName,
+                  in: url.deletingLastPathComponent()
+              ) else { return }
+        do {
+            try ReaderICloudFiles.coordinatedMove(
+                from: legacyDirectory.appendingPathComponent(manifestFileName),
+                to: url
+            )
+            ReaderICloudFiles.removeIfEmpty(legacyDirectory)
+            ReaderICloudFiles.removeIfEmpty(legacyRoot)
+        } catch {
+            // Left in place; the next lookup tries again.
+        }
     }
 
     // MARK: - Reads
@@ -84,8 +114,12 @@ enum ReaderProgressICloudStore {
         }
         // Best effort: a placeholder that cannot materialize (offline, slow
         // network) must not stall the library — local positions still load.
+        // A copy already on this device is good enough to read: it may trail
+        // the newest cloud version, but last-write-wins against the local
+        // store means a stale read never loses a position, while waiting for
+        // `.current` offline used to hold every caller for the full timeout.
         do {
-            try await ensureDownloaded(at: url)
+            try await ensureDownloaded(at: url, acceptingLocalCopy: true)
         } catch {
             return nil
         }
@@ -268,7 +302,10 @@ enum ReaderProgressICloudStore {
     /// Starts and awaits an iCloud placeholder download. Throws when the file
     /// cannot materialize — the callers decide whether that means "use local"
     /// (load) or "retry later" (push).
-    private static func ensureDownloaded(at url: URL) async throws {
+    private static func ensureDownloaded(
+        at url: URL,
+        acceptingLocalCopy: Bool = false
+    ) async throws {
         let values = try url.resourceValues(forKeys: [
             .isUbiquitousItemKey,
             .ubiquitousItemDownloadingStatusKey,
@@ -276,18 +313,36 @@ enum ReaderProgressICloudStore {
         // Local test/override files and already materialized files do not
         // need a download request.
         guard values.isUbiquitousItem == true else { return }
-        if values.ubiquitousItemDownloadingStatus == .current { return }
+        let status = values.ubiquitousItemDownloadingStatus
+        if status == .current { return }
         try FileManager.default.startDownloadingUbiquitousItem(at: url)
-        let deadline = Date().addingTimeInterval(30)
+        if acceptingLocalCopy, status == .downloaded { return }
+
+        // A download that just timed out will time out again: skip the wait
+        // for a while instead of charging every caller the full window. This
+        // is what keeps a run of reads — one per book on the Study screen —
+        // from each waiting out the timeout while offline.
+        if let failedAt = lastTimeout.withLock({ $0 }),
+           Date().timeIntervalSince(failedAt) < timeoutBackoff {
+            throw ReaderProgressICloudError.downloadTimedOut
+        }
+        let deadline = Date().addingTimeInterval(acceptingLocalCopy ? 5 : 30)
         while Date() < deadline {
             try await Task.sleep(nanoseconds: 100_000_000)
             let current = try url.resourceValues(forKeys: [
                 .ubiquitousItemDownloadingStatusKey,
             ])
-            if current.ubiquitousItemDownloadingStatus == .current { return }
+            if current.ubiquitousItemDownloadingStatus == .current {
+                lastTimeout.withLock { $0 = nil }
+                return
+            }
         }
+        lastTimeout.withLock { $0 = Date() }
         throw ReaderProgressICloudError.downloadTimedOut
     }
+
+    private static let timeoutBackoff: TimeInterval = 120
+    private static let lastTimeout = OSAllocatedUnfairLock<Date?>(initialState: nil)
 
     /// Strip anything that isn't `[A-Za-z0-9._-]` so profile IDs are safe as
     /// a single path component. Profile IDs are already filesystem anchors,

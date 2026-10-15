@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import AmgiReader
 @testable import AmgiReaderPDF
 
 /// A temporary directory that cleans itself up.
@@ -386,17 +387,25 @@ struct PDFLibraryStoreTests {
         let firstSync = await firstStore.synchronizeWithICloud()
         #expect(firstSync.status == .completed)
         #expect(firstSync.uploadedBookIDs == [imported.id])
+        // The book itself goes to the public Books folder under its title;
+        // the metadata that maps it back to its ID stays private.
         let cloudBookDirectory = cloudRoot
-            .appendingPathComponent("Documents", isDirectory: true)
+            .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("PDF", isDirectory: true)
             .appendingPathComponent("books", isDirectory: true)
             .appendingPathComponent(imported.id, isDirectory: true)
+        let booksFolder = cloudRoot
+            .appendingPathComponent("Documents", isDirectory: true)
+            .appendingPathComponent("Books", isDirectory: true)
+        let publicBook = booksFolder.appendingPathComponent(
+            ReaderICloudBookNaming.baseName(forTitle: imported.title) + ".pdf"
+        )
+        #expect(try FileManager.default.contentsOfDirectory(atPath: booksFolder.path)
+            == [publicBook.lastPathComponent])
         #expect(FileManager.default.fileExists(
             atPath: cloudBookDirectory.appendingPathComponent("metadata.json").path
         ))
-        #expect(FileManager.default.fileExists(
-            atPath: cloudBookDirectory.appendingPathComponent("original.pdf").path
-        ))
+        #expect(FileManager.default.fileExists(atPath: publicBook.path))
 
         let secondSync = await secondStore.synchronizeWithICloud()
         #expect(secondSync.status == .completed)
@@ -418,8 +427,6 @@ struct PDFLibraryStoreTests {
         try await firstStore.delete(bookID: imported.id)
         let deleteSync = await firstStore.synchronizeWithICloud()
         #expect(deleteSync.status == .completed)
-        #expect(FileManager.default.fileExists(
-            atPath: cloudBookDirectory.appendingPathComponent("original.pdf").path
-        ))
+        #expect(FileManager.default.fileExists(atPath: publicBook.path))
     }
 }

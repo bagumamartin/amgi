@@ -956,9 +956,12 @@ final class StudyLandingModel {
         let books = ankiBooks + epub
         guard !books.isEmpty else { return nil }
 
+        // One manifest read for every book, not one per book: offline each
+        // read used to wait out the iCloud download timeout in turn.
+        let resolved = await progressCoordinator.resolveAll(bookIDs: books.map(\.id))
         var best: (book: ReaderBook, at: Date)?
         for book in books {
-            guard let progress = await progressCoordinator.resolved(bookID: book.id),
+            guard let progress = resolved[book.id],
                   hasUnfinishedReading(book: book, progress: progress) else { continue }
             if let current = best {
                 if progress.updatedAt > current.at {

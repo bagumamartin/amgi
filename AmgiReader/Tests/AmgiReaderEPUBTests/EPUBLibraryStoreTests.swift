@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import AmgiReader
 @testable import AmgiReaderEPUB
 
 #if os(macOS)
@@ -136,18 +137,25 @@ struct EPUBLibraryStoreTests {
         let firstSync = await firstStore.synchronizeWithICloud()
         #expect(firstSync.status == .completed)
         #expect(firstSync.uploadedBookIDs == [imported.id])
-        let cloudLibrary = cloudRoot
-            .appendingPathComponent("Documents", isDirectory: true)
+        // The book itself goes to the public Books folder under its title;
+        // the metadata that maps it back to its ID stays private.
+        let cloudBookDirectory = cloudRoot
+            .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("EPUB", isDirectory: true)
-        let cloudBookDirectory = cloudLibrary
             .appendingPathComponent("books", isDirectory: true)
             .appendingPathComponent(imported.id, isDirectory: true)
+        let booksFolder = cloudRoot
+            .appendingPathComponent("Documents", isDirectory: true)
+            .appendingPathComponent("Books", isDirectory: true)
+        let publicBook = booksFolder.appendingPathComponent(
+            ReaderICloudBookNaming.baseName(forTitle: imported.title) + ".epub"
+        )
+        #expect(try FileManager.default.contentsOfDirectory(atPath: booksFolder.path)
+            == [publicBook.lastPathComponent])
         #expect(FileManager.default.fileExists(
             atPath: cloudBookDirectory.appendingPathComponent("metadata.json").path
         ))
-        #expect(FileManager.default.fileExists(
-            atPath: cloudBookDirectory.appendingPathComponent("original.epub").path
-        ))
+        #expect(FileManager.default.fileExists(atPath: publicBook.path))
 
         let secondSync = await secondStore.synchronizeWithICloud()
         #expect(secondSync.status == .completed)
@@ -169,9 +177,69 @@ struct EPUBLibraryStoreTests {
         try await firstStore.delete(bookID: imported.id)
         let deleteSync = await firstStore.synchronizeWithICloud()
         #expect(deleteSync.status == .completed)
+        #expect(FileManager.default.fileExists(atPath: publicBook.path))
+    }
+
+    @Test("books in the pre-public layout move to readable names in Documents/Books")
+    func legacyICloudLayoutMigrates() async throws {
+        let fixtureRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("EPUBLegacyCloud-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+        let sourceURL = fixtureRoot.appendingPathComponent("source.epub")
+        try makeValidEPUB(at: sourceURL)
+
+        // Build the old layout by hand: Documents/EPUB/books/{id}/ holding
+        // original.epub beside version-1 metadata.
+        let seedStore = EPUBLibraryStore(
+            testingRootDirectory: fixtureRoot.appendingPathComponent("seed", isDirectory: true),
+            cloudRoot: fixtureRoot.appendingPathComponent("unused", isDirectory: true)
+        )
+        let imported = try await seedStore.importEPUB(from: sourceURL)
+        let cloudRoot = fixtureRoot.appendingPathComponent("icloud", isDirectory: true)
+        let legacyRoot = cloudRoot
+            .appendingPathComponent("Documents", isDirectory: true)
+            .appendingPathComponent("EPUB", isDirectory: true)
+        let legacyDirectory = legacyRoot
+            .appendingPathComponent("books", isDirectory: true)
+            .appendingPathComponent(imported.id, isDirectory: true)
+        try FileManager.default.createDirectory(at: legacyDirectory, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(
+            at: fixtureRoot
+                .appendingPathComponent("seed", isDirectory: true)
+                .appendingPathComponent(imported.id, isDirectory: true)
+                .appendingPathComponent("original.epub"),
+            to: legacyDirectory.appendingPathComponent("original.epub")
+        )
+        try await EPUBICloudStorage.writeMetadata(
+            EPUBCloudBookMetadata(
+                version: 1,
+                bookID: imported.id,
+                title: "Legacy: A Title",
+                author: nil,
+                coverFileName: nil,
+                language: nil,
+                pageCount: 1,
+                updatedAt: nil
+            ),
+            at: legacyDirectory
+        )
+
+        let store = EPUBLibraryStore(
+            testingRootDirectory: fixtureRoot.appendingPathComponent("device", isDirectory: true),
+            cloudRoot: cloudRoot
+        )
+        let sync = await store.synchronizeWithICloud()
+        #expect(sync.status == .completed)
+        #expect(sync.restoredBookIDs == [imported.id])
+
+        let booksFolder = cloudRoot
+            .appendingPathComponent("Documents", isDirectory: true)
+            .appendingPathComponent("Books", isDirectory: true)
         #expect(FileManager.default.fileExists(
-            atPath: cloudBookDirectory.appendingPathComponent("original.epub").path
+            atPath: booksFolder.appendingPathComponent("Legacy- A Title.epub").path
         ))
+        #expect(!FileManager.default.fileExists(atPath: legacyRoot.path))
+        #expect(await store.remoteBookIDs() == [imported.id])
     }
 }
 

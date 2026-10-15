@@ -54,6 +54,19 @@ struct ReaderProgressCoordinator: Sendable {
         return winner
     }
 
+    /// Local positions only — no iCloud read. What the library renders from
+    /// first, so it never waits on the network; `resolveAll` follows it in
+    /// the background and fills in anything newer from other devices.
+    func localAll(bookIDs: [String]) -> [String: ReaderSavedProgress] {
+        var result: [String: ReaderSavedProgress] = [:]
+        for bookID in bookIDs {
+            if let local = store.load(bookID: bookID) {
+                result[bookID] = local
+            }
+        }
+        return result
+    }
+
     /// Returns the resolved progress for multiple books in a single pass,
     /// reading the iCloud manifest once rather than once per book.
     func resolveAll(bookIDs: [String]) async -> [String: ReaderSavedProgress] {
