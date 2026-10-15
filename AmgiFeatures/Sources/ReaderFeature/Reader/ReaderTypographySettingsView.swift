@@ -68,16 +68,9 @@ struct ReaderTypographySettingsView: View {
                             .foregroundStyle(
                                 pageTransition == option ? palette.accent : palette.textSecondary
                             )
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(option.label)
-                                .amgiFont(.body)
-                                .foregroundStyle(palette.textPrimary)
-                            if !option.supportsInteractivePan {
-                                Text("Swipe to turn a chapter is disabled; use the page edges or arrow keys.")
-                                    .amgiFont(.micro)
-                                    .foregroundStyle(palette.textSecondary)
-                            }
-                        }
+                        Text(option.label)
+                            .amgiFont(.body)
+                            .foregroundStyle(palette.textPrimary)
                         Spacer(minLength: 0)
                         if pageTransition == option {
                             Image(systemName: "checkmark")
