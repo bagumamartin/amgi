@@ -246,7 +246,9 @@ enum ReaderProgressICloudStore {
 
     // MARK: - File plumbing
 
-    private static func coordinatedRead(at url: URL) -> Data? {
+    /// Shared with `ReaderCollectionsICloudStore`, which keeps its own
+    /// manifest beside this one under the same rules.
+    static func coordinatedRead(at url: URL) -> Data? {
         let coordinator = NSFileCoordinator(filePresenter: nil)
         var coordinationError: NSError?
         var data: Data?
@@ -265,7 +267,10 @@ enum ReaderProgressICloudStore {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         encoder.dateEncodingStrategy = .millisecondsSince1970
-        let data = try encoder.encode(manifest)
+        try coordinatedWrite(encoder.encode(manifest), to: url)
+    }
+
+    static func coordinatedWrite(_ data: Data, to url: URL) throws {
         let fileManager = FileManager.default
         try fileManager.createDirectory(
             at: url.deletingLastPathComponent(),
@@ -302,7 +307,7 @@ enum ReaderProgressICloudStore {
     /// Starts and awaits an iCloud placeholder download. Throws when the file
     /// cannot materialize — the callers decide whether that means "use local"
     /// (load) or "retry later" (push).
-    private static func ensureDownloaded(
+    static func ensureDownloaded(
         at url: URL,
         acceptingLocalCopy: Bool = false
     ) async throws {
@@ -348,7 +353,7 @@ enum ReaderProgressICloudStore {
     /// a single path component. Profile IDs are already filesystem anchors,
     /// so this is belt-and-braces against a separator smuggling in a path
     /// traversal.
-    private static func sanitized(_ profileID: String) -> String {
+    static func sanitized(_ profileID: String) -> String {
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_."))
         let out = String(profileID.unicodeScalars.map { scalar in
             allowed.contains(scalar) ? Character(scalar) : "_"
