@@ -10,6 +10,7 @@ import SwiftUI
 struct ContinueReadingCard: View {
     let item: ContinueReadingItem
 
+    static let menuWidth: CGFloat = 32
     private static let cardWidth: CGFloat = 280
     private static let cardHeight: CGFloat = 84
     private static let thumbWidth: CGFloat = 46
@@ -42,10 +43,9 @@ struct ContinueReadingCard: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Image(systemName: "ellipsis")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(CoverTint.primaryText)
-                .padding(.trailing, 4)
+            // Room for the "…" menu, which the section lays over this spot:
+            // a menu inside the card's navigation link would open the book.
+            Color.clear.frame(width: ContinueReadingCard.menuWidth)
         }
         .padding(.horizontal, 12)
         .frame(width: Self.cardWidth, height: Self.cardHeight)

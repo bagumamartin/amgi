@@ -94,6 +94,7 @@ enum ReaderLibraryViewDataBuilder {
         epubFirstPageFor: (String) -> EPUBFirstPageSource? = { _ in nil },
         repairFor: (String) -> ReaderBookRepair? = { _ in nil },
         addedAt: (String) -> Date? = { _ in nil },
+        continueHiddenAt: (String) -> Date? = { _ in nil },
         searchText: String,
         sortMode: BookshelfSortMode,
         hasAnkiConfig: Bool,
@@ -117,6 +118,10 @@ enum ReaderLibraryViewDataBuilder {
             filtered.compactMap { book -> ContinueReadingItem? in
                 guard repairFor(book.id) == nil else { return nil }
                 guard let p = progressByID[book.id], p.progress > 0, p.progress < 1 else {
+                    return nil
+                }
+                // "Remove from Continue" holds until the book is read again.
+                if let hiddenAt = continueHiddenAt(book.id), hiddenAt >= p.updatedAt {
                     return nil
                 }
                 return ContinueReadingItem(

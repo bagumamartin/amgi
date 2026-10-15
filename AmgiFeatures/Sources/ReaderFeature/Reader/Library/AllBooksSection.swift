@@ -37,10 +37,7 @@ struct AllBooksSection: View {
     /// screen grows out of that cover instead of cutting in from the edge.
     @Namespace private var coverTransition
 
-    @State private var moveTarget: MoveTarget?
-    @State private var renameTarget: RenameTarget?
-    @State private var deleteTarget: ReaderCollection?
-    @State private var removeTarget: RemoveTarget?
+    @State private var prompts = LibraryPrompts()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -63,65 +60,7 @@ struct AllBooksSection: View {
             }
             .padding(.horizontal, 16)
         }
-        .sheet(item: $moveTarget) { target in
-            if let library {
-                MoveToCollectionSheet(item: target.ref)
-                    .environment(library)
-            }
-        }
-        .alert(
-            renameTarget?.kind == .book ? "Rename Book" : "Rename Collection",
-            isPresented: Binding(
-                get: { renameTarget != nil },
-                set: { if !$0 { renameTarget = nil } }
-            ),
-            presenting: renameTarget
-        ) { target in
-            TextField("Name", text: Binding(
-                get: { renameTarget?.name ?? target.name },
-                set: { renameTarget?.name = $0 }
-            ))
-            Button("Cancel", role: .cancel) {}
-            Button("Save") {
-                guard let name = renameTarget?.name, let library else { return }
-                switch target.kind {
-                case .collection:
-                    library.renameCollection(target.id, to: name)
-                case .book:
-                    Task { await library.renameBook(target.id, to: name) }
-                }
-            }
-        }
-        .confirmationDialog(
-            "Remove “\(removeTarget?.title ?? "")”?",
-            isPresented: Binding(
-                get: { removeTarget != nil },
-                set: { if !$0 { removeTarget = nil } }
-            ),
-            titleVisibility: .visible,
-            presenting: removeTarget
-        ) { target in
-            Button("Remove from Library", role: .destructive) {
-                Task { await library?.removeBook(target.id) }
-            }
-        } message: { _ in
-            Text("It leaves this device's library. Its file stays in iCloud Drive, and your place in it is kept if you add it again.")
-        }
-        .confirmationDialog(
-            "Delete “\(deleteTarget?.name ?? "")”?",
-            isPresented: Binding(
-                get: { deleteTarget != nil },
-                set: { if !$0 { deleteTarget = nil } }
-            ),
-            titleVisibility: .visible,
-            presenting: deleteTarget
-        ) { collection in
-            Button("Delete Collection", role: .destructive) {
-                library?.deleteCollection(collection.id)
-            }
-        } message: { _ in
-            Text("Its books and collections move up a level. Nothing is removed from your library.")
-        }
+        .libraryPrompts($prompts, library: library)
     }
 
     @ViewBuilder
@@ -134,7 +73,7 @@ struct AllBooksSection: View {
                 progress: progress,
                 coverTransition: coverTransition,
                 onRepair: onRepair,
-                actions: menuActions(for: book)
+                actions: library?.bookMenuActions(bookID: book.id, title: book.title, prompts: $prompts)
             )
             .libraryDragAndDrop(
                 item.ref,
@@ -152,9 +91,9 @@ struct AllBooksSection: View {
                     item: collection,
                     progress: progress,
                     coverTransition: coverTransition,
-                    onRename: { renameTarget = RenameTarget(id: collection.id, name: collection.name, kind: .collection) },
-                    onMove: { moveTarget = MoveTarget(ref: .collection(collection.id)) },
-                    onDelete: { deleteTarget = library.collection(collection.id) }
+                    onRename: { prompts.rename = RenameTarget(id: collection.id, name: collection.name, kind: .collection) },
+                    onMove: { prompts.move = MoveTarget(ref: .collection(collection.id)) },
+                    onDelete: { prompts.deleteCollection = library.collection(collection.id) }
                 )
                 .libraryDragAndDrop(
                     item.ref,
@@ -176,43 +115,9 @@ struct AllBooksSection: View {
               let id = library.makeCollection(combining: .book(bookID), with: dropped) else {
             return false
         }
-        renameTarget = RenameTarget(id: id, name: library.collection(id)?.name ?? "", kind: .collection)
+        prompts.rename = RenameTarget(id: id, name: library.collection(id)?.name ?? "", kind: .collection)
         return true
     }
-
-    private func menuActions(for item: BookCellItem) -> BookMenuActions? {
-        guard let library else { return nil }
-        let book = bookForId(item.id)
-        let isFile = library.isManagedFile(item.id)
-        return BookMenuActions(
-            shareFile: book.flatMap(BookShareFile.init(book:)),
-            isFinished: library.isFinished(item.id),
-            hasStarted: library.hasStarted(item.id),
-            onAddToCollection: { moveTarget = MoveTarget(ref: .book(item.id)) },
-            onSetFinished: book == nil ? nil : { library.setFinished(item.id, $0) },
-            onRename: isFile
-                ? { renameTarget = RenameTarget(id: item.id, name: item.title, kind: .book) }
-                : nil,
-            onRemove: isFile ? { removeTarget = RemoveTarget(id: item.id, title: item.title) } : nil
-        )
-    }
-}
-
-private struct RenameTarget: Identifiable {
-    enum Kind { case book, collection }
-    let id: String
-    var name: String
-    let kind: Kind
-}
-
-private struct RemoveTarget: Identifiable {
-    let id: String
-    let title: String
-}
-
-private struct MoveTarget: Identifiable {
-    let ref: ReaderLibraryItemRef
-    var id: String { ref.dragString }
 }
 
 // MARK: - Drag and drop

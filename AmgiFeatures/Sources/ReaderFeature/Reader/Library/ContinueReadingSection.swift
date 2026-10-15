@@ -1,5 +1,6 @@
 import AmgiReader
 import AmgiTheme
+import AmgiUI
 import SwiftUI
 
 struct ContinueReadingSection: View {
@@ -8,6 +9,8 @@ struct ContinueReadingSection: View {
     let progress: ReaderProgressCoordinator
 
     @Environment(\.palette) private var palette
+    @Environment(ReaderLibraryModel.self) private var library: ReaderLibraryModel?
+    @State private var prompts = LibraryPrompts()
     /// See `AllBooksSection` — the detail push grows from the tapped card.
     @Namespace private var coverTransition
 
@@ -30,18 +33,23 @@ struct ContinueReadingSection: View {
                                         #endif
                                 } label: {
                                     ContinueReadingCard(item: item)
-                                        .contextMenu {
-                                            NavigationLink {
-                                                ReaderBookDetailView(book: book, progress: progress)
-                                            } label: {
-                                                Label("Book Details & Chapters", systemImage: "info.circle")
-                                            }
-                                        }
+                                        .contextMenu { menu(for: item, book: book) }
                                 }
                                 .buttonStyle(.pressScale)
                                 #if os(iOS)
                                 .matchedTransitionSource(id: item.id, in: coverTransition)
                                 #endif
+                                .overlay(alignment: .trailing) {
+                                    Menu { menu(for: item, book: book) } label: {
+                                        Image(systemName: "ellipsis")
+                                            .font(.system(size: 15, weight: .semibold))
+                                            .foregroundStyle(CoverTint.primaryText)
+                                            .frame(width: 44, height: 44)
+                                            .contentShape(Rectangle())
+                                    }
+                                    .padding(.trailing, 6)
+                                    .accessibilityLabel("Book actions")
+                                }
                             } else {
                                 ContinueReadingCard(item: item)
                             }
@@ -50,7 +58,22 @@ struct ContinueReadingSection: View {
                     .padding(.horizontal, 16)
                 }
             }
+            .libraryPrompts($prompts, library: library)
         }
+    }
+
+    /// The grid's book menu, plus "Remove from Continue".
+    private func menu(for item: ContinueReadingItem, book: ReaderBook) -> some View {
+        BookMenuContent(
+            book: book,
+            progress: progress,
+            actions: library?.bookMenuActions(
+                bookID: item.id,
+                title: item.title,
+                prompts: $prompts,
+                inContinue: true
+            )
+        )
     }
 
     private var sectionHeader: some View {

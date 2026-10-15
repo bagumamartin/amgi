@@ -107,67 +107,14 @@ struct AllBooksCell: View {
         .frame(height: 24)
     }
 
-    /// The same menu on long press and behind "…", grouped the way Apple
-    /// Books groups its own: share; organise and progress; details and
-    /// rename; remove, set apart at the bottom.
-    @ViewBuilder
     private var bookMenu: some View {
-        if let repair = item.repair, let onRepair {
-            Button {
-                onRepair(item.id, repair)
-            } label: {
-                Label("Repair Book…", systemImage: "wrench.and.screwdriver")
-            }
-        }
-        if let file = actions?.shareFile {
-            ShareLink(item: file, preview: SharePreview(file.title)) {
-                Label("Share", systemImage: "square.and.arrow.up")
-            }
-        }
-        Section {
-            if let onAddToCollection = actions?.onAddToCollection {
-                Button(action: onAddToCollection) {
-                    Label("Add to Collection…", systemImage: "text.badge.plus")
-                }
-            }
-            if let actions, let setFinished = actions.onSetFinished, item.repair == nil {
-                if actions.isFinished {
-                    Button { setFinished(false) } label: {
-                        Label("Mark as Unread", systemImage: "arrow.counterclockwise.circle")
-                    }
-                } else {
-                    Button { setFinished(true) } label: {
-                        Label("Mark as Finished", systemImage: "checkmark.circle")
-                    }
-                    if actions.hasStarted {
-                        Button { setFinished(false) } label: {
-                            Label("Mark as Unread", systemImage: "arrow.counterclockwise.circle")
-                        }
-                    }
-                }
-            }
-        }
-        Section {
-            if let book {
-                NavigationLink {
-                    ReaderBookDetailView(book: book, progress: progress)
-                } label: {
-                    Label("Book Details & Chapters", systemImage: "info.circle")
-                }
-            }
-            if let onRename = actions?.onRename {
-                Button(action: onRename) {
-                    Label("Rename…", systemImage: "character.cursor.ibeam")
-                }
-            }
-        }
-        if let onRemove = actions?.onRemove {
-            Section {
-                Button(role: .destructive, action: onRemove) {
-                    Label("Remove…", systemImage: "trash")
-                }
-            }
-        }
+        BookMenuContent(
+            book: book,
+            progress: progress,
+            repair: item.repair,
+            onRepair: item.repair.flatMap { repair in onRepair.map { handler in { handler(item.id, repair) } } },
+            actions: actions
+        )
     }
 
     @ViewBuilder
@@ -242,5 +189,7 @@ struct BookMenuActions {
     var onAddToCollection: (() -> Void)?
     var onSetFinished: ((Bool) -> Void)?
     var onRename: (() -> Void)?
+    /// Continue cards only: hide the book from Continue until it is read again.
+    var onRemoveFromContinue: (() -> Void)?
     var onRemove: (() -> Void)?
 }

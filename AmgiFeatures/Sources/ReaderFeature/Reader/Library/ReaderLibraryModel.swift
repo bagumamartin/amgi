@@ -24,6 +24,8 @@ final class ReaderLibraryModel {
     /// When each book was imported, this session. Puts a new book at the
     /// front of the "Recently Read" order straight away.
     @ObservationIgnored private var importedAt: [String: Date] = [:]
+    /// Books removed from Continue, and when. Profile-scoped like progress.
+    private var continueHidden: [String: Date] = ReaderLibraryModel.loadContinueHidden()
     /// True while the Library's own sync button is working.
     private(set) var isSyncingLibrary = false
     var isImportingBooks: Bool = false
@@ -258,6 +260,7 @@ final class ReaderLibraryModel {
                 epubFirstPageFor: { firstPages[$0] },
                 repairFor: { repairSnapshot[$0] },
                 addedAt: { [importedAt] in importedAt[$0] },
+                continueHiddenAt: { [continueHidden] in continueHidden[$0] },
                 searchText: query,
                 sortMode: sortMode,
                 hasAnkiConfig: hasAnkiConfiguration,
@@ -566,6 +569,30 @@ final class ReaderLibraryModel {
         progress.save(bookID: bookID, chapterID: chapterID, progress: finished ? 1 : 0)
         progressByBook[bookID] = progress.store.load(bookID: bookID)
         refreshGridForLastQuery()
+    }
+
+    /// Takes a book out of Continue without touching its position. It comes
+    /// back by itself the next time it is read, as in Apple Books.
+    func removeFromContinue(_ bookID: String) {
+        continueHidden[bookID] = .now
+        Self.saveContinueHidden(continueHidden)
+        refreshGridForLastQuery()
+    }
+
+    private static var continueHiddenKey: String {
+        let profile = UserDefaults.standard.string(forKey: "amgi.selectedUser") ?? "default"
+        return "amgi.reader.continueHidden__\(profile)"
+    }
+
+    private static func loadContinueHidden() -> [String: Date] {
+        guard let stored = UserDefaults.standard.dictionary(forKey: continueHiddenKey) as? [String: Double] else {
+            return [:]
+        }
+        return stored.mapValues { Date(timeIntervalSince1970: $0) }
+    }
+
+    private static func saveContinueHidden(_ hidden: [String: Date]) {
+        UserDefaults.standard.set(hidden.mapValues(\.timeIntervalSince1970), forKey: continueHiddenKey)
     }
 
     func renameBook(_ bookID: String, to title: String) async {

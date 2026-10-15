@@ -49,4 +49,24 @@ struct LibraryCollectionGridTests {
         )
         #expect(grid.map(\.ref) == [.collection(shelf), .book("filed")])
     }
+
+    @Test("Remove from Continue hides a book until it is read again")
+    func removeFromContinue() {
+        let book = ReaderBook(id: "b1", title: "Book", author: nil, chapters: [])
+        func continueIDs(readAt: Date, hiddenAt: Date?) -> [String] {
+            ReaderLibraryViewDataBuilder.build(
+                books: [book],
+                progressFor: { _ in ReaderSavedProgress(chapterID: 0, progress: 0.4, updatedAt: readAt) },
+                epubCoverURLFor: { _ in nil },
+                continueHiddenAt: { _ in hiddenAt },
+                searchText: "",
+                sortMode: .recent,
+                hasAnkiConfig: false
+            ).continueReading.map(\.id)
+        }
+        let read = Date(timeIntervalSince1970: 1_000)
+        #expect(continueIDs(readAt: read, hiddenAt: nil) == ["b1"])
+        #expect(continueIDs(readAt: read, hiddenAt: read.addingTimeInterval(10)).isEmpty)
+        #expect(continueIDs(readAt: read.addingTimeInterval(20), hiddenAt: read.addingTimeInterval(10)) == ["b1"])
+    }
 }
