@@ -5,8 +5,11 @@ public import CoreGraphics
 /// slots. A per-theme override can be added later without breaking
 /// theme JSONs.
 public enum AmgiRadius {
-    /// Small chips, thumbnails, and cover art corners.
+    /// Small chips and thumbnails.
     public static let small: CGFloat = 8
+    /// Book cover art. Nearly square, the way Apple Books draws a cover:
+    /// a book's corners are cut, not rounded like a card.
+    public static let bookCover: CGFloat = 3
     /// Inner tiles, list-card surfaces, insets. (was 14)
     public static let inset: CGFloat = 12
     /// Hero cards and top-level card chrome. (was 16–18)
