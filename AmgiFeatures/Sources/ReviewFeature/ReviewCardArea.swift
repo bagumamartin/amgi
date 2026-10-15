@@ -29,9 +29,13 @@ struct ReviewCardArea: View {
     let showNextReviewTime: Bool
     @Binding var lookupQuery: String?
     @Binding var showRenderModeSheet: Bool
+    var onAskAI: (() -> Void)? = nil
 
     @Environment(\.palette) private var palette
     @State private var nativeAudioPlayer = NativeCardAudioPlayer()
+    /// Height of the reveal/rating controls, so the assistant button can
+    /// float just above them whichever is showing.
+    @State private var controlsHeight: CGFloat = 0
 
     /// Fixed for the collection's lifetime, so it's resolved once into `@State`
     /// rather than re-resolving the dependency on every `cardSurface` call —
@@ -92,24 +96,34 @@ struct ReviewCardArea: View {
 
             Spacer()
 
-            if session.requiresTypedAnswerInput {
-                TypedAnswerField(session: session)
-            }
-
-            if session.showAnswer {
-                answerButtons
-            } else {
-                Button {
-                    session.revealAnswer()
-                } label: {
-                    Text(L10n.text("Show Answer"))
-                        .amgiFont(.bodyEmphasis)
-                        .frame(maxWidth: .infinity)
-                        .padding()
+            VStack(spacing: 0) {
+                if session.requiresTypedAnswerInput {
+                    TypedAnswerField(session: session)
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(session.isAdvancing)
-                .padding()
+
+                if session.showAnswer {
+                    answerButtons
+                } else {
+                    Button {
+                        session.revealAnswer()
+                    } label: {
+                        Text(L10n.text("Show Answer"))
+                            .amgiFont(.bodyEmphasis)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(session.isAdvancing)
+                    .padding()
+                }
+            }
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { controlsHeight = $0 }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if let onAskAI {
+                AskAIHeadButton(action: onAskAI)
+                    .padding(.trailing, AmgiSpacing.lg)
+                    .padding(.bottom, controlsHeight + AmgiSpacing.xs)
             }
         }
     }
@@ -252,5 +266,25 @@ struct TypedAnswerField: View {
             .focused($focused)
             .padding(.horizontal)
             .onAppear { focused = true }
+    }
+}
+
+/// The assistant's way into Review: its head in a glass circle, floating at
+/// the trailing edge just above the answer controls.
+private struct AskAIHeadButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            AssistantHead(.idle)
+                .frame(width: 34, height: 34)
+                .frame(width: 52, height: 52)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .amgiMaterial(.regular, in: Circle(), interactive: true)
+        .amgiMaterialElevation(Circle(), radius: 10, y: 4, opacity: 0.12)
+        .accessibilityLabel(L10n.text("Ask AI about this card"))
+        .accessibilityIdentifier("review.assistant")
     }
 }

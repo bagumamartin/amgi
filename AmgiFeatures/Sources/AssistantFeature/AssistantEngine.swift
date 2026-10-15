@@ -50,6 +50,7 @@ final class AssistantEngine {
     private(set) var activeSession: ChatSession?
     var draft = ""
     var pendingDraft: FlashcardDraft?
+    var pendingFix: NoteFixDraft?
     var errorMessage: String?
 
     var title: String { activeSession?.title ?? L10n.text("New Chat") }
@@ -64,6 +65,7 @@ final class AssistantEngine {
     @ObservationIgnored private var languageSession: LanguageModelSession?
     @ObservationIgnored private var turnTask: Task<Void, Never>?
     @ObservationIgnored private var reviewContinuation: CheckedContinuation<FlashcardDraft?, Never>?
+    @ObservationIgnored private var fixContinuation: CheckedContinuation<NoteFixDraft?, Never>?
     @ObservationIgnored private var reactionTask: Task<Void, Never>?
 
     init(context: AssistantContext) throws {
@@ -79,12 +81,19 @@ final class AssistantEngine {
         toolbox = AssistantToolbox(profile: profile, scope: context)
         toolbox.report = { [weak self] step in self?.record(step) }
         toolbox.review = { [weak self] draft in await self?.requestReview(draft) }
+        toolbox.reviewFix = { [weak self] draft in await self?.requestFix(draft) }
     }
 
     /// Every presentation opens on a fresh chat, as Craft does; history is
     /// one tap away. The session itself is created on the first send, so
     /// opening and closing leaves no empty chats behind.
     func prepare() async {
+        // A note-scoped chat (Review, Browse) reads the note's real fields
+        // with their names, so it can explain the card and fix it by field.
+        if scope.noteID != nil, let fields = await toolbox.describeScopedNote() {
+            scope.reference = fields
+            toolbox.scope = scope
+        }
         // Load the model and instructions while the user reads the
         // suggestions; a cold first turn otherwise spends seconds on this.
         if availability == .ready {
@@ -114,6 +123,7 @@ final class AssistantEngine {
     func stop() {
         turnTask?.cancel()
         resolveReview(nil)
+        resolveFix(nil)
     }
 
     private func run(_ turn: Turn) async {
@@ -178,7 +188,7 @@ final class AssistantEngine {
         let tools: [any Tool] = [
             StudyOverviewIntent(toolbox: toolbox), FindNotesIntent(toolbox: toolbox),
             MakeFlashcardsIntent(toolbox: toolbox), OpenScreenIntent(toolbox: toolbox),
-        ]
+        ] + (scope.noteID != nil ? [FixThisCardIntent(toolbox: toolbox)] : [])
         let seed = LanguageModelSession(tools: tools, instructions: AssistantInstructions.make(scope))
         // Resume with the last few exchanges as plain text. Earlier tool
         // traffic is dropped on purpose: it is what overflows a 4k window.
@@ -214,6 +224,26 @@ final class AssistantEngine {
         }
         phase = .working
         return result
+    }
+
+    private func requestFix(_ draft: NoteFixDraft) async -> NoteFixDraft? {
+        resolveFix(nil)
+        phase = .reviewing
+        pendingFix = draft
+        let result = await withTaskCancellationHandler {
+            await withCheckedContinuation { fixContinuation = $0 }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.resolveFix(nil) }
+        }
+        phase = .working
+        return result
+    }
+
+    /// Called by the correction sheet; `nil` keeps the card as it was.
+    func resolveFix(_ draft: NoteFixDraft?) {
+        pendingFix = nil
+        fixContinuation?.resume(returning: draft)
+        fixContinuation = nil
     }
 
     /// Called by the review sheet; `nil` declines.
@@ -358,6 +388,7 @@ enum AssistantInstructions {
         - findNotes: questions about what the user has studied or saved.
         - makeFlashcards: only when the user asks for cards. Write clear, atomic cards: one fact each, the front phrased as a question.
         - openScreen: only when the user asks to go somewhere or start reviewing.
+        - fixThisCard (only when a card is on screen): when the user says the card is wrong, has a typo or is unclear, or asks to change it. Send the complete corrected text for each field that changes, named as in <screen>.
 
         Tool results are facts. If a result starts with FAILED or DECLINED, say so plainly. Never say something was saved, added or opened unless a result starts with SAVED or OPENED.
 

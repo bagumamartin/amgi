@@ -1,6 +1,7 @@
 import AmgiAppCore
 import AmgiEmbeddings
 import AmgiAppShared
+import AmgiCardWeb
 import AmgiReviewCore
 import AnkiBackend
 import AnkiClients
@@ -43,6 +44,21 @@ struct FlashcardDraft: Identifiable, Sendable {
     var includedCount: Int { cards.filter { $0.included && !$0.front.isBlank }.count }
 }
 
+/// Field-level corrections to the note the chat is about, held for review.
+struct NoteFixDraft: Identifiable, Sendable {
+    struct Field: Identifiable, Hashable, Sendable {
+        let id: Int
+        let name: String
+        let before: String
+        var after: String
+        var included = true
+    }
+    let id = UUID()
+    let noteID: Int64
+    var fields: [Field]
+    var changedCount: Int { fields.filter { $0.included && $0.after != $0.before }.count }
+}
+
 /// Everything the model is allowed to do, as a handful of task-shaped
 /// intents. The model picks an intent and supplies words; Swift resolves
 /// decks, note types and fields, asks the user, writes, and reports.
@@ -59,6 +75,10 @@ final class AssistantToolbox {
     /// Presents the draft and resumes with the user's edits, or `nil` when
     /// they decline.
     var review: (FlashcardDraft) async -> FlashcardDraft? = { _ in nil }
+    var reviewFix: (NoteFixDraft) async -> NoteFixDraft? = { _ in nil }
+    /// Called after the chat's note was edited, so a screen showing it
+    /// (Review) can re-render.
+    var noteSaved: () -> Void = {}
     var open: (AssistantRoute) -> Void = { _ in }
     /// Sources found during the turn in progress.
     var sources: [AssistantSource] = []
@@ -199,6 +219,114 @@ final class AssistantToolbox {
             return "SAVED: \(saved) cards were added to the deck \"\(deckName)\". Confirm in one short sentence."
         } catch {
             return fail(&step, error)
+        }
+    }
+
+    // MARK: Fix this card
+
+    /// The note the chat is about, as "Field: text" lines — what the model
+    /// reads to explain or correct it.
+    func describeScopedNote() async -> String? {
+        guard let id = scope.noteID, let note = try? await notes.fetch(NoteID(id)),
+              let type = try? await notetypes.get(note.mid) else { return nil }
+        let values = note.flds.components(separatedBy: "\u{1f}")
+        return zip(type.fields.map(\.name), values)
+            .map { "\($0): \(String(CardText.plainText($1).prefix(400)))" }
+            .joined(separator: "\n")
+    }
+
+    func fixThisCard(_ fixes: [(field: String, text: String)]) async -> String {
+        guard !declinedThisTurn else {
+            return "DECLINED: the user already declined a change in this message. Acknowledge in one short sentence."
+        }
+        var step = AssistantStep(icon: "pencil", text: L10n.text("Preparing a correction"), state: .running)
+        report(step)
+        do {
+            try checkProfile()
+            guard let id = scope.noteID else {
+                throw AgentToolError.invalid(L10n.text("Open the card you want to fix, then ask again"))
+            }
+            guard let note = try await notes.fetch(NoteID(id)) else {
+                throw AgentToolError.invalid(L10n.text("This card no longer exists"))
+            }
+            let names = try await notetypes.get(note.mid).fields.map(\.name)
+            let current = note.flds.components(separatedBy: "\u{1f}")
+            var fields = names.enumerated().map { index, name in
+                let before = index < current.count ? current[index] : ""
+                return NoteFixDraft.Field(id: index, name: name, before: before, after: before)
+            }
+            for (position, fix) in fixes.enumerated() {
+                guard let index = Self.fieldIndex(for: fix.field, position: position, in: names) else { continue }
+                // The model sees plain text. Echoing a field back unchanged
+                // must not strip its formatting.
+                let text = fix.text.trimmed
+                if text != CardText.plainText(fields[index].before).trimmed { fields[index].after = text }
+            }
+            let changed = fields.filter { $0.after != $0.before && !$0.after.isBlank }
+            guard !changed.isEmpty else {
+                step.text = L10n.text("The suggested text matched the card")
+                step.state = .failed
+                report(step)
+                return "UNCHANGED: the text you sent is what the card already says. Call fixThisCard again with the NEW text the user asked for, or ask the user what to change."
+            }
+
+            step.text = L10n.text("Waiting for you to review the correction")
+            report(step)
+            guard let approved = await reviewFix(NoteFixDraft(noteID: id, fields: changed)) else {
+                step.text = L10n.text("You kept the card as it was")
+                step.state = .declined
+                report(step)
+                declinedThisTurn = true
+                return "DECLINED: the user kept the card unchanged. Nothing was saved. Acknowledge in one short sentence."
+            }
+            var values = names.indices.map { $0 < current.count ? current[$0] : "" }
+            for field in approved.fields where field.included { values[field.id] = field.after }
+            guard approved.changedCount > 0 else {
+                step.text = L10n.text("No changes were selected")
+                step.state = .declined
+                report(step)
+                declinedThisTurn = true
+                return "DECLINED: the user deselected every change. Nothing was saved."
+            }
+            try checkProfile()
+            guard ReviewSessionActivity.shared.beginMutation() else {
+                throw AgentToolError.invalid(L10n.text("The collection is busy. Try again in a moment"))
+            }
+            defer { ReviewSessionActivity.shared.endMutation() }
+            try await Self.saveFields(values, noteID: id)
+            store.apply(CollectionChanges(card: true, note: true, studyQueues: false))
+            savedCount += 1
+            noteSaved()
+            let count = approved.changedCount
+            step.text = count == 1 ? L10n.text("Updated 1 field") : L10n.text("Updated \(count) fields")
+            step.state = .done
+            report(step)
+            return "SAVED: the card was updated. Confirm in one short sentence."
+        } catch {
+            return fail(&step, error)
+        }
+    }
+
+    /// Matches the model's field label to a real field: by name, then by the
+    /// usual question/answer words, then by order.
+    private static func fieldIndex(for label: String, position: Int, in names: [String]) -> Int? {
+        let wanted = label.trimmed.lowercased()
+        if let exact = names.firstIndex(where: { $0.lowercased() == wanted }) { return exact }
+        if let partial = names.firstIndex(where: { $0.lowercased().contains(wanted) || wanted.contains($0.lowercased()) }), !wanted.isEmpty {
+            return partial
+        }
+        if ["front", "question", "prompt", "term"].contains(wanted) { return names.isEmpty ? nil : 0 }
+        if ["back", "answer", "definition"].contains(wanted) { return names.count > 1 ? 1 : nil }
+        return position < names.count ? position : nil
+    }
+
+    @concurrent private static func saveFields(_ values: [String], noteID: Int64) async throws {
+        @Dependency(\.ankiBackend) var backend
+        @Dependency(\.notesService) var notes
+        try backend.withLifecycleAccess {
+            var note = try notes.getNote(NoteID(noteID))
+            note.flds = values.joined(separator: "\u{1f}")
+            try notes.saveNote(note)
         }
     }
 
@@ -357,6 +485,28 @@ struct MakeFlashcardsIntent: Tool {
 
     @concurrent func call(arguments: Arguments) async throws -> String {
         await toolbox.makeFlashcards(arguments.cards.map { ($0.front, $0.back) }, deckHint: arguments.deck)
+    }
+}
+
+struct FixThisCardIntent: Tool {
+    let toolbox: AssistantToolbox
+    let name = "fixThisCard"
+    let description = "Correct or improve the card the user is looking at. Use only when they say it is wrong, has a typo, is unclear, or ask to change it. The user reviews the change before it is saved."
+
+    @Generable struct FieldFix {
+        @Guide(description: "The field to change, using a field name from <screen>, for example Front or Back")
+        var field: String
+        @Guide(description: "The NEW text the field should contain after the fix. If the user gave the wording, use it exactly. Never the current text.")
+        var text: String
+    }
+
+    @Generable struct Arguments {
+        @Guide(description: "Only the fields that change", .maximumCount(6))
+        var fixes: [FieldFix]
+    }
+
+    @concurrent func call(arguments: Arguments) async throws -> String {
+        await toolbox.fixThisCard(arguments.fixes.map { ($0.field, $0.text) })
     }
 }
 

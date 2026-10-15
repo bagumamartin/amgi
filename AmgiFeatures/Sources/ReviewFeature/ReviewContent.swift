@@ -29,6 +29,8 @@ struct ReviewContent: View {
     let showNextReviewTime: Bool
     @Binding var destination: ReviewDestination?
     let onDismiss: () -> Void
+    /// Opens the assistant about the current card; `nil` hides the button.
+    var onAskAI: (() -> Void)? = nil
 
     @Environment(\.palette) private var palette
     @Environment(\.colorScheme) private var colorScheme
@@ -78,7 +80,8 @@ struct ReviewContent: View {
                         tapLookup: tapLookup,
                         showNextReviewTime: showNextReviewTime,
                         lookupQuery: lookupQuery,
-                        showRenderModeSheet: $showRenderModeSheet
+                        showRenderModeSheet: $showRenderModeSheet,
+                        onAskAI: onAskAI
                     )
                 }
             }

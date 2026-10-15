@@ -21,15 +21,18 @@ public struct StudyAssistantView: View {
     private let onRoute: (@MainActor (AssistantRoute) -> Void)?
     private let onOpenNote: (@MainActor (AssistantCitation) -> Void)?
     private let onClose: (@MainActor () -> Void)?
+    private let onNoteSaved: (@MainActor () -> Void)?
 
     public init(
         initialPrompt: String? = nil, context: AssistantContext = AssistantContext(),
         onRoute: (@MainActor (AssistantRoute) -> Void)? = nil,
         onOpenNote: (@MainActor (AssistantCitation) -> Void)? = nil,
-        onClose: (@MainActor () -> Void)? = nil
+        onClose: (@MainActor () -> Void)? = nil,
+        onNoteSaved: (@MainActor () -> Void)? = nil
     ) {
         self.initialPrompt = initialPrompt; self.context = context
         self.onRoute = onRoute; self.onOpenNote = onOpenNote; self.onClose = onClose
+        self.onNoteSaved = onNoteSaved
     }
 
     public var body: some View {
@@ -56,6 +59,7 @@ public struct StudyAssistantView: View {
                     if let explicitClose { explicitClose() } else { dismissAction() }
                     routeHandler(route)
                 }
+                if let onNoteSaved { created.toolbox.noteSaved = onNoteSaved }
                 engine = created
                 await created.prepare()
                 if let initialPrompt, !initialPrompt.isEmpty { created.draft = initialPrompt }
@@ -137,6 +141,10 @@ struct AssistantChatView: View {
         .sheet(item: $previewSource) { AssistantSourcePreview(source: $0, profile: engine.profile) }
         .sheet(item: Binding(get: { engine.pendingDraft }, set: { if $0 == nil { engine.resolveReview(nil) } })) { draft in
             AssistantFlashcardReview(draft: draft) { engine.resolveReview($0) }
+                .interactiveDismissDisabled()
+        }
+        .sheet(item: Binding(get: { engine.pendingFix }, set: { if $0 == nil { engine.resolveFix(nil) } })) { draft in
+            AssistantNoteFixReview(draft: draft) { engine.resolveFix($0) }
                 .interactiveDismissDisabled()
         }
         .alert("Rename chat", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
@@ -411,7 +419,7 @@ private struct ContextChip: View {
         case "deck": L10n.text("This deck")
         case "note": L10n.text("This note")
         case "reader": L10n.text("This book")
-        case "review": L10n.text("This card")
+        case "review": L10n.text("In review")
         default: L10n.text("All decks")
         }
     }
@@ -604,6 +612,7 @@ struct ChatSuggestion: Identifiable {
                 .init(title: L10n.text("Explain this card"), icon: "lightbulb", prompt: L10n.text("Explain this card simply."), sends: true),
                 .init(title: L10n.text("Give me a memory trick"), icon: "sparkle.magnifyingglass", prompt: L10n.text("Give me a mnemonic for this card."), sends: true),
                 .init(title: L10n.text("Make related cards"), icon: "rectangle.stack.badge.plus", prompt: L10n.text("Make two flashcards related to this card."), sends: true),
+                .init(title: L10n.text("Fix a mistake in this card…"), icon: "pencil", prompt: L10n.text("Fix this card: "), sends: false),
             ]
         case "reader":
             [

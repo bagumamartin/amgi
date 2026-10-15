@@ -76,16 +76,20 @@ package struct ReviewView: View {
             tapLookup: tapLookup,
             showNextReviewTime: showNextReviewTime,
             destination: $destination,
-            onDismiss: dismiss
+            onDismiss: dismiss,
+            onAskAI: { showAssistant = true }
         )
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button("Ask AI", systemImage: "sparkles") { showAssistant = true }.labelStyle(.iconOnly)
-            }
-        }
         .sheet(isPresented: $showAssistant) {
-            StudyAssistantView(context: AssistantContext(title: "Review", reference: ReviewSessionContext.shared.encodedSnapshot().flatMap { String(data: $0, encoding: .utf8) } ?? "No active card", deckID: deckId.rawValue, kind: "review"))
-                .presentationDetents([.large])
+            StudyAssistantView(
+                context: AssistantContext(
+                    title: L10n.text("This card"),
+                    deckID: deckId.rawValue,
+                    noteID: session.currentNote?.id.rawValue,
+                    kind: "review"
+                ),
+                onNoteSaved: { Task { await session.refreshAfterEdit() } }
+            )
+            .presentationDetents([.large])
         }
         .task {
             ReviewAudioSession.apply(playInSilent: playAudioInSilentMode)
