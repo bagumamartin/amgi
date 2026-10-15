@@ -5,8 +5,40 @@ import Foundation
 
 struct ReaderLibraryViewData: Equatable {
     var continueReading: [ContinueReadingItem]
+    /// Every book matching the search, sorted, ignoring collections.
     var allBooks: [BookCellItem]
+    /// What the top-level grid shows: collections, then the books not in one.
+    /// While searching, every match wherever it is filed.
+    var grid: [LibraryGridItem] = []
     var hasAnkiConfig: Bool
+}
+
+/// One cell of the library grid.
+enum LibraryGridItem: Identifiable, Equatable {
+    case book(BookCellItem)
+    case collection(CollectionCellItem)
+
+    var id: String { ref.dragString }
+
+    var ref: ReaderLibraryItemRef {
+        switch self {
+        case .book(let item): .book(item.id)
+        case .collection(let item): .collection(item.id)
+        }
+    }
+}
+
+/// A collection's grid cell: its name, what is in it, and the covers its
+/// collage is drawn from.
+struct CollectionCellItem: Identifiable, Equatable {
+    let id: String
+    let name: String
+    /// Books anywhere inside, nested collections included.
+    let bookCount: Int
+    /// Collections directly inside.
+    let collectionCount: Int
+    /// Up to `CollectionMosaic.maxCovers` books for the collage, nearest first.
+    let covers: [BookCellItem]
 }
 
 struct ContinueReadingItem: Identifiable, Equatable {
@@ -61,9 +93,11 @@ enum ReaderLibraryViewDataBuilder {
         epubCoverURLFor: (String) -> URL?,
         epubFirstPageFor: (String) -> EPUBFirstPageSource? = { _ in nil },
         repairFor: (String) -> ReaderBookRepair? = { _ in nil },
+        addedAt: (String) -> Date? = { _ in nil },
         searchText: String,
         sortMode: BookshelfSortMode,
-        hasAnkiConfig: Bool
+        hasAnkiConfig: Bool,
+        collections: ReaderCollectionTree = ReaderCollectionTree()
     ) -> ReaderLibraryViewData {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         let filtered: [ReaderBook] = query.isEmpty ? books : books.filter { book in
@@ -109,8 +143,11 @@ enum ReaderLibraryViewDataBuilder {
                 if lhsNeedsRepair != rhsNeedsRepair { return !lhsNeedsRepair }
                 switch sortMode {
                 case .recent:
-                    let lhsDate = progressByID[lhs.id]?.updatedAt ?? .distantPast
-                    let rhsDate = progressByID[rhs.id]?.updatedAt ?? .distantPast
+                    // Recently read *or added*, as in Apple Books: a book
+                    // imported a moment ago belongs at the front, not at its
+                    // title's place among books never opened.
+                    let lhsDate = max(progressByID[lhs.id]?.updatedAt ?? .distantPast, addedAt(lhs.id) ?? .distantPast)
+                    let rhsDate = max(progressByID[rhs.id]?.updatedAt ?? .distantPast, addedAt(rhs.id) ?? .distantPast)
                     if lhsDate != rhsDate { return lhsDate > rhsDate }
                 case .progress:
                     let lhsProgress = progressByID[lhs.id]?.progress ?? 0
@@ -138,8 +175,59 @@ enum ReaderLibraryViewDataBuilder {
         return ReaderLibraryViewData(
             continueReading: continueReading,
             allBooks: allBooks,
+            grid: grid(
+                cells: allBooks,
+                collections: collections,
+                in: nil,
+                matching: query.isEmpty ? nil : query
+            ),
             hasAnkiConfig: hasAnkiConfig
         )
+    }
+
+    /// The grid for one level of the library (`collectionID` nil: the top).
+    ///
+    /// `cells` must already be in display order; collections go first, by
+    /// name, then the books filed at this level. With a `query`, folders
+    /// stop mattering: every matching collection and every book in `cells`
+    /// (already filtered by the caller) is shown, wherever it is filed.
+    static func grid(
+        cells: [BookCellItem],
+        collections: ReaderCollectionTree,
+        in collectionID: String?,
+        matching query: String? = nil
+    ) -> [LibraryGridItem] {
+        let order = cells.map(\.id)
+        let cellByID = Dictionary(cells.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+
+        let shownCollections: [ReaderCollection]
+        let shownBooks: [BookCellItem]
+        if let query {
+            shownCollections = collections.liveCollections.filter {
+                $0.name.localizedCaseInsensitiveContains(query)
+            }
+            shownBooks = cells
+        } else {
+            shownCollections = collections.childCollections(of: collectionID)
+            shownBooks = cells.filter { collections.contains(bookID: $0.id, directlyIn: collectionID) }
+        }
+
+        let collectionItems = shownCollections
+            .sorted {
+                let cmp = $0.name.localizedCaseInsensitiveCompare($1.name)
+                return cmp == .orderedSame ? $0.id < $1.id : cmp == .orderedAscending
+            }
+            .map { collection -> LibraryGridItem in
+                let inside = collections.booksUnder(collection.id, ordering: order)
+                return .collection(CollectionCellItem(
+                    id: collection.id,
+                    name: collection.name,
+                    bookCount: inside.count,
+                    collectionCount: collections.childCollections(of: collection.id).count,
+                    covers: inside.prefix(CollectionMosaic.maxCovers).compactMap { cellByID[$0] }
+                ))
+            }
+        return collectionItems + shownBooks.map(LibraryGridItem.book)
     }
 }
 
@@ -178,5 +266,17 @@ private extension ReaderLibraryViewDataBuilder {
         case .epub, .ankiDeck:
             return "Book"
         }
+    }
+}
+
+/// A file being imported, shown as a placeholder tile until its book exists.
+struct PendingImport: Identifiable, Equatable {
+    let id = UUID()
+    /// The file's name without its extension — the best title there is
+    /// before the file has been parsed.
+    let title: String
+
+    init(url: URL) {
+        title = url.deletingPathExtension().lastPathComponent
     }
 }

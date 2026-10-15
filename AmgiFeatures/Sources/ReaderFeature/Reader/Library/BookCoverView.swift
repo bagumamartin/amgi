@@ -10,6 +10,11 @@ struct BookCoverView: View {
     var showsFormatBadge: Bool = false
 
     var body: some View {
+        art.environment(\.coverImageOutlined, false)
+    }
+
+    @ViewBuilder
+    private var art: some View {
         switch coverArt {
         case .epub(let url):
             ReaderCoverImage(fileURL: url, format: showsFormatBadge ? .epub : nil) {

@@ -126,6 +126,56 @@ struct EPUBCoverImageExtractorTests {
         )?.lastPathComponent == "cover.jpg")
     }
 
+    @Test("an SVG-wrapped cover image is found")
+    func svgImageCover() throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeImage(in: root, name: "cover.jpeg", byteCount: 4000)
+        // Calibre's titlepage.xhtml shape: the whole cover is an SVG <image>.
+        let chapter = try writeChapter(in: root, body: """
+            <div><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+                 version="1.1" width="100%" height="100%" viewBox="0 0 600 800">
+              <image width="600" height="800" xlink:href="../Images/cover.jpeg"/>
+            </svg></div>
+            """)
+
+        #expect(EPUBCoverImageExtractor.firstCoverImageURL(
+            chapterURL: chapter, contentRootURL: root
+        )?.lastPathComponent == "cover.jpeg")
+    }
+
+    @Test("an inline background-image cover is found")
+    func backgroundImageCover() throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeImage(in: root, name: "cover.png", byteCount: 4000)
+        let chapter = try writeChapter(in: root, body: """
+            <div class="cover" style="height: 100%; background-image: url('../Images/cover.png')"></div>
+            """)
+
+        #expect(EPUBCoverImageExtractor.firstCoverImageURL(
+            chapterURL: chapter, contentRootURL: root
+        )?.lastPathComponent == "cover.png")
+    }
+
+    @Test("an HTML-flavoured cover page XMLParser rejects still yields its image")
+    func nonXMLCoverPage() throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeImage(in: root, name: "cover.jpg", byteCount: 4000)
+        let chapter = root.appendingPathComponent("Text/cover.html")
+        // Unclosed <meta> and an undeclared &nbsp; both stop XMLParser
+        // before it reaches the body.
+        try """
+            <html><head><meta charset="utf-8"><title>Cover</title></head>
+            <body>&nbsp;<img src=../Images/cover.jpg alt="Cover"></body></html>
+            """.write(to: chapter, atomically: true, encoding: .utf8)
+
+        #expect(EPUBCoverImageExtractor.firstCoverImageURL(
+            chapterURL: chapter, contentRootURL: root
+        )?.lastPathComponent == "cover.jpg")
+    }
+
     @Test("no images, or no chapter, means no cover")
     func emptyMeansNil() throws {
         let root = try makeRoot()

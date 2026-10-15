@@ -32,10 +32,17 @@ enum EPUBCoverImageExtractor {
         let scan = ImageScanDelegate(limit: maxImagesScanned)
         parser.delegate = scan
         parser.shouldResolveExternalEntities = false
-        // A malformed chapter still yields what was collected before the
-        // error: real-world EPUB XHTML is often imperfect XML.
-        _ = parser.parse()
-        guard !scan.candidates.isEmpty else { return nil }
+        // Real-world cover pages are often imperfect XML — an unclosed
+        // `<meta>` in the head or an `&nbsp;` with no DTD stops XMLParser
+        // before it reaches the body. When the parse fails, re-scan the raw
+        // markup tolerantly; it finds everything the SAX pass did and more.
+        let parsedCleanly = parser.parse()
+        var candidates = scan.candidates
+        if !parsedCleanly, let markup = try? String(contentsOf: chapterURL, encoding: .utf8) {
+            let tolerant = TolerantImageScan.candidates(in: markup, limit: maxImagesScanned)
+            if tolerant.count >= candidates.count { candidates = tolerant }
+        }
+        guard !candidates.isEmpty else { return nil }
 
         let chapterDirectory = chapterURL.deletingLastPathComponent()
         // Two tiers: images with known dimensions rank by area; the rest (no
@@ -44,7 +51,7 @@ enum EPUBCoverImageExtractor {
         // a cover, so it never outranks a measured image.
         var bestMeasured: (url: URL, area: CGFloat, order: Int)?
         var bestUnmeasured: (url: URL, size: Int, order: Int)?
-        for (order, candidate) in scan.candidates.enumerated() {
+        for (order, candidate) in candidates.enumerated() {
             guard let file = resolve(
                 candidate.src,
                 chapterDirectory: chapterDirectory,
@@ -138,19 +145,21 @@ enum EPUBCoverImageExtractor {
     }
 }
 
-private final class ImageScanDelegate: NSObject, XMLParserDelegate {
-    struct Candidate {
-        var src: String
-        var width: CGFloat?
-        var height: CGFloat?
-        var dimensions: CGSize? {
-            guard let width, let height, width > 0, height > 0 else { return nil }
-            return CGSize(width: width, height: height)
-        }
+/// One image a chapter references, with any size its markup declares.
+struct CoverImageCandidate {
+    var src: String
+    var width: CGFloat?
+    var height: CGFloat?
+    var dimensions: CGSize? {
+        guard let width, let height, width > 0, height > 0 else { return nil }
+        return CGSize(width: width, height: height)
     }
+}
+
+private final class ImageScanDelegate: NSObject, XMLParserDelegate {
 
     private let limit: Int
-    private(set) var candidates: [Candidate] = []
+    private(set) var candidates: [CoverImageCandidate] = []
 
     init(limit: Int) {
         self.limit = limit
@@ -167,16 +176,95 @@ private final class ImageScanDelegate: NSObject, XMLParserDelegate {
             parser.abortParsing()
             return
         }
-        let name = elementName.lowercased()
-        guard name == "img" || name.hasSuffix(":img") else { return }
         let attributes = Dictionary(
-            uniqueKeysWithValues: attributeDict.map { ($0.key.lowercased(), $0.value) }
+            attributeDict.map { ($0.key.lowercased(), $0.value) },
+            uniquingKeysWith: { first, _ in first }
         )
-        guard let src = attributes["src"], !src.isEmpty else { return }
-        candidates.append(Candidate(
+        if let candidate = CoverImageCandidate(element: elementName, attributes: attributes) {
+            candidates.append(candidate)
+        }
+    }
+}
+
+extension CoverImageCandidate {
+    /// The image an element references, if it is one of the shapes cover
+    /// pages use: `<img src>`, SVG `<image xlink:href>` (Calibre's and most
+    /// publishers' full-bleed cover wrapper), or an inline
+    /// `background-image: url(…)`.
+    init?(element: String, attributes: [String: String]) {
+        let name = element.lowercased()
+        let local = name.split(separator: ":").last.map(String.init) ?? name
+        let src: String?
+        switch local {
+        case "img":
+            src = attributes["src"]
+        case "image":
+            src = attributes["xlink:href"] ?? attributes["href"]
+                ?? attributes.first(where: { $0.key.hasSuffix(":href") })?.value
+        default:
+            src = attributes["style"].flatMap(TolerantImageScan.backgroundURL(inStyle:))
+        }
+        guard let src, !src.isEmpty, !src.lowercased().hasPrefix("data:") else { return nil }
+        self.init(
             src: src,
             width: EPUBCoverImageExtractor.leadingInt(attributes["width"]),
             height: EPUBCoverImageExtractor.leadingInt(attributes["height"])
-        ))
+        )
+    }
+}
+
+/// Regex fallback for chapters XMLParser rejects. Walks every start tag,
+/// reads its attributes, and keeps the ones
+/// `CoverImageCandidate(element:attributes:)` accepts — the same rules as
+/// the SAX pass, minus the well-formedness.
+enum TolerantImageScan {
+    private static let tag = try! NSRegularExpression(
+        pattern: #"<([A-Za-z][\w:.-]*)((?:\s+[^\s=>/]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?)*)\s*/?>"#
+    )
+    private static let attribute = try! NSRegularExpression(
+        pattern: #"([^\s=>/]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?"#
+    )
+    private static let cssURL = try! NSRegularExpression(
+        pattern: #"background(?:-image)?\s*:[^;]*url\(\s*['"]?([^'")]+)['"]?\s*\)"#,
+        options: [.caseInsensitive]
+    )
+
+    static func candidates(in markup: String, limit: Int) -> [CoverImageCandidate] {
+        let ns = markup as NSString
+        var found: [CoverImageCandidate] = []
+        // Enumerate rather than collect: a whole book in one spine file must
+        // not be fully matched just to look at its first few images.
+        tag.enumerateMatches(in: markup, range: NSRange(location: 0, length: ns.length)) { match, _, stop in
+            guard let match else { return }
+            let name = ns.substring(with: match.range(at: 1))
+            let attributeText = ns.substring(with: match.range(at: 2))
+            if let candidate = CoverImageCandidate(element: name, attributes: attributes(in: attributeText)) {
+                found.append(candidate)
+                if found.count >= limit { stop.pointee = true }
+            }
+        }
+        return found
+    }
+
+    static func backgroundURL(inStyle style: String) -> String? {
+        let ns = style as NSString
+        guard let match = cssURL.firstMatch(in: style, range: NSRange(location: 0, length: ns.length)) else {
+            return nil
+        }
+        return ns.substring(with: match.range(at: 1)).trimmingCharacters(in: .whitespaces)
+    }
+
+    private static func attributes(in text: String) -> [String: String] {
+        let ns = text as NSString
+        var result: [String: String] = [:]
+        for match in attribute.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+            let key = ns.substring(with: match.range(at: 1)).lowercased()
+            let value = (2...4).lazy
+                .map { match.range(at: $0) }
+                .first { $0.location != NSNotFound }
+                .map { ns.substring(with: $0) } ?? ""
+            if result[key] == nil { result[key] = value }
+        }
+        return result
     }
 }

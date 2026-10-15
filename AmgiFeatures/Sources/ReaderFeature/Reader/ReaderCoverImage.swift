@@ -44,6 +44,7 @@ struct ReaderCoverImage<Placeholder: View>: View {
 
     @Environment(\.palette) private var palette
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.coverImageOutlined) private var outlined
 
     init(path: String?, format: CoverFormat? = nil, @ViewBuilder placeholder: @escaping () -> Placeholder) {
         self.source = .ankiMediaPath(path)
@@ -91,7 +92,7 @@ struct ReaderCoverImage<Placeholder: View>: View {
                 switch phase {
                 case .success(let image):
                     image.resizable().scaledToFit()
-                        .overlay { Rectangle().stroke(imageOutlineColor, lineWidth: 1) }
+                        .overlay { imageOutline }
                 default:
                     placeholder()
                 }
@@ -102,14 +103,14 @@ struct ReaderCoverImage<Placeholder: View>: View {
             // the source files are frequently thousands of pixels wide.
             DownsampledImage(url: url, maxPixelSize: AmgiImagePixelSize.cover) { image in
                 image.resizable().scaledToFit()
-                    .overlay { Rectangle().stroke(imageOutlineColor, lineWidth: 1) }
+                    .overlay { imageOutline }
             } placeholder: {
                 placeholder()
             }
             #else
             if let image = NSImage(contentsOfFile: url.path) {
                 Image(nsImage: image).resizable().scaledToFit()
-                    .overlay { Rectangle().stroke(imageOutlineColor, lineWidth: 1) }
+                    .overlay { imageOutline }
             } else {
                 placeholder()
             }
@@ -128,10 +129,24 @@ struct ReaderCoverImage<Placeholder: View>: View {
         }
     }
 
+    @ViewBuilder
+    private var imageOutline: some View {
+        if outlined {
+            Rectangle().stroke(imageOutlineColor, lineWidth: 1)
+        }
+    }
+
     private var imageOutlineColor: Color {
         colorScheme == .dark ? .white.opacity(0.1) : .black.opacity(0.1)
     }
 
+}
+
+extension EnvironmentValues {
+    /// Whether cover art draws its own 1pt outline. Library tiles turn it
+    /// off: `bookCoverChrome` draws their edge, and two hairlines a point
+    /// apart read as a box around the cover.
+    @Entry var coverImageOutlined = true
 }
 
 /// Where a cover ended up resolving to, if anywhere.

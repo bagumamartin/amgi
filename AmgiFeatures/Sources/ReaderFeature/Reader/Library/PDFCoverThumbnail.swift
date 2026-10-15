@@ -41,7 +41,7 @@ struct PDFCoverThumbnail<Placeholder: View>: View {
 /// Rendering + cache live outside the generic view: a generic type cannot
 /// hold static stored properties, and referencing its static members from a
 /// detached task would capture the placeholder's metatype.
-private enum PDFThumbnailLoader {
+enum PDFThumbnailLoader {
     // NSCache is thread-safe; the `unsafe` is only about Swift not knowing that.
     nonisolated(unsafe) private static let cache: NSCache<NSString, PlatformCoverImage> = {
         let cache = NSCache<NSString, PlatformCoverImage>()
@@ -75,9 +75,12 @@ private enum PDFThumbnailLoader {
         // Ordinary sheets — plus rotated pages and anything the slice path
         // declines — render whole. `thumbnail` is rotation-aware; the manual
         // slice transform is not.
-        // 400pt on the long edge: crisp at 3x on a ~130pt grid cell without
-        // holding a full-resolution raster per book.
-        let target = CGSize(width: 400, height: 545)
+        // 545px on the long edge: crisp at 3x on a ~130pt grid cell without
+        // holding a full-resolution raster per book. Sized to the page's own
+        // shape (rotation included): `thumbnail(of:)` letterboxes the page
+        // into whatever size it is handed, and a fixed portrait size framed
+        // landscape slides in blank bands.
+        let target = thumbnailSize(for: page, longEdge: 545)
         #if os(macOS)
         return page.thumbnail(of: target, for: .mediaBox)
         #else
@@ -87,6 +90,14 @@ private enum PDFThumbnailLoader {
         guard uiImage.size.width > 1, uiImage.size.height > 1 else { return nil }
         return uiImage
         #endif
+    }
+
+    nonisolated static func thumbnailSize(for page: PDFPage, longEdge: CGFloat) -> CGSize {
+        var size = page.bounds(for: .mediaBox).size
+        if abs(page.rotation) % 180 == 90 { size = CGSize(width: size.height, height: size.width) }
+        guard size.width > 0, size.height > 0 else { return CGSize(width: 400, height: longEdge) }
+        let scale = longEdge / max(size.width, size.height)
+        return CGSize(width: (size.width * scale).rounded(), height: (size.height * scale).rounded())
     }
 
     /// Renders only `slice` of a page at cover density. Draws the slice
@@ -118,12 +129,11 @@ private enum PDFThumbnailLoader {
         // cell chrome through instead.
         context.setFillColor(red: 1, green: 1, blue: 1, alpha: 1)
         context.fill(CGRect(x: 0, y: 0, width: width, height: height))
-        // Map the slice (PDF space, origin bottom-left) onto the target
-        // (CG space, origin top-left): slice top-left -> image top-left,
-        // slice bottom-right -> image bottom-right. Content outside the
-        // slice is clipped by the context bounds.
-        context.translateBy(x: 0, y: CGFloat(height))
-        context.scaleBy(x: CGFloat(width) / slice.width, y: -CGFloat(height) / slice.height)
+        // Map the slice onto the whole bitmap. A bitmap CGContext is already
+        // bottom-left-origin, same as PDF space, so this is scale + translate
+        // only — no Y flip (flipping here rendered the cover upside down).
+        // Content outside the slice is clipped by the context bounds.
+        context.scaleBy(x: CGFloat(width) / slice.width, y: CGFloat(height) / slice.height)
         context.translateBy(x: -slice.minX, y: -slice.minY)
         context.drawPDFPage(cgPage)
         guard let cgImage = context.makeImage() else { return nil }

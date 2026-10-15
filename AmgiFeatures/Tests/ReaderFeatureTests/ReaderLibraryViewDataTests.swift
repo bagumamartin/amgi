@@ -192,8 +192,19 @@ struct ReaderLibraryModelImportTests {
             $0.epubLibraryClient.coverURL = { _ in nil }
             $0.pdfLibraryClient.listBooks = { [] }
             $0.pdfLibraryClient.coverURL = { _ in nil }
+            // The reload that follows an import also checks book health and
+            // merges progress and collections from iCloud; none of it is
+            // under test here, so it answers "nothing".
+            $0.epubLibraryClient.bookHealth = { [:] }
+            $0.pdfLibraryClient.bookHealth = { [:] }
+            $0.readerProgressSyncClient.loadManifest = { nil }
+            $0.readerCollectionSyncClient.load = { nil }
+            $0.readerCollectionSyncClient.push = { $0 }
         } operation: {
-            let model = ReaderLibraryModel()
+            let defaults = UserDefaults(suiteName: "amgi.tests.import.\(UUID().uuidString)") ?? .standard
+            let model = ReaderLibraryModel(
+                collectionStore: ReaderCollectionStore(profileID: "test", userDefaults: defaults)
+            )
             #expect(!model.isImportingBooks)
 
             await model.importBooks([dummyURL], searchText: "", sortMode: .title)

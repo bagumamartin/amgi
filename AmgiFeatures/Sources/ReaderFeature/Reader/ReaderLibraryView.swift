@@ -95,6 +95,9 @@ package struct ReaderLibraryView: View {
                 }
             )
         )
+        // The grid, collection screens and Move sheet all edit collections
+        // through the one model, so they stay in step.
+        .environment(model)
         .navigationTitle("Library")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
@@ -103,11 +106,23 @@ package struct ReaderLibraryView: View {
                     ProgressView()
                         .controlSize(.small)
                 }
-                SyncToolbarButton()
-                Menu { plusMenu } label: {
-                    Image(systemName: "plus")
+                // Syncs the library (books, collections, positions) through
+                // iCloud — not the Anki collection, which has its own sync.
+                Button {
+                    Task { await model.syncLibrary() }
+                } label: {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .symbolEffect(.rotate, isActive: model.isSyncingLibrary)
                 }
-                .accessibilityLabel("Library actions")
+                .disabled(model.isSyncingLibrary)
+                .help("Sync Library")
+                .accessibilityLabel(model.isSyncingLibrary ? "Syncing library" : "Sync library")
+                // "…", not "+": the floating + is Quick Capture, and this
+                // menu is mostly about the library itself, as in Apple Books.
+                Menu { libraryMenu } label: {
+                    Image(systemName: "ellipsis")
+                }
+                .accessibilityLabel("Library options")
             }
         }
         .searchable(
@@ -146,6 +161,16 @@ package struct ReaderLibraryView: View {
         ) { result in
             handleImport(result: result)
         }
+        // Book actions from any level (collection screens included) fail
+        // here: one alert for the stack rather than one per grid.
+        .alert("Library", isPresented: Binding(
+            get: { model.actionError != nil },
+            set: { if !$0 { model.actionError = nil } }
+        )) {
+            Button("OK") { model.actionError = nil }
+        } message: {
+            Text(model.actionError ?? "")
+        }
         .alert("Import failed", isPresented: Binding(
             get: { model.importError != nil },
             set: { if !$0 { model.importError = nil } }
@@ -157,9 +182,12 @@ package struct ReaderLibraryView: View {
     }
 
     @ViewBuilder
-    private var plusMenu: some View {
+    private var libraryMenu: some View {
         Button { isImporting = true } label: {
             Label("Import EPUB or PDF…", systemImage: "square.and.arrow.down")
+        }
+        Button { model.createCollection(in: nil) } label: {
+            Label("New Collection", systemImage: "folder.badge.plus")
         }
         Divider()
         Menu("Sort by") {

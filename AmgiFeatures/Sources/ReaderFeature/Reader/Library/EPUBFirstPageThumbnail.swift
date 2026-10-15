@@ -61,7 +61,7 @@ private struct EPUBSnapshotImageView: View {
 /// Rendering + cache live outside the generic view: a generic type cannot
 /// hold static stored properties, and referencing its static members from a
 /// detached task would capture the placeholder's metatype.
-private enum EPUBFirstPageRenderer {
+enum EPUBFirstPageRenderer {
     // NSCache is thread-safe; the `unsafe` is only about Swift not knowing that.
     nonisolated(unsafe) private static let cache: NSCache<NSString, PlatformCoverImage> = {
         let cache = NSCache<NSString, PlatformCoverImage>()

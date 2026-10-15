@@ -1,3 +1,4 @@
+import AmgiAppCore
 import AmgiReader
 import AmgiReaderEPUB
 import AmgiReaderPDF
@@ -15,9 +16,26 @@ import Foundation
 final class ReaderLibraryModel {
     var state: ReaderLibraryContent.State = .loading
     var importError: String?
+    /// A book action (rename, remove) that failed, for an alert.
+    var actionError: String?
+    /// Files being imported right now, shown as placeholder tiles at the top
+    /// of the grid from the moment they are picked until the book is in.
+    private(set) var pendingImports: [PendingImport] = []
+    /// When each book was imported, this session. Puts a new book at the
+    /// front of the "Recently Read" order straight away.
+    @ObservationIgnored private var importedAt: [String: Date] = [:]
+    /// True while the Library's own sync button is working.
+    private(set) var isSyncingLibrary = false
     var isImportingBooks: Bool = false
 
     private(set) var books: [ReaderBook] = []
+    /// The library's folders. Loaded once per model; every edit is written
+    /// straight back, so it never waits on a reload.
+    private(set) var collections: ReaderCollectionTree
+    /// Every book as a grid cell in display order, ignoring the search, for
+    /// the collection screens (which do not search) and collage covers.
+    private(set) var sortedCells: [BookCellItem] = []
+    @ObservationIgnored private let collectionStore: ReaderCollectionStore
     private var bookIndex: [String: ReaderBook] = [:]
     /// Covers resolved from the two file-backed stores, keyed by book ID.
     private var localCoverURLs: [String: URL] = [:]
@@ -38,6 +56,8 @@ final class ReaderLibraryModel {
     @ObservationIgnored @Dependency(\.readerBookClient) private var readerBookClient
     @ObservationIgnored @Dependency(\.epubLibraryClient) private var epubLibraryClient
     @ObservationIgnored @Dependency(\.pdfLibraryClient) private var pdfLibraryClient
+    @ObservationIgnored @Dependency(\.readerCollectionSyncClient) private var collectionSync
+    @ObservationIgnored private var collectionSyncTask: Task<Void, Never>?
     @ObservationIgnored private var reloadTask: Task<Void, Never>?
     /// iCloud work that follows a reload: flushing pending progress pushes,
     /// then merging newer positions from other devices. Kept off `reload` so
@@ -51,8 +71,13 @@ final class ReaderLibraryModel {
     /// saved progress through the same store.
     let progress: ReaderProgressCoordinator
 
-    init(progress: ReaderProgressCoordinator = ReaderProgressCoordinator()) {
+    init(
+        progress: ReaderProgressCoordinator = ReaderProgressCoordinator(),
+        collectionStore: ReaderCollectionStore = .forCurrentProfile()
+    ) {
         self.progress = progress
+        self.collectionStore = collectionStore
+        self.collections = collectionStore.load()
     }
 
     func book(for id: String) -> ReaderBook? { bookIndex[id] }
@@ -118,7 +143,6 @@ final class ReaderLibraryModel {
             }
         }
         if Task.isCancelled { return }
-        localCoverURLs = resolved
 
         // EPUBs without embedded cover art fall back in two stages: first a
         // cover image lifted from the first chapter (which usually *is* the
@@ -155,6 +179,10 @@ final class ReaderLibraryModel {
             }
         }
         if Task.isCancelled { return }
+        // Published only now: the pass above adds covers lifted from first
+        // chapters to `resolved`. Assigning before it dropped every one of
+        // them, leaving those books on the generic tile.
+        localCoverURLs = resolved
         localFirstPages = firstPages
 
         // Ask the stores which books need repair. This is the authoritative
@@ -180,6 +208,7 @@ final class ReaderLibraryModel {
         // library appears at the same speed with or without a network.
         progressByBook = progress.localAll(bookIDs: merged.map(\.id))
         startCloudProgressMerge(bookIDs: merged.map(\.id))
+        syncCollections(pullFirst: true)
 
         if merged.isEmpty {
             if let firstError {
@@ -221,16 +250,23 @@ final class ReaderLibraryModel {
         let coverURLs = localCoverURLs
         let firstPages = localFirstPages
         let repairSnapshot = repairs
-        let data = ReaderLibraryViewDataBuilder.build(
-            books: books,
-            progressFor: { [progressByBook] in progressByBook[$0] },
-            epubCoverURLFor: { coverURLs[$0] },
-            epubFirstPageFor: { firstPages[$0] },
-            repairFor: { repairSnapshot[$0] },
-            searchText: searchText,
-            sortMode: sortMode,
-            hasAnkiConfig: hasAnkiConfiguration
-        )
+        func build(_ query: String) -> ReaderLibraryViewData {
+            ReaderLibraryViewDataBuilder.build(
+                books: books,
+                progressFor: { [progressByBook] in progressByBook[$0] },
+                epubCoverURLFor: { coverURLs[$0] },
+                epubFirstPageFor: { firstPages[$0] },
+                repairFor: { repairSnapshot[$0] },
+                addedAt: { [importedAt] in importedAt[$0] },
+                searchText: query,
+                sortMode: sortMode,
+                hasAnkiConfig: hasAnkiConfiguration,
+                collections: collections
+            )
+        }
+        let data = build(searchText)
+        let searching = !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        sortedCells = searching ? build("").allBooks : data.allBooks
         state = .loaded(data)
     }
 
@@ -297,8 +333,34 @@ final class ReaderLibraryModel {
         isImportingBooks = true
         defer { isImportingBooks = false }
 
+        // Imports are quick (a large PDF in well under a second), so most
+        // books simply appear. A placeholder tile shows only for one still
+        // going after a moment — a big EPUB, or a file iCloud is still
+        // downloading — rather than flashing for every import.
+        let pending = urls.map(PendingImport.init(url:))
+        let placeholderTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled, let self else { return }
+            self.pendingImports.append(contentsOf: pending)
+            // An empty library shows "No books yet" rather than a grid,
+            // which would hide the placeholder of its very first book.
+            if case .empty = self.state {
+                self.state = .loaded(ReaderLibraryViewData(
+                    continueReading: [],
+                    allBooks: [],
+                    hasAnkiConfig: self.hasAnkiConfiguration
+                ))
+            }
+        }
+        defer {
+            placeholderTask.cancel()
+            let finished = Set(pending.map(\.id))
+            pendingImports.removeAll { finished.contains($0.id) }
+        }
+
         var succeeded = 0
-        for url in urls {
+        for (url, placeholder) in zip(urls, pending) {
+            defer { pendingImports.removeAll { $0.id == placeholder.id } }
             let accessed = url.startAccessingSecurityScopedResource()
             defer {
                 if accessed { url.stopAccessingSecurityScopedResource() }
@@ -314,6 +376,7 @@ final class ReaderLibraryModel {
                     importError = "\"\(url.lastPathComponent)\" is not an EPUB or a PDF."
                     continue
                 }
+                importedAt[importedBook.id] = .now
                 await upsertImportedBook(importedBook, searchText: searchText, sortMode: sortMode)
                 succeeded += 1
             } catch {
@@ -322,6 +385,249 @@ final class ReaderLibraryModel {
         }
         if succeeded > 0 {
             startReload(searchText: searchText, sortMode: sortMode)
+        }
+    }
+
+    // MARK: - Collections
+
+    /// The grid inside one collection. Collection screens do not search, so
+    /// this always works from the unfiltered cells.
+    func gridItems(in collectionID: String) -> [LibraryGridItem] {
+        ReaderLibraryViewDataBuilder.grid(cells: sortedCells, collections: collections, in: collectionID)
+    }
+
+    func collection(_ id: String) -> ReaderCollection? { collections.collection(id) }
+
+    func canMove(_ items: [ReaderLibraryItemRef], to destination: String?) -> Bool {
+        items.contains { item in
+            item != .collection(destination ?? "") && collections.canMove(item, to: destination)
+                && collections.parent(of: item) != destination
+        }
+    }
+
+    /// Moves every item that may go into `destination`; the rest (a
+    /// collection dropped into its own descendant) are left where they were.
+    @discardableResult
+    func move(_ items: [ReaderLibraryItemRef], to destination: String?) -> Bool {
+        var moved = false
+        for item in items where item != .collection(destination ?? "") {
+            moved = collections.move(item, to: destination) || moved
+        }
+        if moved { commitCollections() }
+        return moved
+    }
+
+    /// A book dropped on another book: both go into a new collection at the
+    /// target's level, Home Screen style. Returns the new collection's ID.
+    func makeCollection(
+        combining target: ReaderLibraryItemRef,
+        with dropped: [ReaderLibraryItemRef]
+    ) -> String? {
+        let others = dropped.filter { $0 != target }
+        guard !others.isEmpty else { return nil }
+        let parent = collections.parent(of: target)
+        let id = collections.createCollection(
+            named: collections.unusedName(L10n.text("New Collection"), in: parent),
+            in: parent
+        )
+        for item in [target] + others {
+            collections.move(item, to: id)
+        }
+        commitCollections()
+        return id
+    }
+
+    @discardableResult
+    func createCollection(in parentID: String?, named name: String? = nil) -> String {
+        let id = collections.createCollection(
+            named: name ?? collections.unusedName(L10n.text("New Collection"), in: parentID),
+            in: parentID
+        )
+        commitCollections()
+        return id
+    }
+
+    func renameCollection(_ id: String, to name: String) {
+        collections.rename(id, to: name)
+        commitCollections()
+    }
+
+    func deleteCollection(_ id: String) {
+        collections.delete(id)
+        commitCollections()
+    }
+
+    /// Persists the tree, refreshes the grid, and mirrors the change to
+    /// iCloud. The local write lands first, so an edit never waits on the
+    /// network and is never lost to it.
+    private func commitCollections() {
+        collectionStore.save(collections)
+        refreshGridForLastQuery()
+        syncCollections(pullFirst: false)
+    }
+
+    private func refreshGridForLastQuery() {
+        if let query = lastQuery {
+            rebuildViewData(searchText: query.searchText, sortMode: query.sortMode)
+        }
+    }
+
+    /// Merges this device's tree with the other devices' copy in iCloud.
+    ///
+    /// `pullFirst` (on reload) reads the cloud tree and pushes only when this
+    /// device has something it lacks; after a local edit the push itself
+    /// reads, merges and writes. Either way the result is merged back into
+    /// whatever the tree holds *now*, so an edit made while the round trip
+    /// was in flight is kept rather than overwritten. Offline, nothing
+    /// happens and the next reload or edit tries again.
+    private func syncCollections(pullFirst: Bool) {
+        collectionSyncTask?.cancel()
+        let sync = collectionSync
+        let snapshot = collections
+        collectionSyncTask = Task { [weak self] in
+            var merged = snapshot
+            if pullFirst {
+                let cloud = await sync.load()
+                if let cloud { merged = ReaderCollectionTree.merged(snapshot, cloud) }
+                if merged != cloud, let pushed = try? await sync.push(merged) { merged = pushed }
+            } else if let pushed = try? await sync.push(snapshot) {
+                merged = pushed
+            }
+            guard !Task.isCancelled, let self else { return }
+            let current = ReaderCollectionTree.merged(self.collections, merged)
+            guard current != self.collections else { return }
+            self.collections = current
+            self.collectionStore.save(current)
+            self.refreshGridForLastQuery()
+        }
+    }
+
+    // MARK: - Library sync
+
+    /// The Library's sync button: everything the library keeps in iCloud,
+    /// and nothing else — book files and their metadata (both formats),
+    /// collections, and reading positions. The Anki collection has its own
+    /// sync and is not touched here.
+    func syncLibrary() async {
+        guard !isSyncingLibrary else { return }
+        isSyncingLibrary = true
+        defer { isSyncingLibrary = false }
+
+        async let epubSync = epubLibraryClient.syncWithICloud()
+        async let pdfSync = pdfLibraryClient.syncWithICloud()
+        let (epub, pdf) = await (epubSync, pdfSync)
+        let unavailable = epub.status == .unavailable && pdf.status == .unavailable
+        let failed = epub.status == .failed || pdf.status == .failed
+        let failureMessage = epub.message ?? pdf.message
+
+        // A reload merges collections and reading positions from iCloud
+        // (and flushes any position that never reached it), and picks up
+        // books the sync restored.
+        if let query = lastQuery {
+            await reload(searchText: query.searchText, sortMode: query.sortMode)
+        }
+        await collectionSyncTask?.value
+
+        if unavailable {
+            actionError = L10n.text("iCloud Drive isn't available. Sign in to iCloud on this device to sync your library.")
+        } else if failed {
+            actionError = failureMessage
+                ?? L10n.text("Some books couldn't be synced. Try again in a moment.")
+        }
+    }
+
+    // MARK: - Book actions
+
+    /// Whether a book is a file this library manages (EPUB or PDF), and so
+    /// can be shared, renamed and removed. Books drawn from an Anki deck
+    /// belong to the deck.
+    func isManagedFile(_ bookID: String) -> Bool {
+        switch bookIndex[bookID]?.source {
+        case .epub, .pdf: true
+        default: false
+        }
+    }
+
+    func isFinished(_ bookID: String) -> Bool {
+        (progressByBook[bookID]?.progress ?? 0) >= 1
+    }
+
+    func hasStarted(_ bookID: String) -> Bool {
+        (progressByBook[bookID]?.progress ?? 0) > 0
+    }
+
+    /// Marks a book finished (at its last chapter) or unread (back to the
+    /// start). Written through the reading-progress store, so it syncs to
+    /// other devices like any position, and the book leaves (or rejoins)
+    /// Continue accordingly.
+    func setFinished(_ bookID: String, _ finished: Bool) {
+        guard let book = bookIndex[bookID] else { return }
+        let chapterID = (finished ? book.chapters.last?.id : book.chapters.first?.id) ?? 0
+        progress.save(bookID: bookID, chapterID: chapterID, progress: finished ? 1 : 0)
+        progressByBook[bookID] = progress.store.load(bookID: bookID)
+        refreshGridForLastQuery()
+    }
+
+    func renameBook(_ bookID: String, to title: String) async {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let book = bookIndex[bookID], book.title != trimmed else { return }
+        do {
+            switch book.source {
+            case .epub: try await epubLibraryClient.renameBook(bookID, trimmed)
+            case .pdf: try await pdfLibraryClient.renameBook(bookID, trimmed)
+            case .ankiDeck: return
+            }
+        } catch {
+            actionError = error.localizedDescription
+            return
+        }
+        replaceBook(bookID) { $0.title = trimmed }
+    }
+
+    /// Removes a book from this device's library. Its iCloud Drive copy is
+    /// kept (deletes are local by design), and its reading position stays,
+    /// so re-adding it picks up where it was.
+    func removeBook(_ bookID: String) async {
+        guard let book = bookIndex[bookID] else { return }
+        do {
+            switch book.source {
+            case .epub: try await epubLibraryClient.deleteBook(bookID)
+            case .pdf: try await pdfLibraryClient.deleteBook(bookID)
+            case .ankiDeck: return
+            }
+        } catch {
+            actionError = error.localizedDescription
+            return
+        }
+        books.removeAll { $0.id == bookID }
+        bookIndex[bookID] = nil
+        refreshGridForLastQuery()
+    }
+
+    /// Updates one book in place and redraws, without a full reload.
+    private func replaceBook(_ bookID: String, _ change: (inout ReaderBook) -> Void) {
+        guard let index = books.firstIndex(where: { $0.id == bookID }) else { return }
+        change(&books[index])
+        bookIndex[bookID] = books[index]
+        refreshGridForLastQuery()
+    }
+
+    // MARK: - Repair from any level
+
+    /// `retryRepair` plus the reload that shows the result, for screens that
+    /// do not own the library's search state (collection screens).
+    func retryRepairAndReload(bookID: String) async -> Bool {
+        let repaired = await retryRepair(bookID: bookID)
+        if repaired, let query = lastQuery {
+            startReload(searchText: query.searchText, sortMode: query.sortMode)
+        }
+        return repaired
+    }
+
+    func relinkAndReload(bookID: String, to url: URL) async throws {
+        try await relink(bookID: bookID, to: url)
+        if let query = lastQuery {
+            startReload(searchText: query.searchText, sortMode: query.sortMode)
         }
     }
 

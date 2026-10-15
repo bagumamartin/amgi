@@ -3,56 +3,56 @@ import AmgiTheme
 import AmgiUI
 import SwiftUI
 
+/// A Continue card, built the way Apple Books builds one: the backdrop is
+/// tinted from the book's own cover, the text sits on it in white, and the
+/// cover keeps its shape at the leading edge with the same book chrome as
+/// the grid.
 struct ContinueReadingCard: View {
     let item: ContinueReadingItem
 
     private static let cardWidth: CGFloat = 280
-    private static let cardHeight: CGFloat = 80
-    private static let thumbWidth: CGFloat = 44
-    private static let thumbHeight: CGFloat = 62
+    private static let cardHeight: CGFloat = 84
+    private static let thumbWidth: CGFloat = 46
+    private static let thumbHeight: CGFloat = 64
 
-    @Environment(\.palette) private var palette
+    @State private var tint: CoverTint?
 
     var body: some View {
         HStack(spacing: 12) {
             cover
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(item.title)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 15, weight: .semibold))
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
-                    .foregroundStyle(palette.textPrimary)
+                    .foregroundStyle(CoverTint.primaryText)
 
                 if let author = item.author, !author.isEmpty {
                     Text(author)
-                        .font(.system(size: 12, weight: .regular))
-                        .foregroundStyle(palette.textSecondary)
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundStyle(CoverTint.primaryText)
                         .lineLimit(1)
                 }
 
                 Text(statusLine)
-                    .font(.system(size: 11, weight: .regular))
-                    .foregroundStyle(palette.textSecondary)
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundStyle(CoverTint.secondaryText)
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
             Image(systemName: "ellipsis")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(palette.textSecondary)
-                .padding(.trailing, 2)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(CoverTint.primaryText)
+                .padding(.trailing, 4)
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
         .frame(width: Self.cardWidth, height: Self.cardHeight)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(palette.surfaceElevated)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+        .coverTintedCard(tint ?? CoverTintResolver.cached(bookID: item.id) ?? .neutral)
+        .animation(AmgiMotion.standard, value: tint)
+        .task(id: item.id) {
+            tint = await CoverTintResolver.tint(bookID: item.id, coverArt: item.coverArt)
         }
     }
 
@@ -63,13 +63,14 @@ struct ContinueReadingCard: View {
             surname: item.surname,
             seed: item.id
         )
+        // Same rule as the grid: dress the fitted cover, then fix the slot,
+        // so a wide or squat cover is not boxed in an outline.
+        .bookCoverChrome(.compact)
+        // The card is always dark, whatever the app's appearance: the chrome's
+        // dark-mode edge (a light hairline) is the one that separates a cover
+        // from a backdrop tinted in its own colour.
+        .environment(\.colorScheme, .dark)
         .frame(width: Self.thumbWidth, height: Self.thumbHeight)
-        .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.small, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: AmgiRadius.small, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
-        }
-        .shadow(color: .black.opacity(0.12), radius: 4, x: 0, y: 2)
     }
 
     private var statusLine: String {

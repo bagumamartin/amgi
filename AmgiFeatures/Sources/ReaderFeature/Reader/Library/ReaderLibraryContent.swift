@@ -104,7 +104,7 @@ private extension ReaderLibraryContent {
             VStack(alignment: .leading, spacing: 28) {
                 ContinueReadingSection(items: data.continueReading, bookForId: bookForId, progress: progress)
                 AllBooksSection(
-                    items: data.allBooks,
+                    items: data.grid,
                     bookForId: bookForId,
                     progress: progress,
                     onRepair: repairActions == nil ? nil : { id, repair in
