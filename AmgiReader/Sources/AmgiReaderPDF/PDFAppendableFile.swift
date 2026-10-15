@@ -150,6 +150,32 @@ public final class PDFAppendableFile: @unchecked Sendable {
         }
     }
 
+    /// The document's `/ID` — exactly what `fileIdentifier` would be for
+    /// these bytes — without loading the file for appending.
+    ///
+    /// Loading runs a full object scan (the safety net that makes appending
+    /// to damaged files safe), which costs as much as parsing the whole
+    /// document. Identity only needs the trailer, so this reads the
+    /// cross-reference data alone. Nil in every case where loading would
+    /// throw or find no ID (not a PDF, unreadable cross-references,
+    /// encrypted), so callers fall back exactly as they did before.
+    public static func fileIdentifier(in raw: [UInt8]) -> [UInt8]? {
+        guard raw.count > 8,
+              let headerRange = raw.firstRange(of: Array("%PDF-".utf8)),
+              let xref = PDFCrossReferenceTable.parse(bytes: raw, headerOffset: headerRange.lowerBound)
+        else { return nil }
+        var trailer = xref.trailer
+        for partial in xref.mergedTrailers {
+            for key in partial.keys where trailer[key] == nil {
+                trailer[key] = partial[key]
+            }
+        }
+        guard trailer["Encrypt"] == nil,
+              case .string(let idBytes, _)? = trailer["ID"]?.asArray?.first
+        else { return nil }
+        return idBytes
+    }
+
     /// Whether the bytes at `offset` really begin `N G obj`.
     ///
     /// This is the check that makes a recovered cross-reference safe to append

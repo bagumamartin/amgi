@@ -92,7 +92,7 @@ public enum PDFCrossReferenceTable {
         let xrefKeyword = Array("xref".utf8)
         var index = max(0, headerOffset)
         while index + xrefKeyword.count <= bytes.count {
-            if Array(bytes[index..<(index + xrefKeyword.count)]) == xrefKeyword {
+            if bytes.hasBytes(xrefKeyword, at: index) {
                 // The keyword must stand alone: `xref` inside a longer word, or
                 // the text `xref` inside a string literal, is not a section.
                 let before = index > 0 ? bytes[index - 1] : 0x20
@@ -112,7 +112,7 @@ public enum PDFCrossReferenceTable {
         let typeMarker = Array("/Type/XRef".utf8)
         index = max(0, headerOffset)
         while index + typeMarker.count <= bytes.count {
-            if Array(bytes[index..<(index + typeMarker.count)]) == typeMarker {
+            if bytes.hasBytes(typeMarker, at: index) {
                 // Walk back to the `N G obj` header that begins this object.
                 if let objectStart = objectStart(before: index, in: bytes) {
                     found.insert(objectStart)
@@ -124,15 +124,15 @@ public enum PDFCrossReferenceTable {
         return Array(found)
     }
 
+    private static let objKeyword = Array("obj".utf8)
+
     /// Finds the start of the indirect object containing `position`.
     private static func objectStart(before position: Int, in bytes: [UInt8]) -> Int? {
         var index = position
         while index > 0 {
             index -= 1
             // `N G obj` — the `obj` keyword, preceded by the generation number.
-            guard index + 3 <= bytes.count,
-                  Array(bytes[index..<(index + 3)]) == Array("obj".utf8)
-            else { continue }
+            guard bytes.hasBytes(objKeyword, at: index) else { continue }
             var cursor = PDFByteCursor(bytes, from: index)
             _ = cursor.readDigits()
             guard cursor.readDigits() != nil, cursor.readKeyword() == "obj" else { continue }
@@ -333,7 +333,7 @@ public enum PDFCrossReferenceTable {
         searchEnd = max(0, bytes.count - 2048)
         var index = bytes.count - marker.count
         while index >= searchEnd {
-            if Array(bytes[index..<(index + marker.count)]) == marker {
+            if bytes.hasBytes(marker, at: index) {
                 var cursor = PDFByteCursor(bytes, from: index + marker.count)
                 if let value = cursor.readDigits() { return value }
             }
@@ -358,7 +358,7 @@ public enum PDFCrossReferenceTable {
         var index = max(0, start)
 
         while index + keyword.count <= bytes.count {
-            guard Array(bytes[index..<(index + keyword.count)]) == keyword else {
+            guard bytes.hasBytes(keyword, at: index) else {
                 index += 1
                 continue
             }

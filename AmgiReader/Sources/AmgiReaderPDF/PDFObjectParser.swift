@@ -192,7 +192,7 @@ public enum PDFObjectParser {
         let needle = Array("endstream".utf8)
         var index = start
         while index + needle.count <= bytes.count {
-            if Array(bytes[index..<(index + needle.count)]) == needle { return index }
+            if bytes.hasBytes(needle, at: index) { return index }
             index += 1
         }
         return nil

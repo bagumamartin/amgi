@@ -155,7 +155,7 @@ public enum PDFContentScanner {
 
     private static func matches(_ op: [UInt8], in bytes: [UInt8], at index: Int) -> Bool {
         guard index + op.count <= bytes.count else { return false }
-        guard Array(bytes[index..<(index + op.count)]) == op else { return false }
+        guard bytes.hasBytes(op, at: index) else { return false }
         // The byte before must end a token, or this is the tail of a longer
         // word. The byte after must too, or `Tjunk` would match.
         if index > 0 {
