@@ -34,6 +34,35 @@ extension Request where Response == FindDuplicatesResult {
     }
 }
 
+extension Request where Response == ReaderNotesResult {
+    /// Notes matching `search`, read in one pass. `fields` limits which
+    /// fields come back (nil = all); notes with any `requireNonempty` field
+    /// missing or empty are skipped without that field crossing the bridge.
+    public static func readerNotes(
+        search: String,
+        fields: [String]?,
+        requireNonempty: [String]
+    ) -> Self {
+        Self(
+            serviceId: ServiceID.aux,
+            methodId: AuxMethod.readerNotes,
+            encode: {
+                var payload: [String: Any] = [
+                    "search": search,
+                    "require_nonempty": requireNonempty,
+                ]
+                if let fields { payload["fields"] = fields }
+                return try JSONSerialization.data(withJSONObject: payload)
+            },
+            decode: { bytes in
+                let decoder = JSONDecoder()
+                decoder.keyDecodingStrategy = .convertFromSnakeCase
+                return try decoder.decode(ReaderNotesResult.self, from: bytes)
+            }
+        )
+    }
+}
+
 extension Request where Response == ImportPackageInspection {
     /// Reads package facts without changing the destination collection.
     public static func inspectAnkiPackage(path: String) -> Self {

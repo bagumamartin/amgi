@@ -11,6 +11,9 @@ public struct ReaderAnnotation: Codable, Sendable, Hashable, Identifiable {
     public enum Kind: String, Codable, Sendable, Hashable, CaseIterable {
         case highlight
         case bookmark
+        /// Source text of a flashcard made while reading. `note` holds the
+        /// Anki note id (`nid:<id>`), so the mark can open its card.
+        case card
     }
 
     public var id: UUID

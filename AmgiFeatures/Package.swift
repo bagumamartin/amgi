@@ -418,6 +418,12 @@ let package = Package(
                 .product(name: "AmgiReaderPDF", package: "AmgiReader"),
                 .product(name: "AnkiKit", package: "amgi"),
                 .product(name: "AnkiClients", package: "amgi"),
+                // Card capture writes notes through `NotesService` directly,
+                // the sanctioned second tier, and hops off the main actor
+                // with `backendOffload` like BrowseFeature's AddNoteModel.
+                // AnkiClients already links both, so no new linkage.
+                .product(name: "AnkiServices", package: "amgi"),
+                .product(name: "AnkiBackend", package: "amgi"),
                 .product(name: "AmgiTheme", package: "AmgiUI"),
                 .product(name: "AmgiUI", package: "AmgiUI"),
                 .product(name: "Dependencies", package: "swift-dependencies"),

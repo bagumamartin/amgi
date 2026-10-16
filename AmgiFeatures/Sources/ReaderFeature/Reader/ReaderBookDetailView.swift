@@ -165,11 +165,9 @@ private extension ReaderBookDetailContent {
                     : 0
             )
         } else if index >= 0, index < book.chapters.count {
-            ChapterReaderView(
-                book: book,
-                chapter: book.chapters[index],
-                progress: progress
-            )
+            // Reads the chapter text first if the shelf outline is still all
+            // this screen has.
+            ReaderOpenView(book: book, progress: progress, chapterIndex: index)
         }
     }
 

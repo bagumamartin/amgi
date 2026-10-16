@@ -36,6 +36,17 @@ final class PDFViewCoordinator: NSObject {
 
     private var savedSelection: PDFSelection?
 
+    /// The reader's items for the system selection menu, built for the
+    /// selection as it is when the menu opens. Set by the reader view, which
+    /// owns the card session and the annotation model.
+    @ObservationIgnored var selectionMenu: (() -> (entries: [ReaderSelectionMenuEntry], actions: ReaderSelectionMenuActions)?)?
+
+    /// Clears the text selection, which also dismisses the system menu.
+    func clearSelection() {
+        view?.clearSelection()
+        savedSelection = nil
+    }
+
     init(navigation: PDFReaderNavigation) {
         self.navigation = navigation
     }
@@ -170,7 +181,10 @@ final class PDFViewCoordinator: NSObject {
         draggedRect: PDFNormalizedRect?,
         details: PDFSelectionContext.Details
     ) -> PDFSelectionContext? {
-        guard let view, let page = view.currentPage, let document = view.document else {
+        // A text selection is on its own page, which in a continuous scroll
+        // or a two-up spread need not be the one PDFKit calls current.
+        let selectionPage = source == .textSelection ? view?.currentSelection?.pages.first : nil
+        guard let view, let page = selectionPage ?? view.currentPage, let document = view.document else {
             return nil
         }
         let index = document.index(for: page)
@@ -640,6 +654,7 @@ enum PDFPageCanvasSupport {
     ) -> PDFView {
         let view = ReaderPDFView()
         view.onWidthChange = { [weak coordinator] in coordinator?.layoutChanged() }
+        view.menuSource = coordinator
         view.autoScales = true
         view.minScaleFactor = 0.25
         view.maxScaleFactor = 5.0
@@ -691,7 +706,30 @@ enum PDFPageCanvasSupport {
 /// what makes the very first fit happen at all, on every platform.
 final class ReaderPDFView: PDFView {
     var onWidthChange: (() -> Void)?
+    /// Supplies the reader's items for PDFKit's own selection menu, the same
+    /// way `ReaderWebView` does for WebKit's. One menu at the selection; no
+    /// separate bar for the waiting card to cover.
+    weak var menuSource: PDFViewCoordinator?
     private var lastWidth: CGFloat = 0
+
+    #if canImport(UIKit) && !os(macOS)
+    override func buildMenu(with builder: any UIMenuBuilder) {
+        super.buildMenu(with: builder)
+        guard let menu = menuSource?.selectionMenu?() else { return }
+        ReaderSystemSelectionMenu.merge(
+            ReaderSystemSelectionMenu.elements(for: menu.entries, actions: menu.actions),
+            into: builder
+        )
+    }
+    #else
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let base = super.menu(for: event)
+        guard let menu = menuSource?.selectionMenu?() else { return base }
+        let merged = base ?? NSMenu()
+        ReaderSystemSelectionMenu.merge(menu.entries, actions: menu.actions, into: merged)
+        return merged
+    }
+    #endif
 
     #if canImport(UIKit) && !os(macOS)
     override func layoutSubviews() {

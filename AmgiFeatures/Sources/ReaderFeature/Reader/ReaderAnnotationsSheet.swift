@@ -11,19 +11,25 @@ import SwiftUI
 struct ReaderAnnotationsSheet: View {
     let book: ReaderBook
     @Bindable var model: ReaderAnnotationModel
+    /// Unfinished cards, frontmost first. They are listed here, beside the
+    /// highlights, so a draft waiting for its answer is never only in a dock.
+    var drafts: [ReaderCardDraft] = []
     let onJump: (ReaderAnnotation) -> Void
+    var onResumeDraft: (ReaderCardDraft) -> Void = { _ in }
+    var onDiscardDraft: (ReaderCardDraft) -> Void = { _ in }
 
     @State private var query = ""
     @State private var selection: KindSelection = .highlights
 
     enum KindSelection: String, CaseIterable, Identifiable {
-        case highlights, bookmarks, search
+        case highlights, bookmarks, drafts, search
         var id: String { rawValue }
 
         var title: String {
             switch self {
             case .highlights: "Highlights"
             case .bookmarks: "Bookmarks"
+            case .drafts: "Drafts"
             case .search: "Search"
             }
         }
@@ -58,7 +64,15 @@ struct ReaderAnnotationsSheet: View {
                     .padding(.vertical, 8)
             }
 
-            list
+            if selection == .drafts {
+                draftList
+            } else {
+                list
+            }
+        }
+        .onAppear {
+            // Opened from "N Unfinished Cards": land on them.
+            if !drafts.isEmpty && model.highlights.isEmpty { selection = .drafts }
         }
         .frame(minWidth: 420, idealWidth: 520, minHeight: 420, idealHeight: 560)
         .amgiScreenCanvas()
@@ -146,7 +160,69 @@ private extension ReaderAnnotationsSheet {
         case .highlights: model.highlights
         case .bookmarks: model.bookmarks
         case .search: model.searchHits.map(\.annotation)
+        case .drafts: []
         }
+    }
+
+    @ViewBuilder
+    var draftList: some View {
+        if drafts.isEmpty {
+            emptyState
+        } else {
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(drafts) { draft in
+                        draftRow(draft)
+                        Divider().padding(.leading, 16)
+                    }
+                }
+            }
+        }
+    }
+
+    func draftRow(_ draft: ReaderCardDraft) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "rectangle.stack")
+                    .amgiFont(.micro)
+                    .foregroundStyle(palette.textSecondary)
+                    .accessibilityHidden(true)
+                if let chapter = chapterTitle(chapterID: ReaderCardSession.sourceChapterID(of: draft)) {
+                    Text(chapter)
+                        .amgiFont(.caption)
+                        .foregroundStyle(palette.textSecondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                Text(draft.createdAt, format: .dateTime.month(.abbreviated).day())
+                    .amgiFont(.micro)
+                    .foregroundStyle(palette.textSecondary)
+            }
+            Text(draft.hasContent(.front) ? draft.front : "No front yet")
+                .amgiFont(.body)
+                .foregroundStyle(draft.hasContent(.front) ? palette.textPrimary : palette.textSecondary)
+                .lineLimit(3)
+            Text(draft.hasContent(.back) ? draft.back : "Waiting for an answer")
+                .italic(!draft.hasContent(.back))
+                .amgiFont(.caption)
+                .foregroundStyle(palette.textSecondary)
+                .lineLimit(3)
+            HStack(spacing: 14) {
+                Button("Resume") { onResumeDraft(draft) }
+                    .amgiFont(.captionBold)
+                    .accessibilityLabel("Resume this card and go to where it started")
+                Spacer(minLength: 0)
+                Button(role: .destructive) {
+                    onDiscardDraft(draft)
+                } label: {
+                    Image(systemName: "trash").amgiFont(.caption)
+                }
+                .accessibilityLabel("Discard draft")
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .accessibilityElement(children: .contain)
     }
 
     @ViewBuilder
@@ -163,6 +239,7 @@ private extension ReaderAnnotationsSheet {
         switch selection {
         case .highlights: "No highlights"
         case .bookmarks: "No bookmarks"
+        case .drafts: "No unfinished cards"
         case .search: query.isEmpty ? "Search" : "No matches"
         }
     }
@@ -171,6 +248,7 @@ private extension ReaderAnnotationsSheet {
         switch selection {
         case .highlights: "highlighter"
         case .bookmarks: "bookmark"
+        case .drafts: "rectangle.stack"
         case .search: "magnifyingglass"
         }
     }
@@ -181,6 +259,8 @@ private extension ReaderAnnotationsSheet {
             "Use the annotations menu in the reader to highlight the page you are on."
         case .bookmarks:
             "Bookmarks keep your place in a chapter you want to come back to."
+        case .drafts:
+            "Select text and choose Make Card. A card whose answer is further on waits here until you find it."
         case .search:
             query.isEmpty
                 ? "Search across every highlight and note in this book."
@@ -249,7 +329,11 @@ private extension ReaderAnnotationsSheet {
     /// still valid, it just cannot name where it is, so the row omits the
     /// chapter rather than showing a stale one.
     func chapterTitle(for annotation: ReaderAnnotation) -> String? {
-        guard let chapterID = annotation.anchor.chapterID,
+        chapterTitle(chapterID: annotation.anchor.chapterID)
+    }
+
+    func chapterTitle(chapterID: Int64?) -> String? {
+        guard let chapterID,
               let index = book.chapters.firstIndex(where: { $0.id == chapterID })
         else { return nil }
         return book.chapters[index].title

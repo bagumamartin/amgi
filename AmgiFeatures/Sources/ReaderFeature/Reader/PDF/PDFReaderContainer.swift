@@ -2,6 +2,7 @@ import AmgiReader
 import AmgiReaderPDF
 import AmgiTheme
 import AmgiUI
+import BrowseFeature
 import PDFKit
 import Sharing
 import AssistantFeature
@@ -23,7 +24,7 @@ import UIKit
 /// - Fluid page navigation: Continuous Vertical Scroll or Paginated (Slide/Curl).
 /// - Apple Books bottom page scrubber with interactive dragging, page preview bubble, and haptics.
 /// - Top chrome with Close, Book Title running head, Bookmark toggle, Search, and Contents sheet.
-/// - Native text selection contextual callout: Highlight in 4 colors, Look Up in dictionary, Make Anki Card, Copy.
+/// - Text selection: PDFKit's own menu, carrying Highlight in 4 colours, Look Up in the dictionary, and the card actions.
 /// - Unified Contents sheet (PDF Outline TOC, Bookmarks, Highlights & Notes).
 /// - Unified Reading Style & Themes sheet (Default, Sepia, Dark).
 struct PDFReaderView: View {
@@ -48,6 +49,7 @@ struct PDFReaderView: View {
     @State private var macThumbnailWidth: CGFloat = 174
     @State private var selection: PDFSelectionContext?
     @State private var lookupRequest: LookupRequest?
+    @State private var cards = ReaderCardSession()
 
     // Bookmarks & sidecar annotations
     @State private var annotations = ReaderAnnotationModel()
@@ -137,6 +139,7 @@ struct PDFReaderView: View {
         }
         .sheet(isPresented: $isContentsSheetPresented) {
             contentsSheet
+                .presentationDetents([.large])
         }
         .sheet(isPresented: $isStyleSheetPresented) {
             ReaderStyleSheet(isPDF: true)
@@ -144,6 +147,76 @@ struct PDFReaderView: View {
         .sheet(isPresented: lookupSheetPresented) {
             lookupPopupContent
         }
+        .overlay(alignment: .bottom) {
+            if case .ready = model.state, hasRestoredInitialPage {
+                cardLayer
+            }
+        }
+        .sheet(item: editingDraftSheet) { item in
+            ReaderCardDraftSheet(draftID: item.id, session: cards, onGoTo: goTo)
+        }
+        .sheet(item: $cards.openedNote) { opened in
+            NoteEditingDestinationView(
+                note: opened.note,
+                embedInNavigationStack: true,
+                onSave: { cards.openedNote = nil }
+            )
+        }
+        .sensoryFeedback(.success, trigger: cards.savedCount)
+        .sensoryFeedback(.impact(weight: .light), trigger: cards.clippedCount)
+    }
+
+    // MARK: - Card Capture
+
+    /// The draft dock and the capture toast, floating over the page — the same
+    /// layer the EPUB reader shows, so an unfinished card stays in reach.
+    private var cardLayer: some View {
+        VStack(spacing: 10) {
+            if let toast = cards.toast {
+                ReaderCardToastView(toast: toast) {
+                    Task { await cards.undo(toast) }
+                }
+                .transition(AmgiMotion.slide(from: .bottom))
+            }
+            ReaderCardDock(
+                drafts: cards.drafts.drafts,
+                onOpen: { cards.editingDraftID = $0 },
+                onSave: { id in Task { await cards.save(id) } },
+                onCycle: { forward in Task { await cards.drafts.cycle(forward: forward) } },
+                onDiscard: { id in Task { await cards.discard(id) } },
+                onGoTo: goTo,
+                onBringToFront: { id in Task { await cards.drafts.bringToFront(id) } },
+                onDrop: { text, id in
+                    let selection = canvasCoordinator.contextProvider?(.textSelection, nil)
+                        .map(selectionPayload(for:))
+                    canvasCoordinator.clearSelection()
+                    Task { await cards.drop(text, on: id, selection: selection) }
+                }
+            )
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 16)
+        #if os(macOS)
+        .padding(.bottom, 14)
+        #else
+        // Clears the page scrubber while the chrome is up.
+        .padding(.bottom, chromeVisible ? 100 : 14)
+        #endif
+        .animation(AmgiMotion.momentum, value: cards.drafts.drafts.map(\.id))
+        .animation(AmgiMotion.standard, value: cards.toast)
+    }
+
+    private var editingDraftSheet: Binding<DraftSheetItem?> {
+        Binding(
+            get: { cards.editingDraftID.map(DraftSheetItem.init) },
+            set: { cards.editingDraftID = $0?.id }
+        )
+    }
+
+    /// PDF clips carry their page in `cfi`, the same slot bookmarks use.
+    private func goTo(_ anchor: ReaderSourceAnchor) {
+        guard let page = anchor.cfi else { return }
+        navigate(to: page, userInitiated: true)
     }
 
     // MARK: - Reader Body
@@ -206,12 +279,6 @@ struct PDFReaderView: View {
                         Spacer()
                     }
                     .transition(.move(edge: .top).combined(with: .opacity))
-                }
-
-                if let selection, !selection.text.isEmpty {
-                    selectionCallout(for: selection)
-                        .padding(.bottom, chromeVisible ? 100 : 30)
-                        .transition(.scale(scale: 0.95).combined(with: .opacity))
                 }
 
                 if chromeVisible {
@@ -286,12 +353,6 @@ struct PDFReaderView: View {
                             onStepSearchResult: { canvasCoordinator.stepSearchResult(by: $0) },
                             onSelectionChanged: { selection = $0 }
                         )
-
-                        if let selection, !selection.text.isEmpty {
-                            selectionCallout(for: selection)
-                                .padding(.bottom, 20)
-                                .transition(.scale(scale: 0.95).combined(with: .opacity))
-                        }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -611,121 +672,97 @@ struct PDFReaderView: View {
         return matching.last?.title
     }
 
-    // MARK: - Selection Callout Menu
+    // MARK: - Selection Menu
 
-    private func selectionCallout(for context: PDFSelectionContext) -> some View {
-        HStack(spacing: 8) {
-            // Highlight color swatches
-            ForEach([
-                PDFAnnotationColour.yellow,
-                PDFAnnotationColour.green,
-                PDFAnnotationColour.blue,
-                PDFAnnotationColour.pink
-            ], id: \.self) { colour in
-                Button {
-                    let pageIndex = context.pageIndex
-                    let bounds: CGRect
-                    if let pageBounds = context.pageBounds {
-                        bounds = pageBounds
-                    } else if let page = model.document?.page(at: context.pageIndex) {
-                        let pBox = page.bounds(for: .cropBox)
-                        let pRect = context.regionRect.pdfRect(pageWidth: pBox.width, pageHeight: pBox.height)
-                        bounds = CGRect(x: pRect.x, y: pRect.y, width: pRect.width, height: pRect.height)
-                    } else {
-                        bounds = .zero
-                    }
-                    selection = nil
-                    Task { @MainActor in
-                        _ = await model.addAnnotation(
-                            kind: .highlight,
-                            pageIndex: pageIndex,
-                            bounds: bounds,
-                            colour: colour
-                        )
-                    }
-                } label: {
-                    Circle()
-                        .fill(colour.swiftUIColor)
-                        .frame(width: 22, height: 22)
-                        .overlay(Circle().stroke(Color.white.opacity(0.8), lineWidth: 1.5))
-                }
-                .accessibilityLabel("Highlight \(colour.rawValue)")
-            }
-
-            Divider().frame(height: 20)
-
-            // Look Up
-            Button {
-                lookupRequest = LookupRequest(
-                    token: context.text,
-                    sentence: context.text,
-                    anchor: ReaderSourceAnchor(
-                        bookID: book.id,
-                        quote: context.text,
-                        contextBefore: context.anchor.contextBefore,
-                        contextAfter: context.anchor.contextAfter
-                    )
-                )
-                selection = nil
-            } label: {
-                Label("Look Up", systemImage: "character.book.closed")
-                    .amgiFont(.captionBold)
-                    .foregroundStyle(palette.textPrimary)
-            }
-
-            Divider().frame(height: 20)
-
-            // Make Anki Card
-            Button {
-                lookupRequest = LookupRequest(
-                    token: context.text,
-                    sentence: context.text,
-                    anchor: ReaderSourceAnchor(
-                        bookID: book.id,
-                        quote: context.text,
-                        contextBefore: context.anchor.contextBefore,
-                        contextAfter: context.anchor.contextAfter
-                    )
-                )
-                selection = nil
-            } label: {
-                Label("Make Card", systemImage: "text.badge.plus")
-                    .amgiFont(.captionBold)
-                    .foregroundStyle(palette.accent)
-            }
-
-            Divider().frame(height: 20)
-
-            // Copy
-            Button {
-                #if os(iOS)
-                UIPasteboard.general.string = context.text
-                #elseif os(macOS)
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(context.text, forType: .string)
-                #endif
-                selection = nil
-            } label: {
-                Image(systemName: "doc.on.doc")
-                    .amgiFont(.caption)
-                    .foregroundStyle(palette.textPrimary)
-            }
-            .accessibilityLabel("Copy")
-
-            // Close
-            Button {
-                selection = nil
-            } label: {
-                Image(systemName: "xmark")
-                    .amgiFont(.micro)
-                    .foregroundStyle(palette.textSecondary)
-            }
-            .accessibilityLabel("Dismiss")
+    /// The reader's items for PDFKit's own selection menu — the same items,
+    /// through the same card session, as the EPUB reader's. With a card
+    /// waiting, the menu leads with Add to Back; filling the missing side
+    /// saves it.
+    private func selectionMenu() -> (entries: [ReaderSelectionMenuEntry], actions: ReaderSelectionMenuActions)? {
+        guard let context = canvasCoordinator.contextProvider?(.textSelection, nil), context.hasText else {
+            return nil
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .amgiMaterial(.regular, in: Capsule(), interactive: true)
-        .amgiMaterialElevation(Capsule())
+        let payload = selectionPayload(for: context)
+        // A PDF bookmark marks a page, from the top bar, not a selection.
+        let entries = ReaderSystemSelectionMenu.entries(for: payload, context: cards.drafts.menuContext)
+            .filter { $0 != .action(.bookmark) }
+        let actions = ReaderSelectionMenuActions(
+            perform: { action in
+                switch action {
+                case .lookUp:
+                    lookupRequest = LookupRequest(
+                        token: payload.token,
+                        sentence: payload.sentence,
+                        anchor: payload.anchor
+                    )
+                case .highlight:
+                    addHighlight(for: context, colour: .yellow)
+                case .copy:
+                    copyToPasteboard(context.text)
+                case .bookmark:
+                    break
+                }
+                canvasCoordinator.clearSelection()
+            },
+            card: { command in
+                canvasCoordinator.clearSelection()
+                Task { await cards.handle(command, payload: payload, chapterID: nil) }
+            },
+            highlightColours: [PDFAnnotationColour.yellow, .green, .blue, .pink].map { colour in
+                .init(title: colour.label, color: colour.platformColor) {
+                    addHighlight(for: context, colour: colour)
+                    canvasCoordinator.clearSelection()
+                }
+            }
+        )
+        return (entries, actions)
+    }
+
+    /// A PDF selection as the card session takes it. PDF clips carry their
+    /// page in `cfi`, the slot bookmarks use.
+    private func selectionPayload(for context: PDFSelectionContext) -> ReaderSelectionPayload {
+        ReaderSelectionPayload(
+            text: context.text,
+            token: context.text,
+            sentence: context.text,
+            anchor: ReaderSourceAnchor(
+                bookID: book.id,
+                cfi: context.pageIndex,
+                quote: ReaderSourceAnchor.normalize(context.text),
+                contextBefore: context.anchor.contextBefore,
+                contextAfter: context.anchor.contextAfter
+            )
+        )
+    }
+
+    private func addHighlight(for context: PDFSelectionContext, colour: PDFAnnotationColour) {
+        let bounds: CGRect
+        if let pageBounds = context.pageBounds {
+            bounds = pageBounds
+        } else if let page = model.document?.page(at: context.pageIndex) {
+            let pBox = page.bounds(for: .cropBox)
+            let pRect = context.regionRect.pdfRect(pageWidth: pBox.width, pageHeight: pBox.height)
+            bounds = CGRect(x: pRect.x, y: pRect.y, width: pRect.width, height: pRect.height)
+        } else {
+            return
+        }
+        Task { @MainActor in
+            _ = await model.addAnnotation(
+                kind: .highlight,
+                pageIndex: context.pageIndex,
+                bounds: bounds,
+                colour: colour
+            )
+        }
+    }
+
+    private func copyToPasteboard(_ text: String) {
+        #if os(iOS)
+        UIPasteboard.general.string = text
+        #elseif os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        #endif
     }
 
     // MARK: - Search Bar
@@ -869,6 +906,8 @@ struct PDFReaderView: View {
     private func open() async {
         await model.load()
         await annotations.load(bookID: book.id)
+        await cards.attach(book: book, annotations: annotations)
+        canvasCoordinator.selectionMenu = { selectionMenu() }
         guard case .ready = model.state else { return }
 
         navigation.transition = pageNavigationTransition

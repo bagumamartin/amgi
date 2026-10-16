@@ -39,10 +39,15 @@ public struct ReaderSourceAnchor: Codable, Sendable, Hashable {
     /// between devices, profiles, and iCloud.
     public var chapterHref: String?
 
-    /// Character offset of the anchor within the container's rendered text.
+    /// Character offset of the anchor into the chapter text: every text node
+    /// under `<body>` in document order, minus scripts, styles, and the
+    /// reader's page furniture. (For a PDF, the page index.) Anchors saved
+    /// before 2026-10-16 counted from their own paragraph instead; the page
+    /// script detects those by checking the offset against the text and
+    /// re-finds them, so they need no migration.
     public var cfi: Int?
-    /// Child-index path from the container element to the anchored text node,
-    /// e.g. `[0, 2, 1, 0]`.
+    /// Child-index path from `<body>` to the anchored element, counting
+    /// element children only, e.g. `[0, 2, 1, 0]`.
     public var path: [Int]?
 
     /// The anchored text itself, normalised.

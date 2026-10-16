@@ -96,62 +96,48 @@ final class ReaderLibraryModel {
     func reload(searchText: String, sortMode: BookshelfSortMode) async {
         if books.isEmpty { state = .loading }
 
-        // Both file-backed stores are asked at once rather than in sequence.
-        // They are independent — separate directories, separate indexes — so
-        // awaiting one before starting the other doubles the time the library
-        // takes to appear on a cold launch for no reason.
+        // All three sources are asked at once. The two file-backed stores are
+        // local index reads; the Anki deck is an engine query over every note
+        // in the reader deck, and is the slow one.
         async let epubBooks: [ReaderBook] = epubLibraryClient.listBooks()
         async let pdfBooks: [ReaderBook] = pdfLibraryClient.listBooks()
-
-        var ankiBooks: [ReaderBook] = []
-        var firstError: String?
-        if let configuration = ReaderConfigurationLoader.loadConfiguration() {
-            do {
-                ankiBooks = try await readerBookClient.loadBooks(configuration)
-            } catch {
-                firstError = error.localizedDescription
-            }
-        }
+        async let anki = loadAnkiBooks()
 
         let resolvedEPUBs = await epubBooks
         let resolvedPDFs = await pdfBooks
+        if Task.isCancelled { return }
+
+        // First paint: the files on this device, with the covers their stores
+        // already hold. Nothing here waits on the engine or reads a book, so
+        // the shelf appears at once instead of behind a spinner. Anki-deck
+        // books from the previous load stand in until the fresh ones land, so
+        // a reload does not make them blink out.
+        let staleAnkiBooks = books.filter { if case .ankiDeck = $0.source { true } else { false } }
+        setBooks(staleAnkiBooks + resolvedEPUBs + resolvedPDFs)
+        let storedCovers = await storedCoverURLs(for: books)
+        if Task.isCancelled { return }
+        localCoverURLs.merge(storedCovers) { _, stored in stored }
+        progressByBook = progress.localAll(bookIDs: books.map(\.id))
+        if !books.isEmpty {
+            rebuildViewData(searchText: searchText, sortMode: sortMode)
+        }
+
+        let (ankiBooks, firstError) = await anki
         if Task.isCancelled { return }
         // The two stores cannot collide on book ID: each derives one from the
         // document's own identity and prefixes it, so an EPUB and a PDF are
         // never the same entry.
         let merged = ankiBooks + resolvedEPUBs + resolvedPDFs
-        books = merged
-        bookIndex = Dictionary(merged.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        setBooks(merged)
 
-        // Covers come from whichever store owns the book. Dispatching on the
-        // book's own source, rather than on which list it came from, is what
-        // keeps this correct as formats are added.
-        var resolved: [String: URL] = [:]
-        let epubClient = epubLibraryClient
-        let pdfClient = pdfLibraryClient
-        await withTaskGroup(of: (String, URL?).self) { group in
-            for book in merged {
-                switch book.source {
-                case .epub:
-                    group.addTask { (book.id, await epubClient.coverURL(book.id)) }
-                case .pdf:
-                    group.addTask { (book.id, await pdfClient.coverURL(book.id)) }
-                case .ankiDeck:
-                    break
-                }
-            }
-            for await (id, url) in group {
-                if let url { resolved[id] = url }
-            }
-        }
-        if Task.isCancelled { return }
-
+        var resolved = storedCovers
         // EPUBs without embedded cover art fall back in two stages: first a
         // cover image lifted from the first chapter (which usually *is* the
         // cover), then a first-page render. Resolve both here, once per
         // reload, so cells never hit the store or the filesystem per body
         // pass. Only coverless EPUBs pay for the extra lookups.
         var firstPages: [String: EPUBFirstPageSource] = [:]
+        let epubClient = epubLibraryClient
         await withTaskGroup(of: (String, URL?, EPUBFirstPageSource?).self) { group in
             for book in merged {
                 guard case .epub = book.source,
@@ -224,6 +210,47 @@ final class ReaderLibraryModel {
         }
 
         rebuildViewData(searchText: searchText, sortMode: sortMode)
+    }
+
+    private func setBooks(_ list: [ReaderBook]) {
+        books = list
+        bookIndex = Dictionary(list.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// Books built from notes in the configured Anki deck, or the error that
+    /// stopped them. No configuration means no deck books, not an error.
+    private func loadAnkiBooks() async -> (books: [ReaderBook], error: String?) {
+        guard let configuration = ReaderConfigurationLoader.loadConfiguration() else { return ([], nil) }
+        do {
+            return (try await readerBookClient.loadBooks(configuration), nil)
+        } catch {
+            return ([], error.localizedDescription)
+        }
+    }
+
+    /// Covers come from whichever store owns the book. Dispatching on the
+    /// book's own source, rather than on which list it came from, is what
+    /// keeps this correct as formats are added.
+    private func storedCoverURLs(for books: [ReaderBook]) async -> [String: URL] {
+        var resolved: [String: URL] = [:]
+        let epubClient = epubLibraryClient
+        let pdfClient = pdfLibraryClient
+        await withTaskGroup(of: (String, URL?).self) { group in
+            for book in books {
+                switch book.source {
+                case .epub:
+                    group.addTask { (book.id, await epubClient.coverURL(book.id)) }
+                case .pdf:
+                    group.addTask { (book.id, await pdfClient.coverURL(book.id)) }
+                case .ankiDeck:
+                    break
+                }
+            }
+            for await (id, url) in group {
+                if let url { resolved[id] = url }
+            }
+        }
+        return resolved
     }
 
     /// Pushes any reading positions that never reached iCloud, then folds in

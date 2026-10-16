@@ -51,6 +51,11 @@ public struct ReaderChapter: Sendable, Hashable, Identifiable {
     public var language: String?
     /// Per-chapter page estimate from EPUB parsing. Nil for Anki-deck chapters.
     public var pageCount: Int?
+    /// Whether the book's table of contents names this spine document. A
+    /// spine document it does not name (a title page, a copyright page, a
+    /// figure split out of a chapter) belongs to the entry before it, which
+    /// is what "pages left in chapter" should count.
+    public var isTableOfContentsEntry: Bool
 
     public init(
         id: Int64,
@@ -60,7 +65,8 @@ public struct ReaderChapter: Sendable, Hashable, Identifiable {
         order: String? = nil,
         content: String,
         language: String? = nil,
-        pageCount: Int? = nil
+        pageCount: Int? = nil,
+        isTableOfContentsEntry: Bool = true
     ) {
         self.id = id
         self.bookID = bookID
@@ -70,6 +76,7 @@ public struct ReaderChapter: Sendable, Hashable, Identifiable {
         self.content = content
         self.language = language
         self.pageCount = pageCount
+        self.isTableOfContentsEntry = isTableOfContentsEntry
     }
 }
 

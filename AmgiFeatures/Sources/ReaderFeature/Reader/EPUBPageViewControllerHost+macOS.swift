@@ -50,6 +50,13 @@ struct EPUBPageViewControllerHost: NSViewRepresentable {
     var paginationIndex: ReaderPaginationIndex?
     /// Book title, printed as the running head on every page.
     let runningHead: String
+    /// The reader's chrome is up: the page hides its own running head and
+    /// number, which the chrome replaces on the same lines.
+    var chromeVisible: Bool = false
+    /// A chapter's page count at the current layout, measured in the
+    /// background so the book has one fixed total, the way Apple Books
+    /// paginates before showing "X of Y".
+    var onChapterMeasured: ((_ chapter: Int, _ pageCount: Int) -> Void)?
     /// Bridge to the live web view, for anchor capture and marks. Same
     /// contract and same parameter order as the iOS host, so the SwiftUI call
     /// site stays platform-agnostic.
@@ -77,7 +84,6 @@ struct EPUBPageViewControllerHost: NSViewRepresentable {
         context.coordinator.consumeSelectionRequestIfNeeded()
         context.coordinator.fulfilPendingAnchorRequest()
         context.coordinator.fulfilSelectionMarkRequest()
-        context.coordinator.presentSelectionMenuIfNeeded()
         context.coordinator.consumePageTurnRequestIfNeeded()
         if context.coordinator.currentChapterIndex != chapterIndex {
             context.coordinator.showChapter(
@@ -159,8 +165,9 @@ struct EPUBPageViewControllerHost: NSViewRepresentable {
 
             userContent.add(self, name: "pageInfo")
             userContent.add(self, name: "progress")
-            userContent.add(self, name: "wordTap")
+            userContent.add(self, name: "wordSelection")
             userContent.add(self, name: "emptyTap")
+            userContent.add(self, name: "markTap")
             configuration.userContentController = userContent
             configuration.suppressesIncrementalRendering = false
 
@@ -195,8 +202,9 @@ struct EPUBPageViewControllerHost: NSViewRepresentable {
             let controller = webView.configuration.userContentController
             controller.removeScriptMessageHandler(forName: "pageInfo")
             controller.removeScriptMessageHandler(forName: "progress")
-            controller.removeScriptMessageHandler(forName: "wordTap")
+            controller.removeScriptMessageHandler(forName: "wordSelection")
             controller.removeScriptMessageHandler(forName: "emptyTap")
+            controller.removeScriptMessageHandler(forName: "markTap")
             if let keyMonitor {
                 NSEvent.removeMonitor(keyMonitor)
                 self.keyMonitor = nil
@@ -249,8 +257,9 @@ struct EPUBPageViewControllerHost: NSViewRepresentable {
         private var currentReadAccessURL: URL?
         /// Identity of the chapter on screen, used to stamp source anchors.
         private var currentContent: EPUBChapterContent?
-        /// The most recent selection, awaiting a choice from the contextual
-        /// menu. Cleared as soon as the menu is dismissed.
+        /// The page's live selection, as last reported. Not cleared when the
+        /// menu closes: the chosen item's action fires after that, and the
+        /// page reports the selection's clearing anyway.
         private var pendingSelection: ReaderSelectionPayload?
 
         // MARK: Page transition
@@ -331,41 +340,81 @@ struct EPUBPageViewControllerHost: NSViewRepresentable {
             )
         }
 
-        /// Shows the contextual menu for the current selection.
+        /// Adds the reader's actions to the context menu WebKit is about to
+        /// show for a selection.
         ///
-        /// macOS builds its own menu for a web view selection; appending ours
-        /// keeps the platform's Cut/Copy/Paste/Look Up entries and adds the
-        /// reader's actions on top.
-        func presentSelectionMenuIfNeeded() {
+        /// Merged into WebKit's own menu rather than popped up as a second
+        /// one, so the platform's Translate, Share and Speech entries stay.
+        /// Copy is dropped from ours because WebKit already has it; WebKit's
+        /// Look Up is dropped from *its* side, because ours opens the in-app
+        /// dictionary, which is where a card can be made from the result.
+        /// `pendingSelection` is current by now: the page script flushes its
+        /// selection report from its `contextmenu` listener, which WebKit
+        /// delivers ahead of the menu itself.
+        func extendContextMenu(_ menu: NSMenu) {
             guard let payload = pendingSelection else { return }
-            let menu = NSMenu()
-            for action in ReaderSelectionMenu.actionOrder
-            where ReaderSelectionMenu.isAvailable(action, for: payload) {
-                let item = NSMenuItem(
-                    title: ReaderSelectionMenu.title(for: action),
-                    action: #selector(performSelectionAction(_:)),
-                    keyEquivalent: ""
-                )
+            let context = host.commands.cardMenuContextProvider?() ?? ReaderCardMenuContext()
+            let entries = ReaderSelectionMenu.entries(for: payload, context: context)
+                .filter { $0 != .action(.copy) }
+            guard !entries.isEmpty else { return }
+            if let systemLookUp = menu.items.first(where: {
+                $0.identifier?.rawValue == "WKMenuItemIdentifierLookUp"
+            }) {
+                menu.removeItem(systemLookUp)
+            }
+            for (index, entry) in entries.enumerated() {
+                menu.insertItem(menuItem(for: entry), at: index)
+            }
+            if menu.items.count > entries.count {
+                menu.insertItem(.separator(), at: entries.count)
+            }
+        }
+
+        private func menuItem(for entry: ReaderSelectionMenuEntry) -> NSMenuItem {
+            let item = NSMenuItem(title: entry.title, action: nil, keyEquivalent: "")
+            item.image = NSImage(systemSymbolName: entry.systemImage, accessibilityDescription: nil)
+            // macOS 27 hides menu item images unless an item opts in. These
+            // symbols tell card actions apart at a glance, so keep them.
+            if #available(macOS 27.0, *) {
+                item.preferredImageVisibility = .visible
+            }
+            switch entry {
+            case .action(let action):
+                item.action = #selector(performSelectionAction(_:))
                 item.target = self
                 item.representedObject = action.rawValue
-                item.image = NSImage(
-                    systemSymbolName: ReaderSelectionMenu.systemImage(for: action),
-                    accessibilityDescription: nil
+            case .card(let command, _, _):
+                item.action = #selector(performCardAction(_:))
+                item.target = self
+                item.representedObject = CardCommandBox(command)
+            case .submenu(_, _, let children):
+                let submenu = NSMenu(title: entry.title)
+                for child in children { submenu.addItem(menuItem(for: child)) }
+                item.submenu = submenu
+            }
+            return item
+        }
+
+        @objc private func performCardAction(_ sender: NSMenuItem) {
+            guard let box = sender.representedObject as? CardCommandBox,
+                  let payload = pendingSelection else { return }
+            // The anchor fallback searches by quote, not by the live Range, so
+            // the selection can go now rather than after the lookup.
+            webView?.evaluateJavaScript(
+                "window.getSelection() && window.getSelection().removeAllRanges();",
+                completionHandler: nil
+            )
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let anchor = await self.anchor(for: payload)
+                let anchored = ReaderSelectionPayload(
+                    text: payload.text,
+                    token: payload.token,
+                    sentence: payload.sentence,
+                    anchor: anchor
                 )
-                menu.addItem(item)
+                self.host.commands.cardCommandHandler?(box.command, anchored)
             }
-            guard !menu.items.isEmpty else {
-                pendingSelection = nil
-                return
-            }
-            if let webView {
-                // `popUp` runs a nested event loop and returns only once the
-                // menu closes, and the chosen action fires *inside* that loop.
-                // So the payload must outlive the call — clearing it before
-                // would leave the action handler with nothing to act on.
-                menu.popUp(positioning: nil, at: NSPoint(x: 0, y: 0), in: webView)
-            }
-            pendingSelection = nil
         }
 
         @objc private func performSelectionAction(_ sender: NSMenuItem) {
@@ -375,13 +424,24 @@ struct EPUBPageViewControllerHost: NSViewRepresentable {
             // Range is not guaranteed to still exist by the time the item is
             // clicked, so reuse the payload rather than re-reading the page.
             guard let payload = pendingSelection else { return }
-            let anchor = payload.anchor ?? pendingAnchor(forSelection: payload.text)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let anchor = await self.anchor(for: payload)
+                self.perform(action, payload: payload, anchor: anchor)
+            }
+        }
+
+        private func perform(
+            _ action: ReaderSelectionAction,
+            payload: ReaderSelectionPayload,
+            anchor: ReaderSourceAnchor?
+        ) {
             switch action {
             case .copy:
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(payload.text, forType: .string)
-            case .lookUp, .addNote:
-                host.onSelectionForNote(payload.token)
+            case .lookUp:
+                host.onWordTap(payload.token, payload.sentence, anchor)
             case .highlight:
                 host.commands.requestSelectionMark(
                     .init(kind: .highlight, anchor: anchor, excerpt: payload.text)
@@ -393,11 +453,18 @@ struct EPUBPageViewControllerHost: NSViewRepresentable {
             }
         }
 
+        /// The payload's own anchor, or one found by searching the page for its
+        /// text when the selection report carried none.
+        private func anchor(for payload: ReaderSelectionPayload) async -> ReaderSourceAnchor? {
+            if let anchor = payload.anchor { return anchor }
+            return await pendingAnchor(forSelection: payload.text)
+        }
+
         /// Asks the page for an anchor at the current selection. Falls back to
         /// nil, which stores the mark with a quote-only anchor that still
         /// re-anchors by text search.
-        private func pendingAnchor(forSelection selection: String) -> ReaderSourceAnchor? {
-            guard let content = currentContent else { return nil }
+        private func pendingAnchor(forSelection selection: String) async -> ReaderSourceAnchor? {
+            guard let webView, let content = currentContent else { return nil }
             let quoted = ReaderSourceAnchor.normalize(selection)
             let json: String
             if let data = try? JSONSerialization.data(
@@ -407,12 +474,16 @@ struct EPUBPageViewControllerHost: NSViewRepresentable {
             } else {
                 return nil
             }
-            var anchor: ReaderSourceAnchor?
-            webView?.evaluateJavaScript(
-                "window.__amgiAnchorForQuote ? window.__amgiAnchorForQuote(\(json)) : null;"
-            ) { result, _ in
-                MainActor.assumeIsolated {
-                    anchor = ReaderSourceAnchor(scriptPayload: result)
+            // The completion-handler form, so a null result (quote not on the
+            // page) arrives as nil rather than through the async overload's
+            // bridging of `Any`.
+            let anchor: ReaderSourceAnchor? = await withCheckedContinuation { continuation in
+                webView.evaluateJavaScript(
+                    "window.__amgiAnchorForQuote ? window.__amgiAnchorForQuote(\(json)) : null;"
+                ) { result, _ in
+                    continuation.resume(returning: MainActor.assumeIsolated {
+                        ReaderSourceAnchor(scriptPayload: result)
+                    })
                 }
             }
             guard var resolved = anchor else { return nil }
@@ -658,12 +729,15 @@ struct EPUBPageViewControllerHost: NSViewRepresentable {
               r.style.setProperty('--reader-press', '\(tokens.pressTintCSS)');
               r.style.setProperty('--reader-inset-top', '\(tokens.insetTopPx)px');
               r.style.setProperty('--reader-inset-bottom', '\(tokens.insetBottomPx)px');
+              r.style.setProperty('--reader-head-y', '\(tokens.headCenterPx)px');
+              r.style.setProperty('--reader-foot-y', '\(tokens.footCenterPx)px');
               // Gate the font override on the user having picked a family; an
               // empty stack means "Book", so the book's own face is kept.
               r.setAttribute(
                 'data-amgi-honour-book-font',
                 '\(tokens.fontFamilyCSS.isEmpty ? "1" : "0")'
               );
+              r.setAttribute('data-amgi-native-furniture', '1');
               r.setAttribute('data-amgi-page-columns', '\(tokens.pageColumns == 2 ? 2 : 1)');
               if (typeof window.__amgiRelayout === 'function') { window.__amgiRelayout(); }
             })();
@@ -767,13 +841,18 @@ struct EPUBPageViewControllerHost: NSViewRepresentable {
                       let fraction = dict["progressFraction"] as? Double else { return }
                 host.onProgress(pageCount <= 1 ? 1 : fraction, newPageIndex)
             case "wordSelection":
-                // A long press produced a selection. macOS shows its own
-                // contextual menu on a selection; this reports what was
-                // selected so the Anki actions can be added to it. A single
-                // tap never reaches here.
+                // The page's selection changed. Kept until WebKit opens its
+                // context menu, where `extendContextMenu` reads it. A single
+                // click never reaches here.
                 guard let dict = body as? [String: Any] else { return }
                 let selection = (dict["selection"] as? String) ?? ""
-                guard !selection.isEmpty else { return }
+                // The page reports a cleared selection too; drop the stale
+                // payload so a right-click on blank page gets no card items.
+                guard !selection.isEmpty else {
+                    pendingSelection = nil
+                    host.commands.lastSelection = nil
+                    return
+                }
                 let token = (dict["token"] as? String) ?? selection
                 let sentence = (dict["sentence"] as? String) ?? selection
                 var anchor = ReaderSourceAnchor(scriptPayload: dict["anchor"])
@@ -791,6 +870,12 @@ struct EPUBPageViewControllerHost: NSViewRepresentable {
                     sentence: sentence,
                     anchor: anchor
                 )
+                host.commands.lastSelection = pendingSelection
+            case "markTap":
+                guard let dict = body as? [String: Any],
+                      let id = dict["id"] as? String,
+                      let kind = dict["kind"] as? String else { return }
+                host.commands.markTapHandler?(id, kind)
             case "emptyTap":
                 guard let number = body as? NSNumber else { return }
                 handleTap(atRelativeX: CGFloat(truncating: number))
@@ -816,11 +901,17 @@ private final class EPUBPagingWebView: WKWebView {
             pagingDelegate?.webViewDidScroll(event)
         }
     }
+
+    override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
+        super.willOpenMenu(menu, with: event)
+        pagingDelegate?.extendContextMenu(menu)
+    }
 }
 
 @MainActor
 private protocol EPUBPagingWebViewDelegate: AnyObject {
     func webViewDidScroll(_ event: NSEvent)
+    func extendContextMenu(_ menu: NSMenu)
 }
 
 extension EPUBPageViewControllerHost.Coordinator: EPUBPagingWebViewDelegate {}
@@ -851,6 +942,13 @@ private extension NSColor {
             return nil
         }
     }
+}
+
+/// Carries a card command through `NSMenuItem.representedObject`, which
+/// needs an object; the enum has associated values, so no raw value works.
+private final class CardCommandBox: NSObject {
+    let command: ReaderCardMenuCommand
+    init(_ command: ReaderCardMenuCommand) { self.command = command }
 }
 
 #endif

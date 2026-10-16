@@ -49,6 +49,22 @@ final class ReaderPageCommands {
 
     var selectionMarkRequest: SelectionMarkRequest?
 
+    /// Installed once by the view: card commands from the selection menu, the
+    /// draft stack the menu is built from, and taps on card marks. Closures
+    /// rather than observed state because the menu reads the stack at the
+    /// moment it opens, and nothing should re-render when a draft changes.
+    @ObservationIgnored
+    var cardCommandHandler: (@MainActor (ReaderCardMenuCommand, ReaderSelectionPayload) -> Void)?
+    @ObservationIgnored
+    var cardMenuContextProvider: (@MainActor () -> ReaderCardMenuContext)?
+    @ObservationIgnored
+    var markTapHandler: (@MainActor (_ id: String, _ kind: String) -> Void)?
+    /// The page's live selection, as last reported. Read when a selection is
+    /// dragged onto a docked card, so the clip keeps its anchor in the book
+    /// rather than arriving as bare text.
+    @ObservationIgnored
+    var lastSelection: ReaderSelectionPayload?
+
     func requestSelectionMark(_ request: SelectionMarkRequest) {
         selectionMarkRequest = request
     }

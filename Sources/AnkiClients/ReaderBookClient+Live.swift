@@ -1,6 +1,7 @@
 import AmgiReader
 import AnkiBackend
 import AnkiKit
+import AnkiProtoBridge
 public import Dependencies
 import DependenciesMacros
 import Foundation
@@ -15,48 +16,68 @@ private struct ReaderChapterRecord {
 /// into a single `ReaderBook`. Field mapping is supplied per-call via
 /// `ReaderLibraryConfiguration` so users can target their own notetype
 /// schema without forking the client.
+///
+/// Both reads go through the bridge's `readerNotes` aux method, which reads
+/// the notes table in one pass instead of one `GetNote` per chapter. The
+/// shelf asks for every field *except* the chapter text; the text is read
+/// for one book at a time, when it is opened.
 extension ReaderBookClient: DependencyKey {
     public static let liveValue: Self = {
-        @Dependency(\.noteClient) var noteClient
-        @Dependency(\.notetypesClient) var notetypesClient
+        @Dependency(\.ankiBackend) var backend
+
+        @Sendable func shelf(_ configuration: ReaderLibraryConfiguration) async throws -> [ReaderBook] {
+            let query = try validatedDeckQuery(configuration.deckName)
+            let mapping = configuration.fieldMapping
+            let fields = [
+                mapping.bookIDField,
+                mapping.bookTitleField,
+                mapping.chapterTitleField,
+                mapping.chapterOrderField,
+                mapping.bookCoverField,
+                mapping.languageField,
+            ].compactMap(\.self)
+            let rows = try await backendOffload {
+                try backend.invoke(.readerNotes(
+                    search: query,
+                    fields: fields,
+                    requireNonempty: [mapping.contentField]
+                ))
+            }.notes
+            return buildBooks(from: rows, configuration: configuration)
+        }
+
+        @Sendable func content(
+            of book: ReaderBook,
+            _ configuration: ReaderLibraryConfiguration
+        ) async throws -> ReaderBook {
+            guard !book.chapters.isEmpty else { return book }
+            let ids = book.chapters.map { String($0.id) }.joined(separator: ",")
+            let rows = try await backendOffload {
+                try backend.invoke(.readerNotes(
+                    search: "nid:\(ids)",
+                    fields: nil,
+                    requireNonempty: [configuration.fieldMapping.contentField]
+                ))
+            }.notes
+            return buildBooks(from: rows, configuration: configuration)
+                .first { $0.id == book.id } ?? book
+        }
 
         return Self(
             loadBooks: { configuration in
-                let notes = try await fetchNotes(for: configuration, noteClient: noteClient)
-                return try await buildBooks(
-                    from: notes,
-                    configuration: configuration,
-                    notetypesClient: notetypesClient
-                )
+                try await shelf(configuration)
             },
             loadBook: { bookID, configuration in
-                let notes = try await fetchNotes(for: configuration, noteClient: noteClient)
-                return try await buildBooks(
-                    from: notes,
-                    configuration: configuration,
-                    notetypesClient: notetypesClient
-                )
-                .first(where: { $0.id == bookID })
+                guard let outline = try await shelf(configuration).first(where: { $0.id == bookID }) else {
+                    return nil
+                }
+                return try await content(of: outline, configuration)
+            },
+            loadContent: { book, configuration in
+                try await content(of: book, configuration)
             }
         )
     }()
-}
-
-// MARK: - Note fetching
-
-private func fetchNotes(
-    for configuration: ReaderLibraryConfiguration,
-    noteClient: NoteClient
-) async throws -> [NoteRecord] {
-    let query = try validatedDeckQuery(configuration.deckName)
-    // searchAll (not search) — we read `note.flds` immediately to build
-    // chapters, so the lazy 50-real-rest-placeholder behavior of
-    // `search` would silently drop chapter content past the first 50.
-    var notes = try await noteClient.searchAll(query, nil)
-    if let notetypeID = configuration.notetypeID {
-        notes = notes.filter { $0.mid.rawValue == notetypeID }
-    }
-    return notes
 }
 
 private func validatedDeckQuery(_ deckName: String) throws -> String {
@@ -69,38 +90,18 @@ private func validatedDeckQuery(_ deckName: String) throws -> String {
 
 // MARK: - Book assembly
 
+/// Rows without the content field build an outline: every chapter is there
+/// with an empty `content`, ready for `loadContent`.
 private func buildBooks(
-    from notes: [NoteRecord],
-    configuration: ReaderLibraryConfiguration,
-    notetypesClient: NotetypesClient
-) async throws -> [ReaderBook] {
-    var fieldNamesByNotetypeID: [NotetypeID: [String]] = [:]
+    from rows: [ReaderNoteRow],
+    configuration: ReaderLibraryConfiguration
+) -> [ReaderBook] {
     var chaptersByBookID: [String: [ReaderChapter]] = [:]
     var coverImagePathByBookID: [String: String] = [:]
 
-    for note in notes {
-        // Guard against lazy/partial NoteRecord placeholders that
-        // callers might hand us — `notetypesClient.getRaw(0)` would
-        // crash the whole batch with a "no such notetype" backend
-        // error. The eager fetcher above shouldn't produce these, but
-        // belt-and-braces.
-        guard note.mid.rawValue != 0 else { continue }
-
-        let fieldNames: [String]
-        if let cached = fieldNamesByNotetypeID[note.mid] {
-            fieldNames = cached
-        } else {
-            let notetype = try await notetypesClient.get(note.mid)
-            let names = notetype.fields.map(\.name)
-            fieldNamesByNotetypeID[note.mid] = names
-            fieldNames = names
-        }
-
-        guard let record = makeChapterRecord(
-            note: note,
-            configuration: configuration,
-            fieldNames: fieldNames
-        ) else { continue }
+    for row in rows {
+        if let notetypeID = configuration.notetypeID, row.notetypeId != notetypeID { continue }
+        guard let record = makeChapterRecord(row: row, configuration: configuration) else { continue }
 
         chaptersByBookID[record.chapter.bookID, default: []].append(record.chapter)
         if let cover = record.coverImagePath,
@@ -128,17 +129,16 @@ private func buildBooks(
 }
 
 private func makeChapterRecord(
-    note: NoteRecord,
-    configuration: ReaderLibraryConfiguration,
-    fieldNames: [String]
+    row: ReaderNoteRow,
+    configuration: ReaderLibraryConfiguration
 ) -> ReaderChapterRecord? {
-    let fieldMap = decodeFieldMap(note: note, fieldNames: fieldNames)
+    let fieldMap = row.fields
     let mapping = configuration.fieldMapping
 
-    guard let bookID = trimmedFieldValue(mapping.bookIDField, in: fieldMap),
-          let content = contentFieldValue(mapping.contentField, in: fieldMap) else {
-        return nil
-    }
+    // The aux method already dropped notes with no content, so a missing
+    // content field means it was not asked for — an outline row.
+    guard let bookID = trimmedFieldValue(mapping.bookIDField, in: fieldMap) else { return nil }
+    let content = fieldMap[mapping.contentField] ?? ""
 
     let bookTitle = trimmedFieldValue(mapping.bookTitleField, in: fieldMap) ?? bookID
     let chapterTitle = trimmedFieldValue(mapping.chapterTitleField, in: fieldMap) ?? bookTitle
@@ -148,7 +148,7 @@ private func makeChapterRecord(
 
     return ReaderChapterRecord(
         chapter: ReaderChapter(
-            id: note.id.rawValue,
+            id: row.id,
             bookID: bookID,
             bookTitle: bookTitle,
             title: chapterTitle,
@@ -162,31 +162,10 @@ private func makeChapterRecord(
 
 // MARK: - Field decoding
 
-/// Anki stores note fields concatenated with U+001F (unit separator). The
-/// notetype's field list defines the positional mapping back to names —
-/// callers must pass `fieldNames` from the same notetype as the note.
-private func decodeFieldMap(note: NoteRecord, fieldNames: [String]) -> [String: String] {
-    let values = note.flds
-        .split(separator: "\u{1f}", omittingEmptySubsequences: false)
-        .map(String.init)
-
-    var mapping: [String: String] = [:]
-    mapping.reserveCapacity(fieldNames.count)
-    for (index, name) in fieldNames.enumerated() {
-        mapping[name] = index < values.count ? values[index] : ""
-    }
-    return mapping
-}
-
 private func trimmedFieldValue(_ fieldName: String, in fieldMap: [String: String]) -> String? {
     guard let raw = fieldMap[fieldName] else { return nil }
     let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
     return trimmed.isEmpty ? nil : trimmed
-}
-
-private func contentFieldValue(_ fieldName: String, in fieldMap: [String: String]) -> String? {
-    guard let raw = fieldMap[fieldName], !raw.isEmpty else { return nil }
-    return raw
 }
 
 private func coverFieldValue(_ fieldName: String?, in fieldMap: [String: String]) -> String? {

@@ -5,24 +5,18 @@
  * <html> element) and theme via CSS custom properties set per-load by
  * Swift through user-script source.
  *
- * Pagination contract (rev 3):
- *   - Swift pushes --page-width / --page-height (px) on every layout
- *     pass; those equal the WKWebView scrollView bounds.
- *   - <html> is the multi-column container AND the WKWebView's
- *     scrollable root. column-width = --page-width, column-fill: auto,
- *     and an explicit height force the browser to break content into
- *     page-width columns and scroll horizontally.
- *   - There is no #__amgi-content wrapper. No JS-forced body.style.width.
- *
- * Vertical insets live on <html>, not <body>, and that is load-bearing.
- * <body> is a *fragmented* box: its top/bottom padding would apply only
- * at the very start and end of the whole flow, so page 1 and the last
- * page would get a margin and every interior page would run edge to
- * edge — which is what clipped the last line of text behind the bottom
- * chrome. <html> is the scroll container rather than a fragment, so its
- * padding insets *every* column uniformly. Horizontal page gutters stay
- * on <body>, where the spec does apply left/right padding to every
- * fragment.
+ * Pagination contract (rev 4):
+ *   - <html> is the viewport and clips. It never scrolls.
+ *   - <body> is the multi-column container, exactly one viewport in size.
+ *     Its content box is one page of text wide, and its columns run off to
+ *     the right, one page per viewport width: column width = page width
+ *     minus the two gutters, column gap = the two gutters.
+ *   - A page is shown by translating <body> left by N viewport widths
+ *     (the injected script's `showPage`). Because nothing scrolls, UIKit and
+ *     WebKit cannot disagree about which page is showing.
+ *   - The top and bottom insets are <body> padding, which a multi-column
+ *     container applies to every column: every page gets the same margins.
+ *   - --page-width / --page-height are the viewport, set by the script.
  */
 
 :root {
@@ -35,36 +29,24 @@
   --reader-line-height: 1.55;
   --reader-text-align: justify;
   --reader-page-margin: 24px;
-  /* Vertical breathing room. --reader-inset-top/-bottom are pushed by
-   * Swift so the text never sits under the floating chrome; the padding
-   * values are the reader's own top/bottom margin. */
+  /* Pushed by Swift so the text sits between the title and folio rows. */
   --reader-inset-top: 0px;
   --reader-inset-bottom: 0px;
   --reader-page-padding: 28px;
   /* Press feedback for a token. No persistent decoration: an underline
    * on every word makes the page unreadable. */
   --reader-press: rgba(120, 120, 120, 0.22);
-  /* Initial fallback; Swift overwrites this on first layout. */
+  /* Initial fallback; the script overwrites these on load. */
   --page-width: 100vw;
   --page-height: 100vh;
 }
 
-/* <html> is the multi-column container and the WKWebView's scrollable
- * root. Explicit height + column-fill: auto stops columns growing
- * vertically; overflow-x: auto lets the scroll view see the full
- * column-flow width. border-box + padding is what makes the vertical
- * inset subtract from the column height instead of adding to it. */
 html {
+  width: var(--page-width);
   height: var(--page-height);
-  padding-top: var(--reader-inset-top);
-  padding-bottom: var(--reader-inset-bottom);
-  column-width: var(--page-width, 100vw) !important;
-  column-gap: 0 !important;
-  column-fill: auto !important;
-  overflow-y: hidden;
-  overflow-x: auto;
-  box-sizing: border-box;
-  margin: 0;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
   writing-mode: var(--reader-writing-mode);
@@ -72,15 +54,24 @@ html {
   background: var(--reader-bg);
 }
 
-/* Body is the column flow content. Only horizontal padding here: it is
- * the page gutter and the spec applies it to every fragment. */
 body {
-  margin: 0;
-  padding: 0 var(--reader-page-margin) !important;
-  box-sizing: border-box;
+  box-sizing: border-box !important;
+  width: var(--page-width) !important;
+  height: var(--page-height) !important;
+  margin: 0 !important;
+  padding: var(--reader-inset-top) var(--reader-page-margin) var(--reader-inset-bottom) !important;
+  column-width: calc(var(--page-width) - 2 * var(--reader-page-margin)) !important;
+  column-gap: calc(2 * var(--reader-page-margin)) !important;
+  column-fill: auto !important;
+  overflow: visible !important;
+  will-change: transform;
   color: inherit;
 }
 
+/* A two-page spread: two columns per viewport, same pitch per turn. */
+html[data-amgi-page-columns="2"] body {
+  column-width: calc(var(--page-width) / 2 - 2 * var(--reader-page-margin)) !important;
+}
 
 /* Typography overrides — applied with !important + broad selectors so
  * the book's own stylesheet can't beat us. html sets the rem root via
@@ -140,7 +131,15 @@ body p, body li, body blockquote {
  * a block element so a run of paragraphs after a title is not all
  * indented. */
 body p { margin: 0 0 0.9em 0; text-indent: 0; }
-img, svg, video { max-width: 100% !important; height: auto !important; }
+/* A figure never runs past its page: at most one column wide and one page
+ * of text tall, and never split across two pages. */
+img, svg, video {
+  max-width: 100% !important;
+  max-height: calc(var(--page-height) - var(--reader-inset-top) - var(--reader-inset-bottom)) !important;
+  height: auto !important;
+  object-fit: contain;
+  break-inside: avoid;
+}
 table { max-width: 100% !important; }
 
 /* Tokens are the tap/lookup affordance, so they must be *invisible* until
@@ -194,7 +193,8 @@ table { max-width: 100% !important; }
 
 [data-amgi-running-head] {
   position: fixed;
-  top: calc(var(--reader-inset-top) * 0.42);
+  top: var(--reader-head-y, 40px);
+  transform: translateY(-50%);
   left: 0;
   right: 0;
   z-index: 3;
@@ -217,7 +217,8 @@ table { max-width: 100% !important; }
 
 [data-amgi-page-number] {
   position: fixed;
-  bottom: calc(var(--reader-inset-bottom) * 0.34);
+  bottom: var(--reader-foot-y, 32px);
+  transform: translateY(50%);
   left: 0;
   right: 0;
   z-index: 3;
@@ -231,6 +232,18 @@ table { max-width: 100% !important; }
   -webkit-user-select: none;
   user-select: none;
   font-variant-numeric: tabular-nums;
+}
+
+/* The running head and page number are drawn by the reader itself, in its
+ * title and folio rows, so the bar that replaces them while it is up never
+ * lands on top of a second copy printed in the page. The page's own copies
+ * stay in the document only as a fallback for older hosts. */
+html[data-amgi-native-furniture="1"] [data-amgi-running-head],
+html[data-amgi-native-furniture="1"] [data-amgi-page-number] {
+  display: none !important;
+}
+[data-amgi-running-head], [data-amgi-page-number] {
+  transition: opacity 0.18s ease;
 }
 
 /* Two-digit and three-digit page numbers must not shift as they change,

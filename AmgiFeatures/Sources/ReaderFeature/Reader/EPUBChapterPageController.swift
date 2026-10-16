@@ -58,6 +58,12 @@ struct EPUBReaderStyleTokens: Equatable {
     /// Space reserved at the bottom of every page for the chrome, so the last
     /// line of a page is never hidden behind the page counter.
     var insetBottomPx: Int = 0
+    /// Centre line of the title row, from the top of the page, and of the
+    /// folio row, from the bottom. The running head and page number sit on
+    /// these lines, which are the same lines the reader's chrome uses — so the
+    /// chrome replaces them in place rather than stacking over the text.
+    var headCenterPx: Int = 40
+    var footCenterPx: Int = 32
     /// Number of logical pages visible in one physical WebKit viewport.
     /// The bundled CSS halves its column width for a spread, while native
     /// paging remains based on the full viewport.
@@ -114,6 +120,20 @@ enum EPUBReaderBundledResources {
         if (selection && !selection.isCollapsed && selection.toString().trim().length > 0) return;
 
         var target = event.target;
+        // A tap on a card's source text, or a waiting draft's, belongs to
+        // that card: it resumes the draft rather than toggling the chrome.
+        var carded = target && target.closest
+          ? target.closest('.amgi-tok[data-amgi-mark="cardDraft"], .amgi-tok[data-amgi-mark="card"]')
+          : null;
+        if (carded) {
+          try {
+            window.webkit.messageHandlers.markTap.postMessage({
+              id: carded.getAttribute('data-amgi-mark-id') || '',
+              kind: carded.getAttribute('data-amgi-mark')
+            });
+          } catch (e) { /* host detached */ }
+          return;
+        }
         if (target && target.closest && target.closest('.amgi-tok, a, button, input, select, textarea, [role="button"]')) return;
 
         var width = window.innerWidth || document.documentElement.clientWidth || 1;
@@ -143,11 +163,7 @@ enum EPUBReaderBundledResources {
             var s = existing || document.createElement('style');
             if (!existing) {
               s.setAttribute('data-amgi', 'reader');
-              s.textContent = `\(escaped)
-              html[data-amgi-page-columns="2"] {
-                column-width: 50vw !important;
-                -webkit-column-width: 50vw !important;
-              }`;
+              s.textContent = `\(escaped)`;
             }
             var head = document.head || document.documentElement;
             // Re-append moves the node to the end of head's child list.
@@ -190,8 +206,7 @@ protocol EPUBChapterPageControllerDelegate: AnyObject {
 /// paging over the CSS multi-column layout. Reports page info, progress,
 /// and word taps via `EPUBChapterPageControllerDelegate`.
 @MainActor
-final class EPUBChapterPageController: UIViewController, ReaderSelectionMenuPresenting,
-                                      UIGestureRecognizerDelegate {
+final class EPUBChapterPageController: UIViewController, UIGestureRecognizerDelegate {
     let chapterIndex: Int
     let content: EPUBChapterContent
     var styleTokens: EPUBReaderStyleTokens
@@ -208,10 +223,10 @@ final class EPUBChapterPageController: UIViewController, ReaderSelectionMenuPres
 
     private var webView: WKWebView!
     private var bridge: ScriptBridge!
-    /// The long-press selection menu. Owned here so its lifetime matches the
-    /// chapter's web view; without a strong reference the interaction would be
-    /// deallocated the moment `loadView` returned.
-    private var selectionMenu: ReaderSelectionMenuController?
+    /// The page's last reported selection. Only shapes the menu when it is
+    /// built; an item re-reads the live selection when it is chosen, because
+    /// the page reports on a debounce and can trail the handles.
+    private var latestSelection: ReaderSelectionPayload?
     /// Last viewport size pushed to CSS. Used to detect real layout
     /// changes (rotation, safe-area updates) so we don't trigger a
     /// relayout for every spurious `viewDidLayoutSubviews` tick.
@@ -254,6 +269,40 @@ final class EPUBChapterPageController: UIViewController, ReaderSelectionMenuPres
     ) -> Bool {
         true
     }
+
+    /// A touch on the selection belongs to WebKit — lifting it to drag onto a
+    /// docked card, or moving a handle — so the swipe never sees it. Anywhere
+    /// else on the page a swipe still turns it, selection or not.
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        !(gestureRecognizer === swipeRecogniser && touchIsOnSelection(touch))
+    }
+
+    /// Whether a touch lands on the live selection or close enough to grab
+    /// one of its handles.
+    ///
+    /// Read synchronously from a gesture callback, so it works from the rects
+    /// the page last reported rather than asking the page. With a selection
+    /// but no rects yet (the report is debounced), the whole page counts: a
+    /// swipe that waits for one report is better than a drag that is eaten.
+    func touchIsOnSelection(_ touch: UITouch) -> Bool {
+        guard hasLiveSelection else { return false }
+        guard !selectionRects.isEmpty else { return true }
+        let point = touch.location(in: webView)
+        return selectionRects.contains { $0.insetBy(dx: -Self.selectionTouchSlop, dy: -Self.selectionTouchSlop).contains(point) }
+    }
+
+    /// Room around the selection that still counts as on it — the drag
+    /// handles sit just outside the selected text.
+    private static let selectionTouchSlop: CGFloat = 24
+
+    /// The live selection's line boxes, in the web view's coordinates.
+    private var selectionRects: [CGRect] = []
+
+    fileprivate func noteSelectionRects(_ value: Any?) {
+        selectionRects = ((value as? [[Double]]) ?? []).compactMap { box in
+            box.count == 4 ? CGRect(x: box[0], y: box[1], width: box[2], height: box[3]) : nil
+        }
+    }
     override func loadView() {
         let config = WKWebViewConfiguration()
         // On iOS `dataDetectorTypes` lives on the configuration, not the view.
@@ -293,12 +342,13 @@ final class EPUBChapterPageController: UIViewController, ReaderSelectionMenuPres
         userContent.add(bridge, name: "progress")
         userContent.add(bridge, name: "wordSelection")
         userContent.add(bridge, name: "emptyTap")
+        userContent.add(bridge, name: "markTap")
 
         config.userContentController = userContent
         config.suppressesIncrementalRendering = false
         config.defaultWebpagePreferences.preferredContentMode = .mobile
 
-        let webView = WKWebView(frame: .zero, configuration: config)
+        let webView = ReaderWebView(frame: .zero, configuration: config)
         // Paging is driven by the host, not by UIScrollView.
         //
         // `isPagingEnabled` was the reason the selected page transition only
@@ -308,13 +358,14 @@ final class EPUBChapterPageController: UIViewController, ReaderSelectionMenuPres
         // host own the offset means one pipeline handles every turn — inside
         // a chapter and across a boundary — and the chosen effect applies to
         // all of them.
+        // The web view's scroll view never moves. Pages are a transform
+        // inside the document (stylesheet rev 4); any offset here would show
+        // a different page from the one the document reports — which is how
+        // the reader came to say "page 1" over page 3's text.
         webView.scrollView.isPagingEnabled = false
-        webView.scrollView.isScrollEnabled = !isPageCurlManaged
-        webView.scrollView.decelerationRate = .fast
-        // Bounces stay on so a drag past the edge still feels alive, but the
-        // deceleration is disabled: a fling should not slide a page, it should
-        // be interpreted as a swipe by the host's own recogniser.
-        webView.scrollView.alwaysBounceHorizontal = true
+        webView.scrollView.isScrollEnabled = false
+        webView.scrollView.bounces = false
+        webView.scrollView.alwaysBounceHorizontal = false
         webView.scrollView.alwaysBounceVertical = false
         webView.scrollView.showsHorizontalScrollIndicator = false
         webView.scrollView.showsVerticalScrollIndicator = false
@@ -329,14 +380,19 @@ final class EPUBChapterPageController: UIViewController, ReaderSelectionMenuPres
         webView.backgroundColor = .clear
 
         self.webView = webView
-        self.view = webView
+        // In a plain container, so the page turner can lay the live page under
+        // a picture of it and move it between page cards.
+        let container = UIView()
+        webView.frame = container.bounds
+        webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        container.addSubview(webView)
+        self.view = container
         if !isPageCurlManaged { installSwipeRecogniser() }
-        // Long press is WebKit's own selection gesture; the menu sits on top
-        // of it so the system callout and the Anki actions coexist.
-        selectionMenu = ReaderSelectionMenuController(
-            presenter: self,
-            anchorView: webView
-        )
+        // Long press is WebKit's own selection gesture, and WebKit's own menu
+        // carries the Anki actions — see `ReaderSystemSelectionMenu`.
+        webView.selectionMenuElements = { [weak self] in
+            self?.selectionMenuElements() ?? []
+        }
     }
 
     override func viewDidLoad() {
@@ -361,45 +417,11 @@ final class EPUBChapterPageController: UIViewController, ReaderSelectionMenuPres
         guard size.width > 0, size.height > 0 else { return }
         if !force, size == lastPushedPageSize { return }
 
-        let previousPageWidth = lastPushedPageSize.width
-        let hasPendingPosition = pendingPageIndex != nil || pendingRestoreFraction != nil
-        let currentOffsetX = webView.scrollView.contentOffset.x
-        let previousIndex: Int
-        if previousPageWidth > 0 {
-            previousIndex = Int(round(currentOffsetX / previousPageWidth))
-        } else {
-            previousIndex = 0
-        }
-
         lastPushedPageSize = size
-
-        // JS owns --page-width / --page-height (driven from window.innerWidth
-        // / innerHeight inside __amgiRelayout → syncPageVars). Swift only
-        // pokes the relayout hook so we re-snap to the right column after
-        // rotation or safe-area changes.
-        let js = """
-        (function() {
-          var n = (typeof window.__amgiRelayout === 'function') ? window.__amgiRelayout() : 1;
-          return n;
-        })();
-        """
-        webView.evaluateJavaScript(js) { [weak self] _, _ in
-            guard let self else { return }
-            // Re-snap to the previously-current page after the relayout
-            // settles. Done in the next runloop tick so the new
-            // contentSize.width has propagated to the scroll view.
-            DispatchQueue.main.async {
-                let newWidth = self.webView.scrollView.bounds.width
-                guard newWidth > 0 else { return }
-                guard !hasPendingPosition else { return }
-                let target = CGFloat(previousIndex) * newWidth
-                let maxX = max(0, self.webView.scrollView.contentSize.width - newWidth)
-                self.webView.scrollView.setContentOffset(
-                    CGPoint(x: min(target, maxX), y: 0),
-                    animated: false
-                )
-            }
-        }
+        // The page re-measures and keeps the reader on the same words; its
+        // report that follows says where that is.
+        ReaderTelemetry.log("relayout", ["page": telemetryTag, "width": Int(size.width)])
+        webView.evaluateJavaScript("window.__amgiRelayout && window.__amgiRelayout();", completionHandler: nil)
     }
 
     fileprivate func applyHostBackgroundColor() {
@@ -418,6 +440,22 @@ final class EPUBChapterPageController: UIViewController, ReaderSelectionMenuPres
 
     /// The running head text: the book title, as a printed running head.
     var runningHead: String = ""
+
+    /// Whether the reader's chrome is up. The page's running head and number
+    /// step aside while it is, because the chrome shows them on the same lines.
+    var chromeVisible = false {
+        didSet {
+            guard oldValue != chromeVisible, didFinishInitialLoad else { return }
+            applyChromeVisibility()
+        }
+    }
+
+    fileprivate func applyChromeVisibility() {
+        webView.evaluateJavaScript(
+            "window.__amgiSetChromeVisible && window.__amgiSetChromeVisible(\(chromeVisible));",
+            completionHandler: nil
+        )
+    }
 
     /// Prints the current page number onto the page.
     func refreshPageFurniture(page: Int? = nil, total: Int? = nil) {
@@ -439,6 +477,7 @@ final class EPUBChapterPageController: UIViewController, ReaderSelectionMenuPres
         }
         guard let data = try? JSONEncoder().encode(anchor),
               let json = String(data: data, encoding: .utf8) else { return }
+        ReaderTelemetry.log("anchor.resolve", ["chapter": chapterIndex, "cfi": anchor.cfi ?? -1, "quote": String(anchor.quote.prefix(30))])
         webView.evaluateJavaScript(
             "window.__amgiResolveAnchor && window.__amgiResolveAnchor(\(json));",
             completionHandler: nil
@@ -461,51 +500,91 @@ final class EPUBChapterPageController: UIViewController, ReaderSelectionMenuPres
         case forward, backward
     }
 
-    /// Width of one page in points. Every offset and page index is derived
-    /// from this so the host and the page never disagree about what "page 3"
-    /// means.
-    private var pageWidth: CGFloat {
-        let width = webView.scrollView.bounds.width
-        return width > 1 ? width : webView.bounds.width
+    /// The page shown and the number of pages, as the page itself last
+    /// reported them. Pages are a transform inside the document (rev 4 of the
+    /// stylesheet), so nothing on the UIKit side — no scroll offset — knows or
+    /// decides which page is showing. These are only ever written from the
+    /// page's own reports.
+    private(set) var currentPageIndex = 0
+    private(set) var pageCount = 1
+
+    /// Records what the page reported. Called for every `pageInfo` message
+    /// and every `showPage` result.
+    fileprivate func noteReported(page: Int, count: Int) {
+        pageCount = max(1, count)
+        currentPageIndex = min(max(0, page), pageCount - 1)
     }
 
-    /// Number of pages this chapter currently lays out to.
-    var pageCount: Int {
-        let width = pageWidth
-        guard width > 1, webView.scrollView.contentSize.width > 1 else { return 1 }
-        return max(1, Int(ceil(webView.scrollView.contentSize.width / width - 0.01)))
-    }
-
-    /// Zero-based index of the page on screen, derived from the offset so it
-    /// cannot drift from what the user sees.
-    var currentPageIndex: Int {
-        let width = pageWidth
-        guard width > 1 else { return 0 }
-        let raw = webView.scrollView.contentOffset.x / width
-        return min(max(0, Int(round(raw))), max(0, pageCount - 1))
-    }
-
-    /// Moves to a specific page, clamped to the chapter. Returns the page
-    /// actually reached so the caller can tell whether a turn crossed a
-    /// chapter boundary.
+    /// Asks the page to show `index` (clamped to the chapter) without waiting
+    /// for it to paint. Returns the page asked for; the page's report that
+    /// follows is the truth.
     @discardableResult
-    func setPage(_ index: Int, animated: Bool) -> Int {
-        let width = pageWidth
-        guard width > 1 else { return 0 }
+    func setPage(_ index: Int, animated: Bool = false) -> Int {
         let clamped = min(max(index, 0), max(0, pageCount - 1))
-        let offset = CGPoint(x: CGFloat(clamped) * width, y: 0)
-        if animated {
-            UIView.animate(
-                withDuration: 0.28,
-                delay: 0,
-                options: [.curveEaseOut, .allowUserInteraction, .beginFromCurrentState]
-            ) {
-                self.webView.scrollView.setContentOffset(offset, animated: false)
-            }
-        } else {
-            webView.scrollView.setContentOffset(offset, animated: false)
-        }
+        currentPageIndex = clamped
+        webView.evaluateJavaScript("window.__amgiScrollToPage && window.__amgiScrollToPage(\(clamped));", completionHandler: nil)
         return clamped
+    }
+
+    /// A page laid out only to count its pages for the book-wide total. It is
+    /// never shown and takes no part in reading.
+    var isMeasurementOnly = false
+
+    /// A short name for this page in telemetry: chapter, page, and whether it
+    /// is a measuring page.
+    var telemetryTag: String {
+        "c\(chapterIndex)p\(currentPageIndex)\(isMeasurementOnly ? "m" : "")"
+    }
+
+    // MARK: - Rendering pages as pictures
+    //
+    // UIKit's page curl draws the pages it turns by rendering their layers,
+    // and a WKWebView's text lives in a separate process that layer rendering
+    // cannot see — the curling sheet came out blank. So the page turner turns
+    // pictures of pages, and a chapter controller used as a *renderer* draws
+    // them: it stays loaded off screen, moves to the page asked for, and takes
+    // WebKit's own snapshot. Apple Books turns pictures of its pages too.
+
+    /// A picture of one page of this chapter, with the state the page
+    /// reported when it was taken — so a picture can be checked against the
+    /// live page before it is trusted. Nil when the chapter has not loaded or
+    /// did not reach the page.
+    func renderPicture(ofPage page: Int) async -> (image: UIImage, state: EPUBPageState)? {
+        guard webView.window != nil, webView.bounds.width > 1, webView.bounds.height > 1,
+              let state = await showPage(page), page < 0 || state.page == page else { return nil }
+        let config = WKSnapshotConfiguration()
+        config.afterScreenUpdates = true
+        let image: UIImage? = await withCheckedContinuation { done in
+            webView.takeSnapshot(with: config) { image, _ in done.resume(returning: image) }
+        }
+        return image.map { ($0, state) }
+    }
+
+    /// Shows a page and returns once the page has painted it, with what is
+    /// actually on screen: the page, the count, and the first and last words.
+    /// `-1` is the last page. Nil when the chapter has not loaded.
+    @discardableResult
+    func showPage(_ page: Int) async -> EPUBPageState? {
+        guard didFinishInitialLoad else { return nil }
+        let result = try? await webView.callAsyncJavaScript(
+            "return window.__amgiShowPage ? await window.__amgiShowPage(page) : null;",
+            arguments: ["page": page],
+            contentWorld: .page
+        )
+        guard let state = EPUBPageState(scriptResult: result) else { return nil }
+        noteReported(page: state.page, count: state.pageCount)
+        return state
+    }
+
+    /// What the page is showing right now, measured from the page.
+    func pageState() async -> EPUBPageState? {
+        guard didFinishInitialLoad else { return nil }
+        let result = try? await webView.callAsyncJavaScript(
+            "return window.__amgiPageState ? window.__amgiPageState() : null;",
+            arguments: [:],
+            contentWorld: .page
+        )
+        return EPUBPageState(scriptResult: result)
     }
 
     /// Whether a turn in this direction stays inside the chapter.
@@ -513,25 +592,6 @@ final class EPUBChapterPageController: UIViewController, ReaderSelectionMenuPres
         switch direction {
         case .forward: currentPageIndex < pageCount - 1
         case .backward: currentPageIndex > 0
-        }
-    }
-
-    /// A snapshot of the WebView page, used for the fade transition. Keeping
-    /// the capture inside the page controller avoids duplicating fixed SwiftUI
-    /// controls during the animation.
-    func snapshot(ofPage index: Int) -> UIImage? {
-        let width = pageWidth
-        guard width > 1 else { return nil }
-        let previousOffset = webView.scrollView.contentOffset
-        let target = CGPoint(x: CGFloat(min(max(index, 0), max(0, pageCount - 1))) * width, y: 0)
-        // Snapping first and sampling after a layout pass is the only way to
-        // get a synchronous image of a page that is not currently on screen.
-        webView.scrollView.setContentOffset(target, animated: false)
-        webView.layoutIfNeeded()
-        defer { webView.scrollView.setContentOffset(previousOffset, animated: false) }
-        let renderer = UIGraphicsImageRenderer(bounds: webView.bounds)
-        return renderer.image { _ in
-            webView.layer.render(in: UIGraphicsGetCurrentContext()!)
         }
     }
 
@@ -573,7 +633,7 @@ final class EPUBChapterPageController: UIViewController, ReaderSelectionMenuPres
         switch action {
         case .copy:
             UIPasteboard.general.string = payload.text
-        case .lookUp, .addNote:
+        case .lookUp:
             pageDelegate?.epubChapter(
                 self,
                 didSelectText: payload.text,
@@ -588,11 +648,32 @@ final class EPUBChapterPageController: UIViewController, ReaderSelectionMenuPres
         }
     }
 
+    /// Card commands never open a sheet: they go straight to the host's draft
+    /// stack, and the selection is cleared so the next long press starts
+    /// clean — the reader keeps reading.
+    func readerSelectionCard(_ command: ReaderCardMenuCommand, payload: ReaderSelectionPayload) {
+        selectionCardHandler?(command, payload)
+        webView.evaluateJavaScript("window.getSelection() && window.getSelection().removeAllRanges();")
+    }
+
+    var cardMenuContext: ReaderCardMenuContext {
+        cardMenuContextProvider?() ?? ReaderCardMenuContext()
+    }
+
     /// Set by the host to persist a highlight or bookmark from the selection
     /// menu. Separate from the delegate because a highlight is a local mark,
     /// not a lookup.
     var selectionHighlightHandler: ((ReaderSelectionPayload) -> Void)?
     var selectionBookmarkHandler: ((ReaderSelectionPayload) -> Void)?
+    /// Set by the host: card commands and the draft stack they act on.
+    var selectionCardHandler: ((ReaderCardMenuCommand, ReaderSelectionPayload) -> Void)?
+    var cardMenuContextProvider: (() -> ReaderCardMenuContext)?
+    /// Set by the host: every selection report, and nil when it clears. Lets a
+    /// selection dragged onto the dock keep its anchor.
+    var selectionReportHandler: ((ReaderSelectionPayload?) -> Void)?
+    /// Set by the host: a tap on a card or card-draft mark, with the mark's id
+    /// and kind. Lets a hollow mark resume the draft it belongs to.
+    var markTapHandler: ((String, String) -> Void)?
 
     /// Called when the user swipes horizontally past the threshold. The host
     /// owns every page turn, so this is the only gesture that advances the
@@ -676,10 +757,63 @@ final class EPUBChapterPageController: UIViewController, ReaderSelectionMenuPres
         )
     }
 
-    /// Shows the selection menu. Called by the bridge when the page reports
-    /// a non-collapsed selection.
-    fileprivate func presentSelectionMenu(for payload: ReaderSelectionPayload) {
-        selectionMenu?.present(for: payload)
+    /// Remembers the page's selection report. Called by the bridge when the
+    /// page reports a non-collapsed selection. Nothing is presented: WebKit
+    /// shows its own menu, and asks `ReaderWebView` for the reader's items.
+    fileprivate func noteSelection(_ payload: ReaderSelectionPayload) {
+        latestSelection = payload
+        selectionReportHandler?(payload)
+    }
+
+    /// The reader's items for WebKit's menu.
+    ///
+    /// Built from the last report when there is one. A long press can raise
+    /// the menu before the page's debounced report lands; the items are still
+    /// offered then, because each one reads the live selection when chosen.
+    private func selectionMenuElements() -> [UIMenuElement] {
+        let shape = latestSelection ?? ReaderSelectionPayload(
+            text: "…",
+            token: "",
+            sentence: "",
+            anchor: ReaderSourceAnchor(bookID: content.bookID, quote: "")
+        )
+        let entries = ReaderSystemSelectionMenu.entries(for: shape, context: cardMenuContext)
+        let actions = ReaderSelectionMenuActions(
+            perform: { [weak self] action in
+                self?.withLiveSelection { self?.readerSelectionMenu(action, payload: $0) }
+            },
+            card: { [weak self] command in
+                self?.withLiveSelection { self?.readerSelectionCard(command, payload: $0) }
+            }
+        )
+        return ReaderSystemSelectionMenu.elements(for: entries, actions: actions)
+    }
+
+    /// Reads the selection as it is now, falling back to the last report.
+    private func withLiveSelection(_ body: @escaping @MainActor (ReaderSelectionPayload) -> Void) {
+        let fallback = latestSelection
+        webView.evaluateJavaScript(
+            "window.__amgiDescribeSelection ? window.__amgiDescribeSelection() : null;"
+        ) { [weak self] result, _ in
+            MainActor.assumeIsolated {
+                if let self, let payload = self.selectionPayload(from: result) ?? fallback {
+                    body(payload)
+                }
+            }
+        }
+    }
+
+    /// Decodes the dictionary the page script posts for a selection.
+    fileprivate func selectionPayload(from body: Any?) -> ReaderSelectionPayload? {
+        guard let dict = body as? [String: Any] else { return nil }
+        let selection = (dict["selection"] as? String) ?? ""
+        guard !selection.isEmpty else { return nil }
+        return ReaderSelectionPayload(
+            text: selection,
+            token: (dict["token"] as? String) ?? selection,
+            sentence: (dict["sentence"] as? String) ?? selection,
+            anchor: resolvedAnchor(from: dict["anchor"])
+        )
     }
 
     /// Selection state, mirrored from the page so the swipe recogniser can
@@ -692,6 +826,9 @@ final class EPUBChapterPageController: UIViewController, ReaderSelectionMenuPres
 
     fileprivate func noteSelectionCleared() {
         hasLiveSelection = false
+        latestSelection = nil
+        selectionRects = []
+        selectionReportHandler?(nil)
     }
 
     /// Pull the chapter's marks and paint them.
@@ -780,6 +917,8 @@ final class EPUBChapterPageController: UIViewController, ReaderSelectionMenuPres
           // CSS so the page recomputes on rotation instead of needing a reload.
           r.style.setProperty('--reader-inset-top', '\(styleTokens.insetTopPx)px');
           r.style.setProperty('--reader-inset-bottom', '\(styleTokens.insetBottomPx)px');
+          r.style.setProperty('--reader-head-y', '\(styleTokens.headCenterPx)px');
+          r.style.setProperty('--reader-foot-y', '\(styleTokens.footCenterPx)px');
           // Gate the font override on the user having picked a family. Empty
           // `fontFamilyCSS` means "Book", and a book that embeds a serif face
           // should keep it — that is what Apple Books does.
@@ -788,6 +927,7 @@ final class EPUBChapterPageController: UIViewController, ReaderSelectionMenuPres
             'data-amgi-honour-book-font',
             '\(styleTokens.fontFamilyCSS.isEmpty ? "1" : "0")'
           );
+          r.setAttribute('data-amgi-native-furniture', '1');
           r.setAttribute('data-amgi-page-columns', '\(styleTokens.pageColumns == 2 ? 2 : 1)');
           if (typeof window.__amgiRelayout === 'function') { window.__amgiRelayout(); }
         })();
@@ -816,6 +956,10 @@ final class EPUBChapterPageController: UIViewController, ReaderSelectionMenuPres
         let fraction = pendingRestoreFraction
         let pageIndex = pendingPageIndex
         guard fraction != nil || pageIndex != nil else { return }
+        ReaderTelemetry.log("restore", [
+            "chapter": chapterIndex, "fraction": fraction.map { String($0) } ?? "-",
+            "page": pageIndex.map { String($0) } ?? "-", "measure": isMeasurementOnly,
+        ])
         pendingRestoreFraction = nil
         pendingPageIndex = nil
         // Wait for the page's own layout pass rather than guessing at 250ms.
@@ -932,13 +1076,22 @@ final class ScriptBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         }
     }
 
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        // The page's process was killed (usually memory, with several books'
+        // worth of pages alive). Without this the page stayed blank.
+        ReaderTelemetry.log("webcontent.terminated", ["page": owner?.telemetryTag ?? "?"])
+        webView.reload()
+    }
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        ReaderTelemetry.log("load.finished", ["page": owner?.telemetryTag ?? "?"])
         owner?.markInitialLoadFinished()
         // Push viewport size first so the CSS column container is sized
         // correctly *before* applyStyleTokens triggers a relayout. Then
         // apply theme + typography, then restore saved progress.
         owner?.pushPageSizeIfChanged(force: true)
         owner?.applyStyleTokens()
+        owner?.applyChromeVisibility()
         // Marks last: they are applied by walking the token spans, so a mark
         // applied before tokenisation would silently match nothing.
         owner?.applyAnnotationsForCurrentChapter()
@@ -967,18 +1120,15 @@ final class ScriptBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
     // MARK: UIScrollViewDelegate (page bookkeeping)
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        if scrollView.contentOffset.y != 0 {
-            scrollView.contentOffset.y = 0
-        }
+        // Held at the origin: see the scroll-view setup in `loadView`.
+        guard scrollView.contentOffset != .zero else { return }
+        ReaderTelemetry.log("scrollview.reset", [
+            "page": owner?.telemetryTag ?? "?",
+            "x": Int(scrollView.contentOffset.x), "y": Int(scrollView.contentOffset.y),
+        ])
+        scrollView.contentOffset = .zero
     }
 
-    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
-        emitPageInfo(scrollView)
-    }
-
-    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-        if !decelerate { emitPageInfo(scrollView) }
-    }
 
 }
 
@@ -990,45 +1140,37 @@ private extension ScriptBridge {
             guard let dict = body as? [String: Any],
                   let pageIndex = dict["pageIndex"] as? Int,
                   let pageCount = dict["pageCount"] as? Int else { return }
+            owner.noteReported(page: pageIndex, count: pageCount)
             owner.pageDelegate?.epubChapter(owner, didReportPageInfoIndex: pageIndex, pageCount: pageCount)
         case "progress":
-            // progress events only update the progress fraction.
-            // UIScrollViewDelegate (emitPageInfo) is the single source of
-            // truth for pageIndex / pageCount — emitting them from here
-            // too caused the host counter to flicker during a swipe.
+            // Progress only: page and count come from `pageInfo`.
             guard let dict = body as? [String: Any],
                   let pageIndex = dict["pageIndex"] as? Int,
                   let fraction = dict["progressFraction"] as? Double else { return }
             owner.pageDelegate?.epubChapter(owner, didReportProgressFraction: fraction, pageIndex: pageIndex)
         case "wordSelection":
-            // A long press produced a live selection. WebKit is already
-            // showing its own callout; this tells the host what was selected
-            // so it can extend that menu with the Anki actions rather than
-            // replacing it. A single tap never reaches here.
-            guard let dict = body as? [String: Any] else { return }
-            let selection = (dict["selection"] as? String) ?? ""
-            let token = (dict["token"] as? String) ?? selection
-            let sentence = (dict["sentence"] as? String) ?? selection
-            guard !selection.isEmpty else {
+            // A long press produced a live selection. WebKit shows its own
+            // menu; this tells the controller what was selected so that menu
+            // can carry the Anki actions. A single tap never reaches here.
+            guard body is [String: Any] else { return }
+            guard let payload = owner.selectionPayload(from: body) else {
                 // The page also reports a *cleared* selection, which is how
                 // the swipe recogniser learns a page turn is allowed again.
                 owner.noteSelectionCleared()
                 return
             }
             owner.noteSelectionBegan()
-            // Only the menu is shown. The lookup sheet must NOT open here: a
-            // long press that immediately threw up a dictionary would be the
-            // same mistake as tap-to-lookup, just with an extra step. The
-            // delegate is notified from `performSelectionAction` when the user
-            // actually picks Look Up or Add Note.
-            owner.presentSelectionMenu(
-                for: ReaderSelectionPayload(
-                    text: selection,
-                    token: token,
-                    sentence: sentence,
-                    anchor: owner.resolvedAnchor(from: dict["anchor"])
-                )
-            )
+            owner.noteSelectionRects((body as? [String: Any])?["rects"])
+            // The lookup sheet must NOT open here: a long press that
+            // immediately threw up a dictionary would be the same mistake as
+            // tap-to-lookup, just with an extra step. The delegate hears about
+            // it only when Look Up is chosen from the menu.
+            owner.noteSelection(payload)
+        case "markTap":
+            guard let dict = body as? [String: Any],
+                  let id = dict["id"] as? String,
+                  let kind = dict["kind"] as? String else { return }
+            owner.markTapHandler?(id, kind)
         case "emptyTap":
             guard let number = body as? NSNumber else { return }
             owner.pageDelegate?.epubChapterDidTapEmptySpace(
@@ -1038,16 +1180,6 @@ private extension ScriptBridge {
         default:
             break
         }
-    }
-
-    func emitPageInfo(_ scrollView: UIScrollView) {        guard let owner else { return }
-        let viewport = max(1, scrollView.bounds.width)
-        let pageIndex = Int(round(scrollView.contentOffset.x / viewport))
-        let totalPages = max(1, Int(round(scrollView.contentSize.width / viewport)))
-        owner.pageDelegate?.epubChapter(owner, didReportPageInfoIndex: pageIndex, pageCount: totalPages)
-        let denom = Double(max(1, totalPages - 1))
-        let fraction = min(1, max(0, Double(pageIndex) / denom))
-        owner.pageDelegate?.epubChapter(owner, didReportProgressFraction: fraction, pageIndex: pageIndex)
     }
 }
 

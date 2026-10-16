@@ -40,6 +40,14 @@ package struct LookupPopupView: View {
     /// EPUB reader uses this to post a `.amgiReaderCardAdded` notification
     /// so the book detail screen can refresh card counts live.
     var onAddedNote: (() -> Void)? = nil
+    /// The book the lookup came from, so a one-tap card lands in that book's
+    /// deck. Nil outside a book, which uses the last destination chosen.
+    var bookID: String? = nil
+    /// A one-tap card was written (note id, the tapped words' anchor, the
+    /// term) or undone. The EPUB reader uses these to draw and erase the
+    /// card mark on the page.
+    var onCardCaptured: ((NoteID, ReaderSourceAnchor?, String) -> Void)? = nil
+    var onCardRemoved: ((NoteID) -> Void)? = nil
     let onDismiss: () -> Void
 
     package init(
@@ -60,11 +68,41 @@ package struct LookupPopupView: View {
         self.onDismiss = onDismiss
     }
 
+    init(
+        initialQuery: String,
+        languageHint: String?,
+        contextSentence: String?,
+        sourceAnchor: ReaderSourceAnchor?,
+        extraTags: [String],
+        bookID: String?,
+        onAddedNote: (() -> Void)?,
+        onCardCaptured: ((NoteID, ReaderSourceAnchor?, String) -> Void)?,
+        onCardRemoved: ((NoteID) -> Void)?,
+        onDismiss: @escaping () -> Void
+    ) {
+        self.init(
+            initialQuery: initialQuery,
+            languageHint: languageHint,
+            contextSentence: contextSentence,
+            sourceAnchor: sourceAnchor,
+            extraTags: extraTags,
+            onAddedNote: onAddedNote,
+            onDismiss: onDismiss
+        )
+        self.bookID = bookID
+        self.onCardCaptured = onCardCaptured
+        self.onCardRemoved = onCardRemoved
+    }
+
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var model = LookupPopupModel()
 
     @State private var query: String = ""
     @State private var pendingNoteDraft: NoteDraft?
+    /// One-tap capture: writes the note without a sheet.
+    @State private var capture = ReaderCardCapture()
+    @State private var cardStates: [String: LookupCardButtonState] = [:]
+    @State private var capturedNoteIDs: [String: NoteID] = [:]
 
     /// JSON-encoded `ReaderLookupNoteTemplate` stored in user prefs.
     /// Default is `.empty`, which makes `makeDraft` fall back to common
@@ -228,12 +266,19 @@ package struct LookupPopupView: View {
                 },
                 languageHint: languageHint,
                 onMakeNote: { entry in
-                    pendingNoteDraft = NoteDraft(draft: makeNoteDraft(for: entry))
+                    Task { await captureCard(for: entry) }
                 },
                 onLookupRequested: { tappedText in
                     lookupPath.append(LookupPathEntry(query: tappedText))
+                },
+                cardState: { cardStates[$0.id] ?? .ready },
+                onEditNote: { entry in
+                    pendingNoteDraft = NoteDraft(draft: makeNoteDraft(for: entry))
                 }
             )
+            .task(id: result.entries.map(\.id)) {
+                await markExistingCards(in: result.entries)
+            }
             .onAppear {
                 // Autoplay first entry once per query — never re-fire
                 // when the popup re-renders for SwiftUI state changes.
@@ -332,6 +377,73 @@ private extension LookupPopupView {
     /// the template hasn't been configured the projection falls back to
     /// common Basic-notetype field names so the user still gets a
     /// usable draft.
+    /// One tap, no sheet. A tap on a card made here a moment ago undoes it,
+    /// so a mis-tap costs a second tap rather than a trip to Browse.
+    ///
+    /// A configured lookup template wins, since the user mapped those fields
+    /// on purpose. Without one, the card is a plain two-sided one in the
+    /// book's deck — the term on the front, reading, definitions and the
+    /// sentence on the back — instead of the old "Reader lookup" placeholder
+    /// back. If writing fails for any reason the editor opens prefilled, so a
+    /// capture is never a dead end.
+    func captureCard(for entry: DictionaryLookupEntry) async {
+        if cardStates[entry.id] == .added, let noteID = capturedNoteIDs[entry.id] {
+            cardStates[entry.id] = .working
+            await capture.remove(noteID)
+            capturedNoteIDs[entry.id] = nil
+            cardStates[entry.id] = .ready
+            onCardRemoved?(noteID)
+            return
+        }
+        cardStates[entry.id] = .working
+        let draft = makeNoteDraft(for: entry)
+        do {
+            let destination = await capture.destination(forBook: bookID)
+            let noteID: NoteID
+            if draft.notetypeID != nil {
+                noteID = try await capture.addMapped(draft, fallbackDeckID: destination?.deckID ?? 1)
+            } else {
+                guard let destination else { throw ReaderCardCapture.CaptureError.noDestination }
+                let content = ReaderLookupCardContent(entry: entry, sentence: contextSentence)
+                noteID = try await capture.addCard(
+                    front: content.front,
+                    back: content.back,
+                    tags: draft.tags,
+                    destination: destination
+                )
+            }
+            capturedNoteIDs[entry.id] = noteID
+            cardStates[entry.id] = .added
+            onAddedNote?()
+            onCardCaptured?(noteID, sourceAnchor, entry.term)
+        } catch {
+            cardStates[entry.id] = .ready
+            pendingNoteDraft = NoteDraft(draft: draft)
+        }
+    }
+
+    /// Marks entries whose term is already a card, before any tap, so the
+    /// reader is not the one who discovers the duplicate in review.
+    func markExistingCards(in entries: [DictionaryLookupEntry]) async {
+        let template: ReaderLookupNoteTemplate = serializedTemplate.isEmpty
+            ? .empty
+            : ReaderLookupNoteTemplate.decode(from: serializedTemplate)
+        let field: String?
+        if !template.termField.isEmpty {
+            field = template.termField
+        } else if let destination = await capture.destination(forBook: bookID) {
+            field = capture.notetype(destination.notetypeID)?.fieldNames.first
+        } else {
+            field = nil
+        }
+        guard let field else { return }
+        for entry in entries.prefix(8) where cardStates[entry.id] == nil {
+            if await capture.hasNote(field: field, matching: entry.term) {
+                cardStates[entry.id] = .exists
+            }
+        }
+    }
+
     func makeNoteDraft(for entry: DictionaryLookupEntry) -> AddNoteDraft {
         let template: ReaderLookupNoteTemplate = serializedTemplate.isEmpty
             ? .empty

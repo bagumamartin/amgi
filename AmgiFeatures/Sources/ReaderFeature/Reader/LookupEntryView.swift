@@ -16,6 +16,18 @@ struct LookupEntryStyling {
     var compactGlossaries: Bool = false
 }
 
+/// What the ⊕ on a dictionary entry shows. Capture is one tap and never
+/// opens a sheet, so the button itself is the confirmation — the way Music's
+/// + becomes ✓ — and it says before the tap when the word is already a card.
+enum LookupCardButtonState: Equatable {
+    case ready
+    case working
+    /// Made from this popup just now; a second tap undoes it.
+    case added
+    /// The collection already has a note for this term.
+    case exists
+}
+
 /// Term / reading / frequency badge plus the audio, TTS, and add-note
 /// action buttons. Owns its own audio-resolving state so the row above it
 /// stays stateless and the header can be previewed and reused on its own.
@@ -28,6 +40,10 @@ struct LookupEntryHeaderView: View {
     let audioPlaybackMode: LookupAudioPlaybackMode
     let languageHint: String?
     let onMakeNote: () -> Void
+    var cardState: LookupCardButtonState = .ready
+    /// Opens the full editor with the entry prefilled — the escape hatch for
+    /// a card that needs more than the one-tap version.
+    var onEditNote: (() -> Void)? = nil
 
     @State private var isResolvingAudio = false
     @Environment(\.palette) private var palette
@@ -69,13 +85,28 @@ struct LookupEntryHeaderView: View {
                 .buttonStyle(.pressScale)
                 .accessibilityLabel("Speak with TTS")
                 Button {
-                    onMakeNote()
+                    if cardState == .exists, let onEditNote {
+                        onEditNote()
+                    } else {
+                        onMakeNote()
+                    }
                 } label: {
-                    Image(systemName: "plus.circle")
-                        .amgiFont(.cardTitle)
+                    cardButtonLabel
                 }
                 .buttonStyle(.pressScale)
-                .accessibilityLabel("Make note from this entry")
+                .disabled(cardState == .working)
+                .sensoryFeedback(trigger: cardState) { _, new in
+                    new == .added ? .success : nil
+                }
+                .contextMenu {
+                    if let onEditNote {
+                        Button("Edit Before Adding", systemImage: "square.and.pencil", action: onEditNote)
+                    }
+                    if cardState == .exists {
+                        Button("Add Anyway", systemImage: "plus.circle", action: onMakeNote)
+                    }
+                }
+                .accessibilityLabel(cardAccessibilityLabel)
             }
         }
     }
@@ -83,6 +114,33 @@ struct LookupEntryHeaderView: View {
 }
 
 private extension LookupEntryHeaderView {
+    @ViewBuilder
+    var cardButtonLabel: some View {
+        switch cardState {
+        case .working:
+            ProgressView().controlSize(.small)
+        case .ready:
+            Image(systemName: "plus.circle").amgiFont(.cardTitle)
+        case .added:
+            Image(systemName: "checkmark.circle.fill")
+                .amgiFont(.cardTitle)
+                .foregroundStyle(palette.accent)
+                .transition(.symbolEffect(.drawOn))
+        case .exists:
+            Image(systemName: "checkmark.circle")
+                .amgiFont(.cardTitle)
+                .foregroundStyle(palette.textSecondary)
+        }
+    }
+
+    var cardAccessibilityLabel: String {
+        switch cardState {
+        case .ready, .working: "Make card from this entry"
+        case .added: "Card added. Activate to undo"
+        case .exists: "Already a card. Activate to edit a new one"
+        }
+    }
+
     func playAudio() async {
         isResolvingAudio = true
         defer { isResolvingAudio = false }
@@ -114,6 +172,8 @@ struct LookupEntryView: View {
     let languageHint: String?
     let onMakeNote: () -> Void
     let onLookupRequested: ((String) -> Void)?
+    var cardState: LookupCardButtonState = .ready
+    var onEditNote: (() -> Void)? = nil
 
     @Environment(\.palette) private var palette
 
@@ -127,7 +187,9 @@ struct LookupEntryView: View {
                 audioTemplate: audioTemplate,
                 audioPlaybackMode: audioPlaybackMode,
                 languageHint: languageHint,
-                onMakeNote: onMakeNote
+                onMakeNote: onMakeNote,
+                cardState: cardState,
+                onEditNote: onEditNote
             )
 
             if !entry.deinflectionTrace.isEmpty {

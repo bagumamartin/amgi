@@ -156,45 +156,25 @@ struct ReaderReaderStylesheetTests {
 
     // MARK: - Vertical insets
 
-    @Test("the vertical inset is applied to html, not body")
-    func verticalInsetIsOnHTML() throws {
-        // This is the bug behind "the last line sits behind the page counter".
-        // <body> is a *fragmented* box in a multi-column flow, so its
-        // top/bottom padding applies only at the very start and end of the
-        // whole flow. <html> is the scroll container, not a fragment, so its
-        // padding insets every column.
+    @Test("body is the page container and carries the page insets")
+    func bodyIsThePageContainer() throws {
+        // Rev 4: <body> is the multi-column container, one viewport in size,
+        // and its padding is the page's margins. Because the columns run off
+        // sideways rather than down, that padding frames every column — the
+        // WebKit test "every page keeps its top and bottom margins" checks it.
         let blocks = ruleBodies(selector: "body", in: try css())
-        #expect(!blocks.isEmpty, "no `body` rule found")
-        for block in blocks {
-            #expect(
-                !block.contains("padding-top"),
-                "body padding-top only insets the first page: \(block)"
-            )
-            #expect(
-                !block.contains("padding-bottom"),
-                "body padding-bottom only insets the last page: \(block)"
-            )
-        }
+        #expect(blocks.contains { $0.contains("column-width") }, "body must lay the chapter out in columns")
+        #expect(blocks.contains { $0.contains("--reader-inset-top") && $0.contains("--reader-inset-bottom") },
+                "body padding must carry the top and bottom insets")
+        #expect(blocks.contains { $0.contains("box-sizing: border-box") })
     }
 
-    @Test("html carries the vertical inset and subtracts it from the column height")
-    func htmlCarriesVerticalInset() throws {
-        let source = try css()
-        #expect(source.contains("--reader-inset-top"))
-        #expect(source.contains("--reader-inset-bottom"))
-        // border-box is what makes the padding reduce the column height rather
-        // than extend the content beyond the viewport.
-        #expect(source.contains("box-sizing: border-box"))
-        let blocks = ruleBodies(selector: "html", in: source)
+    @Test("html clips and never scrolls or lays out columns")
+    func htmlClips() throws {
+        let blocks = ruleBodies(selector: "html", in: try css())
         #expect(!blocks.isEmpty, "no `html` rule found")
-        #expect(
-            blocks.contains { $0.contains("--reader-inset-top") },
-            "no html rule applies the top inset"
-        )
-        #expect(
-            blocks.contains { $0.contains("--reader-inset-bottom") },
-            "no html rule applies the bottom inset"
-        )
+        #expect(blocks.contains { $0.contains("overflow: hidden") }, "html must clip, not scroll")
+        #expect(!blocks.contains { $0.contains("column-width") }, "columns belong on body now")
     }
 
     @Test("the page gutter stays horizontal on body")

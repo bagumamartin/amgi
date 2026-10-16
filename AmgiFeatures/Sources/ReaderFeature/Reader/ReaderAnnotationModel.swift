@@ -16,6 +16,8 @@ import OSLog
 final class ReaderAnnotationModel {
     private(set) var highlights: [ReaderAnnotation] = []
     private(set) var bookmarks: [ReaderAnnotation] = []
+    /// Source passages of cards made while reading, drawn as the card mark.
+    private(set) var cards: [ReaderAnnotation] = []
     private(set) var searchHits: [ReaderSearchHit] = []
     var searchError: String?
 
@@ -47,6 +49,7 @@ final class ReaderAnnotationModel {
         do {
             highlights = try await active.annotations(inBook: bookID, kind: .highlight)
             bookmarks = try await active.annotations(inBook: bookID, kind: .bookmark)
+            cards = try await active.annotations(inBook: bookID, kind: .card)
         } catch {
             searchError = error.localizedDescription
         }
@@ -89,6 +92,59 @@ final class ReaderAnnotationModel {
             excerpt: excerpt
         )
         await persist(annotation, range: range)
+    }
+
+    /// Records where a card came from — one mark per source passage, all
+    /// carrying the note id so a tap on any of them opens the card. Returns
+    /// the ids written, so an undo removes exactly these.
+    @discardableResult
+    func addCardMarks(
+        in bookID: String,
+        sources: [(anchor: ReaderSourceAnchor, excerpt: String)],
+        noteID: Int64
+    ) async -> [UUID] {
+        let store = self.store ?? makeStore()
+        self.store = store
+        var written: [UUID] = []
+        do {
+            for source in sources {
+                let annotation = ReaderAnnotation(
+                    bookID: bookID,
+                    kind: .card,
+                    anchor: source.anchor,
+                    excerpt: source.excerpt,
+                    note: Self.cardNoteTag(noteID)
+                )
+                written.append(try await store.save(annotation).id)
+            }
+        } catch {
+            searchError = error.localizedDescription
+        }
+        await reload(for: bookID, using: store)
+        return written
+    }
+
+    func deleteAnnotations(_ ids: [UUID], inBook bookID: String) async {
+        let store = self.store ?? makeStore()
+        self.store = store
+        do {
+            for id in ids { try await store.delete(id: id, inBook: bookID) }
+        } catch {
+            searchError = error.localizedDescription
+        }
+        await reload(for: bookID, using: store)
+    }
+
+    /// Card marks for a note, for undoing a one-tap capture.
+    func cardMarkIDs(forNote noteID: Int64) -> [UUID] {
+        cards.filter { $0.note == Self.cardNoteTag(noteID) }.map(\.id)
+    }
+
+    static func cardNoteTag(_ noteID: Int64) -> String { "nid:\(noteID)" }
+
+    static func noteID(fromCardTag tag: String?) -> Int64? {
+        guard let tag, tag.hasPrefix("nid:") else { return nil }
+        return Int64(tag.dropFirst(4))
     }
 
     private func persist(_ annotation: ReaderAnnotation, range: ClosedRange<Int>?) async {
@@ -175,6 +231,9 @@ final class ReaderAnnotationModel {
                     descriptor["start"] = start
                     descriptor["end"] = start + length
                 }
+                // Lets the page check the offset against the words and
+                // re-find them when it has drifted.
+                descriptor["text"] = annotation.excerpt
                 if let color = annotation.colorHex {
                     descriptor["color"] = color
                 }
@@ -200,6 +259,7 @@ final class ReaderAnnotationModel {
                     "kind": annotation.kind.rawValue,
                     "start": start,
                     "end": start + length,
+                    "text": annotation.excerpt,
                 ]
             }
         } catch {

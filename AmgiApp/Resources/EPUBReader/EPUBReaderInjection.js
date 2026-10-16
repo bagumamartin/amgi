@@ -7,15 +7,16 @@
 //        - Hangul runs (consecutive Hangul codepoints = one token)
 //        - CJK + kana per-codepoint
 //        - Latin word boundaries (\b\w+\b)
-//   2. Report page count = Math.ceil(documentElement.scrollWidth /
-//      window.innerWidth). <html> is the multi-column container and the
-//      WKWebView's scrollable root; we never mutate body.style.width.
-//   3. On scroll-end (debounced 250ms), report current pageIndex +
+//   2. Paginate: <body> is a multi-column container of page-wide columns and
+//      a page is shown by translating it (rev 4, "Pagination" below). The
+//      page shown, the page count and the words on screen are reported to
+//      the host; nothing scrolls.
+//   3. After each page change (debounced 250ms), report pageIndex +
 //      progressFraction (pageIndex / max(pageCount-1, 1)).
 //   4. On click of a tokenised span, capture the surrounding sentence
-//      (split on [.!?。！？\n]) and post a wordTap message.
-//
-// Posts to three message handlers: pageInfo, progress, wordTap.
+//      (split on [.!?。！？\n]) and post it to the host.
+//   5. Report the live selection (wordSelection) so the host can add the
+//      reader's actions to its selection menu.
 
 (function () {
   'use strict';
@@ -125,8 +126,8 @@
   // three independent handles to the same text, and the native side resolves
   // them in order of precision:
   //
-  //   1. `cfi`    - character offset in the container's rendered text
-  //   2. `path`   - child-index path from the container to the text node
+  //   1. `cfi`    - character offset into the chapter text (see below)
+  //   2. `path`   - child-index path from <body> to the anchored element
   //   3. `quote`  - the text itself plus surrounding context
   //
   // Tokenisation replaces text nodes with <span class="amgi-tok"> runs, which
@@ -166,20 +167,167 @@
     return current === root ? path : null;
   }
 
-  // Character offset of `node`'s text within the container's rendered text,
-  // measured the same way the reader measures progress (innerText), so the
-  // two agree.
-  function characterOffsetIn(container, node, offsetInNode) {
+  // ---------------------------------------------------------------------------
+  // Chapter text: the one basis every stored offset uses
+  //
+  // `cfi`, mark ranges, and anchor resolution all count characters along the
+  // same string: every text node under <body>, in document order, minus
+  // scripts, styles, and the page furniture this script adds. Tokenisation
+  // only splits text nodes, it never adds or drops characters, so offsets
+  // survive a re-tokenisation. They used to disagree — anchors counted from
+  // their own paragraph, marks counted word tokens only, and resolution
+  // counted raw text — so a mark landed wherever its paragraph offset fell
+  // in the chapter, not on the words it was made from.
+  // ---------------------------------------------------------------------------
+
+  var SKIP_TEXT_TAGS = { SCRIPT: 1, STYLE: 1, NOSCRIPT: 1 };
+
+  function isChapterTextNode(node) {
+    var p = node.parentNode;
+    while (p && p !== document.body) {
+      if (p.nodeType === 1) {
+        if (SKIP_TEXT_TAGS[p.tagName]) { return false; }
+        if (p.hasAttribute('data-amgi-running-head')
+            || p.hasAttribute('data-amgi-page-number')) { return false; }
+      }
+      p = p.parentNode;
+    }
+    return !!p;
+  }
+
+  function chapterTextNodes() {
+    var nodes = [];
+    if (!document.body) { return nodes; }
+    var walker = document.createTreeWalker(
+      document.body,
+      NodeFilter.SHOW_TEXT,
+      {
+        acceptNode: function (node) {
+          return isChapterTextNode(node)
+            ? NodeFilter.FILTER_ACCEPT
+            : NodeFilter.FILTER_REJECT;
+        }
+      }
+    );
+    var n;
+    while ((n = walker.nextNode())) { nodes.push(n); }
+    return nodes;
+  }
+
+  function chapterText(nodes) {
+    var parts = [];
+    for (var i = 0; i < nodes.length; i++) { parts.push(nodes[i].nodeValue || ''); }
+    return parts.join('');
+  }
+
+  // Chapter offset of a DOM position, or null when it is not chapter text.
+  function chapterOffsetOf(node, offsetInNode, nodes) {
+    nodes = nodes || chapterTextNodes();
+    if (node && node.nodeType !== 3) {
+      // An element position: the first chapter text at or after it.
+      var child = node.childNodes && node.childNodes[offsetInNode || 0];
+      var target = child || node;
+      var consumedBefore = 0;
+      for (var k = 0; k < nodes.length; k++) {
+        var rel = target.compareDocumentPosition(nodes[k]);
+        if (nodes[k] === target
+            || (rel & Node.DOCUMENT_POSITION_FOLLOWING)
+            || (rel & Node.DOCUMENT_POSITION_CONTAINED_BY)) {
+          return consumedBefore;
+        }
+        consumedBefore += (nodes[k].nodeValue || '').length;
+      }
+      return null;
+    }
+    var consumed = 0;
+    for (var i = 0; i < nodes.length; i++) {
+      if (nodes[i] === node) {
+        return consumed + Math.min(offsetInNode || 0, (node.nodeValue || '').length);
+      }
+      consumed += (nodes[i].nodeValue || '').length;
+    }
+    return null;
+  }
+
+  // The text node and in-node offset at a chapter offset.
+  function chapterPositionAt(offset, nodes) {
+    nodes = nodes || chapterTextNodes();
+    var consumed = 0;
+    for (var i = 0; i < nodes.length; i++) {
+      var len = (nodes[i].nodeValue || '').length;
+      if (offset < consumed + len) {
+        return { node: nodes[i], offset: offset - consumed };
+      }
+      consumed += len;
+    }
+    if (nodes.length) {
+      var last = nodes[nodes.length - 1];
+      return { node: last, offset: (last.nodeValue || '').length };
+    }
+    return null;
+  }
+
+  function rangeForChapterOffsets(start, end, nodes) {
+    nodes = nodes || chapterTextNodes();
+    var from = chapterPositionAt(start, nodes);
+    var to = chapterPositionAt(Math.max(start, end), nodes);
+    if (!from || !to) { return null; }
     var range = document.createRange();
     try {
-      range.selectNodeContents(container);
-      range.setEnd(node, offsetInNode);
-      return range.toString().length;
+      range.setStart(from.node, from.offset);
+      range.setEnd(to.node, to.offset);
+      return range;
     } catch (e) {
       return null;
-    } finally {
-      range.detach && range.detach();
     }
+  }
+
+  function collapseSpace(text) {
+    return (text || '').replace(/\s+/g, ' ').trim();
+  }
+
+  // Finds `needle` in the chapter text, tolerant of whitespace differences
+  // (a selection's string and the DOM's text nodes disagree on line breaks).
+  // With `near`, the occurrence closest to that offset wins, so a repeated
+  // word resolves to the copy the mark was made on; otherwise the first.
+  // Returns {start, end} in chapter offsets, or null.
+  function findInChapter(needle, near, text) {
+    var wanted = collapseSpace(needle);
+    if (!wanted) { return null; }
+    if (typeof text !== 'string') { text = chapterText(chapterTextNodes()); }
+
+    // Collapse the haystack the same way, remembering where each collapsed
+    // character came from so a hit maps back to real offsets.
+    var collapsed = '';
+    var origin = [];
+    var inSpace = false;
+    for (var i = 0; i < text.length; i++) {
+      var ch = text[i];
+      if (/\s/.test(ch)) {
+        if (!inSpace && collapsed.length) {
+          collapsed += ' ';
+          origin.push(i);
+        }
+        inSpace = true;
+      } else {
+        collapsed += ch;
+        origin.push(i);
+        inSpace = false;
+      }
+    }
+
+    var best = -1;
+    var bestDistance = Infinity;
+    var at = collapsed.indexOf(wanted);
+    while (at >= 0) {
+      if (typeof near !== 'number') { best = at; break; }
+      var distance = Math.abs(origin[at] - near);
+      if (distance < bestDistance) { best = at; bestDistance = distance; }
+      at = collapsed.indexOf(wanted, at + 1);
+    }
+    if (best < 0) { return null; }
+    var lastIndex = best + wanted.length - 1;
+    return { start: origin[best], end: origin[lastIndex] + 1 };
   }
 
   function textNodeAndOffsetFor(span) {
@@ -199,7 +347,9 @@
     return node ? { node: node, offset: offset } : null;
   }
 
-  function buildAnchor(span, container, tokenText) {
+  // `precise`, when given, is the exact DOM position the anchor starts at
+  // (a selection's start); otherwise the start of `span`.
+  function buildAnchor(span, container, tokenText, precise) {
     var full = container.innerText || '';
     var anchor = {
       cfi: null,
@@ -209,11 +359,12 @@
       contextAfter: null
     };
 
-    var located = textNodeAndOffsetFor(span);
+    var located = precise || textNodeAndOffsetFor(span);
     if (located) {
-      var path = elementPath(container, located.node);
+      var element = located.node.nodeType === 3 ? located.node.parentNode : located.node;
+      var path = elementPath(document.body, element);
       if (path) { anchor.path = path; }
-      var cfi = characterOffsetIn(container, located.node, located.offset);
+      var cfi = chapterOffsetOf(located.node, located.offset);
       if (cfi !== null && cfi >= 0) { anchor.cfi = cfi; }
     }
 
@@ -319,6 +470,10 @@
     document.addEventListener('touchstart', function (e) {
       var node = tokenUnder(e.target);
       if (!node) { return; }
+      // A press on the selection is the start of a drag, not a tap on a word:
+      // no tint, or it would end up in the drag preview.
+      var selection = window.getSelection();
+      if (selection && !selection.isCollapsed && selection.containsNode(node, true)) { return; }
       window.clearTimeout(release.timer);
       pressed = node;
       pressTintOn(node);
@@ -368,10 +523,73 @@
     var timer = null;
     var lastText = '';
 
-    function report() {
-      timer = null;
+    // The selection as the host's message carries it, or null when there is
+    // none. Also exposed as `__amgiDescribeSelection`, so a menu item can read
+    // the live selection instead of a report that trails the handles.
+    function describeSelection() {
       var selection = window.getSelection();
       if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+        return null;
+      }
+      var text = (selection.toString() || '').trim();
+      if (!text) { return null; }
+
+      var range = selection.getRangeAt(0);
+      var node = range.startContainer;
+      var span = node.nodeType === 1 ? node : node.parentNode;
+      var token = span && span.closest
+        ? span.closest('.amgi-tok')
+        : null;
+      var container = span && span.closest
+        ? span.closest('p, li, div, section, body')
+        : document.body;
+      container = container || document.body;
+
+      var anchor = buildAnchor(
+        token || span || container,
+        container,
+        (token && token.getAttribute('data-token')) || text,
+        { node: range.startContainer, offset: range.startOffset }
+      );
+      // `text` is trimmed; move the offset past the whitespace it dropped so
+      // `cfi` points at the first selected character.
+      var raw = selection.toString() || '';
+      if (typeof anchor.cfi === 'number') {
+        anchor.cfi += raw.length - raw.replace(/^\s+/, '').length;
+      }
+
+      // Where the selection sits on screen, so the host can tell a touch on
+      // the selection (lifting it to drag, or moving a handle) from a page
+      // swipe. Viewport coordinates, which are the web view's own.
+      var rects = [];
+      var list = range.getClientRects();
+      for (var i = 0; i < list.length && rects.length < 40; i++) {
+        var r = list[i];
+        if (r.width > 0 && r.height > 0) { rects.push([r.left, r.top, r.width, r.height]); }
+      }
+
+      return {
+        token: token
+          ? (token.getAttribute('data-token') || token.textContent || '')
+          : text,
+        selection: text,
+        rects: rects,
+        sentence: anchor.quote || text,
+        anchor: {
+          cfi: anchor.cfi,
+          path: anchor.path,
+          quote: anchor.quote || text,
+          contextBefore: anchor.contextBefore,
+          contextAfter: anchor.contextAfter
+        }
+      };
+    }
+    window.__amgiDescribeSelection = describeSelection;
+
+    function report() {
+      timer = null;
+      var message = describeSelection();
+      if (!message) {
         // Report the clearing too. The host needs to know a selection is
         // *gone* so a swipe begun right after is read as a page turn rather
         // than as the tail of a text selection.
@@ -388,42 +606,10 @@
         }
         return;
       }
-      var text = (selection.toString() || '').trim();
-      if (!text || text === lastText) { return; }
-      lastText = text;
-
-      var range = selection.getRangeAt(0);
-      var node = range.startContainer;
-      var span = node.nodeType === 1 ? node : node.parentNode;
-      var token = span && span.closest
-        ? span.closest('.amgi-tok')
-        : null;
-      var container = span && span.closest
-        ? span.closest('p, li, div, section, body')
-        : document.body;
-      container = container || document.body;
-
-      var anchor = buildAnchor(
-        token || span || container,
-        container,
-        (token && token.getAttribute('data-token')) || text
-      );
-
+      if (message.selection === lastText) { return; }
+      lastText = message.selection;
       try {
-        window.webkit.messageHandlers.wordSelection.postMessage({
-          token: token
-            ? (token.getAttribute('data-token') || token.textContent || '')
-            : text,
-          selection: text,
-          sentence: anchor.quote || text,
-          anchor: {
-            cfi: anchor.cfi,
-            path: anchor.path,
-            quote: anchor.quote || text,
-            contextBefore: anchor.contextBefore,
-            contextAfter: anchor.contextAfter
-          }
-        });
+        window.webkit.messageHandlers.wordSelection.postMessage(message);
       } catch (e) { /* host detached */ }
     }
 
@@ -433,6 +619,14 @@
       // still feels attached to the gesture.
       timer = window.setTimeout(report, 120);
     });
+
+    // A right-click must not wait out the debounce: macOS builds the context
+    // menu from the last report, and the right-click may itself have just
+    // selected the word under the pointer.
+    document.addEventListener('contextmenu', function () {
+      if (timer) { window.clearTimeout(timer); }
+      report();
+    }, true);
   }
 
   // ---------------------------------------------------------------------------
@@ -460,6 +654,20 @@
       '.amgi-tok[data-amgi-mark="bookmark"] {',
       '  border-bottom: 2px solid var(--amgi-bookmark, #c8811f);',
       '}',
+      // A finished card: a quiet dotted underline, so a page you have mined
+      // shows it without looking highlighted.
+      '.amgi-tok[data-amgi-mark="card"] {',
+      '  text-decoration: underline dotted var(--amgi-card, #3b82f6);',
+      '  text-decoration-thickness: 2px;',
+      '  text-underline-offset: 3px;',
+      '}',
+      // A draft waiting for its other side: hollow and dashed, the visual
+      // "something started here" that a tap resumes.
+      '.amgi-tok[data-amgi-mark="cardDraft"] {',
+      '  border-bottom: 1.5px dashed var(--amgi-card, #3b82f6);',
+      '  background: rgba(59, 130, 246, 0.08);',
+      '  border-radius: 2px;',
+      '}',
       '.amgi-tok[data-amgi-mark] { cursor: default; }'
     ].join('\n');
     (document.head || document.documentElement).appendChild(style);
@@ -483,25 +691,49 @@
     var tokens = document.querySelectorAll('.amgi-tok');
     if (!tokens.length) { return 0; }
 
+    var nodes = chapterTextNodes();
+    var text = chapterText(nodes);
+
     var applied = 0;
     for (var i = 0; i < marks.length; i++) {
       var mark = marks[i];
       if (!mark) { continue; }
       var start = typeof mark.start === 'number' ? mark.start : null;
       var end = typeof mark.end === 'number' ? mark.end : null;
-      var kind = mark.kind === 'bookmark' ? 'bookmark' : 'highlight';
+      var kind = (mark.kind === 'bookmark' || mark.kind === 'card' || mark.kind === 'cardDraft')
+        ? mark.kind
+        : 'highlight';
+
+      // With the marked text in hand, trust the offset only if the text is
+      // really there. Anchors stored before offsets were chapter-wide counted
+      // from their own paragraph; this re-finds them by text, near where the
+      // offset points, instead of painting the wrong words.
+      var markText = typeof mark.text === 'string' ? mark.text : '';
+      if (markText && collapseSpace(markText)) {
+        if (start !== null) { end = start + markText.length; }
+        var here = start !== null
+          ? collapseSpace(text.substring(start, end))
+          : '';
+        if (here !== collapseSpace(markText)) {
+          var found = findInChapter(markText, start, text);
+          if (found) {
+            start = found.start;
+            end = found.end;
+          }
+        }
+      }
       if (start === null || end === null || end <= start) { continue; }
 
-      // Offsets are measured across the concatenated token text, which is the
-      // same basis the reader measures progress with, so the two agree.
       var consumed = 0;
       var matched = false;
-      for (var t = 0; t < tokens.length; t++) {
-        var token = tokens[t];
-        var tokenStart = consumed;
-        var tokenEnd = consumed + (token.textContent || '').length;
-        consumed = tokenEnd;
-        if (tokenEnd <= start || tokenStart >= end) { continue; }
+      for (var t = 0; t < nodes.length; t++) {
+        var node = nodes[t];
+        var nodeStart = consumed;
+        var nodeEnd = consumed + (node.nodeValue || '').length;
+        consumed = nodeEnd;
+        if (nodeEnd <= start || nodeStart >= end) { continue; }
+        var token = node.parentNode;
+        if (!token || !token.classList || !token.classList.contains('amgi-tok')) { continue; }
         token.setAttribute('data-amgi-mark', kind);
         if (mark.id) { token.setAttribute('data-amgi-mark-id', String(mark.id)); }
         if (mark.color) { token.setAttribute('data-amgi-mark-color', String(mark.color)); }
@@ -520,37 +752,20 @@
   // — rather than to a scroll fraction, which is a rendering that changes with
   // typography, rotation, and device.
   window.__amgiCurrentAnchor = function () {
-    var w = window.innerWidth || document.documentElement.clientWidth || 1;
-    var left = document.documentElement.scrollLeft || 0;
-    var page = Math.round(left / w);
-
-    var tokens = document.querySelectorAll('.amgi-tok');
-    if (!tokens.length) { return null; }
-
-    // Walk the tokens accumulating the same character offset the anchors use,
-    // stopping at the first token that actually paints inside the viewport.
-    var offset = 0;
-    for (var i = 0; i < tokens.length; i++) {
-      var token = tokens[i];
-      var text = token.getAttribute('data-token') || token.textContent || '';
-      var rect = token.getBoundingClientRect();
-      var inView = rect.width > 0
-        && rect.right > left + 1
-        && rect.left < left + w - 1;
-      if (inView) {
-        var anchor = buildAnchor(token, token.closest('p, li, div, section, body') || document.body, text);
-        return {
-          pageIndex: page,
-          cfi: anchor.cfi !== null ? anchor.cfi : offset,
-          path: anchor.path,
-          quote: anchor.quote || text,
-          contextBefore: anchor.contextBefore,
-          contextAfter: anchor.contextAfter
-        };
-      }
-      offset += text.length;
-    }
-    return null;
+    var index = firstTokenOnOrAfter(state.page);
+    if (index >= tokenList.length) { return null; }
+    var token = tokenList[index];
+    if (pageOfRect(token.getBoundingClientRect()) !== state.page) { return null; }
+    var text = token.getAttribute('data-token') || token.textContent || '';
+    var anchor = buildAnchor(token, token.closest('p, li, div, section, body') || document.body, text);
+    return {
+      pageIndex: state.page,
+      cfi: anchor.cfi,
+      path: anchor.path,
+      quote: anchor.quote || text,
+      contextBefore: anchor.contextBefore,
+      contextAfter: anchor.contextAfter
+    };
   };
 
   // Reports which mark, if any, sits under a point, so a tap on an
@@ -621,10 +836,16 @@
       head.textContent = state.head;
     }
     if (number) {
-      number.textContent = typeof state.total === 'number'
-        ? String(state.page) + ' of ' + String(state.total)
-        : String(state.page);
+      // The page carries its number alone, as a printed book does; "X of Y"
+      // is the chrome's job when it is up.
+      number.textContent = String(state.page);
     }
+  };
+
+  // Host-callable: the reader's chrome is up (or not). Its title row and
+  // page count replace the page's running head and number in place.
+  window.__amgiSetChromeVisible = function (visible) {
+    document.documentElement.setAttribute('data-amgi-chrome', visible ? '1' : '0');
   };
 
   // Host-callable: build an anchor for a quoted string the host already has.
@@ -636,35 +857,34 @@
   // which is the same occurrence a reader would mean by re-reading the quote.
   window.__amgiAnchorForQuote = function (request) {
     if (!request || !request.quote) { return null; }
-    var needle = (request.quote || '').replace(/\s+/g, ' ').trim();
+    var needle = collapseSpace(request.quote);
     if (!needle) { return null; }
-    var body = document.body;
-    var full = (body.innerText || '').replace(/\s+/g, ' ');
+    var nodes = chapterTextNodes();
+    var found = findInChapter(needle, null, chapterText(nodes));
+    if (!found) { return null; }
 
-    var at = full.indexOf(needle);
-    if (at < 0) { return null; }
-
-    // Walk the token spans accumulating length, the same basis `cfi` uses.
-    var tokens = document.querySelectorAll('.amgi-tok');
-    var consumed = 0;
-    for (var i = 0; i < tokens.length; i++) {
-      var token = tokens[i];
-      var start = consumed;
-      var end = consumed + (token.textContent || '').length;
-      consumed = end;
-      if (end > at) {
-        var container = token.closest('p, li, div, section, body') || body;
-        var built = buildAnchor(token, container, token.getAttribute('data-token') || '');
-        return {
-          cfi: built.cfi !== null ? built.cfi : start,
-          path: built.path,
-          quote: needle,
-          contextBefore: built.contextBefore,
-          contextAfter: built.contextAfter
-        };
-      }
+    var at = chapterPositionAt(found.start, nodes);
+    var element = at && at.node.parentNode;
+    if (!element) {
+      return { cfi: found.start, path: null, quote: needle, contextBefore: null, contextAfter: null };
     }
-    return { cfi: at, path: null, quote: needle, contextBefore: null, contextAfter: null };
+    var token = element.closest ? element.closest('.amgi-tok') : null;
+    var container = element.closest
+      ? (element.closest('p, li, div, section, body') || document.body)
+      : document.body;
+    var built = buildAnchor(
+      token || element,
+      container,
+      (token && token.getAttribute('data-token')) || needle,
+      at
+    );
+    return {
+      cfi: found.start,
+      path: built.path,
+      quote: needle,
+      contextBefore: built.contextBefore,
+      contextAfter: built.contextAfter
+    };
   };
 
   // Host-callable: resolve a stored anchor back to a live range and scroll it
@@ -674,24 +894,9 @@
   window.__amgiResolveAnchor = function (anchor) {
     if (!anchor) { return null; }
     var body = document.body;
-    var full = body.innerText || '';
 
-    function rangeForOffsets(start, length) {
-      // Walk text nodes accumulating length until the anchor's span is found.
-      var walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, null);
-      var consumed = 0, node;
-      while ((node = walker.nextNode())) {
-        var len = (node.nodeValue || '').length;
-        if (start >= consumed && start + length <= consumed + len) {
-          var range = document.createRange();
-          range.setStart(node, start - consumed);
-          range.setEnd(node, start - consumed + length);
-          return range;
-        }
-        consumed += len;
-      }
-      return null;
-    }
+    var nodes = chapterTextNodes();
+    var text = chapterText(nodes);
 
     function rangeForPath(path) {
       if (!path || !path.length) { return null; }
@@ -717,50 +922,38 @@
       }
     }
 
-    function rangeForQuote(quote) {
-      if (!quote) { return null; }
-      var needle = (quote || '').replace(/\s+/g, ' ').trim();
-      if (!needle) { return null; }
-      var haystack = full.replace(/\s+/g, ' ');
-      var at = haystack.indexOf(needle);
-      if (at < 0) { return null; }
-      return rangeForOffsets(at, needle.length) || rangeForOffsets(at, quote.length);
-    }
-
     var range = null;
     var strategy = 'none';
-    if (typeof anchor.cfi === 'number' && anchor.cfi >= 0) {
-      range = rangeForOffsets(anchor.cfi, (anchor.quote || '').length);
+    // The offset is checked against the quote: an anchor stored before
+    // offsets were chapter-wide counted from its own paragraph, and would
+    // otherwise "resolve" exactly — to the wrong place.
+    var quoted = anchor.quote ? findInChapter(anchor.quote, anchor.cfi, text) : null;
+    if (typeof anchor.cfi === 'number' && anchor.cfi >= 0
+        && (!quoted || (anchor.cfi >= quoted.start && anchor.cfi <= quoted.end))) {
+      range = rangeForChapterOffsets(anchor.cfi, anchor.cfi + 1, nodes);
       if (range) { strategy = 'offset'; }
     }
-    if (!range && anchor.path) {
+    // A path is only trusted when the quote cannot be found: old anchors
+    // stored it from their paragraph rather than from <body>, so it would
+    // land on some other element just as confidently.
+    if (!range && !quoted && anchor.path) {
       range = rangeForPath(anchor.path);
       if (range) { strategy = 'path'; }
     }
-    if (!range) {
-      range = rangeForQuote(anchor.quote);
+    if (!range && quoted) {
+      range = rangeForChapterOffsets(quoted.start, quoted.end, nodes);
       if (range) { strategy = 'quote'; }
     }
     if (!range) { return null; }
 
     var rect = range.getBoundingClientRect();
     if (rect && rect.width > 0) {
-      // Centre the match horizontally inside the current column so the
-      // restored position matches what the reader measures as progress.
-      var w = window.innerWidth || document.documentElement.clientWidth || 1;
-      var page = Math.round((document.documentElement.scrollLeft || 0) / w);
-      var target = document.documentElement.scrollLeft
-        + rect.left
-        - (w / 2)
-        + page * w;
-      var maxOffset = Math.max(
-        0,
-        (document.documentElement.scrollWidth || w) - w
-      );
-      document.documentElement.scrollLeft = Math.max(
-        0,
-        Math.min(target, maxOffset)
-      );
+      // Go to the page the match is on — always a whole page. This used to
+      // centre the match on screen, which left the reader stranded between
+      // two pages, half of each showing, after every resume or jump.
+      state.count = measurePages();
+      setPage(pageOfRect(rect));
+      reportPageInfo();
     }
     return { strategy: strategy, quote: anchor.quote || '' };
   };
@@ -780,9 +973,30 @@
     head.insertBefore(meta, head.firstChild);
   }
 
-  // JS owns --page-width / --page-height. Reading from window directly
-  // means we always agree with the CSS viewport the browser is using,
-  // regardless of what Swift thinks the scrollView bounds are.
+  // ---------------------------------------------------------------------------
+  // Pagination (rev 4): pages are a transform, never a scroll.
+  //
+  // <body> is the multi-column container: one page-wide column per page,
+  // laid out side by side. Showing page N moves the whole body left by N page
+  // widths with a CSS transform. Nothing scrolls — <html> clips — so there is
+  // no scroll offset for UIKit and WebKit to disagree about, which is what
+  // left the text on one page while the page counter said another.
+  //
+  // The page shown is `state.page`, set only by `showPage`. Every answer about
+  // what is on screen is measured from the laid-out words themselves, so the
+  // host can check that the page painted is the page it asked for.
+  // ---------------------------------------------------------------------------
+
+  // `anchor` is the first word on the page shown, taken when the page is
+  // set — before any later re-flow — so a re-flow can return to it.
+  var state = { page: 0, count: 1, anchor: 0 };
+  var tokenList = document.getElementsByClassName('amgi-tok');
+
+  function pageWidth() {
+    return window.innerWidth || document.documentElement.clientWidth || 1;
+  }
+
+  // CSS sizes the page from these; they follow the viewport WebKit is using.
   function syncPageVars() {
     var r = document.documentElement;
     var w = window.innerWidth || r.clientWidth || 0;
@@ -791,62 +1005,192 @@
     if (h > 0) r.style.setProperty('--page-height', h + 'px');
   }
 
-  // <html> is the scroll container after the CSS rebuild — read scroll
-  // offsets and widths from documentElement, not window.
-  function measurePages() {
-    const w = window.innerWidth || document.documentElement.clientWidth || 1;
-    const scrollW = document.documentElement.scrollWidth || w;
-    return Math.max(1, Math.ceil(scrollW / w));
+  function applyTransform() {
+    if (!document.body) { return; }
+    var x = -state.page * pageWidth();
+    document.body.style.setProperty('transform', 'translate3d(' + x + 'px, 0, 0)', 'important');
   }
+
+  // Which page a viewport rect is on, with the current transform undone.
+  function pageOfRect(rect) {
+    var w = pageWidth();
+    return Math.max(0, Math.floor((rect.left + state.page * w + 1) / w));
+  }
+
+  // The number of pages: wherever the last laid-out content ends.
+  function measurePages() {
+    var body = document.body;
+    if (!body) { return 1; }
+    var range = document.createRange();
+    range.selectNodeContents(body);
+    var rect = range.getBoundingClientRect();
+    var w = pageWidth();
+    var right = rect.right + state.page * w;
+    if (!(rect.width > 0) || !isFinite(right)) { return 1; }
+    return Math.max(1, Math.floor((right - 1) / w) + 1);
+  }
+
+  // The first token at or after the start of page `page`, by binary search
+  // over the tokens, which are laid out in reading order across the columns.
+  function firstTokenOnOrAfter(page) {
+    var lo = 0, hi = tokenList.length;
+    while (lo < hi) {
+      var mid = (lo + hi) >> 1;
+      var rect = tokenList[mid].getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) {
+        // Not laid out (inside display:none): skip forward linearly.
+        var probe = mid + 1;
+        while (probe < hi && tokenList[probe].getBoundingClientRect().width === 0) { probe++; }
+        if (probe >= hi) { hi = mid; continue; }
+        rect = tokenList[probe].getBoundingClientRect();
+        if (pageOfRect(rect) < page) { lo = probe + 1; } else { hi = mid; }
+        continue;
+      }
+      if (pageOfRect(rect) < page) { lo = mid + 1; } else { hi = mid; }
+    }
+    return lo;
+  }
+
+  // What is actually on screen: the page, the page count, and the indices of
+  // the first and last word tokens painted on it.
+  function pageState() {
+    var first = firstTokenOnOrAfter(state.page);
+    var next = firstTokenOnOrAfter(state.page + 1);
+    var hasText = first < tokenList.length
+      && pageOfRect(tokenList[first].getBoundingClientRect()) === state.page;
+    return {
+      page: state.page,
+      count: state.count,
+      first: hasText ? first : null,
+      last: hasText ? next - 1 : null
+    };
+  }
+  window.__amgiPageState = pageState;
 
   function reportPageInfo() {
-    const w = window.innerWidth || document.documentElement.clientWidth || 1;
-    const pageCount = measurePages();
-    const scrollLeft = document.documentElement.scrollLeft || 0;
-    const pageIndex = Math.round(scrollLeft / w);
     try {
       window.webkit.messageHandlers.pageInfo.postMessage({
-        pageIndex: pageIndex,
-        pageCount: pageCount
+        pageIndex: state.page,
+        pageCount: state.count
       });
     } catch (e) { /* host detached */ }
-    return { pageIndex, pageCount };
+    reportProgress();
+    return { pageIndex: state.page, pageCount: state.count };
   }
 
-  let progressTimer = null;
-  // Emits progress only. UIScrollView is the single source of truth for
-  // pageIndex / pageCount during a swipe; emitting pageInfo from here too
-  // causes the host page counter to flicker (1 → 4 → 2) mid-gesture.
+  var progressTimer = null;
   function reportProgress() {
     if (progressTimer) clearTimeout(progressTimer);
     progressTimer = setTimeout(function () {
-      const w = window.innerWidth || document.documentElement.clientWidth || 1;
-      const pageCount = measurePages();
-      const scrollLeft = document.documentElement.scrollLeft || 0;
-      const pageIndex = Math.round(scrollLeft / w);
-      const fraction = pageCount <= 1
+      var fraction = state.count <= 1
         ? 1
-        : Math.min(1, Math.max(0, pageIndex / (pageCount - 1)));
+        : Math.min(1, Math.max(0, state.page / (state.count - 1)));
       try {
         window.webkit.messageHandlers.progress.postMessage({
-          pageIndex: pageIndex,
-          pageCount: pageCount,
+          pageIndex: state.page,
+          pageCount: state.count,
           progressFraction: fraction
         });
       } catch (e) { /* host detached */ }
     }, 250);
   }
 
-  // NOTE: there is deliberately no second `installTapHandler` here. An
-  // earlier revision defined the tap handler twice — once in the selection
-  // section and once here — and because function declarations hoist, the
-  // later one silently replaced the earlier one. A single definition is the
-  // only way a change to tap behaviour can be trusted to take effect.
+  function setPage(page) {
+    state.page = Math.max(0, Math.min(state.count - 1, page | 0));
+    applyTransform();
+    state.anchor = firstTokenOnOrAfter(state.page);
+  }
 
-  function installScrollHandler() {
-    // <html> is the scroll container; document-level scroll fires for it.
-    document.addEventListener('scroll', reportProgress, { passive: true });
-    window.addEventListener('scroll', reportProgress, { passive: true });
+  // Two frames — the transform committed, then painted. A page that is not
+  // on screen gets no frames at all, so a timeout stands in for them rather
+  // than leave the host waiting.
+  function nextFrames() {
+    return new Promise(function (resolve) {
+      var done = false;
+      function finish() { if (!done) { done = true; resolve(); } }
+      requestAnimationFrame(function () { requestAnimationFrame(finish); });
+      setTimeout(finish, 120);
+    });
+  }
+
+  // Re-measures after the layout changed (size, typography, a late image or
+  // font) and keeps the reader on the same words, not the same page number:
+  // after a re-flow, page 12 is somewhere else.
+  function relayout() {
+    syncPageVars();
+    var keep = state.anchor;
+    state.count = measurePages();
+    var target = state.page;
+    if (keep < tokenList.length) {
+      target = pageOfRect(tokenList[keep].getBoundingClientRect());
+    }
+    setPage(target);
+    // The page the words landed on starts somewhere before them; the words
+    // the reader was at stay the anchor, not that page's first word.
+    state.anchor = keep;
+    reportPageInfo();
+    return state.count;
+  }
+
+  // Host-callable: shows a page and resolves once it has been painted, with
+  // what is actually on screen. `-1` is the last page.
+  window.__amgiShowPage = function (page) {
+    state.count = measurePages();
+    setPage(page < 0 ? state.count - 1 : page);
+    reportProgress();
+    return nextFrames().then(pageState);
+  };
+
+  // Host-callable, synchronous forms used by the Mac reader.
+  window.__amgiScrollToPage = function (page) {
+    state.count = measurePages();
+    setPage(page < 0 ? state.count - 1 : page);
+    reportPageInfo();
+  };
+
+  window.__amgiScrollToFraction = function (fraction) {
+    state.count = measurePages();
+    var last = Math.max(0, state.count - 1);
+    var safe = Number.isFinite(fraction) ? Math.min(1, Math.max(0, fraction)) : 0;
+    setPage(Math.round(safe * last));
+    reportPageInfo();
+  };
+
+  window.__amgiRelayout = relayout;
+
+  // Nothing may scroll: a selection dragged past the page edge would
+  // otherwise scroll the clipped document and shift every page by a sliver.
+  function installScrollGuard() {
+    function reset() {
+      var r = document.documentElement;
+      if (r.scrollLeft !== 0) { r.scrollLeft = 0; }
+      if (r.scrollTop !== 0) { r.scrollTop = 0; }
+      if (document.body && (document.body.scrollLeft !== 0 || document.body.scrollTop !== 0)) {
+        document.body.scrollLeft = 0;
+        document.body.scrollTop = 0;
+      }
+    }
+    document.addEventListener('scroll', reset, { passive: true, capture: true });
+    window.addEventListener('scroll', reset, { passive: true });
+  }
+
+  // Late arrivals change the layout: images that load and fonts that finish.
+  function installLayoutWatchers() {
+    var pending = null;
+    function soon() {
+      if (pending) { clearTimeout(pending); }
+      pending = setTimeout(function () { pending = null; relayout(); }, 60);
+    }
+    document.addEventListener('load', function (e) {
+      if (e.target && e.target.tagName === 'IMG') { soon(); }
+    }, true);
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(soon);
+    }
+    window.addEventListener('resize', function () {
+      ensureViewportMeta();
+      soon();
+    });
   }
 
   function boot() {
@@ -857,15 +1201,12 @@
     try { tokenise(document.body); } catch (e) { /* ignore */ }
     installTapHandler();
     installSelectionReporter();
-    installScrollHandler();
-    window.addEventListener('resize', function () {
-      ensureViewportMeta();
-      syncPageVars();
-    });
-    // Allow layout to settle before measuring; columns aren't laid out
-    // synchronously on first paint in some EPUBs.
-    setTimeout(reportPageInfo, 50);
-    setTimeout(reportPageInfo, 300);
+    installScrollGuard();
+    installLayoutWatchers();
+    // Columns are not laid out synchronously on first paint in some books.
+    relayout();
+    setTimeout(relayout, 50);
+    setTimeout(relayout, 300);
   }
 
   if (document.readyState === 'loading') {
@@ -873,44 +1214,4 @@
   } else {
     boot();
   }
-
-  // Host-callable API for restoring a saved progress position.
-  window.__amgiScrollToFraction = function (fraction) {
-    const w = window.innerWidth || document.documentElement.clientWidth || 1;
-    const scrollW = document.documentElement.scrollWidth || w;
-    const pageCount = measurePages();
-    const lastPage = Math.max(0, pageCount - 1);
-    const safeFraction = Number.isFinite(fraction)
-      ? Math.min(1, Math.max(0, fraction))
-      : 0;
-    const pageIndex = Math.max(0, Math.min(
-      lastPage,
-      Math.round(safeFraction * lastPage)
-    ));
-    const maxOffset = Math.max(0, scrollW - w);
-    const target = Math.min(maxOffset, pageIndex * w);
-    document.documentElement.scrollLeft = target;
-    reportPageInfo();
-  };
-
-  window.__amgiScrollToPage = function (pageIndex) {
-    const w = window.innerWidth || document.documentElement.clientWidth || 1;
-    const lastPage = Math.max(0, measurePages() - 1);
-    const requestedPage = pageIndex < 0 ? lastPage : Math.min(lastPage, Math.max(0, pageIndex));
-    document.documentElement.scrollLeft = requestedPage * w;
-    reportPageInfo();
-  };
-
-  // Host-callable: re-measure column layout after the viewport has been
-  // resized or CSS custom properties have changed. Returns the freshly
-  // computed page count so Swift can re-snap synchronously after the
-  // evaluateJavaScript callback fires.
-  window.__amgiRelayout = function () {
-    ensureViewportMeta();
-    syncPageVars();
-    var pageCount = 1;
-    try { pageCount = measurePages(); } catch (e) { /* ignore */ }
-    reportPageInfo();
-    return pageCount;
-  };
 })();

@@ -15,10 +15,18 @@ struct ReaderOpenView: View {
     let progress: ReaderProgressCoordinator
 
     private let savedProgress: ReaderSavedProgress?
+    /// The book with its chapter text, once read. Anki-deck books arrive
+    /// from the shelf as outlines.
+    @State private var loadedBook: ReaderBook?
+    @State private var loadFailed = false
 
-    init(book: ReaderBook, progress: ReaderProgressCoordinator) {
+    /// Opens at this chapter instead of the saved position.
+    private let chapterIndex: Int?
+
+    init(book: ReaderBook, progress: ReaderProgressCoordinator, chapterIndex: Int? = nil) {
         self.book = book
         self.progress = progress
+        self.chapterIndex = chapterIndex
         self.savedProgress = progress.store.load(bookID: book.id)
     }
 
@@ -44,7 +52,19 @@ struct ReaderOpenView: View {
                 book: book,
                 progressCoordinator: progress
             )
+        } else if book.needsChapterContent && loadedBook == nil {
+            if loadFailed {
+                ContentUnavailableView("Couldn’t Open Book", systemImage: "book.closed")
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .task {
+                        loadedBook = await ReaderBookContent.load(book)
+                        loadFailed = loadedBook == nil
+                    }
+            }
         } else if !book.chapters.isEmpty {
+            let book = loadedBook ?? book
             let idx = resumeChapterIndex
             ChapterReaderView(
                 book: book,
@@ -57,6 +77,7 @@ struct ReaderOpenView: View {
     }
 
     private var resumeChapterIndex: Int {
+        if let chapterIndex { return chapterIndex }
         guard let saved = savedProgress,
               let index = book.chapters.firstIndex(where: { $0.id == saved.chapterID }) else {
             return 0

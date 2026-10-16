@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 mod day_mix;
 mod mnemosyne;
 mod package;
+mod reader_notes;
 mod study_history;
 
 /// Amgi-specific auxiliary service. Intercepts requests before engine
@@ -166,7 +167,7 @@ pub unsafe extern "C" fn anki_close_backend(backend_ptr: i64) {
 
 /// Aux dispatch. Methods: 0 = findDupesExact, 1 = inspectAnkiPackage,
 /// 2 = inspectMnemosyne, 3 = importMnemosyne, 4 = studyDayMix,
-/// 5 = studyHistory.
+/// 5 = studyHistory, 6 = readerNotes.
 fn handle_aux_method(backend: &Backend, method: u32, input: &[u8]) -> Result<Vec<u8>, String> {
     match method {
         0 => aux_find_dupes_exact(backend, input),
@@ -175,6 +176,7 @@ fn handle_aux_method(backend: &Backend, method: u32, input: &[u8]) -> Result<Vec
         3 => mnemosyne::import_mnemosyne(backend, input),
         4 => day_mix::study_day_mix(backend, input),
         5 => study_history::study_history(backend, input),
+        6 => reader_notes::reader_notes(backend, input),
         other => Err(format!("unknown aux method {other}")),
     }
 }

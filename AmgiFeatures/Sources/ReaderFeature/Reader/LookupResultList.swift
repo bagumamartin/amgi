@@ -15,6 +15,8 @@ struct LookupResultList: View {
     let languageHint: String?
     let onMakeNote: (DictionaryLookupEntry) -> Void
     let onLookupRequested: (String) -> Void
+    var cardState: (DictionaryLookupEntry) -> LookupCardButtonState = { _ in .ready }
+    var onEditNote: ((DictionaryLookupEntry) -> Void)? = nil
 
     var body: some View {
         List {
@@ -29,7 +31,9 @@ struct LookupResultList: View {
                     onSetCollapsed: onSetCollapsed,
                     languageHint: languageHint,
                     onMakeNote: { onMakeNote(entry) },
-                    onLookupRequested: onLookupRequested
+                    onLookupRequested: onLookupRequested,
+                    cardState: cardState(entry),
+                    onEditNote: onEditNote.map { edit in { edit(entry) } }
                 )
             }
         }

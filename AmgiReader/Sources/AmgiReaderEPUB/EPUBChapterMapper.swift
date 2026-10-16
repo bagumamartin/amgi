@@ -79,7 +79,8 @@ enum EPUBChapterMapper {
                 order: String(format: "%05d", index),
                 content: html,
                 language: language,
-                pageCount: pages
+                pageCount: pages,
+                isTableOfContentsEntry: tocByHref[hrefKey] != nil
             )
             chapters.append(chapter)
             urls[chapterID] = absoluteURL
