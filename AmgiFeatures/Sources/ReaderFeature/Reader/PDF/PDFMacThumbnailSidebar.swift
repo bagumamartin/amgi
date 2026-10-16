@@ -69,7 +69,7 @@ struct PDFMacThumbnailSidebar: View {
         } label: {
             VStack(spacing: 5) {
                 Group {
-                    if let image = model.thumbnail(
+                    if let image = model.drawThumbnail(
                         forPage: pageIndex,
                         size: CGSize(width: thumbnailWidth * 2, height: thumbnailWidth * 2.64)
                     ) {

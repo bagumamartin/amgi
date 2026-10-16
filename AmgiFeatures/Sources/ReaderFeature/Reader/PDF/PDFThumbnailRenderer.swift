@@ -75,3 +75,48 @@ enum PDFThumbnailRenderer {
         page.thumbnail(of: size, for: .mediaBox)
     }
 }
+
+/// A rendered thumbnail handed from the render actor to the main actor.
+///
+/// `UIImage` is immutable once drawn and `NSImage` is only ever read after
+/// this point, so crossing the boundary is safe even where the SDK has not
+/// marked the image type `Sendable`.
+struct PDFRenderedThumbnail: @unchecked Sendable {
+    let image: PlatformImage
+}
+
+/// Draws thumbnails off the main actor.
+///
+/// Holds its **own** `PDFDocument`, opened from the same file as the reader's.
+/// `PDFDocument` is not thread-safe, and the reader's instance is drawn by
+/// `PDFView` on the main thread; sharing it would race. A second instance costs
+/// one more parse of the cross-reference table, not a second copy of the pages.
+///
+/// Being an actor makes rendering serial: a scrub across a 600-page book queues
+/// requests, and the ones whose task was cancelled because the finger moved on
+/// return before touching PDFKit, so only the latest page actually draws.
+///
+/// It sees the file as it was when it opened. Annotations added in this
+/// session appear in the thumbnails of the next one — a trade made on purpose:
+/// a thumbnail is 38 points wide, and keeping it exact would mean drawing from
+/// the main-actor document again.
+actor PDFPageThumbnailRenderer {
+    private let url: URL
+    private var document: PDFDocument?
+    private var didOpen = false
+
+    init(url: URL) {
+        self.url = url
+    }
+
+    func render(pageIndex: Int, size: CGSize) -> PDFRenderedThumbnail? {
+        guard !Task.isCancelled else { return nil }
+        if !didOpen {
+            didOpen = true
+            document = PDFDocument(url: url)
+        }
+        guard let page = document?.page(at: pageIndex),
+              let image = PDFThumbnailRenderer.render(page: page, size: size) else { return nil }
+        return PDFRenderedThumbnail(image: image)
+    }
+}

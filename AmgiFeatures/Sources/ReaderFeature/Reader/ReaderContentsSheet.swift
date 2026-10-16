@@ -110,6 +110,10 @@ struct ReaderContentsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.palette) private var palette
     @State private var selectedTab: Tab = .contents
+    /// Rows take taps only once the sheet has finished arriving. The touch
+    /// that opened it could otherwise land on whatever row slid under the
+    /// finger — a jump the reader never chose.
+    @State private var rowsAcceptTaps = false
 
     init(
         bookTitle: String,
@@ -226,41 +230,74 @@ struct ReaderContentsSheet: View {
 
     // MARK: - Subviews
 
+    /// Opens on the reader's place, Apple Books style: the entry the reader is
+    /// in carries a checkmark and is scrolled to the middle of the list, so a
+    /// 40-chapter book does not open on chapter 1 every time.
     private var contentsList: some View {
-        List {
-            if outlineItems.isEmpty {
-                ContentUnavailableView(
-                    "No Outline Available",
-                    systemImage: "list.bullet.rectangle",
-                    description: Text("This document does not define a table of contents.")
-                )
-            } else {
-                ForEach(outlineItems) { item in
-                    Button {
-                        onSelectOutline(item)
-                        dismiss()
-                    } label: {
-                        HStack(alignment: .firstTextBaseline) {
-                            Text(item.title)
-                                .amgiFont(item.isCurrent ? .bodyEmphasis : .body)
-                                .foregroundStyle(item.isCurrent ? palette.accent : palette.textPrimary)
-                                .padding(.leading, CGFloat(item.depth * 14))
+        ScrollViewReader { proxy in
+            List {
+                if outlineItems.isEmpty {
+                    ContentUnavailableView(
+                        "No Outline Available",
+                        systemImage: "list.bullet.rectangle",
+                        description: Text("This document does not define a table of contents.")
+                    )
+                } else {
+                    ForEach(outlineItems) { item in
+                        Button {
+                            onSelectOutline(item)
+                            dismiss()
+                        } label: {
+                            HStack(alignment: .firstTextBaseline) {
+                                Text(item.title)
+                                    .amgiFont(item.isCurrent ? .bodyEmphasis : .body)
+                                    .foregroundStyle(item.isCurrent ? palette.accent : palette.textPrimary)
+                                    .padding(.leading, CGFloat(item.depth * 14))
 
-                            Spacer(minLength: 8)
+                                Spacer(minLength: 8)
 
-                            if let label = item.pageLabel {
-                                Text(label)
-                                    .amgiFont(.caption, .monospacedDigits)
-                                    .foregroundStyle(palette.textSecondary)
+                                if let label = item.pageLabel {
+                                    Text(label)
+                                        .amgiFont(.caption, .monospacedDigits)
+                                        .foregroundStyle(palette.textSecondary)
+                                }
+
+                                if item.isCurrent {
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .foregroundStyle(palette.accent)
+                                        .accessibilityHidden(true)
+                                }
                             }
+                            .contentShape(Rectangle())
                         }
-                        .contentShape(Rectangle())
+                        .buttonStyle(.plain)
+                        .id(item.id)
+                        .accessibilityAddTraits(item.isCurrent ? .isSelected : [])
                     }
-                    .buttonStyle(.plain)
                 }
             }
+            .listStyle(.plain)
+            .allowsHitTesting(rowsAcceptTaps)
+            .task {
+                try? await Task.sleep(for: .milliseconds(450))
+                rowsAcceptTaps = true
+            }
+            // Start at the reader's place instead of scrolling to it after the
+            // list appears: a list that moves after it is shown puts a
+            // different row under the finger than the one the reader aimed at.
+            .defaultScrollAnchor(.top)
+            .onAppear {
+                guard let currentOutlineID else { return }
+                var instant = Transaction()
+                instant.disablesAnimations = true
+                withTransaction(instant) { proxy.scrollTo(currentOutlineID, anchor: .center) }
+            }
         }
-        .listStyle(.plain)
+    }
+
+    private var currentOutlineID: String? {
+        outlineItems.last(where: \.isCurrent)?.id
     }
 
     private var bookmarksList: some View {

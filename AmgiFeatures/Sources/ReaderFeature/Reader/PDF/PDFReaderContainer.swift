@@ -35,6 +35,7 @@ struct PDFReaderView: View {
     @State private var model: PDFReaderModel
     @State private var navigation: PDFReaderNavigation
     @State private var canvasCoordinator: PDFViewCoordinator
+    @State private var scrubState = PDFScrubState()
     @State private var hasRestoredInitialPage = false
     @State private var chromeVisible: Bool = true
     @State private var isMarkupActive: Bool = false
@@ -224,7 +225,12 @@ struct PDFReaderView: View {
                         model: model,
                         pageCount: model.pageCount,
                         currentPage: navigation.pageIndex,
+                        scrubState: scrubState,
                         onSeek: { targetPage in navigate(to: targetPage, userInitiated: true) },
+                        // Live scrub seeks bypass `navigation`: publishing it
+                        // re-evaluates this whole body (including the page-text
+                        // assistant preference) every frame. The release commits.
+                        onScrubSeek: { targetPage in canvasCoordinator.go(toPageIndex: targetPage) },
                         onInteractionChanged: { canvasCoordinator.setScrubberActive($0) }
                     )
                     .transition(.opacity)
@@ -578,7 +584,11 @@ struct PDFReaderView: View {
     }
 
     private var pageBadge: some View {
-        Text("\(navigation.pageIndex + 1) of \(max(1, model.pageCount))")
+        PDFPageBadgeText(
+            scrubState: scrubState,
+            navigationPage: navigation.pageIndex,
+            pageCount: model.pageCount
+        )
             .amgiFont(.caption, .monospacedDigits)
             .foregroundStyle(palette.textSecondary)
             .padding(.horizontal, 10)
@@ -770,6 +780,10 @@ struct PDFReaderView: View {
     // MARK: - Contents Sheet
 
     private var contentsSheet: some View {
+        let currentOutlineID = PDFContentsPosition.currentEntryID(
+            in: model.bookmarks,
+            page: navigation.pageIndex
+        )
         let outlineItems: [ReaderContentsSheet.OutlineItem] = model.bookmarks.map { bm in
             ReaderContentsSheet.OutlineItem(
                 id: bm.id,
@@ -777,7 +791,7 @@ struct PDFReaderView: View {
                 pageIndex: bm.pageIndex,
                 pageLabel: model.label(forPage: bm.pageIndex),
                 depth: bm.depth,
-                isCurrent: bm.pageIndex == navigation.pageIndex
+                isCurrent: bm.id == currentOutlineID
             )
         }
 
@@ -807,6 +821,7 @@ struct PDFReaderView: View {
             outlineItems: outlineItems,
             bookmarks: bookmarkItems,
             notes: noteItems,
+            headerSubtitle: "Page \(model.label(forPage: navigation.pageIndex)) of \(max(1, model.pageCount))",
             onSelectOutline: { item in
                 navigate(to: item.pageIndex, userInitiated: true)
             },

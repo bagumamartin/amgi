@@ -54,6 +54,7 @@ final class PDFReaderModel {
     let book: ReaderBook
     private let progress: ReaderProgressCoordinator
     @ObservationIgnored private let thumbnailCache = PDFThumbnailCache()
+    @ObservationIgnored private var thumbnailLoader: PDFPageThumbnailRenderer?
 
     @ObservationIgnored @Dependency(\.pdfLibraryClient) private var client
 
@@ -81,6 +82,7 @@ final class PDFReaderModel {
         documentID = UUID()
         managedURL = managed
         thumbnailCache.clear()
+        thumbnailLoader = PDFPageThumbnailRenderer(url: managed)
         self.document = document
         refreshAnnotations()
         refreshBookmarks()
@@ -97,20 +99,64 @@ final class PDFReaderModel {
 
     var pageCount: Int { document?.pageCount ?? 0 }
 
-    /// A thumbnail keyed to this document and render size. The cache belongs to
-    /// this reader model so two open PDFs cannot display each other's pages.
-    func thumbnail(forPage index: Int, size: CGSize) -> PlatformImage? {
-        guard let document, let page = document.page(at: index) else { return nil }
-        if let cached = thumbnailCache.get(
-            documentID: documentID,
-            pageIndex: index,
-            size: size
-        ) {
-            return cached
-        }
-        guard let image = PDFThumbnailRenderer.render(page: page, size: size) else { return nil }
+    /// A thumbnail already in the cache, or nil. Never draws, so it is safe to
+    /// call from a view body on every frame of a scrub.
+    ///
+    /// The cache is keyed by document and render size and belongs to this
+    /// reader model, so two open PDFs cannot display each other's pages.
+    func cachedThumbnail(forPage index: Int, size: CGSize) -> PlatformImage? {
+        thumbnailCache.get(documentID: documentID, pageIndex: index, size: size)
+    }
+
+    /// A thumbnail, drawn off the main actor when it is not cached.
+    ///
+    /// Returns nil when the calling task was cancelled before the page drew —
+    /// the caller has moved on to another page and should not show this one.
+    func thumbnail(forPage index: Int, size: CGSize) async -> PlatformImage? {
+        guard index >= 0, index < pageCount else { return nil }
+        if let cached = cachedThumbnail(forPage: index, size: size) { return cached }
+        guard let loader = thumbnailLoader else { return nil }
+        let id = documentID
+        guard let rendered = await loader.render(pageIndex: index, size: size),
+              id == documentID else { return nil }
+        thumbnailCache.set(rendered.image, documentID: id, pageIndex: index, size: size)
+        return rendered.image
+    }
+
+    /// A thumbnail drawn synchronously on the main actor when it is not cached.
+    ///
+    /// Only for the macOS sidebar, whose `LazyVStack` asks for a handful of
+    /// rows at a time. The iOS page strip must use the async overload: drawing
+    /// here blocks the drag.
+    func drawThumbnail(forPage index: Int, size: CGSize) -> PlatformImage? {
+        if let cached = cachedThumbnail(forPage: index, size: size) { return cached }
+        guard let page = document?.page(at: index),
+              let image = PDFThumbnailRenderer.render(page: page, size: size) else { return nil }
         thumbnailCache.set(image, documentID: documentID, pageIndex: index, size: size)
         return image
+    }
+
+    /// Draws the pages around `center` into the cache, nearest first, so a
+    /// scrub or a page turn finds them ready.
+    func prefetchThumbnails(around center: Int, radius: Int, size: CGSize) async {
+        for index in Self.prefetchOrder(around: center, radius: radius, pageCount: pageCount) {
+            guard !Task.isCancelled else { return }
+            _ = await thumbnail(forPage: index, size: size)
+        }
+    }
+
+    /// `center`, then alternately one page after and one before, out to
+    /// `radius`, skipping pages outside the document.
+    nonisolated static func prefetchOrder(around center: Int, radius: Int, pageCount: Int) -> [Int] {
+        guard pageCount > 0 else { return [] }
+        let center = min(max(center, 0), pageCount - 1)
+        var order = [center]
+        guard radius > 0 else { return order }
+        for step in 1...radius {
+            if center + step < pageCount { order.append(center + step) }
+            if center - step >= 0 { order.append(center - step) }
+        }
+        return order
     }
 
     /// The document's own label for a page, falling back to its 1-based index.
