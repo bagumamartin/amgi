@@ -431,9 +431,13 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
             renderingChapters.insert(chapter)
             let count = pageCount(of: chapter) ?? renderer.pageCount
             let resolvedPage = page < 0 ? max(0, count - 1) : page
+            let drawer = ObjectIdentifier(renderer)
             Task { @MainActor [weak self, weak renderer] in
                 let drawn = await renderer?.renderPicture(ofPage: resolvedPage)
                 guard let self else { return }
+                // A renderer reset mid-draw has been replaced; its finish
+                // must not clear the new one's turn.
+                if let now = self.renderers[chapter], ObjectIdentifier(now) != drawer { return }
                 self.renderingChapters.remove(chapter)
                 let address = EPUBPageAddress(chapter: chapter, page: resolvedPage)
                 // Kept only if the renderer's page says it showed this page,
@@ -481,6 +485,29 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
             abs(a.chapter - b.chapter) * 10_000 + abs(a.page - b.page)
         }
 
+        /// Throws a chapter's renderer away with its pictures; the next
+        /// picture asked for loads a fresh one.
+        private func resetRenderer(for chapter: Int) {
+            ReaderTelemetry.log("renderer.reset", ["chapter": chapter])
+            takeRenderer(for: chapter)?.view.removeFromSuperview()
+            discardPictures(reason: "stale", chapter: chapter)
+        }
+
+        /// Removes a chapter's renderer from the drawing queue and hands it
+        /// back.
+        @discardableResult
+        private func takeRenderer(for chapter: Int) -> EPUBChapterPageController? {
+            let renderer = renderers[chapter]
+            renderers[chapter] = nil
+            readyRenderers.remove(chapter)
+            pictureRequests[chapter] = nil
+            picturedLayout[chapter] = nil
+            renderingChapters.remove(chapter)
+            rendererSettle[chapter]?.cancel()
+            rendererSettle[chapter] = nil
+            return renderer
+        }
+
         private func discardPictures(reason: String, chapter: Int? = nil) {
             ReaderTelemetry.log("picture.discard", ["reason": reason, "chapter": chapter ?? -1])
             if let chapter {
@@ -509,6 +536,14 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
                 requestPicture(resolve(target))
             }
             let keep = Set(wanted.map(\.chapter)).union([address.chapter])
+            // A chapter a turn can reach keeps a loaded renderer even when
+            // its pictures are all drawn: crossing into it adopts that
+            // renderer as the live page. Without one the crossing loaded the
+            // chapter cold, and its page re-laid itself out (60 → 86 pages)
+            // just as the picture lifted.
+            for chapter in keep where chapter != address.chapter && host.book.chapters.indices.contains(chapter) {
+                ensureRenderer(for: chapter)
+            }
             for (chapter, renderer) in renderers where !keep.contains(chapter) {
                 renderer.view.removeFromSuperview()
                 renderers[chapter] = nil
@@ -545,33 +580,39 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
             vc.runningHead = host.runningHead
             vc.isMeasurementOnly = role == .measure
             // Pictures always carry the page's own running head and number.
-            vc.chromeVisible = role == .live ? host.chromeVisible : false
+            vc.chromeVisible = false
             // Marks are drawn in pictures too, so renderers get them.
             vc.annotationProvider = { [commands = host.commands] chapterID in
                 await commands.markProvider?(chapterID) ?? []
             }
-            if role == .live {
-                vc.selectionHighlightHandler = { [commands = host.commands] payload in
-                    commands.selectionMarkRequest = .init(kind: .highlight, anchor: payload.anchor, excerpt: payload.text)
-                }
-                vc.selectionBookmarkHandler = { [commands = host.commands] payload in
-                    commands.selectionMarkRequest = .init(kind: .bookmark, anchor: payload.anchor, excerpt: payload.text)
-                }
-                vc.selectionCardHandler = { [commands = host.commands] command, payload in
-                    commands.cardCommandHandler?(command, payload)
-                }
-                vc.cardMenuContextProvider = { [commands = host.commands] in
-                    commands.cardMenuContextProvider?() ?? ReaderCardMenuContext()
-                }
-                vc.markTapHandler = { [commands = host.commands] id, kind in
-                    commands.markTapHandler?(id, kind)
-                }
-                vc.selectionReportHandler = { [commands = host.commands] payload in
-                    commands.lastSelection = payload
-                }
-            }
+            if role == .live { configureLive(vc) }
             vc.loadViewIfNeeded()
             return vc
+        }
+
+        /// What only the page being read needs: the selection menu's actions
+        /// and the chrome state. Shared by a new live page and an adopted
+        /// renderer.
+        private func configureLive(_ vc: EPUBChapterPageController) {
+            vc.chromeVisible = host.chromeVisible
+            vc.selectionHighlightHandler = { [commands = host.commands] payload in
+                commands.selectionMarkRequest = .init(kind: .highlight, anchor: payload.anchor, excerpt: payload.text)
+            }
+            vc.selectionBookmarkHandler = { [commands = host.commands] payload in
+                commands.selectionMarkRequest = .init(kind: .bookmark, anchor: payload.anchor, excerpt: payload.text)
+            }
+            vc.selectionCardHandler = { [commands = host.commands] command, payload in
+                commands.cardCommandHandler?(command, payload)
+            }
+            vc.cardMenuContextProvider = { [commands = host.commands] in
+                commands.cardMenuContextProvider?() ?? ReaderCardMenuContext()
+            }
+            vc.markTapHandler = { [commands = host.commands] id, kind in
+                commands.markTapHandler?(id, kind)
+            }
+            vc.selectionReportHandler = { [commands = host.commands] payload in
+                commands.lastSelection = payload
+            }
         }
 
         /// Makes `chapter` the live one, reusing it when it already is.
@@ -579,15 +620,78 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
         private func makeLive(chapter: Int, restoreFraction: Double?, page: Int?) -> EPUBChapterPageController? {
             if let live, live.chapterIndex == chapter { return live }
             current?.detachSurface()
+            if let outgoing = live { demoteToRenderer(outgoing) }
+            if let adopted = adoptRenderer(for: chapter) {
+                live = adopted
+                ReaderTelemetry.log("live.adopted", ["chapter": chapter, "page": page ?? -1, "count": adopted.pageCount])
+                return adopted
+            }
             live = makeChapterVC(at: chapter, restoreFraction: restoreFraction, pageIndex: page, role: .live)
             ReaderTelemetry.log("live.created", ["chapter": chapter, "page": page ?? -1, "fraction": restoreFraction ?? -1])
             return live
+        }
+
+        /// Turns the chapter's settled renderer into the live page.
+        ///
+        /// A fresh live page has to load and lay out its whole chapter, and
+        /// its first reports come before its styles are in — it reported
+        /// "page 0" over an empty page while the count ran 174, 176, 253, 252,
+        /// and that blank page is what showed after every turn into a new
+        /// chapter. The renderer has already done all of that: it drew the
+        /// pictures the turn just showed. The page left behind takes the
+        /// renderer's place (`demoteToRenderer`).
+        ///
+        /// Not while it is drawing: the draw moves its page, and adopted
+        /// mid-draw it would carry the live page off to the picture's page
+        /// while the turn is asking for another. A fresh live page is made
+        /// instead.
+        private func adoptRenderer(for chapter: Int) -> EPUBChapterPageController? {
+            guard readyRenderers.contains(chapter), !renderingChapters.contains(chapter),
+                  let renderer = renderers[chapter],
+                  renderer.isReadyForPaging else { return nil }
+            takeRenderer(for: chapter)
+            configureLive(renderer)
+            return renderer
+        }
+
+        /// The other half of adoption: the page just left becomes its
+        /// chapter's renderer, loaded and laid out, instead of being thrown
+        /// away.
+        ///
+        /// Adoption used up the renderer, and pictures already drawn meant
+        /// none was asked for again, so turning back across the same boundary
+        /// found no renderer and loaded the chapter from scratch — three of
+        /// every four crossings in a back-and-forth. Handing the page back
+        /// keeps every crossing warm.
+        private func demoteToRenderer(_ page: EPUBChapterPageController) {
+            let chapter = page.chapterIndex
+            guard renderers[chapter] == nil, page.isReadyForPaging, let stagingView else { return }
+            page.selectionHighlightHandler = nil
+            page.selectionBookmarkHandler = nil
+            page.selectionCardHandler = nil
+            page.cardMenuContextProvider = nil
+            page.markTapHandler = nil
+            page.selectionReportHandler = nil
+            page.chromeVisible = false
+            page.clearSelection()
+            page.view.alpha = 1
+            page.view.frame = stagingView.bounds
+            page.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            stagingView.addSubview(page.view)
+            renderers[chapter] = page
+            picturedLayout[chapter] = page.pageCount
+            readyRenderers.insert(chapter)
+            ReaderTelemetry.log("live.demoted", ["chapter": chapter, "count": page.pageCount])
+            pumpPictures(in: chapter)
         }
 
         /// Shows a card's picture until the live page is on the card's page,
         /// then the live page itself.
         private func bringLive(to card: EPUBPageSlotController) {
             let address = card.address
+            if live?.chapterIndex != address.chapter {
+                makeLive(chapter: address.chapter, restoreFraction: nil, page: max(0, address.page))
+            }
             if let live, live.chapterIndex == address.chapter, live.isReadyForPaging {
                 card.attach(live)
                 card.showsPicture = card.hasPicture
@@ -629,8 +733,12 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
                 ReaderTelemetry.log("verify.picture", [
                     "page": asked, "pictureFirst": picture.state.firstOffset ?? -1, "liveFirst": shown.firstOffset ?? -1,
                 ])
-                pictures[asked] = nil
-                card.picture = nil
+                // Redrawing from the same renderer drew the same wrong words
+                // again: its layout has drifted from the live page's without
+                // its page count changing, so nothing else catches it. Every
+                // picture it drew of this chapter is suspect — the next curl
+                // lifted one, and the text jumped as the turn began.
+                resetRenderer(for: asked.chapter)
                 requestPicture(card.address)
             } else {
                 ReaderTelemetry.log("verify.ok", ["page": card.address, "first": shown.firstOffset ?? -1, "last": shown.lastOffset ?? -1])
@@ -984,16 +1092,23 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
                 measuringPageReported(pageCount: pageCount)
                 return
             }
-            pageCounts[controller.chapterIndex] = pageCount
             if let renderer = renderers[controller.chapterIndex], renderer === controller {
                 rendererReported(renderer, pageCount: pageCount)
                 return
             }
             guard controller === live, let current, controller.parent === current else { return }
+            // The page reports while it is still loading, before its styles
+            // and size are in: page 0 of an unstyled chapter, with a count
+            // that is nowhere near the real one. Trusting that report lifted
+            // the picture off an empty page and put the bogus count in the
+            // "pages left" line. `load.finished` re-lays it out and reports
+            // again.
+            guard controller.isReadyForPaging else { return }
             // A turn re-lays the page out at a passing size; counts and pages
             // reported meanwhile describe that, not the book.
             guard !isTransitioning else { return }
-            if awaitingFirstReport, controller.isReadyForPaging {
+            pageCounts[controller.chapterIndex] = pageCount
+            if awaitingFirstReport {
                 awaitingFirstReport = false
                 controller.view.alpha = 1
                 revealLive(on: current)
@@ -1012,7 +1127,19 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
                 }
                 liveTarget = nil
                 controller.view.alpha = 1
-                revealLive(on: current)
+                // Reaching the page is not the same as painting it: this is
+                // a freshly loaded chapter, still re-laying out as its fonts
+                // and images land, and lifting the picture on the report
+                // showed a frame of the page it came from — the blink after a
+                // turn into a new chapter. Lift it the way a warm turn does:
+                // once the page has been painted there, and checked.
+                let target = target
+                Task { @MainActor [weak self, weak current, weak controller] in
+                    guard let controller, let shown = await controller.showPage(target) else { return }
+                    guard let self, let current, current === self.current, controller === self.live else { return }
+                    self.verify(shown, on: current)
+                    self.revealLive(on: current)
+                }
             } else if pageIndex != current.address.page {
                 // At rest the live page only moves when told to, or when the
                 // layout changes and it keeps the reader on the same words —
@@ -1122,12 +1249,26 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
             return true
         }
 
+        /// The marks last painted per chapter, so a refresh that changes
+        /// nothing leaves the pictures alone.
+        private var paintedMarks: [Int: String] = [:]
+
         private func applyPendingMarks() {
             guard let live else { return }
             let marks = host.commands.lastAppliedMarks
+            let chapter = live.chapterIndex
+            let signature = (try? JSONSerialization.data(withJSONObject: marks, options: [.sortedKeys]))
+                .map { String(decoding: $0, as: UTF8.self) } ?? ""
+            let previous = paintedMarks.updateValue(signature, forKey: chapter)
+            guard previous != signature else { return }
             live.applyMarks(marks)
-            renderers[live.chapterIndex]?.applyMarks(marks)
-            discardPictures(reason: "marks", chapter: live.chapterIndex)
+            renderers[chapter]?.applyMarks(marks)
+            // The view republishes a chapter's marks every time the reader
+            // enters it, and pages already paint them at load, so the first
+            // publish only repaints the live page. Throwing the pictures away
+            // then pulled the picture out from under the page just turned to.
+            guard previous != nil else { return }
+            discardPictures(reason: "marks", chapter: chapter)
         }
 
         // MARK: Whole-book pagination

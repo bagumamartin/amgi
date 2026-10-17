@@ -82,9 +82,18 @@ final class EPUBPageSlotController: UIViewController {
         didSet {
             guard oldValue != furnitureHidden else { return }
             loadViewIfNeeded()
-            UIView.animate(withDuration: 0.18) {
-                self.titleLabel.alpha = self.furnitureHidden ? 0 : 1
-                self.folioLabel.alpha = self.furnitureHidden ? 0 : 1
+            // The chrome takes these lines over in place, so the two must
+            // never be up together: crossfaded, both titles showed half-drawn
+            // on top of each other at every page turn. Leave at once; come
+            // back only once the chrome has gone (`ReaderChromeSwap`).
+            let hiding = furnitureHidden
+            UIView.animate(
+                withDuration: hiding ? ReaderChromeSwap.outDuration : ReaderChromeSwap.inDuration,
+                delay: hiding ? 0 : ReaderChromeSwap.inDelay,
+                options: [.beginFromCurrentState]
+            ) {
+                self.titleLabel.alpha = hiding ? 0 : 1
+                self.folioLabel.alpha = hiding ? 0 : 1
             }
         }
     }

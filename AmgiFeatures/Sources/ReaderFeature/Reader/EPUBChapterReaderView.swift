@@ -619,7 +619,11 @@ struct EPUBChapterReaderView: View {
             previousPosition = next
             return
         }
-        if let lastPosition = previousPosition, lastPosition != next {
+        // History is for jumps — contents, search, a link, a page jump — so
+        // "back" returns to where the reader leapt from. A page turn is not a
+        // jump; recording every one grew the counter on every turn.
+        if let lastPosition = previousPosition, lastPosition != next,
+           !next.isTurn(from: lastPosition, pageCountOf: { pagination.pageCounts[$0] }) {
             if readingHistory.last != lastPosition {
                 readingHistory.append(lastPosition)
                 if readingHistory.count > 20 { readingHistory.removeFirst(readingHistory.count - 20) }
@@ -724,7 +728,7 @@ struct EPUBChapterReaderView: View {
             .padding(.horizontal, 16)
             // Centred on the page's title row, which it replaces while shown.
             .padding(.top, Self.titleRowCenter - Self.chromeControlSize / 2)
-            .transition(.opacity)
+            .transition(ReaderChromeSwap.transition)
         }
     }
 
@@ -744,7 +748,7 @@ struct EPUBChapterReaderView: View {
                 .padding(.top, Self.titleRowCenter - Self.chromeControlSize / 2)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
-                .transition(.opacity)
+                .transition(ReaderChromeSwap.transition)
         }
     }
 
@@ -760,7 +764,7 @@ struct EPUBChapterReaderView: View {
                 .padding(.bottom, Self.footRowCenter - Self.chromeControlSize / 2)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
-                .transition(.opacity)
+                .transition(ReaderChromeSwap.transition)
         }
     }
 
@@ -786,7 +790,7 @@ struct EPUBChapterReaderView: View {
             .padding(.horizontal, 16)
             // Centred on the folio row, which it replaces while shown.
             .padding(.bottom, Self.footRowCenter - Self.chromeControlSize / 2)
-            .transition(.opacity)
+            .transition(ReaderChromeSwap.transition)
         }
     }
 
@@ -1505,7 +1509,45 @@ struct DraftSheetItem: Identifiable {
     let id: UUID
 }
 
-private struct ReaderReadingPosition: Equatable {
+struct ReaderReadingPosition: Equatable {
     let chapterIndex: Int
     let pageIndex: Int
+
+    /// Whether this position is one page turn from `previous`: the next or
+    /// previous page in a chapter, or across a chapter boundary between a
+    /// chapter's last page and the next one's first. An unmeasured chapter
+    /// counts any page as possibly its last.
+    func isTurn(from previous: ReaderReadingPosition, pageCountOf: (Int) -> Int?) -> Bool {
+        if chapterIndex == previous.chapterIndex {
+            return abs(pageIndex - previous.pageIndex) <= 1
+        }
+        func isLast(_ position: ReaderReadingPosition) -> Bool {
+            pageCountOf(position.chapterIndex).map { position.pageIndex >= $0 - 1 } ?? true
+        }
+        if chapterIndex == previous.chapterIndex + 1 {
+            return pageIndex == 0 && isLast(previous)
+        }
+        if chapterIndex == previous.chapterIndex - 1 {
+            return previous.pageIndex == 0 && isLast(self)
+        }
+        return false
+    }
+}
+
+/// The reader's chrome and the page's running head and folio share the same
+/// two lines, so one gives way to the other. A plain crossfade left both
+/// half-drawn over each other — "1 page left in chapter" through the book
+/// title — at every page turn. The outgoing one leaves at once; the incoming
+/// one starts only once it has gone.
+enum ReaderChromeSwap {
+    static let outDuration: Double = 0.1
+    static let inDuration: Double = 0.16
+    static let inDelay: Double = 0.1
+
+    static var transition: AnyTransition {
+        .asymmetric(
+            insertion: .opacity.animation(.easeOut(duration: inDuration).delay(inDelay)),
+            removal: .opacity.animation(.easeOut(duration: outDuration))
+        )
+    }
 }

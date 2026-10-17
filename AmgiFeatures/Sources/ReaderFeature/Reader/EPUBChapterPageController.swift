@@ -656,6 +656,12 @@ final class EPUBChapterPageController: UIViewController, UIGestureRecognizerDele
         webView.evaluateJavaScript("window.getSelection() && window.getSelection().removeAllRanges();")
     }
 
+    /// Drops any selection, so a page handed back to drawing pictures does
+    /// not draw it into them.
+    func clearSelection() {
+        webView.evaluateJavaScript("window.getSelection() && window.getSelection().removeAllRanges();")
+    }
+
     var cardMenuContext: ReaderCardMenuContext {
         cardMenuContextProvider?() ?? ReaderCardMenuContext()
     }

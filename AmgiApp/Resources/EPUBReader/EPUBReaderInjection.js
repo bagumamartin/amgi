@@ -453,8 +453,23 @@
   // opens a dictionary is the behaviour we are removing.
   function installTapHandler() {
     var pressed = null;
+    // A touch that becomes a page-turn swipe is taken by the native pan
+    // before WebKit sees it move, so `touchmove` never clears the tint and
+    // the word under the finger flashed grey at the start of every turn.
+    // The tint waits a beat, the way UIKit delays a button's highlight
+    // inside a scroll view; a quick tap still shows it, on `touchend`.
+    var PRESS_DELAY_MS = 90;
+    var pendingPress = null;
+
+    function cancelPendingPress() {
+      if (pendingPress) {
+        window.clearTimeout(pendingPress.timer);
+        pendingPress = null;
+      }
+    }
 
     function release() {
+      cancelPendingPress();
       if (!pressed) { return; }
       // Hold the tint briefly so a quick tap is still visible. The timeout
       // is cleared on the next press, so a fast double-tap cannot leave a
@@ -475,12 +490,27 @@
       var selection = window.getSelection();
       if (selection && !selection.isCollapsed && selection.containsNode(node, true)) { return; }
       window.clearTimeout(release.timer);
-      pressed = node;
-      pressTintOn(node);
+      cancelPendingPress();
+      pendingPress = {
+        node: node,
+        timer: window.setTimeout(function () {
+          pendingPress = null;
+          pressed = node;
+          pressTintOn(node);
+        }, PRESS_DELAY_MS)
+      };
     }, { passive: true, capture: true });
 
     document.addEventListener('touchend', function (e) {
-      pressTintOff(tokenUnder(e.target));
+      // A tap shorter than the delay still gets its tint, briefly.
+      if (pendingPress) {
+        var tapped = pendingPress.node;
+        cancelPendingPress();
+        pressed = tapped;
+        pressTintOn(tapped);
+      } else {
+        pressTintOff(tokenUnder(e.target));
+      }
       release();
     }, { passive: true, capture: true });
 
@@ -503,6 +533,7 @@
     // A drag (selection or scroll) must not leave a tint on the word the
     // finger happened to land on.
     document.addEventListener('touchmove', function (e) {
+      cancelPendingPress();
       if (pressed) {
         pressTintOff(pressed);
         pressed = null;
