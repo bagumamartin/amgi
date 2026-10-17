@@ -216,6 +216,7 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
 
         func update() {
             guard let pageVC = pageViewController else { return }
+            host.commands.regionCapture = { [weak self] rect in await self?.captureRegion(rect) }
             pageVC.dataSource = usesNativePaging && host.pagingEnabled ? self : nil
             applyStyleTokensIfChanged()
             invalidatePicturesIfResized()
@@ -607,8 +608,8 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
             vc.cardMenuContextProvider = { [commands = host.commands] in
                 commands.cardMenuContextProvider?() ?? ReaderCardMenuContext()
             }
-            vc.markTapHandler = { [commands = host.commands] id, kind in
-                commands.markTapHandler?(id, kind)
+            vc.markTapHandler = { [commands = host.commands] id, kind, point in
+                commands.markTapHandler?(id, kind, point)
             }
             vc.selectionReportHandler = { [commands = host.commands] payload in
                 commands.lastSelection = payload
@@ -789,6 +790,19 @@ struct EPUBPageViewControllerHost: UIViewControllerRepresentable {
             liveTarget = nil
             pageVC.setViewControllers([card], direction: .forward, animated: false)
             current = card
+        }
+
+        /// An area of the page being read, from a box drawn over the pager.
+        private func captureRegion(_ rect: CGRect) async -> ReaderRegionCapture? {
+            guard let live, let current, live.parent === current, !isTransitioning,
+                  let pagerView = pageViewController?.view else { return nil }
+            let local = live.view.convert(rect, from: pagerView)
+            let capture = await live.captureRegion(local)
+            ReaderTelemetry.log("region.capture", [
+                "chapter": live.chapterIndex, "ok": capture != nil,
+                "path": capture?.anchor.path.map { "\($0)" } ?? "-",
+            ])
+            return capture
         }
 
         // MARK: Turning

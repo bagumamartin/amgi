@@ -3,6 +3,11 @@ import AmgiTheme
 import AmgiUI
 import SwiftUI
 import UniformTypeIdentifiers
+#if canImport(UIKit)
+import UIKit
+#else
+import AppKit
+#endif
 
 /// The waiting card, docked above the page — Mail's minimised draft, for
 /// flashcards.
@@ -17,6 +22,11 @@ import UniformTypeIdentifiers
 /// - tap a card's tab to bring it to the front, then "Add to Back" in the
 ///   selection menu, which names the card it fills;
 /// - "Other Cards" in the selection menu, one level down.
+///
+/// A card with both sides filled stays here, ready, so either side can still
+/// take more: its check saves it, and so does starting the next card or
+/// leaving the book. Its colour — the capture's category — runs down its
+/// leading edge and is changed from the dot beside the check.
 ///
 /// Gestures on the front card: tap opens it, swipe down saves it (once both
 /// sides are filled), swipe sideways switches drafts. Everything is also in
@@ -33,6 +43,10 @@ struct ReaderCardDock: View {
     let onBringToFront: (UUID) -> Void
     /// Text was dropped on a draft. The host turns it into a clip on its back.
     let onDrop: (_ text: String, _ draftID: UUID) -> Void
+    /// A draft's colour was changed.
+    var onRecolour: (UUID, PDFAnnotationColour) -> Void = { _, _ in }
+    /// Where a draft's picture is, so a side made of one can show it.
+    var imageURL: (String) -> URL? = { _ in nil }
 
     @Environment(\.palette) private var palette
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -172,16 +186,30 @@ struct ReaderCardDock: View {
         .animation(AmgiMotion.standard, value: isHovered)
     }
 
+    private func colour(of draft: ReaderCardDraft) -> PDFAnnotationColour {
+        PDFAnnotationColour(captureHex: draft.colorHex) ?? .captureDefault
+    }
+
     private func card(_ draft: ReaderCardDraft) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 5) {
-                sideRow("Front", draft.front, placeholder: "Select the question…")
-                sideRow("Back", draft.back, placeholder: "Select the answer…")
+                sideRow("Front", draft, .front, placeholder: "Select the question…")
+                sideRow("Back", draft, .back, placeholder: "Select the answer…")
             }
             Spacer(minLength: 0)
             trailingControl(draft)
         }
-        .padding(.leading, 16)
+        // The capture's colour, down the card's leading edge: the same colour
+        // its passages are marked in on the page.
+        .overlay(alignment: .leading) {
+            Capsule()
+                .fill(colour(of: draft).swiftUIColor)
+                .frame(width: 4)
+                .padding(.vertical, 12)
+                .padding(.leading, -8)
+                .accessibilityHidden(true)
+        }
+        .padding(.leading, 18)
         .padding(.trailing, 10)
         .padding(.vertical, 10)
         .frame(minHeight: 60)
@@ -203,42 +231,137 @@ struct ReaderCardDock: View {
         .accessibilityAction(named: "Discard Draft") { onDiscard(draft.id) }
     }
 
-    private func sideRow(_ label: String, _ text: String, placeholder: String) -> some View {
-        let trimmed = ReaderSourceAnchor.normalize(text)
-        return HStack(alignment: .firstTextBaseline, spacing: 8) {
+    private func sideRow(
+        _ label: String,
+        _ draft: ReaderCardDraft,
+        _ side: ReaderCardDraft.Side,
+        placeholder: String
+    ) -> some View {
+        // A saved card back in the dock shows what it already says, with
+        // anything being added after it.
+        let existing = draft.addsToExistingCard
+            ? ReaderSourceAnchor.normalize((side == .front ? draft.existingFront : draft.existingBack) ?? "")
+            : ""
+        let added = ReaderSourceAnchor.normalize(draft.text(side))
+        let trimmed = [existing, added].filter { !$0.isEmpty }.joined(separator: " ")
+        let images = draft.images(side)
+        let isEmpty = trimmed.isEmpty && images.isEmpty
+        return HStack(alignment: .center, spacing: 8) {
             Text(label.uppercased())
                 .font(.system(size: 10, weight: .semibold))
                 .tracking(0.6)
                 .foregroundStyle(palette.textSecondary)
                 .frame(width: 40, alignment: .leading)
-            Text(trimmed.isEmpty ? placeholder : trimmed)
-                .font(.system(size: 14, weight: trimmed.isEmpty ? .regular : .medium))
-                .italic(trimmed.isEmpty)
-                .foregroundStyle(trimmed.isEmpty ? palette.textSecondary.opacity(0.8) : palette.textPrimary)
-                .lineLimit(1)
-                .contentTransition(.opacity)
+            // Pictures first: on a side that has both, the picture is what
+            // the side is, and its caption can truncate.
+            ForEach(images.prefix(3), id: \.self) { name in
+                thumbnail(name)
+            }
+            if images.count > 3 {
+                Text("+\(images.count - 3)")
+                    .font(.system(size: 11, weight: .semibold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(palette.textSecondary)
+            }
+            if !trimmed.isEmpty || isEmpty {
+                Text(isEmpty ? placeholder : trimmed)
+                    .font(.system(size: 14, weight: isEmpty ? .regular : .medium))
+                    .italic(isEmpty)
+                    .foregroundStyle(isEmpty ? palette.textSecondary.opacity(0.8) : palette.textPrimary)
+                    .lineLimit(1)
+                    .contentTransition(.opacity)
+            }
+        }
+        .frame(minHeight: 20)
+    }
+
+    /// A captured area, small enough to sit in a side's row.
+    private func thumbnail(_ name: String) -> some View {
+        let shape = RoundedRectangle(cornerRadius: AmgiRadius.control / 2, style: .continuous)
+        return Group {
+            if let url = imageURL(name), let image = ReaderCardDock.image(at: url) {
+                image.resizable().scaledToFill()
+            } else {
+                Image(systemName: "photo").foregroundStyle(palette.textSecondary)
+            }
+        }
+        .frame(width: 30, height: 20)
+        .clipShape(shape)
+        .overlay(shape.strokeBorder(palette.separator, lineWidth: 0.5))
+        .accessibilityLabel("Picture")
+    }
+
+    private static func image(at url: URL) -> Image? {
+        #if canImport(UIKit)
+        UIImage(contentsOfFile: url.path).map(Image.init(uiImage:))
+        #else
+        NSImage(contentsOf: url).map(Image.init(nsImage:))
+        #endif
+    }
+
+    /// The colours, as a menu: on the dot beside the check, and in the card's
+    /// context menu.
+    @ViewBuilder
+    private func colourChoices(for draft: ReaderCardDraft) -> some View {
+        let current = colour(of: draft)
+        ForEach(PDFAnnotationColour.captureChoices) { choice in
+            Button {
+                onRecolour(draft.id, choice)
+            } label: {
+                Label {
+                    Text(choice.label)
+                } icon: {
+                    Image(systemName: choice == current ? "checkmark.circle.fill" : "circle.fill")
+                        .foregroundStyle(choice.swiftUIColor)
+                }
+            }
         }
     }
 
-    @ViewBuilder
-    private func trailingControl(_ draft: ReaderCardDraft) -> some View {
-        if draft.isComplete {
-            Button { save(draft) } label: {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 30))
-                    .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(palette.accent)
-            }
-            .buttonStyle(.pressScale)
-            .accessibilityLabel("Save Card")
-        } else if drafts.count > 1 {
-            Text(drafts.count, format: .number)
-                .font(.system(size: 13, weight: .semibold, design: .rounded).monospacedDigit())
-                .foregroundStyle(palette.textSecondary)
-                .frame(minWidth: 26, minHeight: 26)
-                .background(Circle().fill(palette.separator.opacity(0.6)))
-                .accessibilityHidden(true)
+    private func colourButton(_ draft: ReaderCardDraft) -> some View {
+        Menu {
+            colourChoices(for: draft)
+        } label: {
+            Circle()
+                .fill(colour(of: draft).swiftUIColor)
+                .frame(width: 16, height: 16)
+                .overlay(Circle().strokeBorder(palette.textPrimary.opacity(0.15), lineWidth: 1))
+                .frame(width: 32, height: 32)
+                .contentShape(Circle())
         }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .accessibilityLabel("Colour: \(colour(of: draft).label)")
+    }
+
+    private func trailingControl(_ draft: ReaderCardDraft) -> some View {
+        HStack(spacing: 2) {
+            colourButton(draft)
+            if draft.isComplete || draft.addsToExistingCard {
+                // Ready: both sides are filled. It waits here for more until
+                // this is tapped, the next card starts, or the book closes.
+                Button { save(draft) } label: {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 30))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(palette.accent)
+                        .symbolEffect(.bounce, value: draft.isComplete)
+                }
+                .buttonStyle(.pressScale)
+                .transition(.scale.combined(with: .opacity))
+                .accessibilityLabel(draft.addsToExistingCard && !draft.isComplete ? "Done" : "Save Card")
+                .accessibilityHint(draft.addsToExistingCard
+                    ? (draft.isComplete ? "Adds what you selected to the card." : "Puts the card away.")
+                    : "Both sides are filled. You can still add to either side first.")
+            } else if drafts.count > 1 {
+                Text(drafts.count, format: .number)
+                    .font(.system(size: 13, weight: .semibold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(palette.textSecondary)
+                    .frame(minWidth: 26, minHeight: 26)
+                    .background(Circle().fill(palette.separator.opacity(0.6)))
+                    .accessibilityHidden(true)
+            }
+        }
+        .animation(reduceMotion ? nil : AmgiMotion.standard, value: draft.isComplete)
     }
 
     @ViewBuilder
@@ -247,6 +370,7 @@ struct ReaderCardDock: View {
             Button("Save Card", systemImage: "checkmark.circle") { save(draft) }
         }
         Button("Edit Card", systemImage: "square.and.pencil") { onOpen(draft.id) }
+        Menu("Colour", systemImage: "paintpalette") { colourChoices(for: draft) }
         if let anchor = draft.frontClips.first?.anchor {
             Button("Go to Front", systemImage: ReaderSelectionMenu.addToFrontImage) { onGoTo(anchor) }
         }
@@ -283,6 +407,9 @@ struct ReaderCardDock: View {
     private func save(_ draft: ReaderCardDraft) {
         if draft.isComplete {
             onSave(draft.id)
+        } else if draft.addsToExistingCard {
+            // Nothing was added: done means put the card away.
+            onDiscard(draft.id)
         } else {
             rejectedSave += 1
             onOpen(draft.id)
@@ -290,10 +417,18 @@ struct ReaderCardDock: View {
     }
 
     private func accessibilityLabel(_ draft: ReaderCardDraft) -> String {
-        let front = draft.hasContent(.front) ? draft.front : "empty"
-        let back = draft.hasContent(.back) ? draft.back : "waiting for an answer"
+        func describe(_ side: ReaderCardDraft.Side, empty: String) -> String {
+            guard draft.hasContent(side) else { return empty }
+            let pictures = draft.images(side).count
+            let text = ReaderSourceAnchor.normalize(draft.text(side))
+            let picture = pictures == 0 ? "" : (pictures == 1 ? "a picture" : "\(pictures) pictures")
+            return [text, picture].filter { !$0.isEmpty }.joined(separator: ", ")
+        }
+        let front = describe(.front, empty: "empty")
+        let back = describe(.back, empty: "waiting for an answer")
+        let ready = draft.isComplete ? ", ready to save" : ""
         let stack = drafts.count > 1 ? ", 1 of \(drafts.count) unfinished cards" : ""
-        return "Card draft. Front: \(front). Back: \(back)\(stack)"
+        return "Card draft, \(colour(of: draft).label). Front: \(front). Back: \(back)\(ready)\(stack)"
     }
 }
 

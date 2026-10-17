@@ -1,3 +1,4 @@
+import AmgiReader
 import AmgiAppShared
 import AnkiBackend
 import AnkiClients
@@ -129,10 +130,13 @@ final class ReaderCardCapture {
     }
 
     /// Writes a two-sided card: `front` into the note type's first field,
-    /// `back` into its second. Plain text in, HTML out.
+    /// `back` into its second. Plain text in, HTML out. Pictures — media
+    /// file names already in the collection — follow each side's text.
     func addCard(
         front: String,
         back: String,
+        frontImages: [String] = [],
+        backImages: [String] = [],
         tags: [String],
         destination: ReaderCardDestination
     ) async throws -> NoteID {
@@ -142,10 +146,68 @@ final class ReaderCardCapture {
             tags: tags
         ) { fieldNames in
             var fields = Array(repeating: "", count: fieldNames.count)
-            if fields.indices.contains(0) { fields[0] = Self.html(front) }
-            if fields.indices.contains(1) { fields[1] = Self.html(back) }
+            if fields.indices.contains(0) { fields[0] = Self.field(front, images: frontImages) }
+            if fields.indices.contains(1) { fields[1] = Self.field(back, images: backImages) }
             return fields
         }
+    }
+
+    /// Adds to a card already in the collection: `front` after its first
+    /// field, `back` after its second, each on a new line. Returns the
+    /// fields as they were, for undo.
+    func appendToCard(_ noteID: NoteID, front: String, back: String) async throws -> String {
+        let notes = notesService
+        let previous = try await backendOffload { () throws -> String in
+            var note = try notes.getNote(noteID)
+            let before = note.flds
+            var fields = note.flds.components(separatedBy: "\u{1f}")
+            for (index, addition) in [front, back].enumerated() where fields.indices.contains(index) && !addition.isEmpty {
+                fields[index] = fields[index].isEmpty ? addition : fields[index] + "<br>" + addition
+            }
+            note.flds = fields.joined(separator: "\u{1f}")
+            try notes.saveNote(note)
+            return before
+        }
+        collectionStore.apply(CollectionChanges(card: true, note: true))
+        return previous
+    }
+
+    /// Puts a card's fields back as they were — the undo for an addition.
+    func restoreFields(_ noteID: NoteID, to flds: String) async {
+        let notes = notesService
+        do {
+            try await backendOffload {
+                var note = try notes.getNote(noteID)
+                note.flds = flds
+                try notes.saveNote(note)
+            }
+            collectionStore.apply(CollectionChanges(card: true, note: true))
+        } catch {
+            Self.log.error("Undoing an addition failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// A card's front and back as plain text, for the dock's "adding to".
+    func sides(of noteID: NoteID) async -> (front: String, back: String)? {
+        let notes = notesService
+        guard let note = try? await backendOffload({ try notes.getNote(noteID) }) else { return nil }
+        let fields = note.flds.components(separatedBy: "\u{1f}").map(Self.plainText)
+        return (fields.first ?? "", fields.count > 1 ? fields[1] : "")
+    }
+
+    /// A field's HTML as one line of text: tags dropped, entities decoded.
+    nonisolated static func plainText(_ html: String) -> String {
+        let withoutTags = html
+            .replacingOccurrences(of: "<br\\s*/?>", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "<img[^>]*>", with: " [picture] ", options: .regularExpression)
+            .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+        let decoded = withoutTags
+            .replacingOccurrences(of: "&nbsp;", with: " ")
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&amp;", with: "&")
+        return ReaderSourceAnchor.normalize(decoded)
     }
 
     /// Writes a note from a by-field-name draft — the user's configured
@@ -217,6 +279,18 @@ final class ReaderCardCapture {
             .replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;")
             .replacingOccurrences(of: "\n", with: "<br>")
+    }
+
+    /// A field: the side's text, then its pictures, each on its own line.
+    nonisolated static func field(_ text: String, images: [String]) -> String {
+        let pictures = images.map { "<img src=\"\(attributeEscaped($0))\">" }
+        return ([html(text)].filter { !$0.isEmpty } + pictures).joined(separator: "<br>")
+    }
+
+    nonisolated static func attributeEscaped(_ text: String) -> String {
+        text.replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+            .replacingOccurrences(of: "<", with: "&lt;")
     }
 
     /// Escapes Anki search syntax so a term like `C++` or `don't_care`

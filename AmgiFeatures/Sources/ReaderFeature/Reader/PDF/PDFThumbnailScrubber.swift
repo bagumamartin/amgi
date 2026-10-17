@@ -78,7 +78,12 @@ struct PDFThumbnailScrubber: View {
             ZStack(alignment: .leading) {
                 HStack(alignment: .center, spacing: 3) {
                     ForEach(sampleIndices, id: \.self) { index in
+                        // The page the raised tile shows is not shown again
+                        // in the strip. Near either end the raised tile is
+                        // pulled inward to stay inside the capsule, which
+                        // uncovered a sliver of the same page beside it.
                         sampleTile(at: index)
+                            .opacity(index == displayPage ? 0 : 1)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

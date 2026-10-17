@@ -2,6 +2,11 @@ import AmgiReader
 import AmgiTheme
 import AmgiUI
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#else
+import AppKit
+#endif
 
 /// The docked draft, opened: the card itself, editable in place, with the
 /// page still visible above it at the medium detent.
@@ -23,9 +28,18 @@ struct ReaderCardDraftSheet: View {
 
     private var draft: ReaderCardDraft? { session.drafts.draft(draftID) }
 
+    /// A new card needs both sides; an addition to a saved card needs either.
     private var isComplete: Bool {
-        !front.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !back.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if draft?.addsToExistingCard == true {
+            return hasContent(.front, text: front) || hasContent(.back, text: back)
+        }
+        return hasContent(.front, text: front) && hasContent(.back, text: back)
+    }
+
+    /// Text or a picture: either fills a side.
+    private func hasContent(_ side: ReaderCardDraft.Side, text: String) -> Bool {
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !(draft?.images(side).isEmpty ?? true)
     }
 
     var body: some View {
@@ -34,6 +48,14 @@ struct ReaderCardDraftSheet: View {
                 VStack(spacing: 14) {
                     side(.front, text: $front, placeholder: "Question, term, or prompt")
                     side(.back, text: $back, placeholder: "Answer — or select it in the book")
+                    if let draft, draft.addsToExistingCard {
+                        Text("These go onto the end of “\(draft.shortTitle)”, which is already in your collection.")
+                            .amgiFont(.caption)
+                            .foregroundStyle(palette.textSecondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 4)
+                    }
+                    colourRow
                     destination
                 }
                 .padding(.horizontal, 16)
@@ -48,7 +70,7 @@ struct ReaderCardDraftSheet: View {
                     Button("Done") { commitAndDismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Add Card") {
+                    Button(draft?.addsToExistingCard == true ? "Add to Card" : "Add Card") {
                         Task {
                             await commit()
                             dismiss()
@@ -96,6 +118,7 @@ struct ReaderCardDraftSheet: View {
                 Spacer()
                 sources(for: side)
             }
+            pictures(for: side)
             TextField(placeholder, text: text, axis: .vertical)
                 .amgiFont(.body)
                 .foregroundStyle(palette.textPrimary)
@@ -103,6 +126,96 @@ struct ReaderCardDraftSheet: View {
                 .focused($focusedSide, equals: side)
         }
         .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous)
+                .fill(palette.surfaceElevated)
+        )
+    }
+
+    /// The areas captured onto a side, each removable.
+    @ViewBuilder
+    private func pictures(for side: ReaderCardDraft.Side) -> some View {
+        let clips = (draft?.clips(side) ?? []).filter(\.isImage)
+        if !clips.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(clips) { clip in
+                        picture(clip)
+                    }
+                }
+            }
+        }
+    }
+
+    private func picture(_ clip: ReaderCardDraft.Clip) -> some View {
+        let shape = RoundedRectangle(cornerRadius: AmgiRadius.control, style: .continuous)
+        return Group {
+            if let name = clip.imageFile, let url = session.drafts.imageURL(name), let image = Self.image(at: url) {
+                image.resizable().scaledToFit()
+            } else {
+                Image(systemName: "photo")
+                    .foregroundStyle(palette.textSecondary)
+                    .frame(width: 120, height: 90)
+            }
+        }
+        .frame(maxHeight: 140)
+        .clipShape(shape)
+        .overlay(shape.strokeBorder(palette.separator, lineWidth: 0.5))
+        .overlay(alignment: .topTrailing) {
+            Button {
+                Task { await session.drafts.removeClip(clip.id, from: draftID); session.onMarksChanged?() }
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 20))
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(palette.textPrimary, palette.surfaceElevated)
+                    .padding(4)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Remove picture")
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Captured picture")
+    }
+
+    private static func image(at url: URL) -> Image? {
+        #if canImport(UIKit)
+        UIImage(contentsOfFile: url.path).map(Image.init(uiImage:))
+        #else
+        NSImage(contentsOf: url).map(Image.init(nsImage:))
+        #endif
+    }
+
+    /// The card's colour: how its passages are marked in the book.
+    private var colourRow: some View {
+        let current = PDFAnnotationColour(captureHex: draft?.colorHex) ?? .captureDefault
+        return HStack(spacing: 10) {
+            Label("Colour", systemImage: "paintpalette")
+                .amgiFont(.body)
+                .foregroundStyle(palette.textPrimary)
+            Spacer(minLength: 0)
+            ForEach(PDFAnnotationColour.captureChoices) { choice in
+                Button {
+                    Task { await session.setColour(choice, forDraft: draftID) }
+                } label: {
+                    Circle()
+                        .fill(choice.swiftUIColor)
+                        .frame(width: 24, height: 24)
+                        .overlay {
+                            if choice == current {
+                                Circle().strokeBorder(palette.textPrimary, lineWidth: 2).padding(-4)
+                            }
+                        }
+                        .frame(width: 32, height: 32)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(choice.label)
+                .accessibilityAddTraits(choice == current ? .isSelected : [])
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous)
                 .fill(palette.surfaceElevated)
@@ -178,6 +291,8 @@ struct ReaderCardDraftSheet: View {
     private func commit() async {
         guard didLoad else { return }
         await session.drafts.update(draftID, front: front, back: back)
+        // Clearing every side discards the draft, and its marks with it.
+        if session.drafts.draft(draftID) == nil { session.onMarksChanged?() }
     }
 
     private func commitAndDismiss() {

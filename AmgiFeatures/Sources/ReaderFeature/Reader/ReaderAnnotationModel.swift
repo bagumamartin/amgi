@@ -101,7 +101,24 @@ final class ReaderAnnotationModel {
     func addCardMarks(
         in bookID: String,
         sources: [(anchor: ReaderSourceAnchor, excerpt: String)],
-        noteID: Int64
+        noteID: Int64,
+        colorHex: String? = nil
+    ) async -> [UUID] {
+        await addCardMarks(
+            in: bookID,
+            sources: sources.map { (anchor: $0.anchor, excerpt: $0.excerpt, region: nil, imageFile: nil) },
+            noteID: noteID,
+            colorHex: colorHex
+        )
+    }
+
+    /// Card marks, each in the capture's colour; an area capture's mark
+    /// carries its region.
+    func addCardMarks(
+        in bookID: String,
+        sources: [(anchor: ReaderSourceAnchor, excerpt: String, region: ReaderPageRegion?, imageFile: String?)],
+        noteID: Int64,
+        colorHex: String?
     ) async -> [UUID] {
         let store = self.store ?? makeStore()
         self.store = store
@@ -113,7 +130,10 @@ final class ReaderAnnotationModel {
                     kind: .card,
                     anchor: source.anchor,
                     excerpt: source.excerpt,
-                    note: Self.cardNoteTag(noteID)
+                    note: Self.cardNoteTag(noteID),
+                    colorHex: colorHex,
+                    region: source.region,
+                    imageFile: source.imageFile
                 )
                 written.append(try await store.save(annotation).id)
             }
@@ -129,6 +149,35 @@ final class ReaderAnnotationModel {
         self.store = store
         do {
             for id in ids { try await store.delete(id: id, inBook: bookID) }
+        } catch {
+            searchError = error.localizedDescription
+        }
+        await reload(for: bookID, using: store)
+    }
+
+    /// Recolours marks, keeping everything else about them.
+    func setColour(_ hex: String, ids: Set<UUID>, inBook bookID: String) async {
+        let store = self.store ?? makeStore()
+        self.store = store
+        do {
+            for var annotation in try await store.annotations(inBook: bookID) where ids.contains(annotation.id) {
+                annotation.colorHex = hex
+                annotation.updatedAt = .now
+                _ = try await store.save(annotation)
+            }
+        } catch {
+            searchError = error.localizedDescription
+        }
+        await reload(for: bookID, using: store)
+    }
+
+    /// Puts removed marks back exactly as they were — the undo for removal.
+    func restore(_ annotations: [ReaderAnnotation]) async {
+        guard let bookID = annotations.first?.bookID else { return }
+        let store = self.store ?? makeStore()
+        self.store = store
+        do {
+            for annotation in annotations { _ = try await store.save(annotation) }
         } catch {
             searchError = error.localizedDescription
         }
@@ -223,6 +272,15 @@ final class ReaderAnnotationModel {
                     "id": annotation.id.uuidString,
                     "kind": annotation.kind.rawValue,
                 ]
+                if let region = annotation.region {
+                    // An area capture: its box, inside the block that holds it.
+                    guard let path = annotation.anchor.path, !path.isEmpty else { return nil }
+                    descriptor["region"] = true
+                    descriptor["path"] = path
+                    descriptor["box"] = [region.x, region.y, region.width, region.height]
+                    if let color = annotation.colorHex { descriptor["color"] = color }
+                    return descriptor
+                }
                 if let start = annotation.anchor.cfi {
                     // The quote length is the highlighted span's extent; the
                     // quote itself is the sentence, so use the shorter of the

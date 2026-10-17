@@ -58,12 +58,17 @@ final class ReaderPageCommands {
     @ObservationIgnored
     var cardMenuContextProvider: (@MainActor () -> ReaderCardMenuContext)?
     @ObservationIgnored
-    var markTapHandler: (@MainActor (_ id: String, _ kind: String) -> Void)?
+    var markTapHandler: (@MainActor (_ id: String, _ kind: String, _ point: CGPoint) -> Void)?
     /// The page's live selection, as last reported. Read when a selection is
     /// dragged onto a docked card, so the clip keeps its anchor in the book
     /// rather than arriving as bare text.
     @ObservationIgnored
     var lastSelection: ReaderSelectionPayload?
+    /// Installed by the page host: captures an area of the page on screen as
+    /// a picture with its anchor. The rect is in the pager's coordinates.
+    /// Nil where the host cannot capture.
+    @ObservationIgnored
+    var regionCapture: (@MainActor (CGRect) async -> ReaderRegionCapture?)?
 
     func requestSelectionMark(_ request: SelectionMarkRequest) {
         selectionMarkRequest = request

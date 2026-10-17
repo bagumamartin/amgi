@@ -91,7 +91,6 @@ enum PDFRegionCapture {
         // white rectangle rather than a wrong-but-plausible crop.
         context.translateBy(x: -pdfRect.minX, y: -pdfRect.minY)
         page.draw(with: .mediaBox, to: context)
-        context.restoreGState()
 
         return makeImage(context: context, pixelSize: pixelSize)
     }
@@ -106,9 +105,11 @@ enum PDFRegionCapture {
     }
 
     private static func makeImage(context: CGContext, pixelSize: CGSize) -> Data? {
+        // Read the bitmap before ending the context: once it has ended there
+        // is no current image left to get, and every capture came back nil.
+        let image = context.makeImage()
         UIGraphicsEndImageContext()
-        guard let image = UIGraphicsGetImageFromCurrentImageContext() else { return nil }
-        return image.pngData()
+        return image.flatMap { UIImage(cgImage: $0).pngData() }
     }
     #else
     private static func makeContext(pixelSize: CGSize) -> CGContext? {

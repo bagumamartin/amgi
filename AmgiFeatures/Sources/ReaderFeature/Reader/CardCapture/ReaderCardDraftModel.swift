@@ -41,6 +41,25 @@ final class ReaderCardDraftModel {
             self.bookID = bookID
         }
         await reload()
+        // A book opening is the one moment no undo can still want a picture
+        // from a draft that was saved or discarded.
+        try? await store?.sweepUnusedImages()
+    }
+
+    /// Keeps a captured picture for a draft; its file name, or nil.
+    func storeImage(_ data: Data) async -> String? {
+        guard let store else { return nil }
+        do {
+            return try await store.saveImage(data)
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    /// Where a draft's picture is, for showing it and for saving the card.
+    func imageURL(_ name: String) -> URL? {
+        store?.imageURL(name)
     }
 
     private func reload() async {
@@ -62,9 +81,13 @@ final class ReaderCardDraftModel {
 
     /// Starts a card with `clip` on its front and puts it on top of the stack.
     @discardableResult
-    func start(with clip: ReaderCardDraft.Clip, on side: ReaderCardDraft.Side = .front) async -> ReaderCardDraft? {
+    func start(
+        with clip: ReaderCardDraft.Clip,
+        on side: ReaderCardDraft.Side = .front,
+        colorHex: String? = nil
+    ) async -> ReaderCardDraft? {
         guard let bookID else { return nil }
-        var draft = ReaderCardDraft(bookID: bookID)
+        var draft = ReaderCardDraft(bookID: bookID, colorHex: colorHex)
         draft.append(clip, to: side)
         guard draft.hasContent(side) else { return nil }
         return await persist(draft)
@@ -78,11 +101,30 @@ final class ReaderCardDraftModel {
         return await persist(draft)
     }
 
+    /// Saves edited text. A new card whose sides were all cleared is gone,
+    /// so it leaves the stack rather than sitting empty in the dock. (An
+    /// addition to a saved card starts empty, so it stays.)
     func update(_ id: UUID, front: String, back: String) async {
         guard var draft = draft(id),
               draft.front != front || draft.back != back else { return }
         draft.setText(front, for: .front)
         draft.setText(back, for: .back)
+        if draft.isEmpty && !draft.addsToExistingCard {
+            await remove(id)
+            return
+        }
+        await persist(draft)
+    }
+
+    func removeClip(_ clipID: UUID, from id: UUID) async {
+        guard var draft = draft(id) else { return }
+        draft.removeClip(clipID)
+        await persist(draft)
+    }
+
+    func setColour(_ hex: String, for id: UUID) async {
+        guard var draft = draft(id), draft.colorHex != hex else { return }
+        draft.colorHex = hex
         await persist(draft)
     }
 
@@ -140,21 +182,29 @@ final class ReaderCardDraftModel {
 
     // MARK: - Page bridge
 
-    /// Hollow marks for every draft clip in a chapter. The mark id is the
-    /// *draft* id, so a tap on any of its passages resumes that draft.
+    /// Marks for every draft clip in a chapter, in the draft's colour. The
+    /// mark id is `draft:clip`, so a tap knows the draft and which of its
+    /// passages it landed on. An area clip marks the box it was drawn as.
     func markDescriptors(chapterID: Int64) -> [[String: Any]] {
         drafts.flatMap { draft in
             (draft.frontClips + draft.backClips).compactMap { clip -> [String: Any]? in
-                guard let anchor = clip.anchor,
-                      anchor.chapterID == chapterID,
-                      let start = anchor.cfi else { return nil }
-                return [
-                    "id": draft.id.uuidString,
-                    "kind": "cardDraft",
-                    "start": start,
-                    "end": start + max(1, clip.excerpt.count),
-                    "text": clip.excerpt,
-                ]
+                guard let anchor = clip.anchor, anchor.chapterID == chapterID else { return nil }
+                var descriptor: [String: Any] = ["id": "\(draft.id.uuidString):\(clip.id.uuidString)", "kind": "cardDraft"]
+                if let color = draft.colorHex { descriptor["color"] = color }
+                if clip.isImage {
+                    guard let path = anchor.path, !path.isEmpty else { return nil }
+                    descriptor["region"] = true
+                    descriptor["path"] = path
+                    if let region = clip.region {
+                        descriptor["box"] = [region.x, region.y, region.width, region.height]
+                    }
+                    return descriptor
+                }
+                guard let start = anchor.cfi else { return nil }
+                descriptor["start"] = start
+                descriptor["end"] = start + max(1, clip.excerpt.count)
+                descriptor["text"] = clip.excerpt
+                return descriptor
             }
         }
     }

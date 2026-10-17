@@ -875,7 +875,7 @@ struct EPUBPageViewControllerHost: NSViewRepresentable {
                 guard let dict = body as? [String: Any],
                       let id = dict["id"] as? String,
                       let kind = dict["kind"] as? String else { return }
-                host.commands.markTapHandler?(id, kind)
+                host.commands.markTapHandler?(id, kind, .zero)
             case "emptyTap":
                 guard let number = body as? NSNumber else { return }
                 handleTap(atRelativeX: CGFloat(truncating: number))

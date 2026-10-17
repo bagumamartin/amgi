@@ -185,7 +185,7 @@ private extension ReaderAnnotationsSheet {
             HStack(spacing: 6) {
                 Image(systemName: "rectangle.stack")
                     .amgiFont(.micro)
-                    .foregroundStyle(palette.textSecondary)
+                    .foregroundStyle((PDFAnnotationColour(captureHex: draft.colorHex) ?? .captureDefault).swiftUIColor)
                     .accessibilityHidden(true)
                 if let chapter = chapterTitle(chapterID: ReaderCardSession.sourceChapterID(of: draft)) {
                     Text(chapter)
@@ -198,11 +198,11 @@ private extension ReaderAnnotationsSheet {
                     .amgiFont(.micro)
                     .foregroundStyle(palette.textSecondary)
             }
-            Text(draft.hasContent(.front) ? draft.front : "No front yet")
+            Text(draft.hasContent(.front) ? Self.sideText(draft, .front) : "No front yet")
                 .amgiFont(.body)
                 .foregroundStyle(draft.hasContent(.front) ? palette.textPrimary : palette.textSecondary)
                 .lineLimit(3)
-            Text(draft.hasContent(.back) ? draft.back : "Waiting for an answer")
+            Text(draft.hasContent(.back) ? Self.sideText(draft, .back) : "Waiting for an answer")
                 .italic(!draft.hasContent(.back))
                 .amgiFont(.caption)
                 .foregroundStyle(palette.textSecondary)
@@ -266,6 +266,15 @@ private extension ReaderAnnotationsSheet {
                 ? "Search across every highlight and note in this book."
                 : "Nothing in this book matches “\(query)”."
         }
+    }
+
+    /// A side as a line of text; a side that is only pictures says so.
+    static func sideText(_ draft: ReaderCardDraft, _ side: ReaderCardDraft.Side) -> String {
+        let text = draft.text(side).trimmingCharacters(in: .whitespacesAndNewlines)
+        let pictures = draft.images(side).count
+        guard pictures > 0 else { return text }
+        let label = pictures == 1 ? "Picture" : "\(pictures) pictures"
+        return text.isEmpty ? label : "\(text) · \(label)"
     }
 
     func row(_ annotation: ReaderAnnotation) -> some View {

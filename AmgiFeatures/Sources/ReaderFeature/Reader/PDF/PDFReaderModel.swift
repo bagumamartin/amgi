@@ -339,6 +339,36 @@ final class PDFReaderModel {
         return committed
     }
 
+    /// Changes an annotation's colour, in the file as well as in memory. Like
+    /// a note edit, it supersedes the same object rather than adding one.
+    @discardableResult
+    func recolourAnnotation(identifier: String, colour: PDFAnnotationColour) async -> Bool {
+        guard let located = locate(identifier) else { return false }
+        located.annotation.color = colour.platformColor
+
+        let committed = await appendToFile(onPage: located.pageIndex) { file, page in
+            guard let record = file.annotations(on: page)
+                .first(where: { $0.name == identifier })
+            else { return nil }
+            var dictionary = record.dictionary
+            dictionary["C"] = .array(colour.pdfArray.map { .real($0) })
+            return PDFAnnotationWriter.add(
+                dictionary,
+                to: page,
+                on: file,
+                objectNumber: record.reference.number,
+                name: identifier,
+                replacing: record
+            )
+        }
+        if committed {
+            refreshAnnotations()
+        } else {
+            writeError = "That colour could not be saved to the file."
+        }
+        return committed
+    }
+
     /// Removes an annotation from the document and frees it in the file.
     @discardableResult
     func removeAnnotation(identifier: String) async -> Bool {

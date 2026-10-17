@@ -120,16 +120,26 @@ enum EPUBReaderBundledResources {
         if (selection && !selection.isCollapsed && selection.toString().trim().length > 0) return;
 
         var target = event.target;
-        // A tap on a card's source text, or a waiting draft's, belongs to
-        // that card: it resumes the draft rather than toggling the chrome.
-        var carded = target && target.closest
-          ? target.closest('.amgi-tok[data-amgi-mark="cardDraft"], .amgi-tok[data-amgi-mark="card"]')
-          : null;
-        if (carded) {
+        // A tap on a capture — a card's or a waiting draft's passage, or a
+        // captured area's box — opens that capture's menu instead of toggling
+        // the chrome. Boxes let touches through, so they are found by where
+        // the tap was, not by what it hit.
+        var mark = window.__amgiMarkAt ? window.__amgiMarkAt(event.clientX, event.clientY) : null;
+        if (!(mark && (mark.kind === 'card' || mark.kind === 'cardDraft'))) {
+          var carded = target && target.closest
+            ? target.closest('.amgi-tok[data-amgi-mark="cardDraft"], .amgi-tok[data-amgi-mark="card"]')
+            : null;
+          mark = carded
+            ? { id: carded.getAttribute('data-amgi-mark-id'), kind: carded.getAttribute('data-amgi-mark') }
+            : null;
+        }
+        if (mark && mark.id) {
           try {
             window.webkit.messageHandlers.markTap.postMessage({
-              id: carded.getAttribute('data-amgi-mark-id') || '',
-              kind: carded.getAttribute('data-amgi-mark')
+              id: mark.id,
+              kind: mark.kind,
+              x: event.clientX || 0,
+              y: event.clientY || 0
             });
           } catch (e) { /* host detached */ }
           return;
@@ -221,7 +231,7 @@ final class EPUBChapterPageController: UIViewController, UIGestureRecognizerDele
 
     weak var pageDelegate: (any EPUBChapterPageControllerDelegate)?
 
-    private var webView: WKWebView!
+    fileprivate var webView: WKWebView!
     private var bridge: ScriptBridge!
     /// The page's last reported selection. Only shapes the menu when it is
     /// built; an item re-reads the live selection when it is chosen, because
@@ -560,6 +570,57 @@ final class EPUBChapterPageController: UIViewController, UIGestureRecognizerDele
         return image.map { ($0, state) }
     }
 
+    /// An area of the page as it is on screen, for a card: WebKit's own
+    /// snapshot of the box, and an anchor to the element it covered. `rect`
+    /// is in this page's coordinates.
+    func captureRegion(_ rect: CGRect) async -> ReaderRegionCapture? {
+        let box = rect.intersection(webView.bounds)
+        guard didFinishInitialLoad, box.width >= 4, box.height >= 4,
+              webView.bounds.width > 0, webView.bounds.height > 0 else { return nil }
+        let config = WKSnapshotConfiguration()
+        config.rect = box
+        config.afterScreenUpdates = false
+        let image: UIImage? = await withCheckedContinuation { done in
+            webView.takeSnapshot(with: config) { image, _ in done.resume(returning: image) }
+        }
+        guard let png = image?.pngData() else { return nil }
+        let result = try? await webView.callAsyncJavaScript(
+            "return window.__amgiRegionAnchor ? window.__amgiRegionAnchor(x, y, w, h) : null;",
+            arguments: ["x": box.minX, "y": box.minY, "w": box.width, "h": box.height],
+            contentWorld: .page
+        )
+        let payload = result as? [String: Any]
+        let anchor = ReaderSourceAnchor(
+            bookID: content.bookID,
+            chapterID: content.chapterID,
+            chapterHref: content.chapterHref,
+            cfi: payload?["cfi"] as? Int,
+            path: payload?["path"] as? [Int],
+            quote: (payload?["quote"] as? String) ?? ""
+        )
+        // On an EPUB page the box is kept relative to the block that holds
+        // it (the anchor's `path`), so its mark lands exactly where it was
+        // drawn and follows that block through a reflow. Without such a
+        // block, relative to the page.
+        let size = webView.bounds.size
+        let page = (payload?["pageIndex"] as? Int) ?? currentPageIndex
+        let held = payload?["box"] as? [String: Any]
+        let region: ReaderPageRegion
+        if let held, let x = held["x"] as? Double, let y = held["y"] as? Double,
+           let w = held["width"] as? Double, let h = held["height"] as? Double {
+            region = ReaderPageRegion(page: page, x: x, y: y, width: w, height: h)
+        } else {
+            region = ReaderPageRegion(
+                page: page,
+                x: box.minX / size.width,
+                y: box.minY / size.height,
+                width: box.width / size.width,
+                height: box.height / size.height
+            )
+        }
+        return ReaderRegionCapture(image: png, anchor: anchor, region: region)
+    }
+
     /// Shows a page and returns once the page has painted it, with what is
     /// actually on screen: the page, the count, and the first and last words.
     /// `-1` is the last page. Nil when the chapter has not loaded.
@@ -679,7 +740,9 @@ final class EPUBChapterPageController: UIViewController, UIGestureRecognizerDele
     var selectionReportHandler: ((ReaderSelectionPayload?) -> Void)?
     /// Set by the host: a tap on a card or card-draft mark, with the mark's id
     /// and kind. Lets a hollow mark resume the draft it belongs to.
-    var markTapHandler: ((String, String) -> Void)?
+    /// A capture mark was tapped: its id, its kind, and where, in window
+    /// coordinates.
+    var markTapHandler: ((String, String, CGPoint) -> Void)?
 
     /// Called when the user swipes horizontally past the threshold. The host
     /// owns every page turn, so this is the only gesture that advances the
@@ -1176,7 +1239,10 @@ private extension ScriptBridge {
             guard let dict = body as? [String: Any],
                   let id = dict["id"] as? String,
                   let kind = dict["kind"] as? String else { return }
-            owner.markTapHandler?(id, kind)
+            let x = (dict["x"] as? Double) ?? 0
+            let y = (dict["y"] as? Double) ?? 0
+            let point = owner.webView.convert(CGPoint(x: x, y: y), to: nil)
+            owner.markTapHandler?(id, kind, point)
         case "emptyTap":
             guard let number = body as? NSNumber else { return }
             owner.pageDelegate?.epubChapterDidTapEmptySpace(

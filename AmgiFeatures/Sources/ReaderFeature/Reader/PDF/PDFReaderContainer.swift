@@ -50,6 +50,10 @@ struct PDFReaderView: View {
     @State private var selection: PDFSelectionContext?
     @State private var lookupRequest: LookupRequest?
     @State private var cards = ReaderCardSession()
+    /// Text or area selection; area draws boxes over the page for cards.
+    @State private var captureMode: ReaderCaptureMode = .text
+    /// What has been captured, drawn on the pages in its colours.
+    @State private var captureMarks = PDFCaptureMarks()
 
     // Bookmarks & sidecar annotations
     @State private var annotations = ReaderAnnotationModel()
@@ -120,6 +124,9 @@ struct PDFReaderView: View {
             }
         }
         .preference(key: AssistantScreenContextKey.self, value: AssistantContext(title: book.title, reference: "Source book:\(book.id), page:\(navigation.pageIndex + 1). Page text: \(String((model.document?.page(at: navigation.pageIndex)?.string ?? "").prefix(5000))). Selected text: \(selection?.text ?? "")", kind: "reader"))
+        // A tapped capture's menu, over everything, at the capture.
+        .overlay { ReaderMarkMenuLayer(session: cards) }
+        .animation(AmgiMotion.standard, value: cards.markMenu?.id)
         .task { await open() }
         .onAppear {
             #if os(macOS)
@@ -128,6 +135,8 @@ struct PDFReaderView: View {
         }
         .onDisappear {
             model.persistPosition(navigation.pageIndex)
+            // Leaving the book saves the cards that are ready.
+            Task { [cards] in await cards.saveReadyDrafts() }
             #if os(macOS)
             pdfReaderWindowState?.isActive = false
             #endif
@@ -191,7 +200,9 @@ struct PDFReaderView: View {
                         .map(selectionPayload(for:))
                     canvasCoordinator.clearSelection()
                     Task { await cards.drop(text, on: id, selection: selection) }
-                }
+                },
+                onRecolour: { id, colour in Task { await cards.setColour(colour, forDraft: id) } },
+                imageURL: { cards.drafts.imageURL($0) }
             )
         }
         .frame(maxWidth: .infinity)
@@ -271,6 +282,13 @@ struct PDFReaderView: View {
                     onTapNextPage: { navigate(to: navigation.turn(by: 1), userInitiated: true) }
                 )
                 .ignoresSafeArea()
+                .overlay {
+                    if captureMode == .area {
+                        areaCaptureOverlay()
+                            .ignoresSafeArea()
+                            .transition(.opacity)
+                    }
+                }
 
                 if isSearchVisible {
                     VStack {
@@ -592,15 +610,12 @@ struct PDFReaderView: View {
 
     private var topRightCapsule: some View {
         HStack(spacing: 16) {
-            Button {
-                isMarkupActive.toggle()
-            } label: {
-                Image(systemName: "pencil.tip.crop.circle")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(isMarkupActive ? palette.accent : palette.textPrimary)
-                    .frame(width: 24, height: 24)
-            }
-            .accessibilityLabel("Markup")
+            ReaderCaptureModeButton(
+                mode: $captureMode,
+                colour: cards.captureColour,
+                onColour: { cards.setCaptureColour($0) },
+                inline: true
+            )
 
             Button {
                 isStyleSheetPresented = true
@@ -843,15 +858,31 @@ struct PDFReaderView: View {
             )
         }
 
-        let noteItems: [ReaderContentsSheet.NoteItem] = model.allAnnotations.map { annot in
+        // Highlights and captures together, by page.
+        let captures = cards.captureListings()
+        let highlightItems = model.allAnnotations.map { annot in
             ReaderContentsSheet.NoteItem(
                 id: annot.id,
                 pageIndex: annot.pageIndex,
                 pageLabel: model.label(forPage: annot.pageIndex),
                 quote: annot.contents ?? "Highlight",
-                colorHex: annot.colour.swiftUIColor.description
+                colorHex: annot.colour.hex
             )
         }
+        let captureItems = captures.map { capture in
+            let page = capture.anchor?.cfi ?? 0
+            return ReaderContentsSheet.NoteItem(
+                id: capture.id,
+                pageIndex: page,
+                pageLabel: model.label(forPage: page),
+                quote: capture.quote,
+                colorHex: capture.colorHex,
+                kind: capture.kind == .card ? .card : .draft,
+                secondary: capture.secondary,
+                images: capture.images
+            )
+        }
+        let noteItems = (highlightItems + captureItems).sorted { $0.pageIndex < $1.pageIndex }
 
         return ReaderContentsSheet(
             bookTitle: book.title,
@@ -873,7 +904,48 @@ struct PDFReaderView: View {
             },
             onSelectNote: { item in
                 navigate(to: item.pageIndex, userInitiated: true)
-            }
+            },
+            noteActions: listActions
+        )
+    }
+
+    /// What the highlights list can do to a mark. A PDF highlight lives in
+    /// the file, so its note and its removal are written there; captures go
+    /// through the card session, as from the page.
+    private var listActions: ReaderContentsSheet.NoteActions {
+        func isCapture(_ item: ReaderContentsSheet.NoteItem) -> Bool { item.kind != .highlight }
+        return ReaderContentsSheet.NoteActions(
+            edit: { item in
+                guard let menu = cards.menu(forListing: item.id) else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                    Task { await cards.openMarkTarget(menu) }
+                }
+            },
+            setNote: { item, text in
+                guard !isCapture(item) else { return }
+                Task { _ = await model.updateAnnotation(identifier: item.id, contents: text) }
+            },
+            remove: { item in
+                if isCapture(item) {
+                    guard let menu = cards.menu(forListing: item.id) else { return }
+                    Task { await cards.removeMark(menu) }
+                } else {
+                    Task { _ = await model.removeAnnotation(identifier: item.id) }
+                }
+            },
+            deleteCard: { item in
+                guard let menu = cards.menu(forListing: item.id) else { return }
+                Task { await cards.deleteCard(menu) }
+            },
+            recolour: { item, colour in
+                if isCapture(item) {
+                    guard let menu = cards.menu(forListing: item.id) else { return }
+                    Task { await cards.recolourMark(menu, to: colour) }
+                } else {
+                    Task { _ = await model.recolourAnnotation(identifier: item.id, colour: colour) }
+                }
+            },
+            canRecolour: { _ in true }
         )
     }
 
@@ -901,6 +973,34 @@ struct PDFReaderView: View {
         }
     }
 
+    #if os(iOS)
+    /// Boxes drawn over the page become pictures on cards, rendered from the
+    /// page itself.
+    private func areaCaptureOverlay() -> some View {
+        ReaderAreaCaptureOverlay(
+            colour: cards.captureColour,
+            targetTitle: cards.drafts.frontmost?.shortTitle,
+            onAction: { action, rect in
+                guard let capture = canvasCoordinator.regionCapture(viewRect: rect, bookID: book.id) else {
+                    cards.showToast(.init(message: "Couldn’t capture that area", systemImage: "exclamationmark.triangle"))
+                    return
+                }
+                Task { await cards.handleRegion(cards.command(for: action), capture: capture) }
+            },
+            onTap: { withAnimation(AmgiMotion.standard) { chromeVisible.toggle() } }
+        )
+    }
+    #endif
+
+    /// Redraws every capture — saved cards and drafts — on the pages.
+    private func repaintCaptureMarks() {
+        guard let document = model.document else { return }
+        captureMarks.paint(
+            PDFCaptureMarks.marks(cards: annotations.cards, drafts: cards.drafts.drafts),
+            in: document
+        )
+    }
+
     // MARK: - Open & Resume
 
     private func open() async {
@@ -908,6 +1008,12 @@ struct PDFReaderView: View {
         await annotations.load(bookID: book.id)
         await cards.attach(book: book, annotations: annotations)
         canvasCoordinator.selectionMenu = { selectionMenu() }
+        cards.onMarksChanged = { repaintCaptureMarks() }
+        canvasCoordinator.onCaptureMarkTap = { id, kind, point in
+            Task { await cards.markTapped(id: id, kind: kind, at: point) }
+        }
+        cards.onGoTo = { goTo($0) }
+        repaintCaptureMarks()
         guard case .ready = model.state else { return }
 
         navigation.transition = pageNavigationTransition

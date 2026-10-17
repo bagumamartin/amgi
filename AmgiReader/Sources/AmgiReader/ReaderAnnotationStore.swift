@@ -26,6 +26,12 @@ public struct ReaderAnnotation: Codable, Sendable, Hashable, Identifiable {
     public var note: String?
     /// Highlight colour as a hex string, or nil for the reader default.
     public var colorHex: String?
+    /// For a card made from an area of the page rather than from text: where
+    /// that area was. See `ReaderCardDraft.Clip.region`.
+    public var region: ReaderPageRegion?
+    /// For a card made from an area: the picture's name in the collection's
+    /// media, so lists can show it.
+    public var imageFile: String?
     public var createdAt: Date
     public var updatedAt: Date
 
@@ -37,6 +43,8 @@ public struct ReaderAnnotation: Codable, Sendable, Hashable, Identifiable {
         excerpt: String,
         note: String? = nil,
         colorHex: String? = nil,
+        region: ReaderPageRegion? = nil,
+        imageFile: String? = nil,
         createdAt: Date = .now,
         updatedAt: Date = .now
     ) {
@@ -47,6 +55,8 @@ public struct ReaderAnnotation: Codable, Sendable, Hashable, Identifiable {
         self.excerpt = excerpt
         self.note = note
         self.colorHex = colorHex
+        self.region = region
+        self.imageFile = imageFile
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }

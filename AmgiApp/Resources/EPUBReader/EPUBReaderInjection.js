@@ -678,39 +678,146 @@
     style.id = MARK_STYLE_ID;
     style.textContent = [
       '.amgi-tok[data-amgi-mark="highlight"] {',
-      '  background: var(--amgi-highlight, rgba(255, 214, 102, 0.45));',
+      // In its own colour when it has one; Preview's yellow otherwise.
+      '  background: color-mix(in srgb, var(--amgi-mark-color, #FFD100) 45%, transparent);',
       '  border-radius: 2px;',
-      '  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.12);',
       '}',
       '.amgi-tok[data-amgi-mark="bookmark"] {',
       '  border-bottom: 2px solid var(--amgi-bookmark, #c8811f);',
       '}',
-      // A finished card: a quiet dotted underline, so a page you have mined
-      // shows it without looking highlighted.
+      // A finished card: tinted in its capture's colour, so a page you have
+      // mined shows what was taken and which kind it was at a glance.
       '.amgi-tok[data-amgi-mark="card"] {',
-      '  text-decoration: underline dotted var(--amgi-card, #3b82f6);',
-      '  text-decoration-thickness: 2px;',
-      '  text-underline-offset: 3px;',
-      '}',
-      // A draft waiting for its other side: hollow and dashed, the visual
-      // "something started here" that a tap resumes.
-      '.amgi-tok[data-amgi-mark="cardDraft"] {',
-      '  border-bottom: 1.5px dashed var(--amgi-card, #3b82f6);',
-      '  background: rgba(59, 130, 246, 0.08);',
+      '  background: color-mix(in srgb, var(--amgi-mark-color, #66A3F2) 38%, transparent);',
       '  border-radius: 2px;',
       '}',
+      // A draft waiting for its other side: tinted as plainly as a card, so
+      // it is seen at a glance, with a dashed rule under it that says it is
+      // not finished. A tap resumes it.
+      '.amgi-tok[data-amgi-mark="cardDraft"] {',
+      '  background: color-mix(in srgb, var(--amgi-mark-color, #66A3F2) 26%, transparent);',
+      '  border-bottom: 2px dashed var(--amgi-mark-color, #66A3F2);',
+      '  border-radius: 2px;',
+      '}',
+      // The space after a word, filled when the passage goes on along the
+      // same line (`bridgeRun`): the word's own height, so lines stay apart.
+      '.amgi-tok[data-amgi-gap] { position: relative; }',
+      '.amgi-tok[data-amgi-gap]::after {',
+      '  content: "";',
+      '  position: absolute;',
+      '  left: 100%;',
+      '  top: 0;',
+      '  bottom: 0;',
+      '  width: var(--amgi-gap, 0);',
+      '  pointer-events: none;',
+      '}',
+      '.amgi-tok[data-amgi-mark="highlight"][data-amgi-gap]::after {',
+      '  background: color-mix(in srgb, var(--amgi-mark-color, #FFD100) 45%, transparent);',
+      '}',
+      '.amgi-tok[data-amgi-mark="card"][data-amgi-gap]::after {',
+      '  background: color-mix(in srgb, var(--amgi-mark-color, #66A3F2) 38%, transparent);',
+      '}',
+      '.amgi-tok[data-amgi-mark="cardDraft"][data-amgi-gap]::after {',
+      '  background: color-mix(in srgb, var(--amgi-mark-color, #66A3F2) 26%, transparent);',
+      '  bottom: -2px;',
+      '  border-bottom: 2px dashed var(--amgi-mark-color, #66A3F2);',
+      '}',
+      // An area captured as a picture: the box as it was drawn, inside the
+      // block that holds it. Solid once it is a card, dashed while a draft.
+      '.amgi-region-box {',
+      '  position: absolute;',
+      '  box-sizing: border-box;',
+      '  border: 2px solid var(--amgi-mark-color, #66A3F2);',
+      '  border-radius: 3px;',
+      '  background: color-mix(in srgb, var(--amgi-mark-color, #66A3F2) 12%, transparent);',
+      '  pointer-events: none;',
+      '  z-index: 1;',
+      '}',
+      '.amgi-region-box[data-amgi-region-mark="cardDraft"] {',
+      '  border-style: dashed;',
+      '  background: color-mix(in srgb, var(--amgi-mark-color, #66A3F2) 18%, transparent);',
+      '}',
+      // An area captured as a picture: the element it covered, outlined —
+      // solid once it is a card, dashed while it is a draft.
+      '[data-amgi-region-mark] {',
+      '  outline: 2px solid var(--amgi-mark-color, #66A3F2);',
+      '  outline-offset: 3px;',
+      '  border-radius: 3px;',
+      '  background-color: color-mix(in srgb, var(--amgi-mark-color, #66A3F2) 10%, transparent);',
+      '}',
+      '[data-amgi-region-mark="cardDraft"] { outline-style: dashed; }',
       '.amgi-tok[data-amgi-mark] { cursor: default; }'
     ].join('\n');
     (document.head || document.documentElement).appendChild(style);
   }
 
   function clearMarks() {
+    unbridgeAll();
+    bridgedRuns = [];
     var marked = document.querySelectorAll('.amgi-tok[data-amgi-mark]');
     for (var i = 0; i < marked.length; i++) {
       marked[i].removeAttribute('data-amgi-mark');
       marked[i].removeAttribute('data-amgi-mark-id');
       marked[i].removeAttribute('data-amgi-mark-color');
+      marked[i].style.removeProperty('--amgi-mark-color');
     }
+    var boxes = document.querySelectorAll('.amgi-region-box');
+    for (var b = 0; b < boxes.length; b++) { boxes[b].parentNode.removeChild(boxes[b]); }
+    var hosts = document.querySelectorAll('[data-amgi-region-host]');
+    for (var h = 0; h < hosts.length; h++) {
+      hosts[h].style.removeProperty('position');
+      hosts[h].removeAttribute('data-amgi-region-host');
+    }
+    var regions = document.querySelectorAll('[data-amgi-region-mark]');
+    for (var r = 0; r < regions.length; r++) {
+      regions[r].removeAttribute('data-amgi-region-mark');
+      regions[r].removeAttribute('data-amgi-mark-id');
+      regions[r].style.removeProperty('--amgi-mark-color');
+    }
+  }
+
+  // Draws a captured area's box inside the block that holds it.
+  function placeRegionBox(host, box, kind, id, color) {
+    if (window.getComputedStyle(host).position === 'static') {
+      host.style.position = 'relative';
+      host.setAttribute('data-amgi-region-host', '1');
+    }
+    var div = document.createElement('div');
+    div.className = 'amgi-region-box';
+    div.setAttribute('data-amgi-region-mark', kind);
+    div.setAttribute('aria-hidden', 'true');
+    if (id) { div.setAttribute('data-amgi-mark-id', String(id)); }
+    if (color) { div.style.setProperty('--amgi-mark-color', color); }
+    div.style.left = (box[0] * 100) + '%';
+    div.style.top = (box[1] * 100) + '%';
+    div.style.width = (box[2] * 100) + '%';
+    div.style.height = (box[3] * 100) + '%';
+    host.appendChild(div);
+  }
+
+  // The element a stored child-index path names, or null.
+  function elementAtPath(path) {
+    if (!path || !path.length) { return null; }
+    var node = document.body;
+    for (var i = 0; i < path.length; i++) {
+      var wanted = path[i];
+      var seen = 0;
+      var next = null;
+      for (var j = 0; j < node.childNodes.length; j++) {
+        if (!isElement(node.childNodes[j])) { continue; }
+        if (seen === wanted) { next = node.childNodes[j]; break; }
+        seen++;
+      }
+      if (!next) { return null; }
+      node = next;
+    }
+    return node === document.body ? null : node;
+  }
+
+  // Only a colour the host sent: a hex value, nothing that could be CSS.
+  function safeColor(value) {
+    var text = String(value || '');
+    return /^#[0-9a-fA-F]{3,8}$/.test(text) ? text : null;
   }
 
   // Returns the number of marks actually applied, so native can tell a real
@@ -734,6 +841,26 @@
       var kind = (mark.kind === 'bookmark' || mark.kind === 'card' || mark.kind === 'cardDraft')
         ? mark.kind
         : 'highlight';
+      var color = safeColor(mark.color);
+
+      // An area capture marks the element it covered, not a run of text.
+      if (mark.region) {
+        var element = elementAtPath(mark.path);
+        if (!element) { continue; }
+        var regionKind = kind === 'cardDraft' ? 'cardDraft' : 'card';
+        var box = mark.box;
+        if (box && box.length === 4 && box[2] > 0 && box[3] > 0) {
+          placeRegionBox(element, box, regionKind, mark.id, color);
+          applied++;
+          continue;
+        }
+        // Captured before boxes were kept: outline the block instead.
+        element.setAttribute('data-amgi-region-mark', regionKind);
+        if (mark.id) { element.setAttribute('data-amgi-mark-id', String(mark.id)); }
+        if (color) { element.style.setProperty('--amgi-mark-color', color); }
+        applied++;
+        continue;
+      }
 
       // With the marked text in hand, trust the offset only if the text is
       // really there. Anchors stored before offsets were chapter-wide counted
@@ -757,6 +884,7 @@
 
       var consumed = 0;
       var matched = false;
+      var run = [];
       for (var t = 0; t < nodes.length; t++) {
         var node = nodes[t];
         var nodeStart = consumed;
@@ -768,12 +896,57 @@
         token.setAttribute('data-amgi-mark', kind);
         if (mark.id) { token.setAttribute('data-amgi-mark-id', String(mark.id)); }
         if (mark.color) { token.setAttribute('data-amgi-mark-color', String(mark.color)); }
+        if (color) { token.style.setProperty('--amgi-mark-color', color); }
+        if (run[run.length - 1] !== token) { run.push(token); }
         matched = true;
+      }
+      if (matched && (kind === 'card' || kind === 'cardDraft' || kind === 'highlight')) {
+        bridgedRuns.push(run);
+        bridgeRun(run);
       }
       if (matched) { applied++; }
     }
     return applied;
   };
+
+  // A capture is one passage, so it should read as one: the words carry
+  // their own tint (text height, so stacked lines stay apart), and the space
+  // after each word that is followed on the same line by the next word of
+  // the passage is filled by a same-height bridge. The bridge widths are
+  // measured, because justified lines stretch their spaces, and measured
+  // again whenever the page re-lays out.
+  var bridgedRuns = [];
+
+  function bridgeRun(tokens) {
+    for (var i = 0; i < tokens.length - 1; i++) {
+      var a = tokens[i];
+      var b = tokens[i + 1];
+      var aRects = a.getClientRects();
+      var bRects = b.getClientRects();
+      if (!aRects.length || !bRects.length) { continue; }
+      var ra = aRects[aRects.length - 1];
+      var rb = bRects[0];
+      var sameLine = Math.abs(ra.top - rb.top) < ra.height * 0.5;
+      var gap = rb.left - ra.right;
+      if (sameLine && gap > 0 && gap < ra.height * 4) {
+        a.setAttribute('data-amgi-gap', '1');
+        a.style.setProperty('--amgi-gap', gap + 'px');
+      }
+    }
+  }
+
+  function unbridgeAll() {
+    var bridged = document.querySelectorAll('.amgi-tok[data-amgi-gap]');
+    for (var i = 0; i < bridged.length; i++) {
+      bridged[i].removeAttribute('data-amgi-gap');
+      bridged[i].style.removeProperty('--amgi-gap');
+    }
+  }
+
+  function rebridgeAll() {
+    unbridgeAll();
+    for (var i = 0; i < bridgedRuns.length; i++) { bridgeRun(bridgedRuns[i]); }
+  }
 
   // Host-callable: an anchor for wherever the reader currently is.
   //
@@ -799,10 +972,119 @@
     };
   };
 
+  // Host-callable: an anchor for an area of the page the reader drew a box
+  // around, in viewport coordinates.
+  //
+  // A reflowing page has no fixed coordinates to keep, so the area is
+  // anchored to the element it covered — the figure, table or formula block
+  // — found by walking up from the box's centre to the first element that
+  // fills most of it. The text inside the box gives the quote and offset, so
+  // the anchor also re-finds by text like any other.
+  window.__amgiRegionAnchor = function (x, y, width, height) {
+    if (!(width > 0 && height > 0)) { return null; }
+    var area = width * height;
+    function coverage(rect) {
+      var ix = Math.max(0, Math.min(rect.right, x + width) - Math.max(rect.left, x));
+      var iy = Math.max(0, Math.min(rect.bottom, y + height) - Math.max(rect.top, y));
+      return (ix * iy) / area;
+    }
+    // The smallest block that holds the whole box: the box is kept relative
+    // to it, so its mark is drawn exactly where it was drawn, and moves with
+    // that block when the page reflows. Pictures and other replaced elements
+    // cannot hold the mark, so their block does.
+    var REPLACED = /^(IMG|SVG|VIDEO|CANVAS|IMAGE|MATH|INPUT|BR|HR|IFRAME|OBJECT|EMBED)$/i;
+    function holds(rect) {
+      return rect.left <= x + 2 && rect.top <= y + 2
+        && rect.right >= x + width - 2 && rect.bottom >= y + height - 2;
+    }
+    var start = document.elementFromPoint(x + width / 2, y + height / 2);
+    var element = null;
+    var fallback = null;
+    var node = start;
+    while (node && node !== document.body && node !== document.documentElement) {
+      if (isElement(node) && !(node.classList && node.classList.contains('amgi-tok'))
+          && !node.hasAttribute('data-amgi-running-head')
+          && !node.hasAttribute('data-amgi-page-number')
+          && !REPLACED.test(node.tagName)) {
+        var display = window.getComputedStyle(node).display;
+        if (display && display.indexOf('inline') !== 0 && display !== 'contents') {
+          if (!fallback && coverage(node.getBoundingClientRect()) >= 0.7) { fallback = node; }
+          if (holds(node.getBoundingClientRect())) { element = node; break; }
+        }
+      }
+      node = node.parentNode;
+    }
+    element = element || fallback;
+    var box = null;
+    if (element) {
+      var host = element.getBoundingClientRect();
+      if (host.width > 0 && host.height > 0) {
+        box = {
+          x: (x - host.left) / host.width,
+          y: (y - host.top) / host.height,
+          width: width / host.width,
+          height: height / host.height
+        };
+      }
+    }
+
+    // The words inside the box, in reading order.
+    var inside = [];
+    var tokens = document.querySelectorAll('.amgi-tok');
+    for (var i = 0; i < tokens.length; i++) {
+      var r = tokens[i].getBoundingClientRect();
+      var cx = r.left + r.width / 2;
+      var cy = r.top + r.height / 2;
+      if (cx >= x && cx <= x + width && cy >= y && cy <= y + height) { inside.push(tokens[i]); }
+    }
+    var quote = collapseSpace(inside.map(function (t) { return t.textContent || ''; }).join(''));
+    var cfi = null;
+    if (inside.length) {
+      var located = textNodeAndOffsetFor(inside[0]);
+      if (located) {
+        var offset = chapterOffsetOf(located.node, located.offset);
+        if (offset !== null && offset >= 0) { cfi = offset; }
+      }
+    }
+    var path = element ? elementPath(document.body, element) : null;
+    if (!path && cfi === null) { return null; }
+    return {
+      cfi: cfi,
+      path: path,
+      quote: quote.length > MAX_QUOTE_CHARS ? quote.substring(0, MAX_QUOTE_CHARS) : quote,
+      contextBefore: null,
+      contextAfter: null,
+      pageIndex: state.page,
+      box: box
+    };
+  };
+
   // Reports which mark, if any, sits under a point, so a tap on an
   // already-marked token can offer to remove it rather than silently starting
   // a second highlight over the first.
   window.__amgiMarkAt = function (x, y) {
+    // An area mark first: a figure or formula has no caret to land on. The
+    // boxes let touches through to the page, so they are hit by geometry.
+    var boxes = document.querySelectorAll('.amgi-region-box');
+    for (var b = boxes.length - 1; b >= 0; b--) {
+      var r = boxes[b].getBoundingClientRect();
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
+        return {
+          id: boxes[b].getAttribute('data-amgi-mark-id') || null,
+          kind: boxes[b].getAttribute('data-amgi-region-mark')
+        };
+      }
+    }
+    var hit = document.elementFromPoint(x, y);
+    while (hit && hit !== document.body) {
+      if (hit.getAttribute && hit.getAttribute('data-amgi-region-mark')) {
+        return {
+          id: hit.getAttribute('data-amgi-mark-id') || null,
+          kind: hit.getAttribute('data-amgi-region-mark')
+        };
+      }
+      hit = hit.parentNode;
+    }
     var range = document.caretRangeFromPoint(x, y);
     if (!range || !range.startContainer) { return null; }
     var node = range.startContainer;
@@ -1159,6 +1441,8 @@
     // The page the words landed on starts somewhere before them; the words
     // the reader was at stay the anchor, not that page's first word.
     state.anchor = keep;
+    // Spaces moved with the layout; the passages' bridges follow them.
+    rebridgeAll();
     reportPageInfo();
     return state.count;
   }

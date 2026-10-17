@@ -28,6 +28,9 @@ final class PDFViewCoordinator: NSObject {
     var onTapCenter: (() -> Void)?
     var onTapPrevPage: (() -> Void)?
     var onTapNextPage: (() -> Void)?
+    /// A tap landed on a capture mark: its id, kind (`card`, `cardDraft`),
+    /// and where, in window coordinates.
+    var onCaptureMarkTap: ((_ id: String, _ kind: String, _ point: CGPoint) -> Void)?
 
     var contextProvider: ((
         _ source: PDFSelectionContext.Source,
@@ -164,6 +167,39 @@ final class PDFViewCoordinator: NSObject {
     func restoreSelection() {
         guard let view, let saved = savedSelection else { return }
         view.setCurrentSelection(saved, animate: false)
+    }
+
+    /// An area of a page, from a box drawn over the view, rendered from the
+    /// page itself — crisp at any zoom, unlike a screenshot — with the page
+    /// and the box's place on it as its anchor.
+    func regionCapture(viewRect: CGRect, bookID: String) -> ReaderRegionCapture? {
+        guard let view, let document = view.document,
+              let page = view.page(for: CGPoint(x: viewRect.midX, y: viewRect.midY), nearest: true) else { return nil }
+        let box = page.bounds(for: .mediaBox)
+        let onPage = view.convert(viewRect, to: page).intersection(box)
+        guard !onPage.isNull, onPage.width >= 2, onPage.height >= 2,
+              let normalised = PDFRegionCapture.normalizedRect(from: onPage, on: page) else { return nil }
+        // The page draws its annotations into the crop, and the reader's own
+        // capture marks are annotations: lift them off for the draw, so a
+        // picture never carries the box or highlight of an earlier capture.
+        let marks = page.annotations.filter { PDFCaptureMarks.parse($0.userName) != nil }
+        marks.forEach(page.removeAnnotation)
+        let png = PDFRegionCapture.capture(page: page, rect: normalised)
+        marks.forEach(page.addAnnotation)
+        guard let png else { return nil }
+        let index = document.index(for: page)
+        let text = ReaderSourceAnchor.normalize(page.selection(for: onPage)?.string ?? "")
+        return ReaderRegionCapture(
+            image: png,
+            anchor: ReaderSourceAnchor(bookID: bookID, cfi: index, quote: text),
+            region: ReaderPageRegion(
+                page: index,
+                x: (onPage.minX - box.minX) / box.width,
+                y: (box.maxY - onPage.maxY) / box.height,
+                width: onPage.width / box.width,
+                height: onPage.height / box.height
+            )
+        )
     }
 
     func pageRect(for viewRect: CGRect) -> (rect: PDFNormalizedRect, pageIndex: Int)? {
@@ -440,8 +476,22 @@ final class PDFViewCoordinator: NSObject {
     #if os(iOS)
     @objc func handleTap(_ recognizer: UITapGestureRecognizer) {
         guard let view else { return }
-        if view.currentSelection != nil { return }
+        // A tap away from a selection dismisses it, as it does everywhere
+        // else in the system. This recogniser wins over PDFKit's own
+        // tap-to-deselect, so it has to do that itself; returning early here
+        // left the selection and its menu up no matter where you tapped.
+        if view.currentSelection != nil {
+            clearSelection()
+            onSelectionChanged?(nil)
+            return
+        }
         let point = recognizer.location(in: view)
+        // A capture mark opens its card, or brings its draft forward.
+        if let page = view.page(for: point, nearest: false),
+           let mark = PDFCaptureMarks.parse(page.annotation(at: view.convert(point, to: page))?.userName) {
+            onCaptureMarkTap?(mark.id, mark.kind, view.convert(point, to: nil))
+            return
+        }
         let width = view.bounds.width
         if navigation.transition != .continuous {
             if point.x < width * 0.18 {

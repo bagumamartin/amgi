@@ -40,6 +40,8 @@ struct EPUBChapterReaderView: View {
     @State private var pageJumpVisible = false
     @State private var pageJumpInput = ""
     @State private var compactMenuVisible = false
+    /// Text or area selection; area draws boxes over the page for cards.
+    @State private var captureMode: ReaderCaptureMode = .text
     @State private var readingHistory: [ReaderReadingPosition] = []
     @State private var previousPosition: ReaderReadingPosition?
     @State private var skipNextHistoryRecord = false
@@ -250,6 +252,9 @@ struct EPUBChapterReaderView: View {
             await cards.attach(book: book, annotations: annotations)
             await model.preloadChapterContents(for: book)
         }
+        // A tapped capture's menu, over everything, at the capture.
+        .overlay { ReaderMarkMenuLayer(session: cards) }
+        .animation(AmgiMotion.standard, value: cards.markMenu?.id)
         .task(id: chapterIndex) {
             await annotations.load(bookID: book.id)
             await prepareRestoreIfNeeded()
@@ -381,6 +386,8 @@ struct EPUBChapterReaderView: View {
             ])
         }
         .onDisappear {
+            // Leaving the book saves the cards that are ready.
+            Task { [cards] in await cards.saveReadyDrafts() }
             endOfBookToastDismiss?.cancel()
             progressSaveDebounce?.cancel()
             flushProgress()
@@ -509,6 +516,15 @@ struct EPUBChapterReaderView: View {
                 .accessibilityAction(named: "Previous page") {
                     requestPageTurn(.backward)
                 }
+                #if os(iOS)
+                .overlay {
+                    if captureMode == .area {
+                        areaCaptureOverlay()
+                            .ignoresSafeArea()
+                            .transition(.opacity)
+                    }
+                }
+                #endif
             }
         } else {
             ProgressView()
@@ -768,10 +784,39 @@ struct EPUBChapterReaderView: View {
         }
     }
 
+    #if os(iOS)
+    /// Boxes drawn over the page become pictures on cards. The page host
+    /// captures the box from the page as it is on screen.
+    private func areaCaptureOverlay() -> some View {
+        ReaderAreaCaptureOverlay(
+            colour: cards.captureColour,
+            targetTitle: cards.drafts.frontmost?.shortTitle,
+            onAction: { action, rect in
+                Task {
+                    guard let capture = await pageCommands.regionCapture?(rect) else {
+                        cards.showToast(.init(message: "Couldn’t capture that area", systemImage: "exclamationmark.triangle"))
+                        return
+                    }
+                    await cards.handleRegion(cards.command(for: action), capture: capture)
+                }
+            },
+            onTap: { toggleChrome() }
+        )
+    }
+    #endif
+
     @ViewBuilder
     private var bottomChromeBar: some View {
         if chromeVisible && !pageTurnAnimationActive {
             HStack(alignment: .center) {
+                #if os(iOS)
+                ReaderCaptureModeButton(
+                    mode: $captureMode,
+                    colour: cards.captureColour,
+                    onColour: { cards.setCaptureColour($0) },
+                    size: Self.chromeControlSize
+                )
+                #endif
                 Spacer(minLength: 0)
                 // A docked draft takes this spot; the page also prints its
                 // own number, so nothing is lost while a card is waiting.
@@ -903,7 +948,9 @@ struct EPUBChapterReaderView: View {
                 onBringToFront: { id in Task { await cards.drafts.bringToFront(id) } },
                 onDrop: { text, id in
                     Task { await cards.drop(text, on: id, selection: pageCommands.lastSelection) }
-                }
+                },
+                onRecolour: { id, colour in Task { await cards.setColour(colour, forDraft: id) } },
+                imageURL: { cards.drafts.imageURL($0) }
             )
         }
         .frame(maxWidth: .infinity)
@@ -1056,17 +1103,38 @@ struct EPUBChapterReaderView: View {
             )
         }
 
-        let noteItems: [ReaderContentsSheet.NoteItem] = annotations.highlights.map { hl in
-            ReaderContentsSheet.NoteItem(
+        // Highlights and captures together, in reading order: chapter, then
+        // place in the chapter.
+        func chapterNumber(_ anchor: ReaderSourceAnchor?) -> Int? {
+            anchor?.chapterID.flatMap { id in book.chapters.firstIndex(where: { $0.id == id }) }
+        }
+        func order(_ anchor: ReaderSourceAnchor?) -> (Int, Int) {
+            (chapterNumber(anchor) ?? Int.max, anchor?.cfi ?? 0)
+        }
+        let captures = cards.captureListings()
+        var placed: [(key: (Int, Int), item: ReaderContentsSheet.NoteItem)] = annotations.highlights.map { hl in
+            (order(hl.anchor), ReaderContentsSheet.NoteItem(
                 id: hl.id.uuidString,
                 pageIndex: 0,
-                pageLabel: hl.anchor.chapterID.flatMap { id in
-                    book.chapters.firstIndex(where: { $0.id == id }).map { "Ch. \($0 + 1)" }
-                } ?? "",
+                pageLabel: chapterNumber(hl.anchor).map { "Ch. \($0 + 1)" } ?? "",
                 quote: hl.excerpt,
-                colorHex: hl.colorHex
-            )
+                note: hl.note,
+                colorHex: hl.colorHex ?? PDFAnnotationColour.yellow.hex
+            ))
         }
+        placed += captures.map { capture in
+            (order(capture.anchor), ReaderContentsSheet.NoteItem(
+                id: capture.id,
+                pageIndex: 0,
+                pageLabel: chapterNumber(capture.anchor).map { "Ch. \($0 + 1)" } ?? "",
+                quote: capture.quote,
+                colorHex: capture.colorHex,
+                kind: capture.kind == .card ? .card : .draft,
+                secondary: capture.secondary,
+                images: capture.images
+            ))
+        }
+        let noteItems = placed.sorted { $0.key < $1.key }.map(\.item)
 
         return ReaderContentsSheet(
             bookTitle: book.title,
@@ -1098,8 +1166,59 @@ struct EPUBChapterReaderView: View {
             onSelectNote: { item in
                 if let hl = annotations.highlights.first(where: { $0.id.uuidString == item.id }) {
                     jump(to: hl)
+                } else if let anchor = captures.first(where: { $0.id == item.id })?.anchor {
+                    navigate(to: anchor)
                 }
-            }
+            },
+            noteActions: listActions
+        )
+    }
+
+    /// What the highlights list can do to a mark: highlights through the
+    /// annotation model, captures through the card session — the same calls
+    /// the page's mark menu makes.
+    private var listActions: ReaderContentsSheet.NoteActions {
+        func highlight(_ item: ReaderContentsSheet.NoteItem) -> ReaderAnnotation? {
+            annotations.highlights.first { $0.id.uuidString == item.id }
+        }
+        return ReaderContentsSheet.NoteActions(
+            edit: { item in
+                guard let menu = cards.menu(forListing: item.id) else { return }
+                // After the list has gone, so the editor has the screen.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                    Task { await cards.openMarkTarget(menu) }
+                }
+            },
+            setNote: { item, text in
+                guard let hl = highlight(item) else { return }
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                Task { await annotations.updateNote(hl, note: trimmed.isEmpty ? nil : trimmed) }
+            },
+            remove: { item in
+                if let hl = highlight(item) {
+                    Task {
+                        await annotations.delete(hl)
+                        refreshPaintedMarks()
+                    }
+                } else if let menu = cards.menu(forListing: item.id) {
+                    Task { await cards.removeMark(menu) }
+                }
+            },
+            deleteCard: { item in
+                guard let menu = cards.menu(forListing: item.id) else { return }
+                Task { await cards.deleteCard(menu) }
+            },
+            recolour: { item, colour in
+                if let hl = highlight(item) {
+                    Task {
+                        await annotations.setColour(colour.hex, ids: [hl.id], inBook: book.id)
+                        refreshPaintedMarks()
+                    }
+                } else if let menu = cards.menu(forListing: item.id) {
+                    Task { await cards.recolourMark(menu, to: colour) }
+                }
+            },
+            canRecolour: { _ in true }
         )
     }
 
@@ -1313,8 +1432,9 @@ private extension EPUBChapterReaderView {
             let chapterID = payload.anchor?.chapterID
             Task { await cards.handle(command, payload: payload, chapterID: chapterID) }
         }
-        pageCommands.markTapHandler = { [cards] id, kind in
-            Task { await cards.markTapped(id: id, kind: kind) }
+        cards.onGoTo = { navigate(to: $0) }
+        pageCommands.markTapHandler = { [cards] id, kind, point in
+            Task { await cards.markTapped(id: id, kind: kind, at: point) }
         }
         cards.onMarksChanged = { refreshPaintedMarks() }
         cards.onCardAdded = { chapterID in

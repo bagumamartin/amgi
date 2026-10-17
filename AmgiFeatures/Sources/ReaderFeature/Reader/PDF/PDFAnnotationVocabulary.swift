@@ -231,6 +231,8 @@ struct PDFPageAnnotation: Identifiable, Equatable, Sendable {
     let modified: Date?
 
     init?(pdfAnnotation: PDFAnnotation, pageIndex: Int) {
+        // Capture marks are drawn by the reader, not made by the user.
+        guard !(pdfAnnotation.userName?.hasPrefix(PDFCaptureMarks.namePrefix) ?? false) else { return nil }
         guard let subtype = pdfAnnotation.type,
               let kind = PDFAnnotationKind(subtype: subtype)
         else { return nil }
