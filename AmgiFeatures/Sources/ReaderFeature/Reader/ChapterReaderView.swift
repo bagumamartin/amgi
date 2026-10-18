@@ -125,8 +125,8 @@ struct ChapterReaderView: View {
         )
     }
 
-    private var assistantContext: AssistantContext {
-        AssistantContext(title: book.title, reference: "Source book:\(book.id), chapter:\(chapter.id). \(chapter.content)", kind: "reader")
+    private var assistantContext: [AssistantContext] {
+        [.chapter(bookID: book.id, bookTitle: book.title, chapterID: chapter.id, title: chapter.title, text: chapter.content)]
     }
 
     var body: some View {

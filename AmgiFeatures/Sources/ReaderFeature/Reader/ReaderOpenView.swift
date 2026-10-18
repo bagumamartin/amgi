@@ -35,7 +35,7 @@ struct ReaderOpenView: View {
             // The Ask AI pill reads the screen's context from here when the
             // reader has not published a more specific one.
             .transformPreference(AssistantScreenContextKey.self) { value in
-                if value == nil { value = AssistantContext(title: book.title, reference: "Source book:\(book.id)", kind: "reader") }
+                if value.isEmpty { value = [.book(id: book.id, title: book.title)] }
             }
     }
 

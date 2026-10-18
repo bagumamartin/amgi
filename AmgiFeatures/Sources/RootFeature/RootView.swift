@@ -376,7 +376,7 @@ public struct RootView: View {
                 presentReview(deckId: DeckID(0), pullCooling: true)
             },
             onOpenAssistant: { context in
-                assistantSheet = AssistantSheetRequest(prompt: nil, context: context)
+                assistantSheet = AssistantSheetRequest(prompt: nil, contexts: context)
             },
             assistantIsPresented: assistantSheet != nil
         )
@@ -531,8 +531,8 @@ public struct RootView: View {
 private struct AssistantSheetRequest: Identifiable {
     let id = UUID()
     let prompt: String?
-    let context: AssistantContext
-    init(prompt: String?, context: AssistantContext = AssistantContext()) { self.prompt = prompt; self.context = context }
+    let contexts: [AssistantContext]
+    init(prompt: String?, contexts: [AssistantContext] = [.collection]) { self.prompt = prompt; self.contexts = contexts }
 }
 
 private struct AssistantPresentation: ViewModifier {
@@ -558,7 +558,7 @@ private struct AssistantPresentation: ViewModifier {
     }
 
     @ViewBuilder private func surface(_ request: AssistantSheetRequest) -> some View {
-        StudyAssistantView(initialPrompt: request.prompt, context: request.context, onRoute: onRoute, onOpenNote: onOpenNote, onClose: close)
+        StudyAssistantView(initialPrompt: request.prompt, contexts: request.contexts, onRoute: onRoute, onOpenNote: onOpenNote, onClose: close)
     }
 
     func body(content: Content) -> some View {

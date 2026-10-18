@@ -176,7 +176,7 @@ struct DeckDetailView: View {
             .animation(AmgiMotion.momentum, value: model.rebuildFeedback)
             // Keyed on the store's generation so mutations (subdeck create,
             // rebuild/empty, import) reload this screen via Invalidation.
-            .preference(key: AssistantScreenContextKey.self, value: AssistantContext(title: deck.name, deckID: deck.id.rawValue, kind: "deck"))
+            .preference(key: AssistantScreenContextKey.self, value: [AssistantContext.deck(id: deck.id.rawValue, name: deck.name)])
             .task(id: store.generation) {
                 await model.loadCounts()
                 await model.loadChildren()

@@ -81,12 +81,7 @@ package struct ReviewView: View {
         )
         .sheet(isPresented: $showAssistant) {
             StudyAssistantView(
-                context: AssistantContext(
-                    title: L10n.text("This card"),
-                    deckID: deckId.rawValue,
-                    noteID: session.currentNote?.id.rawValue,
-                    kind: "review"
-                ),
+                contexts: [.card(noteID: session.currentNote?.id.rawValue, deckID: deckId.rawValue)],
                 onNoteSaved: { Task { await session.refreshAfterEdit() } }
             )
             .presentationDetents([.large])

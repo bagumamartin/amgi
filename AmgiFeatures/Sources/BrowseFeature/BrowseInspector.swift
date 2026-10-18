@@ -84,7 +84,7 @@ struct BrowseDetailTabs: View {
 
             content
         }
-        .preference(key: AssistantScreenContextKey.self, value: note.map { AssistantContext(title: "Selected note", reference: $0.flds, deckID: deckID?.rawValue, noteID: $0.id.rawValue, kind: "note") })
+        .preference(key: AssistantScreenContextKey.self, value: note.map { [AssistantContext.note(id: $0.id.rawValue, deckID: deckID?.rawValue, fields: $0.flds)] } ?? [])
         .amgiScreenCanvas()
         .navigationTitle(tab == .edit ? "" : "Details")
         .toolbar { detailChrome }

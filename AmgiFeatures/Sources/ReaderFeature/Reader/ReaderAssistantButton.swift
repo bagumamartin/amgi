@@ -9,7 +9,7 @@ import SwiftUI
 /// its own controls. Opens through the root's presenter; renders nothing
 /// without one (previews).
 struct ReaderAssistantButton: View {
-    let context: () -> AssistantContext
+    let context: () -> [AssistantContext]
     var size: CGFloat = 44
     /// Off in a toolbar, which draws its own glass.
     var floating = true

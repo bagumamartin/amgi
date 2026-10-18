@@ -175,8 +175,14 @@ struct PDFReaderView: View {
         .sensoryFeedback(.impact(weight: .light), trigger: cards.clippedCount)
     }
 
-    private var assistantContext: AssistantContext {
-        AssistantContext(title: book.title, reference: "Source book:\(book.id), page:\(navigation.pageIndex + 1). Page text: \(String((model.document?.page(at: navigation.pageIndex)?.string ?? "").prefix(5000))). Selected text: \(selection?.text ?? "")", kind: "reader")
+    /// The page on screen, and the selection on it if any.
+    private var assistantContext: [AssistantContext] {
+        let page = AssistantContext.page(
+            bookID: book.id, bookTitle: book.title, page: navigation.pageIndex + 1,
+            text: model.document?.page(at: navigation.pageIndex)?.string ?? ""
+        )
+        guard let passage = AssistantContext.passage(selection?.text, bookID: book.id, bookTitle: book.title) else { return [page] }
+        return [passage, page]
     }
 
     private static let assistantButtonSize: CGFloat = 44

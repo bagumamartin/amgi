@@ -171,6 +171,7 @@ let package = Package(
                 .product(name: "AmgiUI", package: "AmgiUI"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
             ],
+            resources: [.process("Resources")],
             swiftSettings: sharedSwiftSettings
         ),
         .testTarget(

@@ -857,8 +857,18 @@ struct EPUBChapterReaderView: View {
         .accessibilityLabel(compactMenuVisible ? "Close reader menu" : "Open reader menu")
     }
 
-    private var assistantContext: AssistantContext {
-        AssistantContext(title: book.title, reference: "Source book:\(book.id), chapter:\(currentChapter?.id ?? 0). \(currentChapter?.content ?? "")", kind: "reader")
+    /// The chapter on screen, and the passage selected in it if any.
+    private var assistantContext: [AssistantContext] {
+        var contexts: [AssistantContext] = []
+        if let passage = AssistantContext.passage(pageCommands.lastSelection?.text, bookID: book.id, bookTitle: book.title) {
+            contexts.append(passage)
+        }
+        if let chapter = currentChapter {
+            contexts.append(.chapter(bookID: book.id, bookTitle: book.title, chapterID: chapter.id, title: chapter.title, text: chapter.content))
+        } else {
+            contexts.append(.book(id: book.id, title: book.title))
+        }
+        return contexts
     }
 
     /// Ask AI, stacked directly over the menu button in the trailing column

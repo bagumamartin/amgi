@@ -64,9 +64,9 @@ struct MainTabView: View {
     let studyTodayDeckID: Int64?
     let onSelectStudyDeck: (DeckID) -> Void
     let onPullCooling: () -> Void
-    let onOpenAssistant: @MainActor (AssistantContext) -> Void
+    let onOpenAssistant: @MainActor ([AssistantContext]) -> Void
     var assistantIsPresented = false
-    @State private var screenContext: AssistantContext?
+    @State private var screenContext: [AssistantContext] = []
     @State private var captureKind: QuickCaptureKind?
     @State private var showsCaptureOptions = false
     @State private var captureRowFrame: CGRect = .zero
@@ -150,7 +150,7 @@ struct MainTabView: View {
         .overlay(alignment: .bottomTrailing) {
             // Readers own this corner — their menu, card dock, and their own
             // Ask AI button live there — so the whole entry steps aside.
-            if usesFloatingEntry && !assistantIsPresented && screenContext?.kind != "reader" {
+            if usesFloatingEntry && !assistantIsPresented && !screenContext.isReader {
                 FloatingAssistantEntry(openAssistant: openAssistant, capture: { captureKind = $0 })
                     .padding(20)
             }
@@ -160,7 +160,7 @@ struct MainTabView: View {
         .onAppear { sceneActions.presentSettings = { accountDestination = .settings } }
         .sheet(item: $captureKind) { QuickCaptureView(kind: $0) }
         .onChange(of: selection) { oldValue, newValue in
-            screenContext = nil
+            screenContext = []
             showsCaptureOptions = false
             if newValue == .browse, oldValue != .browse {
                 previousSection = oldValue
@@ -200,7 +200,9 @@ struct MainTabView: View {
         }
     }
 
-    private func openAssistant() { onOpenAssistant(screenContext ?? AssistantContext(title: selection.title)) }
+    /// The screen's own context when it has one; otherwise the collection,
+    /// which the user can remove like any other chip.
+    private func openAssistant() { onOpenAssistant(screenContext.isEmpty ? [.collection] : screenContext) }
 
     private var usesFloatingEntry: Bool {
         #if os(macOS)
@@ -253,7 +255,7 @@ struct MainTabView: View {
         .tabViewStyle(.sidebarAdaptable)
         .defaultAdaptableTabBarPlacement(.sidebar)
         .tabBarMinimizeBehavior(.onScrollDown)
-        .assistantEntryAccessory(isEnabled: horizontalSizeClass == .compact && screenContext?.kind != "reader") {
+        .assistantEntryAccessory(isEnabled: horizontalSizeClass == .compact && !screenContext.isReader) {
             AssistantEntryRow(
                 openAssistant: openAssistant,
                 showsCapture: $showsCaptureOptions,

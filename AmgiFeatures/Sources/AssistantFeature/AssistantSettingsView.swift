@@ -8,8 +8,6 @@ import AmgiUI
 public struct AssistantSettingsView: View {
     @Environment(\.palette) private var palette
 
-    @AppStorage(AutomationPreferences.foundationModelsEnabledKey)
-    private var foundationModelsEnabled = true
     @AppStorage(AutomationPreferences.exposeNoteTitlesKey)
     private var exposeNoteTitles = false
     @AppStorage(AutomationPreferences.spotlightDeckNamesKey)
@@ -17,11 +15,16 @@ public struct AssistantSettingsView: View {
 
     public init() {}
 
+    /// The default model's name, for the Settings row.
+    @MainActor public static var modelSummary: String {
+        let model = AssistantProviderStore.shared.effectiveModel
+        return model.provider == .apple ? FoundationModelService.availability.title : model.name
+    }
+
     public var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: AmgiSpacing.xl) {
-                statusPanel
-                generationPanel
+                modelsPanel
                 retrievalPanel
                 systemSearchPanel
                 privacyPanel
@@ -30,7 +33,7 @@ public struct AssistantSettingsView: View {
             .padding(.vertical, AmgiSpacing.xl)
         }
         .amgiScreenCanvas()
-        .navigationTitle("Apple Intelligence")
+        .navigationTitle("AI Assistant")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
@@ -68,40 +71,61 @@ public struct AssistantSettingsView: View {
         }
     }
 
-    private var statusPanel: some View {
-        AssistantSettingsPanel {
-            HStack(spacing: AmgiSpacing.md) {
-                AssistantSettingsIcon(
-                    systemImage: "sparkles",
-                    color: FoundationModelService.availability == .ready ? palette.positive : palette.warning
-                )
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("System model")
-                        .amgiFont(.bodyEmphasis)
-                    Text(FoundationModelService.availability.detail)
-                        .amgiFont(.caption)
-                        .foregroundStyle(palette.textSecondary)
-                }
-                Spacer()
-            }
-            .padding(AmgiSpacing.lg)
+    private var modelsPanel: some View {
+        VStack(alignment: .leading, spacing: AmgiSpacing.sm) {
+            AssistantSettingsHeader("Models")
+            AssistantSettingsPanel { AssistantConnectionsPanel() }
+            Text("Connect your own ChatGPT plan or API key for stronger models and photo and PDF attachments. Requests go straight from this device to the provider.")
+                .amgiFont(.caption)
+                .foregroundStyle(palette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, AmgiSpacing.xs)
+            AssistantSettingsPanel { defaultModelRow }
+                .padding(.top, AmgiSpacing.sm)
         }
     }
 
-    private var generationPanel: some View {
-        VStack(alignment: .leading, spacing: AmgiSpacing.sm) {
-            AssistantSettingsHeader("Generation")
-            AssistantSettingsPanel {
-                Toggle(isOn: $foundationModelsEnabled) {
-                    AssistantSettingsLabel(
-                        title: "Use Apple Intelligence",
-                        subtitle: "Uses Apple's on-device model when available. Turning it off keeps deterministic study summaries."
-                    )
+    private var defaultModelRow: some View {
+        let store = AssistantProviderStore.shared
+        let current = store.effectiveModel
+        let connected = AssistantProvider.allCases.filter { $0.isCloud && store.isConnected($0) }
+        return HStack(spacing: AmgiSpacing.md) {
+            Text("New chats use")
+                .amgiFont(.body)
+                .foregroundStyle(palette.textPrimary)
+            Spacer(minLength: AmgiSpacing.sm)
+            Menu {
+                Button { store.select(.onDevice) } label: {
+                    if current == .onDevice { Label(AssistantModel.onDevice.name, systemImage: "checkmark") } else { Text(AssistantModel.onDevice.name) }
                 }
-                .tint(palette.accent)
-                .padding(AmgiSpacing.lg)
+                ForEach(connected) { provider in
+                    Section(provider.title) {
+                        ForEach(store.models[provider] ?? []) { model in
+                            Button { store.select(model) } label: {
+                                if current == model { Label(model.name, systemImage: "checkmark") } else { Text(model.name) }
+                            }
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: AmgiSpacing.sm) {
+                    ProviderGlyph(provider: current.provider, size: 14)
+                        .foregroundStyle(palette.textPrimary)
+                    Text(current.name)
+                        .amgiFont(.body)
+                        .foregroundStyle(palette.textSecondary)
+                        .lineLimit(1)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(palette.textTertiary)
+                }
             }
+            .menuIndicator(.hidden)
+            .buttonStyle(.plain)
+            .fixedSize()
         }
+        .padding(.horizontal, AmgiSpacing.lg)
+        .frame(minHeight: 56)
     }
 
     private var systemSearchPanel: some View {
@@ -143,7 +167,7 @@ public struct AssistantSettingsView: View {
                 VStack(alignment: .leading, spacing: AmgiSpacing.md) {
                     Label("On-device by default", systemImage: "iphone.gen3")
                         .amgiFont(.bodyEmphasis)
-                    Text("Study Assistant sends only a bounded set of matching note fields to Apple's system model. Ijuka does not proxy those requests through its own server, and collection changes require your review before saving.")
+                    Text("With Apple Intelligence, everything stays on this device. With ChatGPT or Claude, your message, the contexts you attach and any files go directly to that provider under your account — Ijuka runs no server in between. Either way, collection changes require your review before saving.")
                         .amgiFont(.caption)
                         .foregroundStyle(palette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)

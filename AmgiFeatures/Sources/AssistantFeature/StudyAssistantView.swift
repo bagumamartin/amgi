@@ -10,27 +10,27 @@ import UIKit
 #endif
 
 /// The assistant chat. Presented as a sheet by the scene; the context it is
-/// opened with becomes the chat's scope and decides its suggestions.
+/// opened with become its context chips and decide its suggestions.
 public struct StudyAssistantView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.assistantSceneNavigation) private var sceneNavigation
     @State private var engine: AssistantEngine?
     @State private var loadError: String?
     private let initialPrompt: String?
-    private let context: AssistantContext
+    private let contexts: [AssistantContext]
     private let onRoute: (@MainActor (AssistantRoute) -> Void)?
     private let onOpenNote: (@MainActor (AssistantCitation) -> Void)?
     private let onClose: (@MainActor () -> Void)?
     private let onNoteSaved: (@MainActor () -> Void)?
 
     public init(
-        initialPrompt: String? = nil, context: AssistantContext = AssistantContext(),
+        initialPrompt: String? = nil, contexts: [AssistantContext] = [.collection],
         onRoute: (@MainActor (AssistantRoute) -> Void)? = nil,
         onOpenNote: (@MainActor (AssistantCitation) -> Void)? = nil,
         onClose: (@MainActor () -> Void)? = nil,
         onNoteSaved: (@MainActor () -> Void)? = nil
     ) {
-        self.initialPrompt = initialPrompt; self.context = context
+        self.initialPrompt = initialPrompt; self.contexts = contexts
         self.onRoute = onRoute; self.onOpenNote = onOpenNote; self.onClose = onClose
         self.onNoteSaved = onNoteSaved
     }
@@ -38,7 +38,7 @@ public struct StudyAssistantView: View {
     public var body: some View {
         Group {
             if let engine {
-                AssistantChatView(engine: engine, launchContext: context, openNote: { citation in
+                AssistantChatView(engine: engine, openNote: { citation in
                     engine.stop(); close(); (onOpenNote ?? sceneNavigation.note)(citation)
                 }, close: { engine.stop(); close() })
             } else if let loadError {
@@ -51,7 +51,7 @@ public struct StudyAssistantView: View {
         .task {
             guard engine == nil else { return }
             do {
-                let created = try AssistantEngine(context: context)
+                let created = try AssistantEngine(contexts: contexts)
                 let routeHandler = onRoute ?? sceneNavigation.route
                 let dismissAction = dismiss
                 let explicitClose = onClose
@@ -76,7 +76,6 @@ public struct StudyAssistantView: View {
 
 struct AssistantChatView: View {
     @Bindable var engine: AssistantEngine
-    let launchContext: AssistantContext
     let openNote: (AssistantCitation) -> Void
     let close: () -> Void
     @Environment(\.palette) private var palette
@@ -85,6 +84,8 @@ struct AssistantChatView: View {
     @State private var renaming: ChatSession?
     @State private var newTitle = ""
     @State private var previewSource: AssistantSource?
+    @State private var showContextPicker = false
+    @State private var showConnections = false
 
     /// What the head is doing: a fresh reaction wins, then the turn's phase,
     /// then whether the user is typing.
@@ -134,10 +135,19 @@ struct AssistantChatView: View {
                 .onChange(of: engine.turns.last?.reply) { proxy.scrollTo("bottom", anchor: .bottom) }
                 .onChange(of: engine.turns.last?.steps.count) { proxy.scrollTo("bottom", anchor: .bottom) }
             }
-            composer
+            AssistantComposer(
+                engine: engine, focused: $focused, send: send,
+                showContextPicker: { focused = false; showContextPicker = true },
+                showConnections: { focused = false; showConnections = true }
+            )
         }
         .background(palette.surface)
+        .animation(AmgiMotion.quick, value: engine.contexts)
+        .animation(AmgiMotion.quick, value: engine.attachments)
         .sheet(isPresented: $showHistory) { AssistantHistory(engine: engine) }
+        .sheet(isPresented: $showContextPicker) { AssistantContextPicker(engine: engine) }
+        .sheet(isPresented: $showConnections) { AssistantConnectionsSheet() }
+        .modifier(ChatGPTPlanWelcome(store: engine.providers))
         .sheet(item: $previewSource) { AssistantSourcePreview(source: $0, profile: engine.profile) }
         .sheet(item: Binding(get: { engine.pendingDraft }, set: { if $0 == nil { engine.resolveReview(nil) } })) { draft in
             AssistantFlashcardReview(draft: draft) { engine.resolveReview($0) }
@@ -217,13 +227,13 @@ struct AssistantChatView: View {
             Section("This chat") {
                 Button("Rename…", systemImage: "pencil") { newTitle = session.title; renaming = session }
                 Button("Copy conversation", systemImage: "doc.on.doc") { copy(engine.transcript) }
-                if engine.scope != launchContext {
-                    Button("Ask about \(launchContext.title)", systemImage: "viewfinder") { engine.useContext(launchContext) }
-                }
                 Button("Delete", systemImage: "trash", role: .destructive) { Task { await engine.delete(session) } }
             }
         }
         Button("New chat", systemImage: "square.and.pencil") { engine.newChat() }
+        Section("Model: \(engine.model.name)") {
+            Button("AI Connections…", systemImage: "link") { focused = false; showConnections = true }
+        }
     }
 
     // MARK: Empty state
@@ -239,13 +249,17 @@ struct AssistantChatView: View {
                 Label(engine.availability.detail, systemImage: "lock.shield")
                     .amgiFont(.caption)
                     .foregroundStyle(palette.textSecondary)
+            } else if !engine.model.provider.isCloud {
+                Label("Private, on this device", systemImage: "lock.shield")
+                    .amgiFont(.caption)
+                    .foregroundStyle(palette.textTertiary)
             }
             VStack(alignment: .leading, spacing: AmgiSpacing.xs) {
                 Text("Suggestions")
                     .amgiFont(.captionBold)
                     .foregroundStyle(palette.textSecondary)
                     .padding(.bottom, AmgiSpacing.xs)
-                ForEach(ChatSuggestion.for(engine.scope)) { suggestion in
+                ForEach(ChatSuggestion.for(engine.contexts.first)) { suggestion in
                     Button { use(suggestion) } label: {
                         Label {
                             Text(suggestion.title).foregroundStyle(palette.textPrimary)
@@ -264,11 +278,14 @@ struct AssistantChatView: View {
     }
 
     private var greeting: String {
-        switch engine.scope.kind {
-        case "deck": L10n.text("What shall we do with \(engine.scope.title)?")
-        case "reader": L10n.text("Reading \(engine.scope.title)?")
-        case "note", "review": L10n.text("Let's dig into this card.")
-        default: L10n.text("What are we learning today?")
+        guard let first = engine.contexts.first else { return L10n.text("What are we learning today?") }
+        return switch first.type {
+        case .deck: L10n.text("What shall we do with \(first.title)?")
+        case .book, .chapter: L10n.text("Reading \(first.title)?")
+        case .page: L10n.text("What's on \(first.title.lowercased())?")
+        case .passage: L10n.text("Let's look at this passage.")
+        case .note, .review: L10n.text("Let's dig into this card.")
+        case .collection: L10n.text("What are we learning today?")
         }
     }
 
@@ -280,48 +297,6 @@ struct AssistantChatView: View {
             engine.draft = suggestion.prompt
             focused = true
         }
-    }
-
-    // MARK: Composer
-
-    private var composer: some View {
-        VStack(alignment: .leading, spacing: AmgiSpacing.sm) {
-            ContextChip(scope: engine.scope) {
-                engine.useContext(AssistantContext())
-            }
-            TextField("Ask anything", text: $engine.draft, axis: .vertical)
-                .amgiFont(.body)
-                .textFieldStyle(.plain)
-                .lineLimit(1...6)
-                .focused($focused)
-                .submitLabel(.send)
-                .onSubmit { send() }
-                .accessibilityIdentifier("assistant.composer")
-            HStack {
-                Spacer()
-                Button {
-                    if engine.isBusy { engine.stop() } else { send() }
-                } label: {
-                    Image(systemName: engine.isBusy ? "stop.fill" : "arrow.up")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(canSend || engine.isBusy ? palette.background : palette.textTertiary)
-                        .frame(width: 36, height: 36)
-                        .background(canSend || engine.isBusy ? palette.textPrimary : palette.separator, in: Circle())
-                }
-                .buttonStyle(.plain)
-                .disabled(!canSend && !engine.isBusy)
-                .accessibilityLabel(engine.isBusy ? "Stop" : "Send")
-            }
-        }
-        .padding(AmgiSpacing.lg)
-        .background(palette.surfaceElevated, in: RoundedRectangle(cornerRadius: AmgiRadius.card, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: AmgiRadius.card, style: .continuous)
-                .strokeBorder(palette.separator, lineWidth: 1)
-        }
-        .amgiChromeShadow(RoundedRectangle(cornerRadius: AmgiRadius.card, style: .continuous), radius: 16, y: 6, opacity: 0.08)
-        .padding(.horizontal, AmgiSpacing.md)
-        .padding(.bottom, AmgiSpacing.sm)
     }
 
     private var canSend: Bool {
@@ -362,69 +337,6 @@ private struct HeaderButton: ViewModifier {
     }
 }
 
-// MARK: - Context chip
-
-/// What the chat is about. Tap the × to widen it to the whole collection.
-private struct ContextChip: View {
-    let scope: AssistantContext
-    let clear: () -> Void
-    @Environment(\.palette) private var palette
-
-    var body: some View {
-        HStack(spacing: AmgiSpacing.sm) {
-            Image(systemName: icon)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(palette.textSecondary)
-                .frame(width: 30, height: 30)
-                .background(palette.surface, in: RoundedRectangle(cornerRadius: AmgiRadius.small, style: .continuous))
-            VStack(alignment: .leading, spacing: 0) {
-                Text(scope.kind == "collection" ? L10n.text("Collection") : scope.title)
-                    .amgiFont(.captionBold)
-                    .foregroundStyle(palette.textPrimary)
-                    .lineLimit(1)
-                Text(subtitle)
-                    .amgiFont(.micro)
-                    .foregroundStyle(palette.textTertiary)
-            }
-            if scope.kind != "collection" {
-                Button(action: clear) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(palette.textTertiary)
-                        .frame(width: 22, height: 22)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Ask about the whole collection instead")
-            }
-        }
-        .padding(.leading, AmgiSpacing.xs)
-        .padding(.trailing, AmgiSpacing.sm)
-        .padding(.vertical, AmgiSpacing.xs)
-        .background(palette.background, in: RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous))
-        .accessibilityElement(children: .combine)
-    }
-
-    private var icon: String {
-        switch scope.kind {
-        case "deck": "rectangle.stack"
-        case "note": "note.text"
-        case "reader": "book"
-        case "review": "rectangle.on.rectangle"
-        default: "books.vertical"
-        }
-    }
-
-    private var subtitle: String {
-        switch scope.kind {
-        case "deck": L10n.text("This deck")
-        case "note": L10n.text("This note")
-        case "reader": L10n.text("This book")
-        case "review": L10n.text("In review")
-        default: L10n.text("All decks")
-        }
-    }
-}
-
 // MARK: - Turns
 
 private struct TurnView: View {
@@ -449,6 +361,15 @@ private struct TurnView: View {
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .padding(.leading, 48)
 
+            if !turn.info.files.isEmpty {
+                HStack(spacing: AmgiSpacing.sm) {
+                    ForEach(turn.info.files) { file in
+                        AssistantAttachmentChip(name: file.name, kind: file.kind, thumbnail: file.thumbnail)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+
             if isLatest {
                 HStack(spacing: AmgiSpacing.sm) {
                     AssistantHead(mood).frame(width: 28, height: 28)
@@ -464,15 +385,12 @@ private struct TurnView: View {
             ForEach(turn.steps) { step in StepRow(step: step) }
 
             if !turn.reply.isEmpty {
-                Text(Self.render(turn.reply))
-                    .amgiFont(.body)
-                    .foregroundStyle(palette.textPrimary)
-                    .lineSpacing(4)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                AssistantMarkdown(text: turn.reply)
             }
 
-            if let error = turn.error {
+            if turn.usageLimited {
+                ChatGPTUsageLimitCard()
+            } else if let error = turn.error {
                 Label(error, systemImage: "exclamationmark.triangle")
                     .amgiFont(.caption)
                     .foregroundStyle(palette.warning)
@@ -507,6 +425,11 @@ private struct TurnView: View {
                         .accessibilityLabel("Copy")
                     ShareLink(item: turn.reply) { Image(systemName: "square.and.arrow.up") }
                         .accessibilityLabel("Share")
+                    if let model = turn.info.model {
+                        Text(model)
+                            .amgiFont(.micro)
+                            .lineLimit(1)
+                    }
                 }
                 .buttonStyle(.plain)
                 .font(.system(size: 14))
@@ -524,9 +447,6 @@ private struct TurnView: View {
         }
     }
 
-    static func render(_ text: String) -> AttributedString {
-        (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text)
-    }
 }
 
 private struct StepRow: View {
@@ -598,35 +518,54 @@ struct ChatSuggestion: Identifiable {
     /// Sends at once; otherwise fills the composer for the user to finish.
     let sends: Bool
 
-    static func `for`(_ scope: AssistantContext) -> [ChatSuggestion] {
-        switch scope.kind {
-        case "deck":
+    static func `for`(_ scope: AssistantContext?) -> [ChatSuggestion] {
+        guard let scope else { return general }
+        return switch scope.type {
+        case .deck:
             [
                 .init(title: L10n.text("How much is due here?"), icon: "calendar", prompt: L10n.text("How much is due in \(scope.title) today?"), sends: true),
                 .init(title: L10n.text("Add cards to this deck…"), icon: "rectangle.stack.badge.plus", prompt: L10n.text("Make flashcards for \(scope.title) about "), sends: false),
                 .init(title: L10n.text("Quiz me on this deck"), icon: "questionmark.bubble", prompt: L10n.text("Ask me one question at a time about \(scope.title)."), sends: true),
                 .init(title: L10n.text("Start reviewing"), icon: "play.rectangle", prompt: L10n.text("Start reviewing \(scope.title)."), sends: true),
             ]
-        case "note", "review":
+        case .note, .review:
             [
                 .init(title: L10n.text("Explain this card"), icon: "lightbulb", prompt: L10n.text("Explain this card simply."), sends: true),
                 .init(title: L10n.text("Give me a memory trick"), icon: "sparkle.magnifyingglass", prompt: L10n.text("Give me a mnemonic for this card."), sends: true),
                 .init(title: L10n.text("Make related cards"), icon: "rectangle.stack.badge.plus", prompt: L10n.text("Make two flashcards related to this card."), sends: true),
                 .init(title: L10n.text("Fix a mistake in this card…"), icon: "pencil", prompt: L10n.text("Fix this card: "), sends: false),
             ]
-        case "reader":
+        case .passage:
+            [
+                .init(title: L10n.text("Explain this passage"), icon: "lightbulb", prompt: L10n.text("Explain this passage in plain words."), sends: true),
+                .init(title: L10n.text("Define the hard words"), icon: "character.book.closed", prompt: L10n.text("List and define the difficult words in this passage."), sends: true),
+                .init(title: L10n.text("Make cards from it"), icon: "rectangle.stack.badge.plus", prompt: L10n.text("Make flashcards from this passage."), sends: true),
+                .init(title: L10n.text("Translate it"), icon: "globe", prompt: L10n.text("Translate this passage into "), sends: false),
+            ]
+        case .chapter, .book:
             [
                 .init(title: L10n.text("Summarize this chapter"), icon: "text.alignleft", prompt: L10n.text("Summarize this chapter in a few sentences."), sends: true),
                 .init(title: L10n.text("Make cards from this chapter"), icon: "rectangle.stack.badge.plus", prompt: L10n.text("Make flashcards from the key ideas in this chapter."), sends: true),
+                .init(title: L10n.text("Quiz me on it"), icon: "questionmark.bubble", prompt: L10n.text("Ask me one question at a time about this chapter."), sends: true),
                 .init(title: L10n.text("Explain a passage…"), icon: "text.quote", prompt: L10n.text("Explain this passage: "), sends: false),
             ]
-        default:
+        case .page:
             [
+                .init(title: L10n.text("Summarize this page"), icon: "text.alignleft", prompt: L10n.text("Summarize this page in a few sentences."), sends: true),
+                .init(title: L10n.text("Make cards from this page"), icon: "rectangle.stack.badge.plus", prompt: L10n.text("Make flashcards from the key ideas on this page."), sends: true),
+                .init(title: L10n.text("Explain a passage…"), icon: "text.quote", prompt: L10n.text("Explain this passage: "), sends: false),
+            ]
+        case .collection:
+            general
+        }
+    }
+
+    static var general: [ChatSuggestion] {
+        [
                 .init(title: L10n.text("What should I study today?"), icon: "calendar", prompt: L10n.text("What should I study today?"), sends: true),
                 .init(title: L10n.text("Make flashcards about…"), icon: "rectangle.stack.badge.plus", prompt: L10n.text("Make flashcards about "), sends: false),
                 .init(title: L10n.text("Find notes about…"), icon: "magnifyingglass", prompt: L10n.text("Find my notes about "), sends: false),
                 .init(title: L10n.text("Quiz me"), icon: "questionmark.bubble", prompt: L10n.text("Quiz me with one question about something in my collection."), sends: true),
             ]
-        }
     }
 }

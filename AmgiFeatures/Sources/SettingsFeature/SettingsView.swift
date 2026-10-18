@@ -173,9 +173,9 @@ package struct SettingsView: View {
 
     private var intelligenceSection: some View {
         Group {
-            SettingsSectionHeader(title: "Apple Intelligence")
+            SettingsSectionHeader(title: "AI Assistant")
             SettingsGroup {
-                routeLink(.assistant, detail: FoundationModelService.availability.title) {
+                routeLink(.assistant, detail: AssistantSettingsView.modelSummary) {
                     AssistantSettingsView()
                 }
             }

@@ -38,7 +38,7 @@ enum SettingsRoute: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .reviewBehavior: "Review Behavior"
         case .cardRendering: "Card Rendering"
         case .shortcuts: "Shortcuts"
-        case .assistant: "Study Assistant & System Search"
+        case .assistant: "Models, Connections & Search"
         case .readerDisplay: "Reader Display"
         case .dictionaries: "Dictionaries"
         case .tags: "Manage Tags"
@@ -133,7 +133,7 @@ enum SettingsRouteInventory {
         SettingsRouteGroup(title: "Appearance", routes: [.appearance]),
         SettingsRouteGroup(title: "Account", routes: [.profiles, .syncServer]),
         SettingsRouteGroup(title: "Review", routes: [.reviewBehavior, .cardRendering, .shortcuts]),
-        SettingsRouteGroup(title: "Apple Intelligence", routes: [.assistant]),
+        SettingsRouteGroup(title: "AI Assistant", routes: [.assistant]),
         SettingsRouteGroup(title: "Reader", routes: [.readerDisplay, .dictionaries]),
         SettingsRouteGroup(title: "Tags", routes: [.tags]),
         SettingsRouteGroup(title: "Maintenance", routes: [.database, .backups, .emptyCards, .mediaCheck]),

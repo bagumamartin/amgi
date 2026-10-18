@@ -69,7 +69,11 @@ struct NoteFixDraft: Identifiable, Sendable {
 @MainActor
 final class AssistantToolbox {
     let profile: ProfileContext
-    var scope: AssistantContext
+    /// What the chat is about. The first card-like context is the one
+    /// "fix this card" edits; the first deck is where new cards go.
+    var contexts: [AssistantContext]
+    var noteID: Int64? { contexts.first { $0.type == .note || $0.type == .review }?.noteID }
+    var deckID: Int64? { contexts.first { $0.type == .deck }?.deckID ?? contexts.lazy.compactMap(\.deckID).first }
     /// Inserts or replaces a step (matched by id) on the turn in progress.
     var report: (AssistantStep) -> Void = { _ in }
     /// Presents the draft and resumes with the user's edits, or `nil` when
@@ -93,9 +97,9 @@ final class AssistantToolbox {
     @Dependency(\.notetypesClient) private var notetypes
     @Dependency(\.collectionStore) private var store
 
-    init(profile: ProfileContext, scope: AssistantContext) {
+    init(profile: ProfileContext, contexts: [AssistantContext]) {
         self.profile = profile
-        self.scope = scope
+        self.contexts = contexts
     }
 
     func beginTurn() {
@@ -224,15 +228,55 @@ final class AssistantToolbox {
 
     // MARK: Fix this card
 
-    /// The note the chat is about, as "Field: text" lines — what the model
-    /// reads to explain or correct it.
-    func describeScopedNote() async -> String? {
-        guard let id = scope.noteID, let note = try? await notes.fetch(NoteID(id)),
-              let type = try? await notetypes.get(note.mid) else { return nil }
-        let values = note.flds.components(separatedBy: "\u{1f}")
-        return zip(type.fields.map(\.name), values)
-            .map { "\($0): \(String(CardText.plainText($1).prefix(400)))" }
-            .joined(separator: "\n")
+    // MARK: Context
+
+    /// Fills in what a context only names: a card's fields and a readable
+    /// title, a deck's workload, the collection's decks. Quiet — no steps.
+    func resolve(_ context: AssistantContext) async -> AssistantContext {
+        var resolved = context
+        switch context.type {
+        case .note, .review:
+            guard let id = context.noteID, let note = try? await notes.fetch(NoteID(id)),
+                  let type = try? await notetypes.get(note.mid) else { return context }
+            let values = note.flds.components(separatedBy: "\u{1f}")
+            resolved.reference = zip(type.fields.map(\.name), values)
+                .map { "\($0): \(String(CardText.plainText($1).prefix(1200)))" }
+                .joined(separator: "\n")
+            let front = values.first.map { CardText.plainText($0).trimmed } ?? ""
+            if !front.isEmpty {
+                resolved.title = String(front.prefix(60)) + (front.count > 60 ? "…" : "")
+            }
+            let deckName = await deckName(context.deckID ?? 0)
+            resolved.subtitle = context.type == .review
+                ? (deckName.map { L10n.text("Reviewing in \($0)") } ?? L10n.text("Card in review"))
+                : (deckName.map { L10n.text("\(type.name) in \($0)") } ?? type.name)
+        case .deck:
+            guard let id = context.deckID, let tree = try? await decks.fetchTree(),
+                  let node = Self.flatten(tree).first(where: { $0.id.rawValue == id }) else { return context }
+            let lines = Self.flatten([node]).prefix(20).map { "\($0.fullName): \($0.counts.newCount) new, \($0.counts.learnCount) learning, \($0.counts.reviewCount) to review" }
+            resolved.reference = "Deck \(node.fullName). Due today:\n" + lines.joined(separator: "\n")
+        case .collection:
+            guard let tree = try? await decks.fetchTree() else { return context }
+            let all = Self.flatten(tree)
+            let lines = all.prefix(30).map { "\($0.fullName): \($0.counts.newCount) new, \($0.counts.learnCount) learning, \($0.counts.reviewCount) to review" }
+            resolved.reference = "The user's flashcard collection has \(all.count) decks. Due today:\n" + lines.joined(separator: "\n")
+            resolved.subtitle = all.count == 1 ? L10n.text("1 deck") : L10n.text("\(all.count) decks")
+        case .book, .chapter, .page, .passage:
+            break
+        }
+        return resolved
+    }
+
+    /// Every deck, for the context picker.
+    func allDecks() async -> [AssistantContext] {
+        let all = (try? await decks.fetchAll()) ?? []
+        return all.map { AssistantContext.deck(id: $0.id.rawValue, name: $0.name) }
+            .sorted { $0.subtitle + $0.title < $1.subtitle + $1.title }
+    }
+
+    private func deckName(_ id: Int64) async -> String? {
+        guard id != 0 else { return nil }
+        return try? await decks.fetchAll().first { $0.id.rawValue == id }?.name
     }
 
     func fixThisCard(_ fixes: [(field: String, text: String)]) async -> String {
@@ -243,7 +287,7 @@ final class AssistantToolbox {
         report(step)
         do {
             try checkProfile()
-            guard let id = scope.noteID else {
+            guard let id = noteID else {
                 throw AgentToolError.invalid(L10n.text("Open the card you want to fix, then ask again"))
             }
             guard let note = try await notes.fetch(NoteID(id)) else {
@@ -381,7 +425,7 @@ final class AssistantToolbox {
             if let exact = all.first(where: { $0.name.caseInsensitiveCompare(hint) == .orderedSame }) { return exact.id }
             if let close = all.first(where: { Self.matches($0.name, hint) }) { return close.id }
         }
-        if let scoped = scope.deckID, all.contains(where: { $0.id == scoped }) { return scoped }
+        if let scoped = deckID, all.contains(where: { $0.id == scoped }) { return scoped }
         return (all.first { $0.name != "Default" } ?? all[0]).id
     }
 
