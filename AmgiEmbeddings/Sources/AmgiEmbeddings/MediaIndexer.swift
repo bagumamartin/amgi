@@ -13,8 +13,12 @@ public actor MediaIndexer {
     private let cache: URL
     public private(set) var failures: [String] = []
     public init(index: RetrievalIndex, cache: URL) { self.index = index; self.cache = cache }
-    public func indexFile(_ url: URL, sourceID: String, title: String) async throws {
+    /// Returns false when some passage failed to embed (the file is still
+    /// searchable; the caller should not mark it fully indexed).
+    @discardableResult
+    public func indexFile(_ url: URL, sourceID: String, title: String) async throws -> Bool {
         try Task.checkCancellation()
+        let failuresBefore = failures.count
         let fingerprint = try Self.fingerprint(url)
         let ext = url.pathExtension.lowercased()
         var kept = Set<String>()
@@ -25,7 +29,7 @@ public actor MediaIndexer {
                 try await backgroundBudget()
                 guard let page = document.page(at: pageIndex) else { continue }
                 let id = "\(sourceID):page:\(pageIndex)"; kept.insert(id)
-                if let cached = try await index.cached(id, fingerprint: fingerprint), cached.vector != nil {
+                if let cached = try await index.cached(id, fingerprint: fingerprint, requireVector: ModelAssetManager.isInstalled(.vision)) {
                     for offset in Self.passages(cached.text).indices { kept.insert(id + ":text:\(offset)") }
                     continue
                 }
@@ -38,10 +42,11 @@ public actor MediaIndexer {
                 segment.vector = ModelAssetManager.isInstalled(.vision) ? try await TextEmbedder.shared.embedMixed([.text(String(text.prefix(6000))), .image(imageURL)]) : nil
                 try await index.upsert(segment)
                 // Pages with substantial text also get bounded passage vectors.
-                for (offset, passage) in Self.passages(text).enumerated() {
-                    let passageID = id + ":text:\(offset)"; kept.insert(passageID)
-                    try await indexText(passage, id: passageID, sourceID: sourceID, title: title, anchor: "page:\(pageIndex + 1):passage:\(offset)", url: url, fingerprint: fingerprint)
+                let items = Self.passages(text).enumerated().map { offset, passage in
+                    TextItem(text: passage, id: id + ":text:\(offset)", sourceID: sourceID, title: title, anchor: "page:\(pageIndex + 1):passage:\(offset)", url: url, fingerprint: fingerprint)
                 }
+                kept.formUnion(items.map(\.id))
+                try await indexTexts(items)
             }
         } else if ["mp4", "mov", "m4v", "webm"].contains(ext) {
             let asset = AVURLAsset(url: url)
@@ -55,7 +60,7 @@ public actor MediaIndexer {
             for seconds in stride(from: 0.0, to: duration, by: 3.0) {
                 try await backgroundBudget()
                 let id = "\(sourceID):frame:\(Int(seconds))"; kept.insert(id)
-                if let cached = try await index.cached(id, fingerprint: fingerprint), cached.vector != nil { previousHash = cached.imageHash; continue }
+                if let cached = try await index.cached(id, fingerprint: fingerprint, requireVector: ModelAssetManager.isInstalled(.vision)) { previousHash = cached.imageHash; continue }
                 let result = try await generator.image(at: CMTime(seconds: seconds, preferredTimescale: 600))
                 let hash = try Self.averageHash(result.image)
                 if let previousHash, (hash ^ previousHash).nonzeroBitCount <= 4 { kept.remove(id); continue }
@@ -75,7 +80,7 @@ public actor MediaIndexer {
             kept = try await audio(asset: AVURLAsset(url: url), url: url, sourceID: sourceID, title: title, fingerprint: fingerprint)
         } else if ["png", "jpg", "jpeg", "heic", "webp", "tif", "tiff", "gif"].contains(ext) {
             let id = sourceID + ":image"; kept.insert(id)
-            if let cached = try await index.cached(id, fingerprint: fingerprint), cached.vector != nil { return }
+            if try await index.cached(id, fingerprint: fingerprint, requireVector: ModelAssetManager.isInstalled(.vision)) != nil { return true }
             let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: 1400]
             guard let source = CGImageSourceCreateWithURL(url as CFURL, nil), let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { throw MediaIndexError.unreadable }
             let flattened = try Self.flatten(image)
@@ -84,9 +89,10 @@ public actor MediaIndexer {
             var segment = RetrievalSegment(id: id, sourceID: sourceID, title: title, text: try Self.ocr(flattened), modality: .image, anchor: "image", sourceURL: url, fingerprint: fingerprint)
             if ModelAssetManager.isInstalled(.vision) { segment.vector = try await TextEmbedder.shared.embedImage(imageURL) }
             try await index.upsert(segment)
-        } else { return }
+        } else { return true }
         try Task.checkCancellation()
         try await index.pruneSource(sourceID, keeping: kept)
+        return failures.count == failuresBefore
     }
     private func audio(asset: AVAsset, url: URL, sourceID: String, title: String, fingerprint: String) async throws -> Set<String> {
         guard let track = try await asset.loadTracks(withMediaType: .audio).first else { return [] }
@@ -122,21 +128,59 @@ public actor MediaIndexer {
         return kept
     }
     private func audioWindow(_ samples: [Float], start: Int, id: String, sourceID: String, title: String, url: URL, fingerprint: String) async throws {
-        if let cached = try await index.cached(id, fingerprint: fingerprint), cached.vector != nil { return }
+        if try await index.cached(id, fingerprint: fingerprint, requireVector: ModelAssetManager.isInstalled(.audio)) != nil { return }
         var segment = RetrievalSegment(id: id, sourceID: sourceID, title: title, text: title, modality: .audio, anchor: "time:\(Double(start) / 16000)-\(Double(start + samples.count) / 16000)", sourceURL: url, fingerprint: fingerprint)
         if ModelAssetManager.isInstalled(.audio) { segment.vector = try await TextEmbedder.shared.embedAudio(samples: samples) }
         try await index.upsert(segment)
     }
     public func indexText(_ text: String, id: String, sourceID: String, title: String, anchor: String = "", url: URL? = nil, fingerprint: String) async throws {
-        if let cached = try await index.cached(id, fingerprint: fingerprint), cached.vector != nil { return }
-        try await backgroundBudget()
-        var segment = RetrievalSegment(id: id, sourceID: sourceID, title: title, text: text, anchor: anchor, sourceURL: url, fingerprint: fingerprint)
-        if ModelAssetManager.isModelInstalled {
-            do { segment.vector = try await TextEmbedder.shared.embed(text, prefix: .passage) }
-            catch is CancellationError { throw CancellationError() }
-            catch { failures.append("\(title) [\(anchor)]: \(error.localizedDescription)") }
+        try await indexTexts([TextItem(text: text, id: id, sourceID: sourceID, title: title, anchor: anchor, url: url, fingerprint: fingerprint)])
+    }
+
+    public struct TextItem: Sendable {
+        public var text, id, sourceID, title, anchor: String
+        public var url: URL?
+        public var fingerprint: String
+        public init(text: String, id: String, sourceID: String, title: String, anchor: String = "", url: URL? = nil, fingerprint: String) {
+            self.text = text; self.id = id; self.sourceID = sourceID; self.title = title; self.anchor = anchor; self.url = url; self.fingerprint = fingerprint
         }
-        try await index.upsert(segment)
+    }
+
+    /// Embeds the items that changed in padded batches of similar length
+    /// and writes each as it lands. Returns the sources with an item that
+    /// failed to embed, so their change fingerprint is not recorded and the
+    /// next scan retries them.
+    @discardableResult
+    public func indexTexts(_ items: [TextItem], batchSize: Int = 8) async throws -> Set<String> {
+        let embeds = ModelAssetManager.isModelInstalled
+        var pending: [TextItem] = []
+        for item in items {
+            if try await index.cached(item.id, fingerprint: item.fingerprint, requireVector: embeds) == nil { pending.append(item) }
+        }
+        // Similar lengths together keep padding waste low.
+        pending.sort { $0.text.count < $1.text.count }
+        var failed = Set<String>()
+        for start in stride(from: 0, to: pending.count, by: max(1, batchSize)) {
+            try await backgroundBudget()
+            let batch = Array(pending[start..<min(pending.count, start + batchSize)])
+            var vectors: [[Float]?] = Array(repeating: nil, count: batch.count)
+            if embeds {
+                do { vectors = try await TextEmbedder.shared.embedBatch(batch.map(\.text), prefix: .passage).map(Optional.some) }
+                catch is CancellationError { throw CancellationError() }
+                catch {
+                    // One bad passage must not sink its batch: retry singly.
+                    for (offset, item) in batch.enumerated() {
+                        do { vectors[offset] = try await TextEmbedder.shared.embed(item.text, prefix: .passage) }
+                        catch is CancellationError { throw CancellationError() }
+                        catch { failures.append("\(item.title) [\(item.anchor)]: \(error.localizedDescription)"); failed.insert(item.sourceID) }
+                    }
+                }
+            }
+            for (item, vector) in zip(batch, vectors) {
+                try await index.upsert(RetrievalSegment(id: item.id, sourceID: item.sourceID, title: item.title, text: item.text, anchor: item.anchor, sourceURL: item.url, fingerprint: item.fingerprint, vector: vector))
+            }
+        }
+        return failed
     }
     /// Bounded, overlapping passages; never silently truncate an entire source.
     public nonisolated static func passages(_ text: String, width: Int = 1800, overlap: Int = 200) -> [String] {

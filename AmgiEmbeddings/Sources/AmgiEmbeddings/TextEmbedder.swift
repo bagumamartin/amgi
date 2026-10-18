@@ -37,6 +37,28 @@ public actor TextEmbedder {
         scheduleUnload()
         return vector
     }
+    /// One padded forward for several texts, in input order. Cached texts
+    /// skip the forward. Callers keep batches small (≈8 passages): padding
+    /// costs grow with the longest member.
+    public func embedBatch(_ texts: [String], prefix: Prefix) async throws -> [[Float]] {
+        guard !isResetting else { throw CancellationError() }
+        activeForwards += 1
+        defer { activeForwards -= 1 }
+        var result = texts.map { vectorCache[prefix.rawValue + ":" + $0] }
+        let missing = result.indices.filter { result[$0] == nil }
+        if !missing.isEmpty {
+            let loaded = try await engineIfNeeded()
+            try Task.checkCancellation()
+            let vectors = try await loaded.encode(missing.map { texts[$0] }, task: prefix == .query ? .search : .document)
+            guard vectors.count == missing.count else { throw EmbedderError.unexpectedModelOutput }
+            for (index, vector) in zip(missing, vectors) {
+                try validate(vector)
+                result[index] = vector
+            }
+            scheduleUnload()
+        }
+        return result.map { $0! }
+    }
     public func embedImage(_ url: URL, maxSoftTokens: Int = 280) async throws -> [Float] {
         guard !isResetting else { throw CancellationError() }
         activeForwards += 1

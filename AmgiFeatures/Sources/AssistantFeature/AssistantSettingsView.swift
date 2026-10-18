@@ -47,16 +47,33 @@ public struct AssistantSettingsView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     ModelAssetStatusView()
                     Divider()
-                    if retrieval.isIndexing {
+                    switch retrieval.phase {
+                    case .indexing:
                         ProgressView(value: Double(retrieval.completed), total: Double(max(1, retrieval.total))) {
-                            Text("Indexing \(retrieval.completed) of \(retrieval.total) sources")
+                            Text("Indexing \(retrieval.completed) of \(retrieval.total) changed sources")
                         }
                         Button("Pause indexing") { retrieval.pause() }
-                    } else {
-                        Button("Resume indexing", systemImage: "arrow.clockwise") { retrieval.resume() }
-                            .disabled(!ModelAssetManager.isModelInstalled)
+                    case .checking:
+                        HStack(spacing: AmgiSpacing.sm) {
+                            ProgressView().controlSize(.small)
+                            Text("Checking for changes…").font(.subheadline).foregroundStyle(.secondary)
+                        }
+                    case .idle:
+                        if retrieval.isPaused {
+                            Button("Resume indexing", systemImage: "play") { retrieval.resume() }
+                                .disabled(!ModelAssetManager.isModelInstalled)
+                        } else {
+                            HStack(spacing: AmgiSpacing.sm) {
+                                Label(retrieval.indexedSources.map { L10n.text("Up to date · \($0) sources") } ?? L10n.text("Up to date"), systemImage: "checkmark.circle")
+                                    .font(.subheadline).foregroundStyle(.secondary)
+                                Spacer(minLength: 0)
+                                Button("Check now", systemImage: "arrow.clockwise") { retrieval.resume() }
+                                    .labelStyle(.iconOnly)
+                                    .disabled(!ModelAssetManager.isModelInstalled)
+                            }
+                        }
                     }
-                    Text("Search covers this profile's notes, managed media and reader library. Indexing resumes from verified segments and pauses during low power or high temperature.")
+                    Text("Search covers this profile's notes, managed media and reader library. Only what changed since the last check is indexed, and indexing pauses during low power or high temperature.")
                         .font(.caption).foregroundStyle(.secondary)
                     if !retrieval.failures.isEmpty {
                         DisclosureGroup("\(retrieval.failures.count) sources need attention") {

@@ -423,18 +423,22 @@ package final class SemanticNoteIndex {
         let modelVersion = activeModelVersion
         defer { if profileGeneration == generation { isBuilding = false } }
 
-        var changed: [(Int64, String, UInt64)] = []
+        var changed: [(Int64, String, UInt64, Int64)] = []
         for record in records {
             let text = Self.corpusText(of: record)
             let hash = BrowseFnv.fnv1a(text)
             if let existing = entries[record.id.rawValue], existing.textHash == hash { continue }
             guard !text.isEmpty else { continue }
-            changed.append((record.id.rawValue, text, hash))
+            changed.append((record.id.rawValue, text, hash, record.mod))
         }
 
-        for (id, text, hash) in changed {
+        for (id, text, hash, mod) in changed {
             guard !Task.isCancelled else { return }
-            guard let vector = await NoteEmbedderBridge.embedPassage(text) else { continue }
+            // The collection index already embedded this note at this mtime;
+            // reuse its pooled vector instead of a second forward pass.
+            var vector = await CollectionRetrievalCoordinator.shared.indexedNoteVector(id, mod: mod)
+            if vector == nil { vector = await NoteEmbedderBridge.embedPassage(text) }
+            guard let vector else { continue }
             guard profileGeneration == generation,
                   activeModelVersion == modelVersion else { return }
             entries[id] = Entry(textHash: hash, vector: vector)
@@ -459,7 +463,7 @@ package final class SemanticNoteIndex {
     /// index unusable right now (UI hides the affordance).
     func search(_ query: String, topK: Int = 50) async -> [Int64]? {
         do {
-            let hits = try await CollectionRetrievalCoordinator.shared.search(query, limit: topK)
+            let hits = try await CollectionRetrievalCoordinator.shared.search(query, limit: topK, filter: RetrievalFilter(sourcePrefixes: ["note:"]))
             let ids = hits.compactMap { hit -> Int64? in
                 guard hit.segment.sourceID.hasPrefix("note:") else { return nil }
                 return Int64(hit.segment.sourceID.dropFirst(5))
