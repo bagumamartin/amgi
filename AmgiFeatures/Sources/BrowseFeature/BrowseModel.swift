@@ -514,7 +514,11 @@ final class BrowseModel {
     }
 
     private func order() -> SearchOrder {
-        SearchOrder(.builtin(column: sortOrder.rawValue, reverse: effectiveSortReverse))
+        // Trouble lists lead with the cards that cost the most re-learning.
+        if case .trouble = source {
+            return SearchOrder(.builtin(column: SortOrder.lapsesDesc.rawValue, reverse: true))
+        }
+        return SearchOrder(.builtin(column: sortOrder.rawValue, reverse: effectiveSortReverse))
     }
 
     func loadDecks() async {
@@ -538,6 +542,8 @@ final class BrowseModel {
         await loadBrowserColumns()
         await activateConfiguredColumns()
         Task { await loadNotetypeChildren() }
+        loadShelf()
+        Task { await loadCardSources() }
         let notetypes = notetypesService
         if let pairs = try? await backendOffload({ try notetypes.getNotetypeNames() }) {
             notetypeNames = Dictionary(uniqueKeysWithValues: pairs.map { ($0.id, $0.name) })
@@ -1545,10 +1551,13 @@ final class BrowseModel {
             if let deck = availableDecks.first(where: { $0.id == id }), deck.id != rootDeck?.id {
                 parts.append(DeckSearch.term(deck.name))
             }
-        case .tag, .untagged, .flag, .cardState, .today, .notetype:
+        case .tag, .untagged, .flag, .cardState, .today, .notetype,
+             .notetypeTemplate, .notetypeField, .trouble:
             if let fragment = source.queryFragment() {
                 parts.append(fragment)
             }
+        case .shelf, .book:
+            parts.append(query(for: source))
         case .saved(let name):
             if let query = savedSearches.searches.first(where: { $0.name == name })?.query {
                 parts.append("( \(query) )")
@@ -1591,6 +1600,10 @@ final class BrowseModel {
         case .saved(let name):
             return savedSearches.searches.first(where: { $0.name == name })?.query
                 ?? "deck:*"
+        case .shelf:
+            return Self.noteIDQuery(shelf)
+        case .book(let id):
+            return Self.noteIDQuery(cardBooks.first { $0.id == id }?.noteIDs ?? [])
         default:
             return source.queryFragment() ?? "deck:*"
         }
@@ -1619,7 +1632,22 @@ final class BrowseModel {
                 ?? "Today"
         case .notetype(let name):
             return name
+        case .notetypeTemplate(_, let template):
+            return template
+        case .notetypeField(_, let field):
+            return field
+        case .trouble(let kind):
+            return kind.title
+        case .shelf:
+            return L10n.text("Shelf")
+        case .book(let id):
+            return cardBooks.first { $0.id == id }?.title ?? L10n.text("Book")
         }
+    }
+
+    /// `nid:` list for a set of notes; an empty set matches nothing.
+    static func noteIDQuery(_ ids: [Int64]) -> String {
+        ids.isEmpty ? "nid:0" : "nid:" + ids.map(String.init).joined(separator: ",")
     }
 
     /// Search the engine for every note and card matching a sidebar scope.
@@ -1679,7 +1707,104 @@ final class BrowseModel {
                 fragment: BrowseSource.notetype(name).queryFragment() ?? "",
                 role: nil
             )
+        case .notetypeTemplate, .notetypeField, .trouble:
+            return FilterNode(
+                title: title(for: source),
+                systemImage: "line.3.horizontal.decrease.circle",
+                fragment: source.queryFragment() ?? "",
+                role: nil
+            )
+        case .shelf, .book:
+            return FilterNode(
+                title: title(for: source),
+                systemImage: "tray.full",
+                fragment: query(for: source),
+                role: nil
+            )
         }
+    }
+
+    // MARK: - Note checker
+
+    @ObservationIgnored @Dependency(\.mediaClient) private var mediaClient
+
+    /// Checks every note the current search (or source) holds. Nil on
+    /// failure. Reads only; the checks run off the main actor.
+    func checkNotes() async -> [NoteCheckIssue: [NoteID]]? {
+        let searchAll = noteClient.searchAll
+        let limit: Int? = nil
+        guard let records = try? await searchAll(buildQuery(), limit) else { return nil }
+        var cloze: Set<NotetypeID> = []
+        for mid in Set(records.map(\.mid)) {
+            if let notetype = try? await notetypesClient.get(mid), notetype.config.kind == .cloze {
+                cloze.insert(mid)
+            }
+        }
+        let localURL = mediaClient.localURL
+        let clozeTypes = cloze
+        return await Task.detached(priority: .userInitiated) {
+            NoteChecker.check(records, clozeNotetypes: clozeTypes) { localURL($0) != nil }
+        }.value
+    }
+
+    // MARK: - Shelf (a selection that survives new searches)
+
+    /// Notes collected across searches, in the order they were added.
+    /// Per profile, kept between launches.
+    private(set) var shelf: [Int64] = []
+
+    private static var shelfKey: String {
+        "browse.shelf.\(AccountStore.shared.current.id)"
+    }
+
+    func loadShelf() {
+        shelf = (UserDefaults.standard.array(forKey: Self.shelfKey) as? [NSNumber])?.map(\.int64Value) ?? []
+    }
+
+    private func persistShelf() {
+        UserDefaults.standard.set(shelf.map { NSNumber(value: $0) }, forKey: Self.shelfKey)
+    }
+
+    func shelfContains(_ noteID: NoteID) -> Bool { shelf.contains(noteID.rawValue) }
+
+    /// Adds the notes behind a selection (cards resolve to their notes).
+    func addToShelf(noteIDs: Set<NoteID>, cardIDs: Set<CardID> = []) async {
+        let notes = await resolveTargetNotes(cardIDs: Array(cardIDs), noteIDs: Array(noteIDs))
+        var seen = Set(shelf)
+        for id in notes.map(\.rawValue) where seen.insert(id).inserted { shelf.append(id) }
+        persistShelf()
+        if source == .shelf { await performSearch() }
+    }
+
+    func removeFromShelf(noteIDs: Set<NoteID>, cardIDs: Set<CardID> = []) async {
+        let notes = Set(await resolveTargetNotes(cardIDs: Array(cardIDs), noteIDs: Array(noteIDs)).map(\.rawValue))
+        shelf.removeAll { notes.contains($0) }
+        persistShelf()
+        if source == .shelf { await performSearch() }
+    }
+
+    func clearShelf() async {
+        shelf = []
+        persistShelf()
+        if source == .shelf { source = .allDecks }
+    }
+
+    // MARK: - Reader provenance
+
+    /// Books with cards made from them, and each reader-made note's link.
+    private(set) var cardBooks: [ReaderCardBook] = []
+    private(set) var cardLinks: [Int64: ReaderCardLink] = [:]
+
+    func loadCardSources() async {
+        let loaded = await ReaderCardSources.load()
+        cardLinks = loaded.links
+        cardBooks = loaded.books
+    }
+
+    func cardLink(for noteID: NoteID) -> ReaderCardLink? { cardLinks[noteID.rawValue] }
+
+    func openInBook(_ link: ReaderCardLink) {
+        ReaderOpenRequestRouter.shared.request(link)
     }
 
     /// Synchronous note resolution for sheet presentation (cached records
@@ -1943,6 +2068,41 @@ final class BrowseModel {
         }
     }
 
+    /// Deletes a deck and its subdecks with their cards (desktop sidebar
+    /// Delete). Undoable through the engine's undo stack.
+    func deleteDeck(id: DeckID) async {
+        let removedIDs = Set(
+            ([id] + availableDecks.filter { deck in
+                availableDecks.first { $0.id == id }.map { deck.name.hasPrefix($0.name + "::") } ?? false
+            }.map(\.id))
+        )
+        do {
+            _ = try await deckClient.delete(id)
+            if case .deck(let current) = source, removedIDs.contains(current) { source = .allDecks }
+            await loadDecks()
+            await refreshAfterMutation()
+            await refreshUndoStatus()
+        } catch {
+            errorMessage = "Couldn't delete deck: \(error.localizedDescription)"
+        }
+    }
+
+    /// Removes tags no note uses (desktop Browse ▸ Clear Unused Tags).
+    /// Returns how many went, nil on failure.
+    func clearUnusedTags() async -> Int? {
+        do {
+            let removed = try await tagClient.clearUnusedTags()
+            allTags = ((try? await tagClient.getAllTags()) ?? []).sorted()
+            if let tree = try? await tagClient.tagTree() { tagTree = tree }
+            if case .tag(let tag) = source, !allTags.contains(tag) { source = .allDecks }
+            await refreshUndoStatus()
+            return removed
+        } catch {
+            errorMessage = "Couldn't clear unused tags: \(error.localizedDescription)"
+            return nil
+        }
+    }
+
     @ObservationIgnored @Dependency(\.decksService) private var decksService
     @ObservationIgnored @Dependency(\.notetypesClient) private var notetypesClient
 
@@ -1950,8 +2110,8 @@ final class BrowseModel {
     /// (desktop notetype tree parity). Loaded once per session.
     private(set) var notetypeChildren: [String: (templates: [String], fields: [String])] = [:]
 
-    func loadNotetypeChildren() async {
-        guard notetypeChildren.isEmpty else { return }
+    func loadNotetypeChildren(force: Bool = false) async {
+        guard force || notetypeChildren.isEmpty else { return }
         let client = notetypesClient
         guard let all = try? await client.listAll() else { return }
         for entry in all.prefix(50) {

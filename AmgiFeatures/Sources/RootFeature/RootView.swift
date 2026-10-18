@@ -146,6 +146,13 @@ public struct RootView: View {
             .onOpenURL { url in
                 handleIncomingURL(url)
             }
+            // Browse's "Open in Book" hands the passage to the reader; the
+            // root only brings the Read tab forward.
+            .onChange(of: ReaderOpenRequestRouter.shared.pending?.id) { _, id in
+                guard id != nil else { return }
+                $showReaderTab.withLock { $0 = true }
+                $sectionRaw.withLock { $0 = MainSection.read.rawValue }
+            }
             #if os(macOS)
             .onReceive(
                 DistributedNotificationCenter.default().publisher(

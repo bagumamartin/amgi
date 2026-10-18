@@ -174,14 +174,17 @@ Three prefixes/suffixes, each answering a different question:
   feature→feature edge — and check the Cxx-chain note before adding one that
   reaches Reader.
 
-  The four surviving feature→feature edges (`Review → Browse`,
-  `Review → Templates`, `Reader → Browse`, `Decks → Browse`) are deliberate:
-  each is a sheet over another feature's editor, and none costs anything
-  measurable. Only the Reader edge did, so only that one was inverted.
+  The five surviving feature→feature edges (`Review → Browse`,
+  `Review → Templates`, `Reader → Browse`, `Decks → Browse`,
+  `Browse → Templates`) are deliberate: each is a sheet over another
+  feature's editor, and none costs anything measurable. Only the Reader edge
+  did, so only that one was inverted. (`Browse → Templates` added 2026-10-18:
+  the sidebar's note type tree opens the field and template editors.
+  Templates is engine- and Cxx-free.)
   (`RootFeature`'s six edges — into `Decks`, `Reader`, `Review`, `Settings`,
   `Stats`, `Sync` — don't belong in this count: a composition root composing
   the screens it hosts is a different kind of edge from one feature reaching
-  sideways into another's editor, so it isn't "the four" becoming ten.)
+  sideways into another's editor, so it isn't "the five" becoming eleven.)
 
 `Feature` is a **suffix, not a prefix** — Swift/Cocoa put the head noun last
 (`UIViewController` *is a* Controller), so `SyncFeature` reads "the Sync

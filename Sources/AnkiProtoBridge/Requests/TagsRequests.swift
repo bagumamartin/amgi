@@ -200,3 +200,18 @@ extension Request where Response == Void {
         )
     }
 }
+
+extension Request where Response == Int {
+    /// Removes tags no note uses (desktop Browse ▸ Clear Unused Tags).
+    /// Returns how many were removed.
+    public static func clearUnusedTags() -> Self {
+        Self(
+            serviceId: ServiceID.tags,
+            methodId: TagsMethod.clearUnusedTags,
+            encode: { try Anki_Generic_Empty().serializedData() },
+            decode: { data in
+                Int(try Anki_Collection_OpChangesWithCount(serializedBytes: data).count)
+            }
+        )
+    }
+}

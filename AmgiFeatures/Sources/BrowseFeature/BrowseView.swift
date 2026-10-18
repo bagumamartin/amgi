@@ -42,7 +42,7 @@ package struct BrowseView: View {
     enum Sheet: Int, Hashable {
         case findDuplicates, findReplace, changeDeck, setDueDate, reposition
         case removeTags, forget, copyNote, export, changeNotetype, filteredDeck
-        case columns, savedSearchManage, previewNav
+        case columns, savedSearchManage, previewNav, noteChecker
 
         var id: Int { rawValue }
     }
@@ -62,6 +62,8 @@ package struct BrowseView: View {
     @State private var accountDestination: AccountMenuDestination?
     @State private var batchScopeOverride: BatchScope?
     @State private var showImportPicker = false
+    @State private var clearedTagsNotice: String?
+    @FocusState private var searchFocused: Bool
 
     private struct BatchScope {
         var notes: Set<NoteID>
@@ -105,6 +107,7 @@ package struct BrowseView: View {
     package var body: some View {
         let search = isOnScreen ? model.assistantSearchContext : nil
         dialogChrome
+            .background { keyboardCommands }
             .onAppear { isOnScreen = true }
             .onDisappear { isOnScreen = false }
             // The note open in the inspector, then the search it came from:
@@ -536,6 +539,7 @@ package struct BrowseView: View {
                 placement: searchPlacement,
                 prompt: searchPrompt
             )
+            .searchFocused($searchFocused)
             .onSubmit(of: .search) { model.commitSearchHistory() }
             .searchSuggestions {
                 // Completions of the word being typed, from the user's own
@@ -574,6 +578,52 @@ package struct BrowseView: View {
         // Completions lead while typing; recents fill in without repeating them.
         let completions = Set(model.searchCompletions)
         return Array(recents.filter { !completions.contains($0) }.prefix(typed.isEmpty ? 8 : 3))
+    }
+
+    // MARK: - Keyboard
+
+    /// Desktop browser keys: ⌃N/⌃P step through results (Anki's own),
+    /// ⌘Home/⌘End jump to the first and last, ⌘F focuses search. Plain
+    /// arrows and Home/End stay with the list and the note editor. Zero-size
+    /// buttons so the shortcuts work wherever Browse is on screen.
+    @ViewBuilder
+    private var keyboardCommands: some View {
+        Group {
+            Button("Next Result") { Task { await stepResult(by: 1) } }
+                .keyboardShortcut("n", modifiers: .control)
+            Button("Previous Result") { Task { await stepResult(by: -1) } }
+                .keyboardShortcut("p", modifiers: .control)
+            Button("First Result") { Task { await focusResult(at: 0) } }
+                .keyboardShortcut(.home, modifiers: .command)
+            Button("Last Result") { Task { await focusResult(at: model.ids.count - 1) } }
+                .keyboardShortcut(.end, modifiers: .command)
+            Button("Find") { searchFocused = true }
+                .keyboardShortcut("f", modifiers: .command)
+        }
+        .frame(width: 0, height: 0)
+        .opacity(0)
+        .accessibilityHidden(true)
+    }
+
+    private var focusedResultIndex: Int? {
+        let current: Int64? = model.mode == .notes ? model.focusedNoteID : model.focusedCardID?.rawValue
+        return current.flatMap { model.ids.firstIndex(of: $0) }
+    }
+
+    private func stepResult(by delta: Int) async {
+        let next = focusedResultIndex.map { $0 + delta } ?? (delta > 0 ? 0 : model.ids.count - 1)
+        await focusResult(at: next)
+    }
+
+    private func focusResult(at index: Int) async {
+        guard model.ids.indices.contains(index) else { return }
+        await model.loadMoreIfNeeded(index: index)
+        let id = model.ids[index]
+        if model.mode == .notes {
+            await model.focus(noteID: id)
+        } else {
+            await model.focus(cardID: id)
+        }
     }
 
     // MARK: - Loading
@@ -629,6 +679,15 @@ package struct BrowseView: View {
 
     private var dialogChrome: some View {
         sheetChrome
+            .alert(
+                clearedTagsNotice ?? "",
+                isPresented: Binding(
+                    get: { clearedTagsNotice != nil },
+                    set: { if !$0 { clearedTagsNotice = nil } }
+                )
+            ) {
+                Button("OK", role: .cancel) { clearedTagsNotice = nil }
+            }
             .confirmationDialog(
                 "Delete this note?",
                 isPresented: Binding(
@@ -752,6 +811,17 @@ package struct BrowseView: View {
     @ViewBuilder
     private func sheetBody(_ sheet: Sheet) -> some View {
         switch sheet {
+        case .noteChecker:
+            NoteCheckerView(
+                scopeTitle: model.searchText.trimmingCharacters(in: .whitespaces).isEmpty
+                    ? sourceTitle
+                    : "“\(model.searchText.trimmingCharacters(in: .whitespaces))” in \(sourceTitle)",
+                run: { await model.checkNotes() },
+                onShow: { ids in
+                    model.mode = .notes
+                    openDuplicateGroup(ids)
+                }
+            )
         case .findDuplicates:
             FindDuplicatesView(
                 notetypeFields: notetypeFieldNames,
@@ -886,6 +956,17 @@ package struct BrowseView: View {
                     Label("Manage Tags…", systemImage: "tag")
                 }
                 Button {
+                    Task {
+                        if let removed = await model.clearUnusedTags() {
+                            clearedTagsNotice = removed == 0
+                                ? "Every tag is in use."
+                                : "Removed \(removed) unused \(removed == 1 ? "tag" : "tags")."
+                        }
+                    }
+                } label: {
+                    Label("Clear Unused Tags", systemImage: "tag.slash")
+                }
+                Button {
                     activeSheet = .savedSearchManage
                 } label: {
                     Label("Manage Saved Searches…", systemImage: "heart.text.square")
@@ -1011,6 +1092,11 @@ package struct BrowseView: View {
             activeSheet = .findReplace
         } label: {
             Label("Find & Replace…", systemImage: "arrow.2.squarepath")
+        }
+        Button {
+            activeSheet = .noteChecker
+        } label: {
+            Label("Check Notes…", systemImage: "checklist")
         }
         Button {
             activeSheet = .filteredDeck
@@ -1182,6 +1268,22 @@ package struct BrowseView: View {
     /// and nothing that's already on the bar (Suspend / Flag / Tags).
     private var batchOverflowMenu: some View {
         Menu {
+            Section {
+                Button {
+                    let notes = batchNotes, cards = batchCards
+                    Task { await model.addToShelf(noteIDs: notes, cardIDs: cards) }
+                } label: {
+                    Label("Add to Shelf", systemImage: "tray.and.arrow.down")
+                }
+                if model.source == .shelf {
+                    Button {
+                        let notes = batchNotes, cards = batchCards
+                        Task { await model.removeFromShelf(noteIDs: notes, cardIDs: cards) }
+                    } label: {
+                        Label("Remove from Shelf", systemImage: "tray.and.arrow.up")
+                    }
+                }
+            }
             Section {
                 Button {
                     unsuspendSelected()

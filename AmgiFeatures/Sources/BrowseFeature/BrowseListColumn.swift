@@ -37,6 +37,11 @@ struct BrowseListColumn: View {
     #if os(macOS)
     @State private var multiSelection: Set<Int64> = []
     #endif
+    @AppStorage("browse.display") private var displayRaw = BrowseDisplay.rows.rawValue
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var gridWidth: CGFloat = 0
+
+    private var display: BrowseDisplay { BrowseDisplay(rawValue: displayRaw) ?? .rows }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -153,6 +158,20 @@ struct BrowseListColumn: View {
             .keyboardShortcut("e", modifiers: .command)
             .disabled(model.ids.isEmpty)
             #endif
+
+            Menu {
+                Picker("View as", selection: $displayRaw) {
+                    ForEach(BrowseDisplay.allCases) { mode in
+                        Label(mode.title, systemImage: mode.systemImage).tag(mode.rawValue)
+                    }
+                }
+                .pickerStyle(.inline)
+            } label: {
+                Label("View as", systemImage: display.systemImage)
+                    .labelStyle(.iconOnly)
+            }
+            .fixedSize()
+            .help("Rows, waterfall, or grid")
 
             Menu {
                 Picker("Sort by", selection: $model.sortOrder) {
@@ -317,6 +336,14 @@ struct BrowseListColumn: View {
 
     @ViewBuilder
     private var itemList: some View {
+        switch display {
+        case .rows: rowList
+        case .grid, .waterfall: tileScroll
+        }
+    }
+
+    @ViewBuilder
+    private var rowList: some View {
         #if os(macOS)
         List(selection: $multiSelection) { listRows }
             .scrollContentBackground(.hidden)
@@ -649,6 +676,10 @@ private struct BrowseActionRow<Content: View>: View {
             if onOpenDetails != nil || onToggleSelection != nil {
                 Divider()
             }
+            if let note = effectiveNoteId {
+                provenanceAndShelf(note)
+                Divider()
+            }
             if let id = effectiveCardId {
                 actionMenu(cardId: id)
             }
@@ -681,6 +712,35 @@ private struct BrowseActionRow<Content: View>: View {
     }
 
     private var effectiveCardId: CardID? { resolvedCardId ?? cardId }
+
+    /// The row's note, in either mode.
+    private var effectiveNoteId: NoteID? {
+        noteId ?? cardId.flatMap { browseModel.card(at: $0.rawValue)?.nid }
+    }
+
+    @ViewBuilder
+    private func provenanceAndShelf(_ note: NoteID) -> some View {
+        if let link = browseModel.cardLink(for: note) {
+            Button {
+                browseModel.openInBook(link)
+            } label: {
+                Label("Open in “\(link.bookTitle)”", systemImage: "book")
+            }
+        }
+        if browseModel.shelfContains(note) {
+            Button {
+                Task { await browseModel.removeFromShelf(noteIDs: [note]) }
+            } label: {
+                Label("Remove from Shelf", systemImage: "tray.and.arrow.up")
+            }
+        } else {
+            Button {
+                Task { await browseModel.addToShelf(noteIDs: [note]) }
+            } label: {
+                Label("Add to Shelf", systemImage: "tray.and.arrow.down")
+            }
+        }
+    }
 
     private var taskIdentity: Int64 {
         cardId?.rawValue ?? noteId?.rawValue ?? 0
@@ -972,5 +1032,214 @@ struct CardRowView: View {
                 .foregroundStyle(dotColor(queue: queue, type: type))
                 .clipShape(Capsule())
         }
+    }
+}
+
+// MARK: - Rendered cards (grid and waterfall)
+
+/// How the results list lays out: text rows, or pictures of the cards as
+/// they look in review — a uniform grid, or a waterfall that keeps each
+/// card's own height.
+enum BrowseDisplay: String, CaseIterable, Identifiable {
+    case rows, waterfall, grid
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .rows: L10n.text("Rows")
+        case .waterfall: L10n.text("Waterfall")
+        case .grid: L10n.text("Grid")
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .rows: "list.bullet"
+        case .waterfall: "rectangle.3.group"
+        case .grid: "square.grid.2x2"
+        }
+    }
+}
+
+extension BrowseListColumn {
+    private static let tileMinimumWidth: CGFloat = 150
+    private static let tileSpacing: CGFloat = 12
+
+    private var columnCount: Int {
+        max(2, Int((gridWidth - Self.tileSpacing) / (Self.tileMinimumWidth + Self.tileSpacing)))
+    }
+
+    private var loadedIDs: [Int64] { Array(model.ids.prefix(model.loadedCount)) }
+
+    @ViewBuilder
+    var tileScroll: some View {
+        ScrollView {
+            Group {
+                if display == .grid {
+                    LazyVGrid(
+                        columns: Array(
+                            repeating: GridItem(.flexible(), spacing: Self.tileSpacing, alignment: .top),
+                            count: columnCount
+                        ),
+                        spacing: Self.tileSpacing
+                    ) {
+                        ForEach(Array(loadedIDs.enumerated()), id: \.element) { index, id in
+                            tile(id, index: index, fixedAspect: true)
+                        }
+                    }
+                } else {
+                    // Round-robin columns: each card keeps its height, and the
+                    // reading order stays left-to-right, top-to-bottom.
+                    HStack(alignment: .top, spacing: Self.tileSpacing) {
+                        ForEach(0..<columnCount, id: \.self) { column in
+                            LazyVStack(spacing: Self.tileSpacing) {
+                                ForEach(Array(loadedIDs.enumerated()).filter { $0.offset % columnCount == column }, id: \.element) { index, id in
+                                    tile(id, index: index, fixedAspect: false)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(Self.tileSpacing)
+            if model.hasMorePages || model.isLoading {
+                ProgressView().padding()
+            }
+        }
+        .scrollDismissesKeyboard(.immediately)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { gridWidth = $0 }
+    }
+
+    @ViewBuilder
+    private func tile(_ id: Int64, index: Int, fixedAspect: Bool) -> some View {
+        let note: NoteRecord? = model.mode == .notes
+            ? model.note(at: id)
+            : model.card(at: id).flatMap { model.note(at: $0.nid.rawValue) }
+        let selected = model.mode == .notes
+            ? selectionState.contains(NoteID(id))
+            : selectionState.contains(card: CardID(id))
+        CardTile(
+            model: model,
+            id: id,
+            note: note,
+            fixedAspect: fixedAspect,
+            isDarkMode: colorScheme == .dark,
+            isSelected: selectionState.isSelectMode ? selected : nil
+        )
+        .onTapGesture { activateTile(id) }
+        .onAppear { Task { await model.loadMoreIfNeeded(index: index) } }
+    }
+
+    private func activateTile(_ id: Int64) {
+        if selectionState.isSelectMode {
+            if model.mode == .notes {
+                selectionState.toggle(NoteID(id))
+            } else {
+                selectionState.toggle(card: CardID(id))
+            }
+            return
+        }
+        Task {
+            switch model.mode {
+            case .notes: await model.focus(noteID: id)
+            case .cards: await model.focus(cardID: id)
+            }
+            onOpenDetail?()
+            onRequestDetails?()
+        }
+    }
+}
+
+/// One result as a picture of its card's question side. Shows the note's
+/// title while the picture renders, and if it can't.
+private struct CardTile: View {
+    @Environment(\.palette) private var palette
+    let model: BrowseModel
+    let id: Int64
+    let note: NoteRecord?
+    let fixedAspect: Bool
+    let isDarkMode: Bool
+    /// Nil outside select mode.
+    let isSelected: Bool?
+
+    @State private var image: PlatformImage?
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            content
+                .frame(maxWidth: .infinity)
+                .background(palette.surfaceElevated)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(
+                            isSelected == true ? palette.accent : palette.border.opacity(0.6),
+                            lineWidth: isSelected == true ? 2 : 0.5
+                        )
+                }
+            if let isSelected {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isSelected ? palette.accent : palette.textSecondary)
+                    .background(Circle().fill(palette.background).padding(2))
+                    .padding(8)
+            }
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .task(id: "\(id)-\(note?.mod ?? 0)-\(isDarkMode)-\(model.mode.rawValue)") {
+            await load()
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if let image {
+            picture(image)
+        } else {
+            Text(note.map { browsePlainTextTitle(for: $0, fallback: nil) } ?? "")
+                .amgiFont(.caption)
+                .foregroundStyle(palette.textSecondary)
+                .lineLimit(fixedAspect ? 6 : 4)
+                .padding(10)
+                .frame(maxWidth: .infinity, minHeight: fixedAspect ? nil : 90, alignment: .topLeading)
+                .aspectRatio(fixedAspect ? 3.0 / 4.0 : nil, contentMode: .fit)
+        }
+    }
+
+    @ViewBuilder
+    private func picture(_ image: PlatformImage) -> some View {
+        #if os(iOS)
+        let view = Image(uiImage: image).resizable()
+        #else
+        let view = Image(nsImage: image).resizable()
+        #endif
+        if fixedAspect {
+            Color.clear
+                .aspectRatio(3.0 / 4.0, contentMode: .fit)
+                .overlay(alignment: .top) {
+                    view.aspectRatio(contentMode: .fill)
+                }
+                .clipped()
+        } else {
+            view.aspectRatio(contentMode: .fit)
+        }
+    }
+
+    private func load() async {
+        let cardID: CardID?
+        if model.mode == .cards {
+            cardID = CardID(id)
+        } else {
+            cardID = await model.firstCardID(for: NoteID(id))
+        }
+        guard let cardID, !Task.isCancelled else { return }
+        let version = note?.mod ?? 0
+        if let cached = CardThumbnailRenderer.shared.cachedImage(for: cardID, version: version, isDarkMode: isDarkMode) {
+            image = cached
+            return
+        }
+        let rendered = await CardThumbnailRenderer.shared.image(for: cardID, version: version, isDarkMode: isDarkMode)
+        guard !Task.isCancelled else { return }
+        image = rendered
     }
 }

@@ -22,11 +22,21 @@ struct ReaderOpenView: View {
 
     /// Opens at this chapter instead of the saved position.
     private let chapterIndex: Int?
+    /// Opens at this passage (EPUB): a card's source, sent from Browse.
+    private let anchor: ReaderSourceAnchor?
 
-    init(book: ReaderBook, progress: ReaderProgressCoordinator, chapterIndex: Int? = nil) {
+    init(
+        book: ReaderBook,
+        progress: ReaderProgressCoordinator,
+        chapterIndex: Int? = nil,
+        anchor: ReaderSourceAnchor? = nil
+    ) {
         self.book = book
         self.progress = progress
-        self.chapterIndex = chapterIndex
+        self.anchor = anchor
+        self.chapterIndex = chapterIndex ?? anchor?.chapterID.flatMap { id in
+            book.chapters.firstIndex { $0.id == id }
+        }
         self.savedProgress = progress.store.load(bookID: book.id)
     }
 
@@ -45,7 +55,8 @@ struct ReaderOpenView: View {
             EPUBChapterReaderView(
                 book: book,
                 chapterIndex: resumeChapterIndex,
-                progressCoordinator: progress
+                progressCoordinator: progress,
+                initialAnchor: anchor
             )
         } else if case .pdf = book.source {
             PDFReaderView(

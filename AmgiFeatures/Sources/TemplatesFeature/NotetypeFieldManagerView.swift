@@ -1,9 +1,9 @@
-import SwiftUI
+package import SwiftUI
 import AmgiUI
 import AmgiTheme
 import AmgiAppShared
 import AnkiClients
-import AnkiKit
+package import AnkiKit
 import Dependencies
 import Foundation
 import Observation
@@ -243,10 +243,20 @@ final class NotetypeFieldManagerModel {
     }
 }
 
-struct NotetypeFieldManagerView: View {
+package struct NotetypeFieldManagerView: View {
     let notetypeId: NotetypeID
     let preferredName: String
     var onSaved: (@Sendable () async -> Void)? = nil
+
+    package init(
+        notetypeId: NotetypeID,
+        preferredName: String,
+        onSaved: (@Sendable () async -> Void)? = nil
+    ) {
+        self.notetypeId = notetypeId
+        self.preferredName = preferredName
+        self.onSaved = onSaved
+    }
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.palette) private var palette
@@ -254,7 +264,7 @@ struct NotetypeFieldManagerView: View {
     @FocusState private var focusedField: Int?
     @State private var pendingDeleteIndex: Int?
 
-    var body: some View {
+    package var body: some View {
         Group {
             if model.isLoading {
                 ProgressView("Loading fields…")

@@ -105,6 +105,11 @@ extension TagClient: DependencyKey {
             },
             setCollapsed: { tag, collapsed in
                 try await backend.invoke(.setTagCollapsed(tag: tag, collapsed: collapsed))
+            },
+            clearUnusedTags: {
+                let removed = try await backend.invoke(.clearUnusedTags())
+                logger.info("Cleared \(removed) unused tags")
+                return removed
             }
         )
     }()

@@ -19,6 +19,10 @@ struct EPUBChapterReaderView: View {
     /// the book summary while keeping its chapter sidebar mounted. Standalone
     /// chapter presentations leave it nil and dismiss normally.
     var onClose: (() -> Void)? = nil
+    /// Opens at this passage once the chapter is up — a card's source,
+    /// when Browse sends the user back to where the card came from.
+    var initialAnchor: ReaderSourceAnchor? = nil
+    @State private var didApplyInitialAnchor = false
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.palette) private var palette
@@ -260,6 +264,11 @@ struct EPUBChapterReaderView: View {
             await annotations.load(bookID: book.id)
             await prepareRestoreIfNeeded()
             await loadCurrentChapterMarks()
+            // After the saved-position restore, so the passage wins.
+            if let initialAnchor, !didApplyInitialAnchor {
+                didApplyInitialAnchor = true
+                navigate(to: initialAnchor)
+            }
         }
         .sheet(isPresented: $typographySheetVisible) {
 #if os(iOS)

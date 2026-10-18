@@ -15,6 +15,8 @@ public struct TagClient: Sendable {
     public var tagTree: @Sendable () async throws -> TagTreeNodeData
     public var reparentTags: @Sendable (_ tags: [String], _ newParent: String) async throws -> Void
     public var setCollapsed: @Sendable (_ tag: String, _ collapsed: Bool) async throws -> Void
+    /// Removes tags no note uses; returns how many went.
+    public var clearUnusedTags: @Sendable () async throws -> Int
 }
 
 extension TagClient: TestDependencyKey {

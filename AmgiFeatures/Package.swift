@@ -257,6 +257,10 @@ let package = Package(
             name: "BrowseFeature",
             dependencies: [
                 "AssistantFeature",
+                // Sheets over the note type field and template editors,
+                // from the sidebar's note type tree. Templates is engine-
+                // and Cxx-free, so this edge costs nothing measurable.
+                "TemplatesFeature",
                 .product(name: "AmgiEmbeddings", package: "AmgiEmbeddings"),
                 "AmgiReviewCore",
                 "AmgiAppCore",

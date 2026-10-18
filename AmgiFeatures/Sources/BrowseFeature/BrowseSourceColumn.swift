@@ -4,6 +4,8 @@ import AmgiUI
 import AnkiKit
 import AmgiTheme
 import AmgiAppCore
+import AmgiAppShared
+import TemplatesFeature
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -25,10 +27,22 @@ enum BrowseSource: Hashable {
     case cardState(BrowseModelStateColor)
     case today(String)
     case notetype(String)
+    /// One card template of a note type (desktop sidebar notetype tree).
+    case notetypeTemplate(notetype: String, template: String)
+    /// Notes of a note type whose field is filled in.
+    case notetypeField(notetype: String, field: String)
+    /// An FSRS-backed trouble list (leeches, frequent lapses, …).
+    case trouble(BrowseTroubleKind)
+    /// Notes collected across searches; survives new searches.
+    case shelf
+    /// Notes made while reading one book.
+    case book(String)
 
     /// Prefix for sidebar tag drag payloads so the list drop target can
     /// distinguish them from other strings.
     static let tagDragPrefix = "amgi-tag:"
+    /// Prefix for sidebar deck drags: dropped on another deck to move under it.
+    static let deckDragPrefix = "amgi-deck:"
 
     /// Grammar fragment this source contributes to `buildQuery()`, or nil
     /// for the unscoped collection (`allDecks` → `deck:*` at assemble time).
@@ -52,7 +66,22 @@ enum BrowseSource: Hashable {
             return fragment
         case .notetype(let name):
             return Self.quoted("note", name)
+        case .notetypeTemplate(let notetype, let template):
+            return Self.quoted("note", notetype) + " " + Self.quoted("card", template)
+        case .notetypeField(let notetype, let field):
+            return Self.quoted("note", notetype) + " \"" + Self.escaped(field) + ":_*\""
+        case .trouble(let kind):
+            return kind.fragment
+        case .shelf, .book:
+            // Resolved by the model, which holds the note ids.
+            return nil
         }
+    }
+
+    private static func escaped(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
     }
 
     private static func quoted(_ prefix: String, _ value: String) -> String {
@@ -60,6 +89,43 @@ enum BrowseSource: Hashable {
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
         return "\(prefix):\"\(escaped)\""
+    }
+}
+
+/// Cards worth a second look, from FSRS memory state and review history.
+/// Each is one search; the list sorts by lapses so the costliest lead.
+enum BrowseTroubleKind: String, CaseIterable, Hashable, Identifiable {
+    case leeches, lapsing, hard, slipping
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .leeches: L10n.text("Leeches")
+        case .lapsing: L10n.text("Forgotten Often")
+        case .hard: L10n.text("Hard to Remember")
+        case .slipping: L10n.text("Slipping")
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .leeches: "ladybug"
+        case .lapsing: "arrow.uturn.backward.circle"
+        case .hard: "brain"
+        case .slipping: "chart.line.downtrend.xyaxis"
+        }
+    }
+
+    /// Engine search for the list. Difficulty and recall come from FSRS
+    /// memory state; collections without FSRS simply match nothing there.
+    var fragment: String {
+        switch self {
+        case .leeches: "tag:leech"
+        case .lapsing: "prop:lapses>=4"
+        case .hard: "prop:d>0.8"
+        case .slipping: "is:review prop:r<0.75"
+        }
     }
 }
 
@@ -128,6 +194,9 @@ struct BrowseSourceColumn: View {
     /// Groups opened with their search chevron while the field has text.
     @State private var expandedResults: Set<BrowseSource> = []
     @State private var groupResults: [BrowseSource: BrowseModel.GroupResults] = [:]
+    /// Note types showing their templates and fields.
+    @State private var expandedNotetypes: Set<String> = []
+    @State private var notetypeEditor: NotetypeEditor?
 
     var body: some View {
         List(selection: sourceSelection) {
@@ -136,6 +205,29 @@ struct BrowseSourceColumn: View {
                     exitRow(exit)
                 }
                 .selectionDisabled()
+            }
+
+            if showsShelfRow {
+                Section("Shelf") {
+                    treeRow(.shelf) {
+                        HStack {
+                            Label("Shelf", systemImage: "tray.full")
+                            Spacer(minLength: 4)
+                            Text(model.shelf.count, format: .number)
+                                .monospacedDigit()
+                                .amgiFont(.caption)
+                                .foregroundStyle(palette.textSecondary)
+                        }
+                    }
+                    .tag(BrowseSource.shelf)
+                    .contextMenu {
+                        Button("Clear Shelf", role: .destructive) {
+                            Task { await model.clearShelf() }
+                        }
+                        sourceActionMenus(.shelf)
+                    }
+                    groupResultRows(.shelf)
+                }
             }
 
             if !savedRows.isEmpty {
@@ -190,6 +282,10 @@ struct BrowseSourceColumn: View {
                             Label("All decks", systemImage: "square.stack.3d.up.fill")
                         }
                         .tag(BrowseSource.allDecks)
+                        // Dropping a deck here moves it to the top level.
+                        .dropDestination(for: String.self) { items, _ in
+                            dropDecks(items, onto: "")
+                        }
                         groupResultRows(.allDecks)
                     }
                     ForEach(deckRows) { row in
@@ -209,11 +305,38 @@ struct BrowseSourceColumn: View {
                             )
                         }
                         .tag(source)
+                        .draggable(BrowseSource.deckDragPrefix + String(row.deck.id.rawValue))
+                        .dropDestination(for: String.self) { items, _ in
+                            dropDecks(items, onto: row.deck.name)
+                        }
                         .contextMenu {
                             deckManagement(row)
                             sourceActionMenus(source, includeSubdecks: true)
                         }
                         groupResultRows(source, depth: row.depth + deckIndentBase, ownOnly: row.hasChildren)
+                    }
+                }
+            }
+
+            if !bookRows.isEmpty {
+                Section("Books") {
+                    ForEach(bookRows) { book in
+                        treeRow(.book(book.id)) {
+                            HStack {
+                                Label(book.title, systemImage: "book.closed")
+                                    .lineLimit(1)
+                                Spacer(minLength: 4)
+                                Text(book.noteIDs.count, format: .number)
+                                    .monospacedDigit()
+                                    .amgiFont(.caption)
+                                    .foregroundStyle(palette.textSecondary)
+                            }
+                        }
+                        .tag(BrowseSource.book(book.id))
+                        .contextMenu {
+                            sourceActionMenus(.book(book.id))
+                        }
+                        groupResultRows(.book(book.id))
                     }
                 }
             }
@@ -238,6 +361,11 @@ struct BrowseSourceColumn: View {
                                 Button("Rename flag label…") {
                                     renameFlag = number
                                     renameFlagTo = flagLabels.label(for: number)
+                                }
+                                if flagLabels.label(for: number) != FlagLabelStore.defaults[String(number)] {
+                                    Button("Restore Default Name") {
+                                        flagLabels.reset(flag: number)
+                                    }
                                 }
                             }
                             sourceActionMenus(flagSource(node))
@@ -267,18 +395,25 @@ struct BrowseSourceColumn: View {
                 }
             }
 
+            if !troubleRows.isEmpty {
+                Section("Trouble Cards") {
+                    ForEach(troubleRows) { kind in
+                        treeRow(.trouble(kind)) {
+                            Label(kind.title, systemImage: kind.systemImage)
+                        }
+                        .tag(BrowseSource.trouble(kind))
+                        .contextMenu {
+                            sourceActionMenus(.trouble(kind))
+                        }
+                        groupResultRows(.trouble(kind))
+                    }
+                }
+            }
+
             if !notetypeRows.isEmpty {
                 Section("Note Types") {
                     ForEach(notetypeRows, id: \.self) { name in
-                        treeRow(.notetype(name)) {
-                            Label(name, systemImage: "doc.text")
-                                .lineLimit(1)
-                        }
-                        .tag(BrowseSource.notetype(name))
-                        .contextMenu {
-                            sourceActionMenus(.notetype(name))
-                        }
-                        groupResultRows(.notetype(name))
+                        notetypeRows(name)
                     }
                 }
             }
@@ -320,6 +455,9 @@ struct BrowseSourceColumn: View {
                         }
                         .tag(source)
                         .draggable(BrowseSource.tagDragPrefix + node.fullPath)
+                        .dropDestination(for: String.self) { items, _ in
+                            dropTags(items, onto: node.fullPath)
+                        }
                         .contextMenu {
                             if selection != nil {
                                 Button("Add to selected notes") {
@@ -365,6 +503,9 @@ struct BrowseSourceColumn: View {
             }
         }
         .listStyle(.sidebar)
+        .sheet(item: $notetypeEditor) { editor in
+            notetypeEditorSheet(editor)
+        }
         #if os(iOS)
         // Mail-style: scrolling or tapping the list puts the keyboard away;
         // the search text stays.
@@ -790,6 +931,18 @@ struct BrowseSourceColumn: View {
             deckReparentID = row.deck.id
             deckReparentParent = ""
         }
+        Button("Delete Deck…", role: .destructive) {
+            let subdecks = model.availableDecks.filter { $0.name.hasPrefix(row.deck.name + "::") }.count
+            presentConfirm(
+                "Delete “\(BrowseDeckTree.leafName(row.deck.name))”?",
+                subdecks > 0
+                    ? "Its \(subdecks) subdecks and all their cards are deleted too. You can undo this from More."
+                    : "Its cards are deleted too. You can undo this from More.",
+                true
+            ) {
+                await model.deleteDeck(id: row.deck.id)
+            }
+        }
     }
 
     @ViewBuilder
@@ -869,6 +1022,149 @@ struct BrowseSourceColumn: View {
         BrowseDeckTree.filterTokens(from: model.searchText)
     }
 
+    // MARK: - Note type tree
+
+    /// Which editor the sidebar opened for a note type.
+    enum NotetypeEditor: Identifiable {
+        case fields(NotetypeID, name: String)
+        case templates(NotetypeID, index: Int)
+
+        var id: String {
+            switch self {
+            case .fields(let id, _): "fields-\(id.rawValue)"
+            case .templates(let id, let index): "templates-\(id.rawValue)-\(index)"
+            }
+        }
+    }
+
+    private func notetypeID(named name: String) -> NotetypeID? {
+        model.notetypeNames.first { $0.value == name }?.key
+    }
+
+    /// A note type, and when opened its card templates and fields (desktop
+    /// sidebar parity). Each child filters the list; its menu opens the
+    /// matching editor.
+    @ViewBuilder
+    private func notetypeRows(_ name: String) -> some View {
+        let children = model.notetypeChildren[name]
+        let hasChildren = !(children?.templates.isEmpty ?? true) || !(children?.fields.isEmpty ?? true)
+        let isOpen = expandedNotetypes.contains(name)
+        treeRow(
+            .notetype(name),
+            children: hasChildren ? .init(isOpen: isOpen, toggle: {
+                if isOpen { expandedNotetypes.remove(name) } else { expandedNotetypes.insert(name) }
+            }) : nil
+        ) {
+            Label(name, systemImage: "doc.text")
+                .lineLimit(1)
+        }
+        .tag(BrowseSource.notetype(name))
+        .contextMenu {
+            notetypeEditorButtons(name, templateIndex: 0)
+            sourceActionMenus(.notetype(name))
+        }
+        groupResultRows(.notetype(name))
+        if isOpen, let children {
+            ForEach(Array(children.templates.enumerated()), id: \.offset) { index, template in
+                let source = BrowseSource.notetypeTemplate(notetype: name, template: template)
+                treeRow(source, depth: 1) {
+                    Label(template, systemImage: "rectangle.on.rectangle")
+                        .lineLimit(1)
+                }
+                .tag(source)
+                .contextMenu {
+                    if let id = notetypeID(named: name) {
+                        Button("Edit Template…") { notetypeEditor = .templates(id, index: index) }
+                    }
+                    sourceActionMenus(source)
+                }
+                groupResultRows(source, depth: 1)
+            }
+            ForEach(children.fields, id: \.self) { field in
+                let source = BrowseSource.notetypeField(notetype: name, field: field)
+                treeRow(source, depth: 1) {
+                    Label(field, systemImage: "textformat")
+                        .lineLimit(1)
+                }
+                .tag(source)
+                .contextMenu {
+                    if let id = notetypeID(named: name) {
+                        Button("Edit Fields…") { notetypeEditor = .fields(id, name: name) }
+                    }
+                    sourceActionMenus(source)
+                }
+                groupResultRows(source, depth: 1)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func notetypeEditorButtons(_ name: String, templateIndex: Int) -> some View {
+        if let id = notetypeID(named: name) {
+            Button("Edit Fields…") { notetypeEditor = .fields(id, name: name) }
+            Button("Edit Card Templates…") { notetypeEditor = .templates(id, index: templateIndex) }
+            Divider()
+        }
+    }
+
+    @ViewBuilder
+    private func notetypeEditorSheet(_ editor: NotetypeEditor) -> some View {
+        switch editor {
+        case .fields(let id, let name):
+            NavigationStack {
+                NotetypeFieldManagerView(notetypeId: id, preferredName: name) {
+                    await model.loadNotetypeChildren(force: true)
+                }
+            }
+        case .templates(let id, let index):
+            NavigationStack {
+                TemplateEditorView(
+                    notetypeId: id,
+                    initialTemplateIndex: index,
+                    mode: .manager
+                ) {
+                    await model.loadNotetypeChildren(force: true)
+                }
+            }
+        }
+    }
+
+    // MARK: - Drag to move
+
+    /// Decks dropped on a deck move under it; on "All decks", to the top.
+    /// A deck can't move into itself or its own subtree.
+    private func dropDecks(_ items: [String], onto parent: String) -> Bool {
+        let ids = items.compactMap { item -> DeckID? in
+            guard item.hasPrefix(BrowseSource.deckDragPrefix),
+                  let raw = Int64(item.dropFirst(BrowseSource.deckDragPrefix.count)) else { return nil }
+            return DeckID(raw)
+        }
+        let moves = ids.compactMap { id -> DeckID? in
+            guard let deck = model.availableDecks.first(where: { $0.id == id }),
+                  deck.name != parent, !parent.hasPrefix(deck.name + "::") else { return nil }
+            return id
+        }
+        guard !moves.isEmpty else { return false }
+        Task {
+            for id in moves { await model.reparentDeck(id: id, under: parent) }
+        }
+        return true
+    }
+
+    /// Tags dropped on a tag move under it (desktop sidebar drag).
+    private func dropTags(_ items: [String], onto parent: String) -> Bool {
+        let tags = items.compactMap { item -> String? in
+            guard item.hasPrefix(BrowseSource.tagDragPrefix) else { return nil }
+            let tag = String(item.dropFirst(BrowseSource.tagDragPrefix.count))
+            return tag == parent || parent.hasPrefix(tag + "::") ? nil : tag
+        }
+        guard !tags.isEmpty else { return false }
+        Task {
+            for tag in tags { await model.reparentTag(tag, under: parent) }
+        }
+        return true
+    }
+
     // MARK: - Filtered sections
     //
     // The field filters every section, not just decks and tags. A section
@@ -902,6 +1198,18 @@ struct BrowseSourceColumn: View {
 
     /// Never filtered out: while searching it is the way into the results
     /// (Matches, then Suggested) for the whole collection.
+    private var troubleRows: [BrowseTroubleKind] {
+        BrowseTroubleKind.allCases.filter { titleMatches($0.title) }
+    }
+
+    private var bookRows: [ReaderCardBook] {
+        model.cardBooks.filter { titleMatches($0.title) }
+    }
+
+    private var showsShelfRow: Bool {
+        !model.shelf.isEmpty && titleMatches(L10n.text("Shelf"))
+    }
+
     private var showsAllDecksRow: Bool {
         model.rootDeck == nil
     }

@@ -79,6 +79,17 @@ struct BrowseDetailTabs: View {
             }
             .pickerStyle(.segmented)
             .padding(8)
+            // ⌥⌘1 Edit, ⌥⌘2 Preview, ⌥⌘3 Info: reach the editor from the
+            // list without the pointer (desktop's "focus editor"). Plain ⌘1–5
+            // already switch the app's tabs.
+            .background {
+                ForEach(Array(Tab.allCases.enumerated()), id: \.element) { index, tab in
+                    Button(tab.localizedTitle) { self.tab = tab }
+                        .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: [.command, .option])
+                        .opacity(0)
+                        .accessibilityHidden(true)
+                }
+            }
 
             Divider()
 

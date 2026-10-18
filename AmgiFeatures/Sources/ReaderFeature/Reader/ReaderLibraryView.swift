@@ -61,6 +61,13 @@ package struct ReaderLibraryView: View {
     /// nothing at all, which reads as a broken drop target rather than a
     /// missing feature.
     @State private var droppedRequestID: UUID?
+    @State private var passageTarget: PassageTarget?
+
+    struct PassageTarget: Identifiable, Hashable {
+        let book: ReaderBook
+        let anchor: ReaderSourceAnchor
+        var id: String { book.id + "#" + String(describing: anchor.chapterID) }
+    }
 
     package init(refreshID: UUID? = nil) {
         self.refreshID = refreshID
@@ -183,6 +190,16 @@ package struct ReaderLibraryView: View {
         .onChange(of: ReaderImportRequestRouter.shared.requestID) { _, _ in
             Task { await importDroppedFiles() }
         }
+        // Browse's "Open in Book": a card's passage, opened over the library.
+        .onChange(of: ReaderOpenRequestRouter.shared.pending?.id) { _, _ in
+            Task { await openRequestedPassage() }
+        }
+        .onChange(of: model.books.count) { _, _ in
+            Task { await openRequestedPassage() }
+        }
+        .navigationDestination(item: $passageTarget) { target in
+            ReaderOpenView(book: target.book, progress: model.progress, anchor: target.anchor)
+        }
         .task {
             // A file can arrive before this view exists — the app was launched
             // by the drop — so the queue is drained once on appear as well as
@@ -268,6 +285,23 @@ package struct ReaderLibraryView: View {
             )
         }
         droppedRequestID = router.requestID
+    }
+
+    /// Opens a requested card passage once its book is in the library list
+    /// (a cold launch may still be loading it; `books` changing retries).
+    private func openRequestedPassage() async {
+        let router = ReaderOpenRequestRouter.shared
+        let profileID = AccountStore.shared.selectedID
+        guard let request = router.pending, request.profileID == profileID,
+              let book = model.books.first(where: { $0.id == request.bookID }) else { return }
+        _ = router.consume(profileID: profileID)
+        let store = ReaderAnnotationStore(
+            libraryRoot: AccountStore.profileDirectory(for: profileID)
+                .appendingPathComponent("EPUB", isDirectory: true)
+        )
+        guard let mark = try? await store.annotations(inBook: book.id, kind: .card)
+            .first(where: { $0.id == request.annotationID }) else { return }
+        passageTarget = PassageTarget(book: book, anchor: mark.anchor)
     }
 
     private func handleImport(result: Result<[URL], any Error>) {
