@@ -69,7 +69,7 @@ package struct StudyLandingView: View {
             spanHeroIsFuture: model.spanHeroIsFuture,
             spanDeckCount: model.spanDeckTotalCount,
             spanDeckCountKnown: model.spanDeckCountKnown,
-            historyMix: model.historyCardMix,
+            historyLedger: model.historyLedger,
             spanShapeLine: model.spanShapeLine,
             spanRemainingRow: model.spanRemainingRow,
             spanRows: model.spanRows,

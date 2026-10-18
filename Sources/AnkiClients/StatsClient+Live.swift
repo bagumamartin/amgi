@@ -39,19 +39,14 @@ extension StatsClient: DependencyKey {
             lastRating: { cardId in
                 try await backendOffload { try backend.invoke(.lastCardRating(cardId: cardId)) }
             },
-            dayMix: { scope, dayStartMs, dayEndMs, overdueDays in
+            studyLedger: { deckID, rolloverHour, days, detailOffset in
                 try await backendOffload {
-                    try backend.invoke(.studyDayMix(
-                        scope: scope,
-                        dayStartMs: dayStartMs,
-                        dayEndMs: dayEndMs,
-                        overdueDays: overdueDays
+                    try backend.invoke(.studyLedger(
+                        deckId: deckID,
+                        rolloverHour: rolloverHour,
+                        days: days,
+                        detailOffset: detailOffset
                     ))
-                }
-            },
-            studyHistory: { scope, dayEndMs, rolloverHour in
-                try await backendOffload {
-                    try backend.invoke(.studyHistory(scope: scope, dayEndMs: dayEndMs, rolloverHour: rolloverHour))
                 }
             },
             reviewTimes: { scope, startMs, endMs in

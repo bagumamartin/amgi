@@ -17,13 +17,9 @@ public struct StatsClient: Sendable {
     /// The rating the card received on its most recent review, from the last
     /// revlog entry. `nil` for cards never reviewed (new cards).
     public var lastRating: @Sendable (_ cardId: Int64) async throws -> Rating?
-    /// Recorded answer buckets for a span. The legacy remaining fields use
-    /// current card state; use `studyHistory` for historical schedules.
-    /// Bounds are UTC millis (`revlog.id`); scope is an Anki search expression.
-    public var dayMix: @Sendable (_ scope: String, _ dayStartMs: Int64, _ dayEndMs: Int64, _ overdueDays: Int) async throws -> StudyDayMix
-    /// Reconstructed work left at the boundary; candidates and unresolved cards
-    /// are separate from scheduled work. Uses current deck membership for scope.
-    public var studyHistory: @Sendable (_ scope: String, _ dayEndMs: Int64, _ rolloverHour: Int) async throws -> StudyHistory
+    /// Past days as the deck list showed them: due at the start, studied,
+    /// left at the end. `deckID` 0 is the whole collection.
+    public var studyLedger: @Sendable (_ deckID: Int64, _ rolloverHour: Int, _ days: [StudyLedger.Window], _ detailOffset: Int?) async throws -> StudyLedger
     /// When each answer in `[startMs, endMs)` was given, as UTC millis,
     /// ascending. Counts the same answers as `fetchGraphs`' review totals.
     public var reviewTimes: @Sendable (_ scope: String, _ startMs: Int64, _ endMs: Int64) async throws -> [Int64]

@@ -130,27 +130,6 @@ extension Request where Response == ImportLogSummary {
     }
 }
 
-extension Request where Response == StudyHistory {
-    public static func studyHistory(scope: String, dayEndMs: Int64, rolloverHour: Int) -> Self {
-        Self(
-            serviceId: ServiceID.aux,
-            methodId: AuxMethod.studyHistory,
-            encode: {
-                try JSONSerialization.data(withJSONObject: [
-                    "scope_search": scope,
-                    "day_end_ms": dayEndMs,
-                    "rollover_hour": rolloverHour,
-                ])
-            },
-            decode: { bytes in
-                let decoder = JSONDecoder()
-                decoder.keyDecodingStrategy = .convertFromSnakeCase
-                return try decoder.decode(StudyHistory.self, from: bytes)
-            }
-        )
-    }
-}
-
 private struct ReviewTimesPayload: Decodable {
     let answeredAtMs: [Int64]
 }
@@ -180,33 +159,32 @@ extension Request where Response == [Int64] {
     }
 }
 
-extension Request where Response == StudyDayMix {
-    /// Answered/remaining split for one past Anki-day window. Day
-    /// boundaries are UTC millis (`revlog.id`); `overdueDays` is how far
-    /// back the window start sits, driving the still-due comparison.
-    /// `scope` is a backend search expression (`""` = whole collection).
-    public static func studyDayMix(
-        scope: String,
-        dayStartMs: Int64,
-        dayEndMs: Int64,
-        overdueDays: Int
+extension Request where Response == StudyLedger {
+    /// Rebuilds each window's due / studied / left counts. `deckId` 0 is the
+    /// whole collection; otherwise that deck and its subdecks. The day at
+    /// `detailOffset` also carries card IDs and per-deck rows.
+    public static func studyLedger(
+        deckId: Int64,
+        rolloverHour: Int,
+        days: [StudyLedger.Window],
+        detailOffset: Int?
     ) -> Self {
         Self(
             serviceId: ServiceID.aux,
-            methodId: AuxMethod.studyDayMix,
+            methodId: AuxMethod.studyLedger,
             encode: {
-                let payload: [String: Any] = [
-                    "scope_search": scope,
-                    "day_start_ms": dayStartMs,
-                    "day_end_ms": dayEndMs,
-                    "overdue_days": overdueDays,
+                var payload: [String: Any] = [
+                    "deck_id": deckId,
+                    "rollover_hour": rolloverHour,
+                    "days": days.map { ["offset": $0.offset, "start_ms": $0.startMs, "end_ms": $0.endMs] },
                 ]
+                if let detailOffset { payload["detail_offset"] = detailOffset }
                 return try JSONSerialization.data(withJSONObject: payload)
             },
             decode: { bytes in
                 let decoder = JSONDecoder()
                 decoder.keyDecodingStrategy = .convertFromSnakeCase
-                return try decoder.decode(StudyDayMix.self, from: bytes)
+                return try decoder.decode(StudyLedger.self, from: bytes)
             }
         )
     }

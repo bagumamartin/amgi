@@ -13,12 +13,11 @@ use anki_proto::{generic, notes, notetypes};
 use prost::Message;
 use serde::{Deserialize, Serialize};
 
-mod day_mix;
 mod mnemosyne;
 mod package;
 mod reader_notes;
 mod review_times;
-mod study_history;
+mod study_ledger;
 
 /// Amgi-specific auxiliary service. Intercepts requests before engine
 /// dispatch so we can ship features upstream has no RPC for without
@@ -167,18 +166,17 @@ pub unsafe extern "C" fn anki_close_backend(backend_ptr: i64) {
 // -- Helpers --
 
 /// Aux dispatch. Methods: 0 = findDupesExact, 1 = inspectAnkiPackage,
-/// 2 = inspectMnemosyne, 3 = importMnemosyne, 4 = studyDayMix,
-/// 5 = studyHistory, 6 = readerNotes, 7 = reviewTimes.
+/// 2 = inspectMnemosyne, 3 = importMnemosyne, 6 = readerNotes,
+/// 7 = reviewTimes, 8 = studyLedger. (4 and 5 were the old study history.)
 fn handle_aux_method(backend: &Backend, method: u32, input: &[u8]) -> Result<Vec<u8>, String> {
     match method {
         0 => aux_find_dupes_exact(backend, input),
         1 => package::inspect(input),
         2 => mnemosyne::inspect(input),
         3 => mnemosyne::import_mnemosyne(backend, input),
-        4 => day_mix::study_day_mix(backend, input),
-        5 => study_history::study_history(backend, input),
         6 => reader_notes::reader_notes(backend, input),
         7 => review_times::review_times(backend, input),
+        8 => study_ledger::study_ledger(backend, input),
         other => Err(format!("unknown aux method {other}")),
     }
 }

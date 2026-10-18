@@ -102,7 +102,7 @@ public struct StudyLandingContent: View {
     let spanHeroIsFuture: Bool
     let spanDeckCount: Int
     let spanDeckCountKnown: Bool
-    let historyMix: StudyHistoryMix?
+    let historyLedger: StudyHistoryLedger?
     let spanShapeLine: String?
     let spanRemainingRow: StudyTimeRow?
     let spanRows: [StudyTimeRow]
@@ -156,7 +156,7 @@ public struct StudyLandingContent: View {
         spanHeroIsFuture: Bool = false,
         spanDeckCount: Int = 0,
         spanDeckCountKnown: Bool = false,
-        historyMix: StudyHistoryMix? = nil,
+        historyLedger: StudyHistoryLedger? = nil,
         spanShapeLine: String? = nil,
         spanRemainingRow: StudyTimeRow? = nil,
         spanRows: [StudyTimeRow] = [],
@@ -201,7 +201,7 @@ public struct StudyLandingContent: View {
         self.spanHeroIsFuture = spanHeroIsFuture
         self.spanDeckCount = max(spanDeckCount, 0)
         self.spanDeckCountKnown = spanDeckCountKnown
-        self.historyMix = historyMix
+        self.historyLedger = historyLedger
         self.spanShapeLine = spanShapeLine
         self.spanRemainingRow = spanRemainingRow
         self.spanRows = spanRows
@@ -493,7 +493,7 @@ public struct StudyLandingContent: View {
                             .foregroundStyle(palette.textPrimary)
                     }
                     Text(spanDeckCountKnown
-                         ? AmgiL10n.format(spanHeroIsFuture ? "%lld decks due" : "%lld current decks", [spanDeckCount], locale: locale)
+                         ? AmgiL10n.format(spanHeroIsFuture ? "%lld decks due" : "%lld decks that day", [spanDeckCount], locale: locale)
                          : spanDeckRowsLoading ? "—" : AmgiL10n.text(spanHeroIsFuture ? "Deck count unavailable" : "Current deck count unavailable", locale: locale))
                         .font(.subheadline)
                         .foregroundStyle(spanDeckCountKnown ? palette.textPrimary : palette.textSecondary)
@@ -510,7 +510,7 @@ public struct StudyLandingContent: View {
                         diameter: 148,
                         centerCaption: historyRingCaption,
                         centerAccessibility: spanRowsLoading ? AmgiL10n.text("Loading this period…", locale: locale) : historyRingAccessibility,
-                        showsProgress: spanHeroIsFuture,
+                        showsProgress: spanHeroIsFuture || historyLedger?.isSingleDay == true,
                         isLoading: spanRowsLoading,
                         animatesChanges: false
                     )
@@ -531,62 +531,77 @@ public struct StudyLandingContent: View {
                         .frame(maxWidth: .infinity)
                         .opacity(spanHeroIsFuture ? 0 : 1)
                 }
+                if let notes = historyLedger?.notes, !notes.isEmpty, !spanRowsLoading {
+                    historyNotes(notes)
+                }
             }
         }
         .transaction { $0.animation = nil }
     }
 
-    /// Historical rings show recovered scheduled work without a completion
-    /// denominator. Recorded answers remain the fallback while unavailable.
-    private var historyRingSummary: StudySummaryData {
-        if let mix = historyMix {
-            return StudySummaryData(
-                totalDue: mix.remainingTotal, newCount: 0,
-                learnCount: mix.remainingLearn, reviewCount: mix.remainingReview,
-                todayLabel: "", subtitleLabel: "", deckCount: 0
-            )
+    /// Why the day is approximate, one cause per line.
+    private func historyNotes(_ notes: [String]) -> some View {
+        VStack(alignment: .leading, spacing: AmgiSpacing.xs) {
+            ForEach(notes, id: \.self) { note in
+                Label {
+                    Text(note)
+                        .amgiFont(.caption)
+                        .foregroundStyle(palette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } icon: {
+                    Image(systemName: "info.circle")
+                        .font(.caption)
+                        .foregroundStyle(palette.textTertiary)
+                }
+            }
         }
-        if spanHeroIsFuture {
-            return StudySummaryData(
-                totalDue: spanHeroCount,
-                newCount: 0,
-                learnCount: 0,
-                reviewCount: 0,
-                todayLabel: "",
-                subtitleLabel: "",
-                deckCount: 0,
-                reviewedToday: 0,
-                dueBaselineToday: max(spanHeroCount, 1)
-            )
-        } else {
-            return StudySummaryData(
-                totalDue: spanHeroCount,
-                newCount: 0,
-                learnCount: 0,
-                reviewCount: 0,
-                todayLabel: "",
-                subtitleLabel: "",
-                deckCount: 0,
-                reviewedToday: spanHeroCount,
-                dueBaselineToday: max(spanHeroCount, 1)
-            )
-        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// The historical numeral counts learning and reviews left then.
+    /// A past day's ring: what was left at its end, filled by the share of
+    /// the day's due cards that were cleared. Spans show only what was left.
+    private var historyRingSummary: StudySummaryData {
+        if let ledger = historyLedger {
+            return StudySummaryData(
+                totalDue: ledger.left.total, newCount: ledger.left.new,
+                learnCount: ledger.left.learn, reviewCount: ledger.left.review,
+                todayLabel: "", subtitleLabel: "", deckCount: 0,
+                reviewedToday: ledger.isSingleDay ? max(0, ledger.due.total - ledger.left.total) : 0,
+                dueBaselineToday: ledger.isSingleDay ? max(ledger.due.total, 1) : 0
+            )
+        }
+        return StudySummaryData(
+            totalDue: spanHeroCount,
+            newCount: 0,
+            learnCount: 0,
+            reviewCount: 0,
+            todayLabel: "",
+            subtitleLabel: "",
+            deckCount: 0,
+            reviewedToday: spanHeroIsFuture ? 0 : spanHeroCount,
+            dueBaselineToday: max(spanHeroCount, 1)
+        )
+    }
+
     private var historyRingCaption: String? {
-        if let mix = historyMix {
-            return AmgiL10n.text(mix.suspensionUnknown > 0 ? "Possible left then" : mix.unresolved > 0 ? "Known left then" : "Left then", locale: locale)
+        if let ledger = historyLedger {
+            let caption = switch (ledger.isSingleDay, ledger.isExact) {
+            case (true, true): "Left"
+            case (true, false): "About left"
+            case (false, true): "Left at end"
+            case (false, false): "About left at end"
+            }
+            return AmgiL10n.text(caption, locale: locale)
         }
         return spanHeroIsFuture
             ? nil
-            : AmgiL10n.text(spanRowsLoading ? "Left then" : "Reviewed", locale: locale)
+            : AmgiL10n.text(spanRowsLoading ? "Left" : "Reviewed", locale: locale)
     }
 
     private var historyRingAccessibility: String {
-        if let mix = historyMix {
-            return AmgiL10n.format("%lld learning and %lld review cards left then. %lld new candidates. %lld uncertain histories. Past suspension state is unknown for %lld scheduled cards.",
-                [mix.remainingLearn, mix.remainingReview, mix.newCandidates, mix.unresolved, mix.suspensionUnknown], locale: locale)
+        if let ledger = historyLedger {
+            return AmgiL10n.format("%lld cards due, %lld studied, %lld left: %lld new, %lld learning, %lld review.",
+                [ledger.due.total, ledger.studiedCards, ledger.left.total, ledger.left.new, ledger.left.learn, ledger.left.review], locale: locale)
         }
         if let subtitle = spanHeroSubtitle, !subtitle.isEmpty {
             return "\(spanHeroTitle). \(subtitle)."
@@ -622,16 +637,19 @@ public struct StudyLandingContent: View {
 
     @ViewBuilder
     private var historyLegend: some View {
-        if !spanHeroIsFuture, spanRowsLoading || historyMix != nil {
+        if !spanHeroIsFuture, spanRowsLoading || historyLedger != nil {
             VStack(alignment: .leading, spacing: AmgiSpacing.xs) {
-                let mix = historyMix ?? StudyHistoryMix(remainingLearn: 0, remainingReview: 0, newCandidates: 0, unresolved: 0)
-                historyMixRow(title: AmgiL10n.text("Learning", locale: locale), count: mix.remainingLearn, color: palette.cardStateLearning)
-                historyMixRow(title: AmgiL10n.text("Review", locale: locale), count: mix.remainingReview, color: palette.cardStateReview)
-                historyMixRow(title: AmgiL10n.text("New candidates", locale: locale), count: mix.newCandidates, color: palette.cardStateNew)
-                if mix.unresolved > 0 {
-                    historyMixRow(title: AmgiL10n.text("Uncertain history", locale: locale), count: mix.unresolved, color: palette.textTertiary)
-                }
-
+                let ledger = historyLedger
+                let zero = StudyHistoryLedger.Kinds(new: 0, learn: 0, review: 0)
+                let due = ledger?.due ?? zero
+                let left = ledger?.left ?? zero
+                let single = ledger?.isSingleDay ?? true
+                Text(AmgiL10n.text(single ? "Due → left" : "Left at end", locale: locale))
+                    .font(.caption2)
+                    .foregroundStyle(palette.textTertiary)
+                historyMixRow(title: AmgiL10n.text("New", locale: locale), due: single ? due.new : nil, left: left.new, color: palette.cardStateNew)
+                historyMixRow(title: AmgiL10n.text("Learning", locale: locale), due: single ? due.learn : nil, left: left.learn, color: palette.cardStateLearning)
+                historyMixRow(title: AmgiL10n.text("Review", locale: locale), due: single ? due.review : nil, left: left.review, color: palette.cardStateReview)
             }
         } else {
             VStack(alignment: .leading, spacing: AmgiSpacing.xs) {
@@ -656,8 +674,9 @@ public struct StudyLandingContent: View {
         }
     }
 
-    private func historyMixRow(title: String, count: Int, color: Color) -> some View {
-        HStack(spacing: 6) {
+    private func historyMixRow(title: String, due: Int?, left: Int, color: Color) -> some View {
+        let value = due.map { "\($0) → \(left)" } ?? "\(left)"
+        return HStack(spacing: 6) {
             Circle()
                 .fill(color)
                 .frame(width: 7, height: 7)
@@ -665,13 +684,14 @@ public struct StudyLandingContent: View {
                 .font(.caption)
                 .foregroundStyle(palette.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Text(spanRowsLoading ? "—" : "\(count)")
+            Text(spanRowsLoading ? "—" : value)
                 .font(.caption)
                 .monospacedDigit()
                 .foregroundStyle(palette.textPrimary)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(spanRowsLoading ? "\(title), loading" : "\(title), \(count)")
+        .accessibilityLabel(spanRowsLoading ? "\(title), loading"
+            : due.map { "\(title), \($0) due, \(left) left" } ?? "\(title), \(left) left")
     }
 
     private func historyPrimaryButton(_ row: StudyTimeRow?) -> some View {

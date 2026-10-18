@@ -35,16 +35,8 @@ struct StatsDashboardContentStateTests {
                 graduatedToday: { _ in 0 },
                 learningDueToday: { _ in 0 },
                 lastRating: { _ in nil },
-                dayMix: { _, _, _, _ in
-                    StudyDayMix(
-                        answeredNew: 0, answeredLearn: 0, answeredRelearn: 0,
-                        answeredReview: 0, answeredCards: 0,
-                        remainingLearn: 0, remainingReview: 0
-                    )
-                },
-                studyHistory: { _, _, _ in
-                    StudyHistory(learningIds: [], reviewIds: [], newCandidateIds: [], unresolved: [])
-                }, reviewTimes: { _, _, _ in [] }
+                studyLedger: { _, _, _, _ in StudyLedger(days: []) },
+                reviewTimes: { _, _, _ in [] }
             )
         } operation: {
             StatsDashboardModel()

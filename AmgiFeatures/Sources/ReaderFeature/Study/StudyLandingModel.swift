@@ -32,25 +32,43 @@ final class StudyLandingModel {
     var spanDeckRows: [StudyTimeRow] = []
     var spanDeckRowsLoading = false
     var spanDeckTitle = L10n.text("Relevant decks")
-    /// Recorded answer buckets for the selected span's session shape.
-    var spanMix: StudyDayMix?
-    /// Reconstructed ID sets at the span's end; nil while unavailable.
-    var spanHistory: StudyHistory?
+    /// The selected span's last past day, as the deck list showed it.
+    var spanLedger: StudyLedger.Day?
     /// Current decks containing matching cards, before the 12-row cap.
     var spanDeckTotalCount = 0
     /// False until the current-deck membership query completes without errors.
     /// A failed reconstruction must not be presented as zero decks.
     var spanDeckCountKnown = false
-    /// Counts and browse actions share the same deduplicated ID sets.
-    var historyCardMix: StudyHistoryMix? {
-        guard let history = spanHistory else { return nil }
-        return StudyHistoryMix(
-            remainingLearn: history.learningIds.count,
-            remainingReview: history.reviewIds.count,
-            newCandidates: history.newCandidateIds.count,
-            unresolved: history.unresolved.count,
-            suspensionUnknown: Set(history.remainingIds).intersection(history.suspensionUnknownIds).count
+    /// Due, studied and left for the hero card.
+    var historyLedger: StudyHistoryLedger? {
+        guard let day = spanLedger else { return nil }
+        let kinds = { (c: StudyLedger.Counts) in StudyHistoryLedger.Kinds(new: c.new, learn: c.learn, review: c.review) }
+        return StudyHistoryLedger(
+            due: kinds(day.due),
+            studiedCards: day.studied.cards,
+            left: kinds(day.left),
+            isSingleDay: grain == .day,
+            isExact: day.exact,
+            notes: Self.ledgerNotes(day)
         )
+    }
+
+    /// Why a day is not exact. Empty when it is.
+    static func ledgerNotes(_ day: StudyLedger.Day) -> [String] {
+        var notes: [String] = []
+        let uncertain = day.uncertain
+        if uncertain.unplacedCards > 0 {
+            notes.append(L10n.format("The review log doesn't show where %lld cards stood that day.", [uncertain.unplacedCards]))
+        }
+        if uncertain.suspensionUnknown > 0 {
+            notes.append(L10n.format("%lld cards are suspended now, but when they were suspended isn't recorded.", [uncertain.suspensionUnknown]))
+        }
+        if !uncertain.limitsExceeded.isEmpty {
+            let decks = uncertain.limitsExceeded.map { $0.components(separatedBy: "::").last ?? $0 }
+                .formatted(.list(type: .and))
+            notes.append(L10n.format("More was studied in %@ than today's deck options allow, so that day's limits were different.", [decks]))
+        }
+        return notes
     }
 
     var spanRowsError: String?
@@ -97,8 +115,7 @@ final class StudyLandingModel {
         let deckTitle: String
         let deckCount: Int
         let deckCountKnown: Bool
-        let mix: StudyDayMix?
-        let history: StudyHistory?
+        let ledger: StudyLedger.Day?
         let rowsError: String?
         let decksError: String?
 
@@ -108,8 +125,7 @@ final class StudyLandingModel {
             deckTitle = model.spanDeckTitle
             deckCount = model.spanDeckTotalCount
             deckCountKnown = model.spanDeckCountKnown
-            mix = model.spanMix
-            history = model.spanHistory
+            ledger = model.spanLedger
             rowsError = model.spanRowsError
             decksError = model.spanDeckRowsError
         }
@@ -125,6 +141,8 @@ final class StudyLandingModel {
     private var hasActivitySnapshot = false
     private var activitySearch = ""
     private var topLevelStudyDecks: [DeckTreeNode] = []
+    /// The whole deck tree, for resolving rebuilt deck rows to full names.
+    private var studyTree: [DeckTreeNode] = []
     private var supportsStability = false
     private var relevantDeckCache: [Int: (rows: [StudyTimeRow], total: Int)] = [:]
     /// Review counts keyed by days-before-today.
@@ -150,8 +168,7 @@ final class StudyLandingModel {
             spanDeckRows = []
             spanDeckTotalCount = 0
             spanDeckCountKnown = false
-            spanMix = nil
-            spanHistory = nil
+            spanLedger = nil
             spanDeckRowsLoading = false
             spanRowsError = nil
             spanDeckRowsError = nil
@@ -167,6 +184,7 @@ final class StudyLandingModel {
             //    aggregate descendants, so a deck with due subdecks still
             //    surfaces. Subdeck names become a caption, not nested rows.
             let fullTree = try await store.tree()
+            studyTree = fullTree
             activitySearch = Self.searchScope(in: fullTree, deckID: landingDeckID)
             landingDeckName = landingDeckID.flatMap { id in
                 Self.findNode(fullTree, id: id)?.fullName
@@ -318,51 +336,36 @@ final class StudyLandingModel {
             let count = spanOffsets.reduce(0) { $0 + activityCount($1) }
             return (count, true)
         }
-        let count = spanMix?.answeredCards
+        let count = (grain == .day ? spanLedger?.studied.cards : nil)
             ?? spanRows.first { $0.id == "reviewed" }?.count
             ?? reviewedInSpan
         return (count, false)
     }
 
-    /// IDs come from historical evidence; later answers do not change this cut.
+    /// Cards still due at the end of the selected day: a catch-up session.
     var spanRemainingRow: StudyTimeRow? {
-        guard !showsTodayDesk, !spanHeroStats.isFuture, let history = spanHistory else { return nil }
-        return historyRow(id: "remaining", title: L10n.text("Review"), ids: history.remainingIds)
+        guard !showsTodayDesk, !spanHeroStats.isFuture, let detail = spanLedger?.detail else { return nil }
+        return historyRow(id: "remaining", title: L10n.text("Review what was left"), ids: detail.leftIds)
     }
 
     private func historyRow(id: String, title: String, ids: [Int64], subtitle: String? = nil) -> StudyTimeRow {
         StudyTimeRow(
             id: id, title: title, count: ids.count,
-            search: StudyHistory.search(ids: ids),
+            search: StudyLedger.search(ids: ids),
             detailTitle: "\(title) · \(spanTitle)",
             emptyMessage: L10n.text("No matching cards"),
             reschedulesByDefault: false,
             isReconstructed: true,
-            suspensionUnknownCount: Set(ids).intersection(spanHistory?.suspensionUnknownIds ?? []).count,
             subtitle: subtitle
         )
     }
 
-    private func historicalRows(_ history: StudyHistory) -> [StudyTimeRow] {
-        var rows: [StudyTimeRow] = [
-            historyRow(id: "history-learning", title: L10n.text("Learning left then"), ids: history.learningIds),
-            historyRow(id: "history-review", title: L10n.text("Reviews left then"), ids: history.reviewIds),
-            historyRow(id: "history-new", title: L10n.text("New candidates"), ids: history.newCandidateIds,
-                subtitle: L10n.text("Inferred new-card pool; daily selection is unknown."))
+    private func historicalRows(_ day: StudyLedger.Day) -> [StudyTimeRow] {
+        let detail = day.detail ?? StudyLedger.Detail()
+        return [
+            historyRow(id: "history-learning", title: L10n.text("Learning left"), ids: detail.leftLearningIds),
+            historyRow(id: "history-review", title: L10n.text("Reviews left"), ids: detail.leftReviewIds),
         ]
-        for reason in [StudyHistory.Unresolved.Reason.incompleteLog, .manualSchedule, .ambiguousState, .learningRollover] {
-            let ids = history.unresolved.filter { $0.reason == reason }.map(\.cardId)
-            let subtitle = switch reason {
-            case .incompleteLog: L10n.text("The retained review log does not establish the earlier schedule.")
-            case .manualSchedule: L10n.text("A manual scheduling entry does not retain the due date.")
-            case .ambiguousState: L10n.text("The earlier learning or review state cannot be established.")
-            case .learningRollover: L10n.text("Learning delay variation may cross the day boundary.")
-            }
-            if !ids.isEmpty {
-                rows.append(historyRow(id: "history-uncertain-\(reason.rawValue)", title: L10n.text("Uncertain history"), ids: ids, subtitle: subtitle))
-            }
-        }
-        return rows
     }
 
     var spanHeroTitle: String {
@@ -398,11 +401,11 @@ final class StudyLandingModel {
     var spanShapeLine: String? {
         guard !showsTodayDesk, !spanHeroStats.isFuture else { return nil }
         let duration = spanStudiedDuration ?? L10n.format("%lld min", [0])
-        guard let mix = spanMix else { return duration }
+        guard grain == .day, let studied = spanLedger?.studied else { return duration }
         let shape = StudySummaryData.localizedSessionShape(
-            newCount: max(mix.answeredNew, 0),
-            learnCount: mix.answeredLearnTotal,
-            reviewCount: max(mix.answeredReview, 0),
+            newCount: studied.new,
+            learnCount: studied.learn,
+            reviewCount: studied.review,
             locale: AppLocale.current
         )
         return shape.isEmpty ? duration : "\(duration) · \(shape)"
@@ -571,8 +574,7 @@ final class StudyLandingModel {
         spanDeckRows = []
         spanDeckTotalCount = 0
         spanDeckCountKnown = false
-        spanMix = nil
-        spanHistory = nil
+        spanLedger = nil
         spanDeckRowsLoading = false
         forecast = nil
         todayAttentionRows = []
@@ -589,8 +591,7 @@ final class StudyLandingModel {
         spanDeckRows = []
         spanDeckTotalCount = 0
         spanDeckCountKnown = false
-        spanMix = nil
-        spanHistory = nil
+        spanLedger = nil
         spanDeckRowsLoading = false
         await reloadSpanRows()
     }
@@ -1172,6 +1173,8 @@ final class StudyLandingModel {
         staging.rolloverHour = rolloverHour
         staging.activitySearch = activitySearch
         staging.topLevelStudyDecks = topLevelStudyDecks
+        staging.studyTree = studyTree
+        staging.landingDeckID = landingDeckID
         staging.supportsStability = supportsStability
         staging.futureDueCounts = futureDueCounts
         return staging
@@ -1210,7 +1213,7 @@ final class StudyLandingModel {
         // A new selection gets the same row structure with unknown counts.
         if displayedSpanKey == spanKey, !spanRowsLoading, !spanRows.isEmpty { return }
         if let window = StudySpan.ratingWindow(offsets: spanOffsets) {
-            spanRows = historicalRows(StudyHistory(learningIds: [], reviewIds: [], newCandidateIds: [], unresolved: []))
+            spanRows = historicalRows(StudyLedger.Day(offset: dayOffset, due: .init(), studied: .init(), left: .init()))
                 + StudySpan.ratingRows(counts: [:], oldest: window.oldest, newest: window.newest,
                     spanName: spanTitle, additionalSearch: activitySearch.isEmpty ? nil : activitySearch, locale: AppLocale.current)
             if supportsStability {
@@ -1225,14 +1228,13 @@ final class StudyLandingModel {
         } else {
             spanRows = []
         }
-        spanDeckTitle = L10n.text(spanHeroIsFuture ? "Decks with cards due" : "Current decks of historical cards")
+        spanDeckTitle = L10n.text(spanHeroIsFuture ? "Decks with cards due" : "Decks that day")
         spanDeckRows = topLevelStudyDecks.map { node in
             StudyTimeRow(id: "day-deck-\(node.id.rawValue)", title: node.name, count: 0, search: "",
                 detailTitle: "", emptyMessage: "", reschedulesByDefault: false,
                 subtitle: node.children.isEmpty ? nil : L10n.text("Includes subdecks"))
         }
-        spanMix = nil
-        spanHistory = nil
+        spanLedger = nil
         spanDeckCountKnown = false
         spanDeckTotalCount = 0
         spanRowsError = nil
@@ -1248,8 +1250,7 @@ final class StudyLandingModel {
         spanDeckTitle = result.deckTitle
         spanDeckTotalCount = result.deckCount
         spanDeckCountKnown = result.deckCountKnown
-        spanMix = result.mix
-        spanHistory = result.history
+        spanLedger = result.ledger
         spanRowsError = result.rowsError
         spanDeckRowsError = result.decksError
         spanRowsLoading = false
@@ -1264,8 +1265,7 @@ final class StudyLandingModel {
         spanDeckRows = []
         spanDeckTotalCount = 0
         spanDeckCountKnown = false
-        spanMix = nil
-        spanHistory = nil
+        spanLedger = nil
         spanDeckRowsLoading = false
         spanRowsError = nil
         spanDeckRowsError = nil
@@ -1333,7 +1333,7 @@ final class StudyLandingModel {
             return
         }
 
-        async let historyAndMix: Void = loadSpanMix(window: window, token: token)
+        async let historyAndMix: Void = loadSpanLedger(window: window, token: token)
         let counts = await countCriteria(window: window, token: token)
         guard token == spanToken, !Task.isCancelled, profile.isCurrent(AccountStore.shared.selectedContext) else { return }
         var rows = StudySpan.ratingRows(
@@ -1373,39 +1373,35 @@ final class StudyLandingModel {
         }
         await historyAndMix
         guard !Task.isCancelled, token == spanToken else { return }
-        spanRows = (spanHistory.map(historicalRows) ?? []) + rows
+        spanRows = (spanLedger.map(historicalRows) ?? []) + rows
         spanRowsLoading = false
         if includingDecks { await loadRelevantDecks(token: token) }
     }
 
-    /// Reconstruct the state at the selected span's end, not today's backlog.
-    private func loadSpanMix(window: (oldest: Int, newest: Int), token: Int) async {
+    /// Rebuilds the span's last past day as the deck list showed it, from
+    /// the collection alone, so every device computes the same day.
+    private func loadSpanLedger(window: (oldest: Int, newest: Int), token: Int) async {
         guard !Task.isCancelled, profile.isCurrent(AccountStore.shared.selectedContext) else { return }
         let calendar = Calendar.current
-        let startDate = StudySpan.date(todayStart: todayStart, offset: window.oldest, calendar: calendar)
-        let endDate = StudySpan.date(todayStart: todayStart, offset: window.newest - 1, calendar: calendar)
-        let startMs = Int64(startDate.timeIntervalSince1970 * 1_000)
-        let endMs = min(Int64(endDate.timeIntervalSince1970 * 1_000), Int64(Date().timeIntervalSince1970 * 1_000))
-        guard endMs > startMs else { return }
-        async let historyRequest = statsClient.studyHistory(activitySearch, endMs, rolloverHour)
-        async let mixRequest = statsClient.dayMix(activitySearch, startMs, endMs, window.newest)
+        let offset = window.newest
+        let start = StudySpan.date(todayStart: todayStart, offset: offset, calendar: calendar)
+        let dayEnd = StudySpan.date(todayStart: todayStart, offset: offset - 1, calendar: calendar)
+        let end = min(dayEnd, Date())
+        guard end > start else { return }
+        let request = StudyLedger.Window(
+            offset: offset,
+            startMs: Int64(start.timeIntervalSince1970 * 1_000),
+            endMs: Int64(end.timeIntervalSince1970 * 1_000)
+        )
         do {
-            let history = try await historyRequest
+            let ledger = try await statsClient.studyLedger(landingDeckID ?? 0, rolloverHour, [request], offset)
             guard token == spanToken, !Task.isCancelled,
                   profile.isCurrent(AccountStore.shared.selectedContext) else { return }
-            spanHistory = history
+            spanLedger = ledger.days.first
         } catch {
-            guard token == spanToken, !Task.isCancelled, profile.isCurrent(AccountStore.shared.selectedContext) else { return }
-            spanRowsError = L10n.text("Historical card lists couldn't be reconstructed. Pull to refresh to try again.")
-        }
-        // Only the recorded answer buckets are used from this legacy endpoint.
-        // Its current-state remaining counts are never presented as history.
-        do {
-            let mix = try await mixRequest
-            if token == spanToken, !Task.isCancelled,
-               profile.isCurrent(AccountStore.shared.selectedContext) { spanMix = mix }
-        } catch {
-            Log.reader.error("Recorded answer mix failed: \(error)")
+            guard token == spanToken, !Task.isCancelled,
+                  profile.isCurrent(AccountStore.shared.selectedContext) else { return }
+            spanRowsError = L10n.text("This day couldn't be rebuilt. Pull to refresh to try again.")
         }
     }
 
@@ -1417,76 +1413,43 @@ final class StudyLandingModel {
 
         let isHistoricalSpan = !spanHeroStats.isFuture && (grain != .day || dayOffset > 0)
         if isHistoricalSpan {
-            spanDeckTitle = L10n.text("Current decks of historical cards")
+            spanDeckTitle = L10n.text("Decks that day")
             spanDeckRowsError = nil
-            spanDeckRowsLoading = true
-            if grain == .day {
-                // Historical IDs can change after imports and deck moves.
-                relevantDeckCache.removeValue(forKey: dayOffset)
-            }
-            guard let history = spanHistory else {
+            guard let detail = spanLedger?.detail else {
                 spanDeckRows = []
                 spanDeckTotalCount = 0
                 spanDeckCountKnown = false
                 spanDeckRowsLoading = false
                 return
             }
-
-            let effectiveBase = StudyHistory.search(ids: history.remainingIds)
-            let unknownSuspensionIds = Set(history.suspensionUnknownIds)
-            let scopedBaseSearch = scopedActivitySearch(effectiveBase)
-            var rows: [StudyTimeRow] = []
-            var deckCount = 0
-            var hadFailure = false
-            for node in topLevelStudyDecks {
-                if Task.isCancelled || token != spanToken || !profile.isCurrent(AccountStore.shared.selectedContext) { return }
-                let scoped = activitySearch.isEmpty
-                    ? StudySpan.scopedSearch(
-                        effectiveBase,
-                        deckFullName: node.fullName,
-                        includeSubdecks: true
-                    )
-                    : scopedBaseSearch
-                let matches: [CardID]
-                do {
-                    matches = try await cardClient.searchIds(scoped, nil)
-                } catch {
-                    hadFailure = true
-                    continue
-                }
-                let count = matches.count
-                guard count > 0 else { continue }
-                deckCount += 1
-                if grain == .day {
-                    rows.append(StudyTimeRow(
-                        id: "day-deck-\(node.id.rawValue)",
-                        title: node.name,
-                        count: count,
-                        search: effectiveBase,
-                        detailTitle: "\(node.name) · \(spanTitle)",
-                        emptyMessage: "No matching cards in \(node.name)",
+            let leftSearch = StudyLedger.search(ids: detail.leftIds)
+            let rows = detail.decks
+                .filter { $0.due.total > 0 || $0.studiedCards > 0 || $0.left.total > 0 }
+                .map { deck -> StudyTimeRow in
+                    let fullName = studyTree.lazy.compactMap { $0.find(DeckID(deck.deckId)) }.first?.fullName ?? deck.name
+                    return StudyTimeRow(
+                        id: "day-deck-\(deck.deckId)",
+                        title: deck.name,
+                        count: deck.left.learn + deck.left.review,
+                        search: StudySpan.scopedSearch(leftSearch, deckFullName: fullName, includeSubdecks: true),
+                        detailTitle: "\(deck.name) · \(spanTitle)",
+                        emptyMessage: L10n.text("Nothing was left in this deck"),
                         reschedulesByDefault: false,
                         isReconstructed: true,
-                        suspensionUnknownCount: Set(matches.map(\.rawValue)).intersection(unknownSuspensionIds).count,
-                        subtitle: node.children.isEmpty ? nil : L10n.text("Includes subdecks"),
-                        initialDeckID: node.id.rawValue,
-                        deckFullName: node.fullName
-                    ))
+                        subtitle: L10n.format("%lld due · %lld studied · %lld new left",
+                            [deck.due.total, deck.studiedCards, deck.left.new]),
+                        initialDeckID: deck.deckId,
+                        deckFullName: fullName
+                    )
                 }
-            }
-            guard token == spanToken, !Task.isCancelled,
-                  profile.isCurrent(AccountStore.shared.selectedContext) else { return }
-            rows.sort {
-                if $0.count != $1.count { return $0.count > $1.count }
-                return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
-            }
+                .sorted {
+                    if $0.count != $1.count { return $0.count > $1.count }
+                    return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+                }
             spanDeckRows = Array(rows.prefix(12))
-            spanDeckTotalCount = deckCount
-            spanDeckCountKnown = !hadFailure
+            spanDeckTotalCount = rows.count
+            spanDeckCountKnown = true
             spanDeckRowsLoading = false
-            if hadFailure {
-                spanDeckRowsError = L10n.text("Some deck counts couldn't be loaded. Pull to refresh to try again.")
-            }
             return
         }
 

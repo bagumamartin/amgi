@@ -12,19 +12,18 @@ extension StatsClient {
         graduatedToday: { _ in 7 },
         learningDueToday: { _ in 3 },
         lastRating: { _ in nil },
-        dayMix: { _, _, _, _ in
-            StudyDayMix(
-                answeredNew: 5,
-                answeredLearn: 8,
-                answeredRelearn: 2,
-                answeredReview: 20,
-                answeredCards: 35,
-                remainingLearn: 0,
-                remainingReview: 0
-            )
-        },
-        studyHistory: { _, _, _ in
-            StudyHistory(learningIds: [1, 2], reviewIds: [3, 4, 5], newCandidateIds: [6, 7], unresolved: [])
+        studyLedger: { _, _, days, detailOffset in
+            StudyLedger(days: days.map { window in
+                StudyLedger.Day(
+                    offset: window.offset,
+                    due: .init(new: 20, learn: 6, review: 84),
+                    studied: .init(new: 20, learn: 4, review: 61, cards: 85, answers: 112, millis: 2_640_000),
+                    left: .init(new: 0, learn: 2, review: 23),
+                    detail: window.offset == detailOffset
+                        ? .init(leftLearningIds: [1, 2], leftReviewIds: Array(3...25))
+                        : nil
+                )
+            })
         },
         reviewTimes: { _, startMs, _ in
             // A morning and an evening session.

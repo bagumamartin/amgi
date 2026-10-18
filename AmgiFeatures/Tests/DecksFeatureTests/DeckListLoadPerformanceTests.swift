@@ -77,16 +77,8 @@ final class DeckListLoadPerformanceTests: XCTestCase {
                 graduatedToday: { _ in 0 },
                 learningDueToday: { _ in 0 },
                 lastRating: { _ in nil },
-                dayMix: { _, _, _, _ in
-                    StudyDayMix(
-                        answeredNew: 0, answeredLearn: 0, answeredRelearn: 0,
-                        answeredReview: 0, answeredCards: 0,
-                        remainingLearn: 0, remainingReview: 0
-                    )
-                },
-                studyHistory: { _, _, _ in
-                    StudyHistory(learningIds: [], reviewIds: [], newCandidateIds: [], unresolved: [])
-                }, reviewTimes: { _, _, _ in [] }
+                studyLedger: { _, _, _, _ in StudyLedger(days: []) },
+                reviewTimes: { _, _, _ in [] }
             )
         } operation: {
             // Built *inside* the scope, not while assembling DependencyValues:
@@ -153,7 +145,7 @@ final class DeckListLoadPerformanceTests: XCTestCase {
             $0.deckClient = deckClient
             $0.statsClient = StatsClient(
                 fetchGraphs: { _, _ in Self.graphs() }, graduatedToday: { _ in 0 },
-                learningDueToday: { _ in 0 }, lastRating: { _ in nil }, dayMix: { _, _, _, _ in StudyDayMix(answeredNew: 0, answeredLearn: 0, answeredRelearn: 0, answeredReview: 0, answeredCards: 0, remainingLearn: 0, remainingReview: 0) }, studyHistory: { _, _, _ in StudyHistory(learningIds: [], reviewIds: [], newCandidateIds: [], unresolved: []) }, reviewTimes: { _, _, _ in [] })
+                learningDueToday: { _ in 0 }, lastRating: { _ in nil }, studyLedger: { _, _, _, _ in StudyLedger(days: []) }, reviewTimes: { _, _, _ in [] })
         } operation: {
             let store = CollectionStore()
             return withDependencies { $0.collectionStore = store } operation: { DeckListModel() }

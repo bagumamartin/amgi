@@ -2,22 +2,45 @@ public import Foundation
 
 // MARK: - DTOs (no AnkiKit / AnkiClients imports — pure view data)
 
-/// Reconstructed scheduled work at the span end. Candidate pools and unresolved
-/// history never participate in a historical completion denominator.
-public struct StudyHistoryMix: Equatable, Sendable {
-    public let remainingLearn: Int
-    public let remainingReview: Int
-    public let newCandidates: Int
-    public let unresolved: Int
-    public let suspensionUnknown: Int
-    public var remainingTotal: Int { remainingLearn + remainingReview }
+/// A past day as the deck list showed it: due at the start, studied, and
+/// left at the end. For a multi-day span, `left` is the span's last day.
+public struct StudyHistoryLedger: Equatable, Sendable {
+    public struct Kinds: Equatable, Sendable {
+        public let new: Int
+        public let learn: Int
+        public let review: Int
 
-    public init(remainingLearn: Int, remainingReview: Int, newCandidates: Int, unresolved: Int, suspensionUnknown: Int = 0) {
-        self.remainingLearn = max(remainingLearn, 0)
-        self.remainingReview = max(remainingReview, 0)
-        self.newCandidates = max(newCandidates, 0)
-        self.unresolved = max(unresolved, 0)
-        self.suspensionUnknown = max(suspensionUnknown, 0)
+        public init(new: Int, learn: Int, review: Int) {
+            self.new = max(new, 0)
+            self.learn = max(learn, 0)
+            self.review = max(review, 0)
+        }
+
+        public var total: Int { new + learn + review }
+    }
+
+    public let due: Kinds
+    public let studiedCards: Int
+    public let left: Kinds
+    /// Due → left reads as one day's progress; a span shows only what was left.
+    public let isSingleDay: Bool
+    public let isExact: Bool
+    /// Why the day is not exact. Empty when it is.
+    public let notes: [String]
+
+    public init(due: Kinds, studiedCards: Int, left: Kinds, isSingleDay: Bool, isExact: Bool, notes: [String] = []) {
+        self.due = due
+        self.studiedCards = max(studiedCards, 0)
+        self.left = left
+        self.isSingleDay = isSingleDay
+        self.isExact = isExact
+        self.notes = notes
+    }
+
+    /// Share of the day's due cards that were no longer due at its end.
+    public var clearedFraction: Double {
+        guard due.total > 0 else { return 0 }
+        return min(1, max(0, Double(due.total - left.total) / Double(due.total)))
     }
 }
 

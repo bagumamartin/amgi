@@ -7,27 +7,50 @@ import Dependencies
 import Foundation
 @testable import ReaderFeature
 
-@Suite @MainActor struct StudyHistoryModelTests {
-    @Test func historicalReviewMatchesScheduledCountAndKeepsCandidatesSeparate() {
+@Suite @MainActor struct StudyLedgerModelTests {
+    /// 30 due (10 new, 5 learning, 15 review); 18 studied; 12 left.
+    nonisolated static func day(offset: Int, learning: [Int64] = [1], review: [Int64] = [2], uncertain: StudyLedger.Uncertain = .init()) -> StudyLedger.Day {
+        StudyLedger.Day(
+            offset: offset,
+            due: .init(new: 10, learn: 5, review: 15),
+            studied: .init(new: 0, learn: 4, review: 14, cards: 18, answers: 25, millis: 600_000),
+            left: .init(new: 10, learn: learning.count, review: review.count),
+            uncertain: uncertain,
+            exact: uncertain == .init(),
+            detail: .init(leftLearningIds: learning, leftReviewIds: review)
+        )
+    }
+
+    @Test func pastDayOffersWhatWasLeftAndShowsDueStudiedLeft() {
         let model = StudyLandingModel()
         model.dayOffset = 1
-        model.spanHistory = StudyHistory(learningIds: [1], reviewIds: [2], newCandidateIds: [3], unresolved: [.init(cardId: 4, reason: .manualSchedule)], suspensionUnknownIds: [2, 3])
+        model.spanLedger = Self.day(offset: 1)
         #expect(model.spanRemainingRow?.search == "cid:1,2")
         #expect(model.spanRemainingRow?.reviewSearch == "(cid:1,2) -is:suspended -is:buried -deck:filtered")
         #expect(model.spanRemainingRow?.count == 2)
         #expect(model.spanRemainingRow?.isReconstructed == true)
-        #expect(model.spanRemainingRow?.suspensionUnknownCount == 1)
         #expect(model.spanRemainingRow?.reschedulesByDefault == false)
-        #expect(model.historyCardMix?.remainingLearn == 1)
-        #expect(model.historyCardMix?.remainingReview == 1)
-        #expect(model.historyCardMix?.newCandidates == 1)
-        #expect(model.historyCardMix?.remainingTotal == 2)
-        #expect(model.historyCardMix?.suspensionUnknown == 1)
+        let ledger = model.historyLedger
+        #expect(ledger?.due.total == 30)
+        #expect(ledger?.studiedCards == 18)
+        #expect(ledger?.left.total == 12)
+        #expect(ledger?.isSingleDay == true)
+        #expect(ledger?.isExact == true)
+        #expect(ledger?.notes.isEmpty == true)
+    }
+
+    @Test func inexactDayNamesEachCause() {
+        let uncertain = StudyLedger.Uncertain(incompleteLog: 2, manualSchedule: 1, suspensionUnknown: 3, limitsExceeded: ["Languages::French"])
+        let notes = StudyLandingModel.ledgerNotes(Self.day(offset: 1, uncertain: uncertain))
+        #expect(notes.count == 3)
+        #expect(notes[0].contains("3"))
+        #expect(notes[2].contains("French"))
+        #expect(!notes[2].contains("Languages"))
     }
 
     @Test func todayAndFutureDoNotExposeHistoricalReview() {
         let model = StudyLandingModel()
-        model.spanHistory = StudyHistory(learningIds: [1], reviewIds: [], newCandidateIds: [], unresolved: [])
+        model.spanLedger = Self.day(offset: 0)
         #expect(model.spanRemainingRow == nil)
         model.dayOffset = -1
         #expect(model.spanRemainingRow == nil)
@@ -54,23 +77,19 @@ import Foundation
 
     @MainActor private final class Probe {
         var boundaries: [Int64] = []
-        var scopes: [String] = []
+        var decks: [Int64] = []
         var searches = 0
     }
 
     private func model(probe: Probe, profile: ProfileContext? = nil) -> StudyLandingModel {
         var stats = StatsClient()
         stats.reviewTimes = { _, _, _ in [] }
-        stats.studyHistory = { scope, end, _ in
+        stats.studyLedger = { deckID, _, days, _ in
             await MainActor.run {
-                probe.boundaries.append(end)
-                probe.scopes.append(scope)
+                probe.boundaries.append(days[0].endMs)
+                probe.decks.append(deckID)
             }
-            return StudyHistory(learningIds: [1, 1], reviewIds: [2], newCandidateIds: [3], unresolved: [], suspensionUnknownIds: [2, 3])
-        }
-        stats.dayMix = { _, _, _, _ in
-            StudyDayMix(answeredNew: 0, answeredLearn: 0, answeredRelearn: 0,
-                answeredReview: 0, answeredCards: 0, remainingLearn: 99, remainingReview: 99)
+            return StudyLedger(days: [Self.day(offset: days[0].offset)])
         }
         var cards = CardClient()
         cards.searchIds = { _, _ in
@@ -85,7 +104,7 @@ import Foundation
         }
     }
 
-    @Test func widerSpanUsesEndBoundaryAndKeepsCountListAgreement() async throws {
+    @Test func widerSpanRebuildsItsLastDayAndKeepsCountListAgreement() async throws {
         let probe = Probe()
         let model = model(probe: probe)
         model.grain = .week
@@ -96,18 +115,15 @@ import Foundation
         let end = StudySpan.date(todayStart: today, offset: window.newest - 1, calendar: .current)
         await model.reloadSpanRows()
         #expect(probe.boundaries == [Int64(end.timeIntervalSince1970 * 1_000)])
-        #expect(probe.scopes == [""])
-        #expect(model.historyCardMix?.remainingLearn == 1)
-        #expect(model.historyCardMix?.remainingReview == 1)
-        #expect(model.historyCardMix?.newCandidates == 1)
-        #expect(model.historyCardMix?.remainingTotal == 2)
+        #expect(probe.decks == [0])
+        #expect(model.historyLedger?.isSingleDay == false)
+        #expect(model.historyLedger?.left.total == 12)
         #expect(model.spanRemainingRow?.count == 2)
         #expect(model.spanRemainingRow?.search == "cid:1,2")
-        let candidates = try #require(model.spanRows.first { $0.id == "history-new" })
-        #expect(candidates.reschedulesByDefault == false)
-        #expect(candidates.isReconstructed)
-        #expect(candidates.suspensionUnknownCount == 1)
-        #expect(candidates.search == "cid:3")
+        let learning = try #require(model.spanRows.first { $0.id == "history-learning" })
+        #expect(learning.search == "cid:1")
+        #expect(learning.isReconstructed)
+        #expect(!model.spanRows.contains { $0.id == "history-new" })
     }
 
     @Test func oldProfileModelCannotReadTheNewCollection() async {
@@ -117,7 +133,7 @@ import Foundation
         await model.showHistory()
         #expect(probe.boundaries.isEmpty)
         #expect(probe.searches == 0)
-        #expect(model.spanHistory == nil)
+        #expect(model.spanLedger == nil)
     }
     @Test func revisitingPeriodUsesCompleteCachedResult() async {
         let probe = Probe()
@@ -167,13 +183,9 @@ import Foundation
         let gate = Gate()
         var stats = StatsClient()
         stats.reviewTimes = { _, _, _ in [] }
-        stats.studyHistory = { _, _, _ in
-            StudyHistory(learningIds: [1], reviewIds: [2], newCandidateIds: [], unresolved: [])
-        }
-        stats.dayMix = { _, _, _, newest in
-            if newest == 1 { await gate.pause() }
-            return StudyDayMix(answeredNew: newest, answeredLearn: 0, answeredRelearn: 0,
-                answeredReview: 0, answeredCards: newest, remainingLearn: 0, remainingReview: 0)
+        stats.studyLedger = { _, _, days, _ in
+            if days[0].offset == 1 { await gate.pause() }
+            return StudyLedger(days: [Self.day(offset: days[0].offset)])
         }
         var cards = CardClient()
         cards.searchIds = { _, _ in [] }
@@ -184,20 +196,18 @@ import Foundation
         model.dayOffset = 1
         let oldRequest = Task { await model.reloadSpanRows() }
         await gate.waitUntilStarted()
-        #expect(model.spanHistory == nil)
+        #expect(model.spanLedger == nil)
         #expect(model.spanRows.contains { $0.id == "history-learning" })
         #expect(model.spanRows.contains { $0.id == "history-review" })
-        #expect(model.spanRows.contains { $0.id == "history-new" })
         #expect(model.spanRowsLoading)
         model.dayOffset = 2
         await model.reloadSpanRows()
-        let selectedMix = model.spanMix
-        #expect(model.spanHistory != nil)
+        #expect(model.spanLedger?.offset == 2)
         #expect(!model.spanRowsLoading)
         await gate.resume()
         await oldRequest.value
         #expect(model.dayOffset == 2)
-        #expect(model.spanMix?.answeredNew == selectedMix?.answeredNew)
+        #expect(model.spanLedger?.offset == 2)
         #expect(!model.spanRowsLoading)
     }
 
@@ -220,20 +230,11 @@ import Foundation
         #expect(probe.searches == searches)
     }
 
-    @Test(.timeLimit(.minutes(1))) func historyAndRecordedMixStartIndependently() async {
-        let historyGate = Gate()
-        let mixGate = Gate()
+    @Test func aDayThatCannotBeRebuiltSaysSoInsteadOfShowingZeros() async {
+        struct Failure: Error {}
         var stats = StatsClient()
         stats.reviewTimes = { _, _, _ in [] }
-        stats.studyHistory = { _, _, _ in
-            await historyGate.pause()
-            return StudyHistory(learningIds: [1], reviewIds: [], newCandidateIds: [], unresolved: [])
-        }
-        stats.dayMix = { _, _, _, _ in
-            await mixGate.pause()
-            return StudyDayMix(answeredNew: 0, answeredLearn: 0, answeredRelearn: 0,
-                answeredReview: 0, answeredCards: 0, remainingLearn: 0, remainingReview: 0)
-        }
+        stats.studyLedger = { _, _, _, _ in throw Failure() }
         var cards = CardClient()
         cards.searchIds = { _, _ in [] }
         let model = withDependencies {
@@ -241,15 +242,10 @@ import Foundation
             $0.cardClient = cards
         } operation: { StudyLandingModel() }
         model.dayOffset = 1
-        let request = Task { await model.reloadSpanRows() }
-        await historyGate.waitUntilStarted()
-        await mixGate.waitUntilStarted()
-        #expect(model.spanRowsLoading)
-        #expect(model.spanHistory == nil)
-        await historyGate.resume()
-        await mixGate.resume()
-        await request.value
-        #expect(model.spanRemainingRow?.count == 1)
+        await model.reloadSpanRows()
+        #expect(model.historyLedger == nil)
+        #expect(model.spanRowsError != nil)
+        #expect(model.spanRemainingRow == nil)
         #expect(!model.spanRowsLoading)
     }
 
@@ -280,17 +276,13 @@ import Foundation
         let probe = Probe()
         var stats = StatsClient()
         stats.reviewTimes = { _, _, _ in [] }
-        stats.studyHistory = { _, end, _ in
+        stats.studyLedger = { _, _, days, _ in
             let calls = await MainActor.run {
-                probe.boundaries.append(end)
+                probe.boundaries.append(days[0].endMs)
                 return probe.boundaries.count
             }
             if calls == 2 { await gate.pause() }
-            return StudyHistory(learningIds: [1], reviewIds: [2], newCandidateIds: [], unresolved: [])
-        }
-        stats.dayMix = { _, _, _, _ in
-            StudyDayMix(answeredNew: 0, answeredLearn: 0, answeredRelearn: 0,
-                answeredReview: 0, answeredCards: 0, remainingLearn: 0, remainingReview: 0)
+            return StudyLedger(days: [Self.day(offset: days[0].offset)])
         }
         var cards = CardClient()
         cards.searchIds = { _, _ in [] }
@@ -303,12 +295,11 @@ import Foundation
         let request = Task { await model.reloadSpanRows(refresh: true) }
         await gate.waitUntilStarted()
         #expect(model.spanRemainingRow?.count == 2)
-        #expect(model.historyCardMix?.remainingTotal == 2)
+        #expect(model.historyLedger?.left.total == 12)
         #expect(!model.spanRowsLoading)
         await gate.resume()
         await request.value
         #expect(probe.boundaries.count == 2)
         #expect(model.spanRemainingRow?.count == 2)
     }
-
 }

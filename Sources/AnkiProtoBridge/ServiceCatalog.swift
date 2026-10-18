@@ -157,10 +157,9 @@ enum AuxMethod {
     static let inspectAnkiPackage: UInt32 = 1
     static let inspectMnemosyne: UInt32 = 2
     static let importMnemosyne: UInt32 = 3
-    static let studyDayMix: UInt32 = 4
-    static let studyHistory: UInt32 = 5
     static let readerNotes: UInt32 = 6
     static let reviewTimes: UInt32 = 7
+    static let studyLedger: UInt32 = 8
 }
 
 /// BackendConfigService (9).
