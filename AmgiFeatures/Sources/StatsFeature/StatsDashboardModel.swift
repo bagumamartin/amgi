@@ -23,6 +23,13 @@ final class StatsDashboardModel {
         didSet { topLevelDecks = decks.filter { !$0.name.contains("::") } }
     }
 
+    /// Review history for the heatmap alone, over `heatmapLookbackDays`, so
+    /// days outside the selected period still show (muted) intensity rather
+    /// than blanks. `nil` falls back to the period-scoped `graphs.reviews`.
+    private(set) var heatmapReviews: ReviewCountsAndTimes?
+    @ObservationIgnored private var heatmapSearch: String?
+    static let heatmapLookbackDays = 730
+
     /// Stored so the deck menu doesn't re-filter on every `body` pass.
     private(set) var topLevelDecks: [DeckInfo] = []
 
@@ -58,5 +65,19 @@ final class StatsDashboardModel {
             // An error wins over stale graphs, as the old projection did.
             state = .failed(error.localizedDescription)
         }
+    }
+
+    /// Best-effort: on failure the heatmap falls back to the period-scoped
+    /// `graphs.reviews`. Driven by its own `.task(id:)` on the deck filter, so
+    /// changing the period never refetches it and the period's charts never
+    /// wait on it — the two loads run side by side.
+    func loadHeatmapReviews(search: String) async {
+        // Never show another deck's history under this deck's filter; a plain
+        // refresh keeps the old grid up until the new one lands.
+        if heatmapSearch != search { heatmapReviews = nil }
+        let reviews = try? await statsClient.fetchGraphs(search, Self.heatmapLookbackDays).reviews
+        guard !Task.isCancelled else { return }
+        heatmapReviews = reviews
+        heatmapSearch = reviews == nil ? nil : search
     }
 }

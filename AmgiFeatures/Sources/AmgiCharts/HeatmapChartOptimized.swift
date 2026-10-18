@@ -4,10 +4,12 @@ import AmgiTheme
 import AmgiUI
 public import AnkiKit
 
-/// Optimized heatmap with incremental loading.
-/// - Initially loads 6 months of data.
-/// - Loads more when scrolling to edges.
-/// - Configurable via the date range menu.
+/// Review heatmap.
+/// - By default it shows as many weeks as fit the available width — more on
+///   a wide iPad or Mac window — and follows window resizing column by column.
+/// - It never shows less than the selected period; when the period is wider
+///   than the space, the grid scrolls instead.
+/// - A range picked from the menu overrides the fit and is remembered.
 public struct HeatmapChartOptimized: View {
     let reviews: ReviewCountsAndTimes
     /// Number of most-recent days rendered with the normal intensity ramp;
@@ -15,30 +17,39 @@ public struct HeatmapChartOptimized: View {
     /// `nil` disables the distinction.
     var attentionDays: Int? = nil
 
-    public init(reviews: ReviewCountsAndTimes, compactHeight: CGFloat? = nil) {
+    public init(
+        reviews: ReviewCountsAndTimes,
+        attentionDays: Int? = nil,
+        compactHeight: CGFloat? = nil
+    ) {
         self.reviews = reviews
+        self.attentionDays = attentionDays
         self.compactHeight = compactHeight
     }
 
     @Environment(\.palette) private var palette
-    @State private var loadingManager: HeatmapLoadingManager?
-    @State private var shouldShowLoadingIndicator = false
-    @State private var scrollPosition: CGFloat = 0
-    @State private var selectedDateRange: Int = 180
-
-    // Snapshotted from actor after each mutation. Other derived values are
-    // computed from this dictionary inline (cheap sync transforms).
-    @State private var visibleData: [Int: Int] = [:]
+    /// `0` fits the grid to the available width (the default); otherwise the
+    /// range in days the user picked from the menu, kept across launches.
+    @AppStorage("statsHeatmapRangeDays") private var pickedRangeDays = 0
+    /// Week-columns that fit the measured width. Integer, so a live window
+    /// resize only re-renders when a whole column appears or disappears.
+    @State private var fittingWeeks: Int?
+    /// Day offset → review total over the whole history handed in. Built once
+    /// per `reviews`, so resizing and range changes are synchronous filters
+    /// over it rather than a reload.
+    @State private var allCounts: [Int: Int] = [:]
+    /// Colour scale. Taken over everything loaded, not the visible window,
+    /// so resizing the window never recolours the cells already on screen.
     @State private var maxCount: Int = 1
-    @State private var totalReviews: Int = 0
-    /// Derived from `visibleData` once per snapshot rather than per body pass
-    /// (and per scroll frame, which is where it used to be read from).
-    @State private var weeksToShow: Int = 26
-    /// Guards against `onScrollGeometryChange` spawning one expansion task per
-    /// frame while the user is still flicking past the edge.
-    @State private var isExpanding = false
     /// Rebuilds the grid only when the range, counts, or calendar day change.
     @State private var gridCache = HeatmapGridCache()
+
+    /// The longest range offered, and the depth of the history the stats
+    /// screen loads for the heatmap.
+    private static let maxRangeDays = 730
+    /// Used until the width is first measured, and on a narrow screen when
+    /// six months can't fit anyway.
+    private static let fallbackRangeDays = 180
 
     var compactHeight: CGFloat? = nil
 
@@ -78,8 +89,18 @@ public struct HeatmapChartOptimized: View {
         // Shared with the Library hero card via AnkiKit.DayStreak. This used
         // to be a third, subtly different implementation, so the two screens
         // could disagree about the same user's streak. Windowed to the range
-        // actually loaded.
-        DayStreak.count(totals: visibleData, window: max(1, selectedDateRange))
+        // on screen.
+        DayStreak.count(totals: visibleData, window: shownDays)
+    }
+
+    /// Reviews on the days the grid actually shows — what "Total" sums.
+    private var visibleData: [Int: Int] {
+        let oldest = -shownDays
+        return allCounts.filter { $0.key > oldest }
+    }
+
+    private var totalReviews: Int {
+        visibleData.values.reduce(0, +)
     }
 
     private var reviewsThisWeek: Int {
@@ -97,7 +118,37 @@ public struct HeatmapChartOptimized: View {
     // MARK: - Grid Data
 
     private var grid: HeatmapGrid {
-        gridCache.grid(weekCount: weeksToShow, counts: visibleData)
+        gridCache.grid(weekCount: weeksToShow, counts: allCounts)
+    }
+
+    private var isFittingWidth: Bool { pickedRangeDays == 0 }
+
+    /// Columns to draw. Fit mode takes what the width allows but never less
+    /// than the selected period; a picked range is drawn as picked.
+    private var weeksToShow: Int {
+        let cap = Self.weeks(covering: Self.maxRangeDays)
+        guard isFittingWidth else {
+            return min(Self.weeks(covering: pickedRangeDays), cap)
+        }
+        let fit = fittingWeeks ?? Self.weeks(covering: Self.fallbackRangeDays)
+        let period = attentionDays.map { Self.weeks(covering: min($0, Self.maxRangeDays)) } ?? 0
+        return min(max(fit, period, 1), cap)
+    }
+
+    /// Days from the grid's first cell through today.
+    private var shownDays: Int {
+        max(1, 1 - (grid.weeks.first?.days.first?.offset ?? 0))
+    }
+
+    /// Columns needed for `days` days ending today; the last column is the
+    /// current, partial week.
+    static func weeks(covering days: Int) -> Int {
+        days / 7 + 1
+    }
+
+    func weeksThatFit(width: CGFloat) -> Int {
+        let column = cellSize + cellSpacing
+        return max(1, Int(((width - weekdayLabelWidth + cellSpacing) / column).rounded(.down)))
     }
 
     // MARK: - Body
@@ -111,10 +162,10 @@ public struct HeatmapChartOptimized: View {
         ) {
             heatmapContent()
         }
-        .task {
-            await initializeLoadingManager()
-            await refreshFromManager()
-        }
+        // Keyed on the data: a deck change, or the wider-than-period history
+        // arriving after the first render, has to rebuild the grid. A bare
+        // `.task` ran once and kept showing whatever it was first handed.
+        .task(id: reviews) { loadCounts() }
     }
 }
 
@@ -134,18 +185,18 @@ private extension HeatmapChartOptimized {
                 #if !os(watchOS)
                 if !isCompact {
                     Menu {
+                        rangeOption(L10n.text("Fit to Window"), days: 0)
+                        Divider()
                         ForEach([30, 90, 180, 365, 730], id: \.self) { days in
-                            Button(dateRangeLabel(days)) {
-                                Task {
-                                    await updateDateRange(days)
-                                }
-                            }
+                            rangeOption(dateRangeLabel(days), days: days)
                         }
                     } label: {
-                        Label(dateRangeLabel(selectedDateRange), systemImage: "line.horizontal.3.decrease.circle")
+                        Label(rangeMenuTitle, systemImage: "line.horizontal.3.decrease.circle")
                             .amgiFont(.caption)
                             .foregroundStyle(palette.accent)
+                            .contentTransition(.numericText())
                     }
+                    .fixedSize()
                 }
                 #endif
 
@@ -156,7 +207,7 @@ private extension HeatmapChartOptimized {
                 }
             }
 
-            if visibleData.isEmpty {
+            if allCounts.isEmpty {
                 Text("No reviews yet")
                     .foregroundStyle(palette.textSecondary)
                     .frame(maxWidth: .infinity, minHeight: isCompact ? 72 : 100)
@@ -180,22 +231,17 @@ private extension HeatmapChartOptimized {
                     .id("heatmapContent")
 
                     if contentWidth > geo.size.width + 0.5 {
-                        ScrollViewReader { scrollProxy in
-                            ScrollView(.horizontal, showsIndicators: !isCompact) {
-                                grid
-                            }
-                            .defaultScrollAnchor(.trailing)
-                            .onScrollGeometryChange(
-                                for: CGFloat.self,
-                                of: { geometry in geometry.contentOffset.x },
-                                action: { _, newValue in
-                                    handleScroll(offset: newValue)
-                                }
-                            )
+                        ScrollView(.horizontal, showsIndicators: !isCompact) {
+                            grid
                         }
+                        .defaultScrollAnchor(.trailing)
                     } else {
+                        // Fitting the width: pin today to the trailing edge,
+                        // in line with the legend, so a resize adds or drops
+                        // the oldest column and the newest never moves. A
+                        // short picked range left-aligns as before.
                         grid
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .frame(maxWidth: .infinity, alignment: isFittingWidth ? .trailing : .leading)
                     }
                 }
                 .frame(height: gridHeight)
@@ -204,6 +250,34 @@ private extension HeatmapChartOptimized {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        // The card's content width, which comes from the parent and not from
+        // the grid, so drawing more columns can't feed back into the measure.
+        .onGeometryChange(for: Int.self) { proxy in
+            weeksThatFit(width: proxy.size.width)
+        } action: { weeks in
+            fittingWeeks = weeks
+        }
+    }
+
+    #if !os(watchOS)
+    func rangeOption(_ title: String, days: Int) -> some View {
+        Button {
+            pickedRangeDays = days
+        } label: {
+            if pickedRangeDays == days { Label(title, systemImage: "checkmark") } else { Text(title) }
+        }
+    }
+    #endif
+
+    /// The picked range, or in fit mode the span actually on screen — so the
+    /// button says what widening the window just did.
+    var rangeMenuTitle: String {
+        guard isFittingWidth else { return dateRangeLabel(pickedRangeDays) }
+        let months = Int((Double(shownDays) / 30.44).rounded())
+        if months < 2 { return L10n.format("%lld days", [shownDays]) }
+        if months >= 24 { return dateRangeLabel(730) }
+        if months == 12 { return dateRangeLabel(365) }
+        return L10n.format("Last %lld months", [months])
     }
 
     // MARK: - View Components
@@ -213,8 +287,13 @@ private extension HeatmapChartOptimized {
     func monthHeaderView() -> some View {
         HStack(spacing: 0) {
             Spacer().frame(width: weekdayLabelWidth)
-            ForEach(grid.weeks) { week in
-                if let label = week.monthLabel {
+            let weeks = grid.weeks
+            ForEach(weeks.indices, id: \.self) { index in
+                // A label needs about two columns. The oldest column usually
+                // holds the tail of a month whose label would run into the
+                // next month's ("DecJan"), and it shifts with every resize.
+                let crowded = weeks.indices.contains(index + 1) && weeks[index + 1].monthLabel != nil
+                if let label = weeks[index].monthLabel, !crowded {
                     Text(label)
                         .font(.system(size: 9))
                         .foregroundStyle(palette.textSecondary)
@@ -248,7 +327,7 @@ private extension HeatmapChartOptimized {
                                     cellColor(
                                         count: day.count,
                                         isFuture: day.isFuture,
-                                        isAttention: attentionDays.map { day.offset >= -$0 } ?? true
+                                        isAttention: isInPeriod(day.offset)
                                     )
                                 )
                                 .frame(width: cellSize, height: cellSize)
@@ -259,12 +338,18 @@ private extension HeatmapChartOptimized {
         }
     }
 
+    /// `attentionDays` covers today plus the `n - 1` days before it — the same
+    /// window the period's own graphs fetch — so offset `-n` is already out.
+    func isInPeriod(_ offset: Int) -> Bool {
+        attentionDays.map { offset > -$0 } ?? true
+    }
+
     func cellColor(count: Int, isFuture: Bool, isAttention: Bool) -> Color {
         if isFuture { return .clear }
         if isAttention {
             return HeatmapColorRamp.color(count: count, maxCount: maxCount, palette: palette)
         }
-        // Out-of-period: same intensity ramp, neutral gray instead of accent.
+        // Out-of-period: same intensity ramp, in greyscale instead of accent.
         return HeatmapColorRamp.color(
             count: count,
             maxCount: maxCount,
@@ -301,22 +386,17 @@ private extension HeatmapChartOptimized {
     }
 
     func weekdayLabel(_ index: Int) -> String {
-        // Locale-aware single-letter weekday initials (T2/T4/T6 in
-        // Vietnamese, M/W/F in English) instead of hardcoded English.
-        let symbols = Calendar.current.veryShortWeekdaySymbols
-        // Grid rows are Monday-first: index 1 = Monday, 3 = Wednesday,
-        // 5 = Friday. veryShortWeekdaySymbols is Sunday-first.
-        func mondayFirst(_ weekday: Int) -> String {
-            let sundayFirstIndex = weekday % 7
-            guard symbols.indices.contains(sundayFirstIndex) else { return "" }
-            return symbols[sundayFirstIndex]
-        }
-        switch index {
-        case 1: return mondayFirst(2)
-        case 3: return mondayFirst(4)
-        case 5: return mondayFirst(6)
-        default: return ""
-        }
+        // Locale-aware initials for Monday, Wednesday and Friday, wherever
+        // those land. Rows start at the calendar's own first weekday
+        // (`HeatmapGrid` builds weeks from `Calendar.current`), so fixed rows
+        // 1/3/5 read Tue/Thu/Sat on a Monday-first calendar.
+        let calendar = Calendar.current
+        let symbols = calendar.veryShortWeekdaySymbols
+        let sundayFirstIndex = (calendar.firstWeekday - 1 + index) % 7
+        // Sunday-first: 1 = Monday, 3 = Wednesday, 5 = Friday.
+        guard [1, 3, 5].contains(sundayFirstIndex),
+              symbols.indices.contains(sundayFirstIndex) else { return "" }
+        return symbols[sundayFirstIndex]
     }
 
     func dateRangeLabel(_ days: Int) -> String {
@@ -330,62 +410,22 @@ private extension HeatmapChartOptimized {
         }
     }
 
-    // MARK: - Async Snapshot Helper
+    // MARK: - Loading
 
-    /// Reads the actor's current visible data and snapshots it into @State.
-    /// Called on the @MainActor (view) after every actor mutation.
-    func refreshFromManager() async {
-        guard let manager = loadingManager else { return }
-        let snapshot = await manager.getVisibleData()
-        var nextVisible: [Int: Int] = [:]
-        var nextTotal = 0
-        var nextMax = 1
-        for (offset, review) in snapshot {
-            nextVisible[offset] = review.total
-            nextTotal += review.total
-            nextMax = Swift.max(nextMax, review.total)
+    /// Flattens the per-state counts once per `reviews`. Everything else —
+    /// width, range, period — filters this synchronously, so nothing waits on
+    /// a reload and resizing never shows half-filled columns.
+    func loadCounts() {
+        var counts: [Int: Int] = [:]
+        var peak = 1
+        for (offset, rev) in reviews.count where offset <= 0 && offset > -Self.maxRangeDays {
+            let total = Int(rev.learn + rev.relearn + rev.young + rev.mature + rev.filtered)
+            guard total > 0 else { continue }
+            counts[Int(offset)] = total
+            peak = Swift.max(peak, total)
         }
-        visibleData = nextVisible
-        totalReviews = nextTotal
-        maxCount = nextMax
-        weeksToShow = Self.weekCount(for: nextVisible)
-    }
-
-    /// Enough week-columns to cover the loaded range, floored at 26 so a
-    /// sparse collection still renders a full six months.
-    static func weekCount(for data: [Int: Int]) -> Int {
-        guard let minOffset = data.keys.min() else { return 26 }
-        return max((Swift.abs(minOffset) + 7) / 7 + 1, 26)
-    }
-
-    // MARK: - State Management
-
-    func initializeLoadingManager() async {
-        let manager = HeatmapLoadingManager()
-        await manager.loadAllData(reviews)
-        self.loadingManager = manager
-    }
-
-    func updateDateRange(_ days: Int) async {
-        selectedDateRange = days
-        guard let manager = loadingManager else { return }
-        await manager.setDateRange(days: days)
-        await refreshFromManager()
-    }
-
-    func handleScroll(offset: CGFloat) {
-        let scrollThreshold: CGFloat = 100
-        let isNearEnd = contentWidth - offset < scrollThreshold
-
-        // This fires every scroll frame, so without the in-flight guard a
-        // single flick past the edge queues dozens of redundant expansions.
-        guard isNearEnd, !isExpanding else { return }
-        isExpanding = true
-        Task {
-            await loadingManager?.expandDateRange()
-            await refreshFromManager()
-            isExpanding = false
-        }
+        allCounts = counts
+        maxCount = peak
     }
 }
 

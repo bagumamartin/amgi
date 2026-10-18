@@ -16,20 +16,33 @@ public struct StatsChartStack: View {
     private let graphs: GraphsSnapshot
     private let period: StatsPeriod
     private let isCompact: Bool
+    private let heatmapReviews: ReviewCountsAndTimes?
 
     /// - Parameter isCompact: watch-sized layout. Omits the activity heatmap,
     ///   which needs a year-wide grid to be readable at all.
-    public init(graphs: GraphsSnapshot, period: StatsPeriod, isCompact: Bool = false) {
+    /// - Parameter heatmapReviews: a lookback wider than `period`, so the
+    ///   heatmap can show days outside the period (muted) instead of blanks.
+    ///   Falls back to `graphs.reviews`, which only covers the period.
+    public init(
+        graphs: GraphsSnapshot,
+        period: StatsPeriod,
+        isCompact: Bool = false,
+        heatmapReviews: ReviewCountsAndTimes? = nil
+    ) {
         self.graphs = graphs
         self.period = period
         self.isCompact = isCompact
+        self.heatmapReviews = heatmapReviews
     }
 
     public var body: some View {
         PeriodStatsCard(period: period, today: graphs.today, reviews: graphs.reviews)
         FutureDueChart(futureDue: graphs.futureDue, period: period)
         if !isCompact {
-            HeatmapChartOptimized(reviews: graphs.reviews)
+            HeatmapChartOptimized(
+                reviews: heatmapReviews ?? graphs.reviews,
+                attentionDays: period.days
+            )
         }
         ReviewsChart(reviews: graphs.reviews, period: period)
         CardCountsChart(cardCounts: graphs.cardCounts)

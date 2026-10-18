@@ -94,6 +94,36 @@
         }
       }
     },
+    "Fit to Window": {
+      "comment": "Heatmap range menu: show as many weeks as fit the available width.",
+      "extractionState": "manual",
+      "localizations": {
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vừa cửa sổ"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajustar a la ventana"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajuster à la fenêtre"
+          }
+        },
+        "hu": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ablakhoz igazítás"
+          }
+        }
+      }
+    },
     "Language": {
       "comment": "Settings › Appearance. Section header above the App Language row.",
       "extractionState": "manual",
@@ -121,6 +151,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "Idioma"
+          }
+        }
+      }
+    },
+    "Last %lld months": {
+      "comment": "Heatmap range when fitting the window: how many months are on screen.",
+      "extractionState": "manual",
+      "localizations": {
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld tháng qua"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Últimos %lld meses"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld derniers mois"
+          }
+        },
+        "hu": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elmúlt %lld hónap"
           }
         }
       }

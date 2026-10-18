@@ -38,7 +38,11 @@ package struct StatsDashboardView: View {
             onSelectDeck: { selectedDeck = $0 },
             onSelectPeriod: { period = $0 },
             isRefreshing: model.isRefreshing,
-            allowsDeckSelection: !locksDeckScope
+            allowsDeckSelection: !locksDeckScope,
+            // A period at least as long as the lookback already carries more
+            // history than the heatmap fetch would.
+            heatmapReviews: period.days >= StatsDashboardModel.heatmapLookbackDays
+                ? nil : model.heatmapReviews
         )
         .scrollContentBackground(.hidden)
         .amgiScreenCanvas()
@@ -61,8 +65,23 @@ package struct StatsDashboardView: View {
         // fetch can no longer land after a newer one and show the wrong
         // period's data.
         .task(id: query) { await reloadStats() }
-        .refreshable { await reloadStats() }
+        // The heatmap's history ignores the period, so it gets its own key:
+        // switching period never refetches it, and it loads beside the
+        // period's charts instead of after them.
+        .task(id: HeatmapQuery(refreshID: refreshID, deckName: selectedDeck?.name)) {
+            await model.loadHeatmapReviews(search: search)
+        }
+        .refreshable {
+            async let stats: Void = reloadStats()
+            async let heatmap: Void = model.loadHeatmapReviews(search: search)
+            _ = await (stats, heatmap)
+        }
     }
+}
+
+private struct HeatmapQuery: Equatable {
+    let refreshID: UUID?
+    let deckName: String?
 }
 
 /// Everything the stats fetch depends on, as one `.task(id:)` key.
@@ -93,8 +112,11 @@ private extension StatsDashboardView {
     }
 
     /// Bridge the view's filter state into the model's stats load.
+    var search: String {
+        selectedDeck.map { DeckSearch.term($0.name) } ?? ""
+    }
+
     func reloadStats() async {
-        let search = selectedDeck.map { DeckSearch.term($0.name) } ?? ""
         await model.loadStats(search: search, days: period.days)
     }
 }

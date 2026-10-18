@@ -31,6 +31,8 @@ struct StatsDashboardContent: View {
     /// from one that had ignored the tap. This marks the wait.
     let isRefreshing: Bool
     let allowsDeckSelection: Bool
+    /// Wider-than-period review history for the heatmap; see `StatsChartStack`.
+    var heatmapReviews: ReviewCountsAndTimes? = nil
 
     var body: some View {
         ScrollView {
@@ -135,7 +137,7 @@ struct StatsDashboardContent: View {
 
     @ViewBuilder
     private func charts(_ graphs: GraphsSnapshot) -> some View {
-        StatsChartStack(graphs: graphs, period: period)
+        StatsChartStack(graphs: graphs, period: period, heatmapReviews: heatmapReviews)
     }
 }
 
