@@ -83,28 +83,38 @@ struct HeroStreakSummary: Equatable {
 
 // MARK: - Compact indicator (hero card)
 
-/// The hero's streak chip: flame + headline over a 7-day strip, today last.
-/// Tapping opens `HeroStreakDetails`. It reads in every state — a broken or
-/// never-started streak still shows the week and says how to (re)start it.
+/// The hero's streak chip: emblem + headline over a 7-day strip, today last,
+/// on a living background (`HeroStreakAmbience`) — fire while the streak is
+/// alive, winter once it lapses. Tapping flares it (sparks, or a gust of
+/// snow), plays a haptic, and opens `HeroStreakDetails`. It reads in every
+/// state — a broken or never-started streak still shows the week and says
+/// how to (re)start it.
 struct HeroStreakIndicator: View {
     let summary: HeroStreakSummary
+    /// Fixed animation time for previews and snapshots; nil runs live.
+    var stillTime: Double?
 
     @State private var showsDetails = false
+    @State private var tap: Date?
 
     @Environment(\.palette) private var palette
     @Environment(\.locale) private var locale
 
     var body: some View {
+        let shape = RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous)
         Button {
+            tap = .now
             showsDetails = true
         } label: {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 4) {
-                    HeroStreakFlame(state: summary.state, size: 12)
+                    HeroStreakEmblem(state: summary.state, size: 15, tap: tap, stillTime: stillTime)
+                        .padding(.vertical, -3)
                     Text(summary.headline(locale: locale))
                         .amgiFont(size: 14, weight: .semibold, relativeTo: .footnote)
                         .monospacedDigit()
-                        .foregroundStyle(summary.isLive ? palette.textPrimary : palette.textSecondary)
+                        .contentTransition(.numericText(value: Double(summary.streak)))
+                        .foregroundStyle(headlineColor)
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
                     Spacer(minLength: 2)
@@ -115,14 +125,25 @@ struct HeroStreakIndicator: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .background(background, in: RoundedRectangle(cornerRadius: AmgiRadius.small, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: AmgiRadius.small, style: .continuous)
-                    .strokeBorder(border, lineWidth: summary.state == .milestone ? 1 : 0.5)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: AmgiRadius.small, style: .continuous))
+            .background {
+                ZStack {
+                    palette.surface
+                    HeroStreakAmbience(mood: mood, milestone: summary.state == .milestone, tap: tap, stillTime: stillTime)
+                        .id(mood)
+                        .transition(.opacity)
+                }
+                .clipShape(shape)
+            }
+            .overlay(shape.strokeBorder(border, lineWidth: summary.state == .milestone ? 1 : 0.5))
+            .contentShape(shape)
+            .animation(AmgiMotion.standard, value: mood)
+            .animation(AmgiMotion.standard, value: summary.streak)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressScale)
+        .sensoryFeedback(
+            mood == .frost ? .impact(weight: .light) : .impact(flexibility: .soft, intensity: 0.9),
+            trigger: tap
+        )
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
             "\(AmgiL10n.text("Streak", locale: locale)), \(summary.headline(locale: locale)). \(summary.status(locale: locale))"
@@ -159,24 +180,23 @@ struct HeroStreakIndicator: View {
         case .lapsed, .fresh:
             Image(systemName: "chevron.right")
                 .amgiFont(size: 9, weight: .bold, relativeTo: .caption2)
-                .foregroundStyle(palette.textTertiary)
+                .foregroundStyle(palette.info.opacity(0.8))
         }
     }
 
-    private var background: Color {
-        switch summary.state {
-        case .milestone: palette.warning.opacity(0.16)
-        case .active: palette.warning.opacity(0.10)
-        case .atRisk: palette.warning.opacity(0.06)
-        case .lapsed, .fresh: palette.surface
-        }
+    private var mood: HeroStreakMood { HeroStreakMood(summary.state) }
+
+    /// Frozen headlines take an icy tint instead of plain grey.
+    private var headlineColor: Color {
+        summary.isLive ? palette.textPrimary : palette.info.mix(with: palette.textPrimary, by: 0.45)
     }
 
     private var border: Color {
         switch summary.state {
-        case .milestone: palette.warning.opacity(0.55)
-        case .atRisk: palette.warning.opacity(0.35)
-        case .active, .lapsed, .fresh: palette.border
+        case .milestone: palette.warning.opacity(0.7)
+        case .active: palette.warning.opacity(0.4)
+        case .atRisk: palette.warning.opacity(0.3)
+        case .lapsed, .fresh: palette.info.opacity(0.4)
         }
     }
 }
@@ -186,18 +206,32 @@ struct HeroStreakIndicator: View {
 struct HeroStreakDetails: View {
     let summary: HeroStreakSummary
 
+    @State private var tap: Date?
+
     @Environment(\.palette) private var palette
     @Environment(\.locale) private var locale
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
-                HeroStreakFlame(state: summary.state, size: 20)
-                    .frame(width: 40, height: 40)
-                    .background(
-                        summary.isLive ? palette.warning.opacity(0.14) : palette.surface,
-                        in: Circle()
-                    )
+                // Tap the emblem for another flare (or gust of snow).
+                HeroStreakEmblem(state: summary.state, size: 20, tap: tap)
+                    .frame(width: 48, height: 48)
+                    .background {
+                        ZStack {
+                            palette.surface
+                            HeroStreakAmbience(
+                                mood: HeroStreakMood(summary.state),
+                                milestone: summary.state == .milestone,
+                                tap: tap,
+                                source: .center
+                            )
+                        }
+                        .clipShape(Circle())
+                    }
+                    .contentShape(Circle())
+                    .onTapGesture { tap = .now }
+                    .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.8), trigger: tap)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(summary.title(locale: locale))
                         .amgiFont(size: 17, weight: .bold, relativeTo: .headline)
@@ -237,7 +271,7 @@ struct HeroStreakDetails: View {
                             .foregroundStyle(palette.textSecondary)
                     }
                     ProgressView(value: summary.milestoneProgress)
-                        .tint(palette.warning)
+                        .tint(summary.isLive ? palette.warning : palette.info)
                     Text(AmgiL10n.format("%lld to go", [next - summary.streak], locale: locale))
                         .amgiFont(size: 11, weight: .regular, relativeTo: .caption)
                         .foregroundStyle(palette.textTertiary)
@@ -277,34 +311,6 @@ struct HeroStreakDetails: View {
 }
 
 // MARK: - Shared pieces
-
-private struct HeroStreakFlame: View {
-    let state: HeroStreakSummary.State
-    let size: CGFloat
-
-    @Environment(\.palette) private var palette
-
-    var body: some View {
-        Image(systemName: symbol)
-            .amgiFont(size: size, weight: .bold, relativeTo: .footnote)
-            .symbolRenderingMode(.monochrome)
-            .foregroundStyle(color)
-    }
-
-    private var symbol: String {
-        switch state {
-        case .active, .milestone: "flame.fill"
-        case .atRisk, .lapsed, .fresh: "flame"
-        }
-    }
-
-    private var color: Color {
-        switch state {
-        case .active, .milestone, .atRisk: palette.warning
-        case .lapsed, .fresh: palette.textTertiary
-        }
-    }
-}
 
 /// Seven dots, oldest → today. Studied days are filled; today is ringed, and
 /// ringed in the warning colour while the streak is at risk.
