@@ -5,6 +5,7 @@ import Foundation
 import Sharing
 import SwiftUI
 import AmgiUI
+import AssistantFeature
 import WebKit
 
 
@@ -124,6 +125,10 @@ struct ChapterReaderView: View {
         )
     }
 
+    private var assistantContext: AssistantContext {
+        AssistantContext(title: book.title, reference: "Source book:\(book.id), chapter:\(chapter.id). \(chapter.content)", kind: "reader")
+    }
+
     var body: some View {
         ZStack(alignment: .top) {
             GeometryReader { proxy in
@@ -176,6 +181,14 @@ struct ChapterReaderView: View {
             }
         }
         .ignoresSafeArea(edges: .bottom)
+        // This reader keeps the navigation bar for its controls, so Ask AI
+        // floats alone in the bottom-trailing corner, inside the safe area.
+        .overlay(alignment: .bottomTrailing) {
+            ReaderAssistantButton(context: { assistantContext })
+                .padding(.trailing, 16)
+                .padding(.bottom, 16)
+        }
+        .preference(key: AssistantScreenContextKey.self, value: assistantContext)
         .navigationTitle(showTitle ? chapter.title : "")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

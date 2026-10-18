@@ -32,7 +32,21 @@ public struct AssistantSceneNavigation: Sendable {
 private struct AssistantSceneNavigationKey: EnvironmentKey {
     static let defaultValue = AssistantSceneNavigation()
 }
+/// Opens the scene's assistant with a context — through the root's own
+/// presenter, so a screen that hides the global Ask AI entry (the readers)
+/// gets the same sheet or floating panel instead of presenting its own.
+/// Always equal: the action is stable, and a fresh closure on every root
+/// body pass would otherwise invalidate every reader that reads it.
+public struct AssistantOpener: Equatable {
+    public let open: @MainActor (AssistantContext) -> Void
+    public init(_ open: @escaping @MainActor (AssistantContext) -> Void) { self.open = open }
+    public static func == (_: Self, _: Self) -> Bool { true }
+}
+
 public extension EnvironmentValues {
+    /// `nil` outside the app root (previews, tests): entry points hide.
+    @Entry var assistantOpener: AssistantOpener? = nil
+
     var assistantSceneNavigation: AssistantSceneNavigation {
         get { self[AssistantSceneNavigationKey.self] }
         set { self[AssistantSceneNavigationKey.self] = newValue }

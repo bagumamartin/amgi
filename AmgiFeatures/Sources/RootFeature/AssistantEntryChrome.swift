@@ -8,30 +8,27 @@ import UIKit
 /// A content overlay, never a sidebar footer or a full-width bottom bar.
 /// The two independent glass shapes share one baseline and trailing anchor.
 struct FloatingAssistantEntry: View {
-    var showsAssistant = true
     let openAssistant: () -> Void
     let capture: (QuickCaptureKind) -> Void
 
     var body: some View {
         GlassEffectContainer(spacing: 10) {
             HStack(spacing: 10) {
-                if showsAssistant {
-                    Button(action: openAssistant) {
-                        Label {
-                            Text("Ask AI")
-                        } icon: {
-                            AssistantHead(.idle).frame(width: 26, height: 26)
-                        }
-                            .font(.body.weight(.medium))
-                            .padding(.horizontal, 20)
-                            .frame(minHeight: 48)
-                            .contentShape(Capsule())
+                Button(action: openAssistant) {
+                    Label {
+                        Text("Ask AI")
+                    } icon: {
+                        AssistantHead(.idle).frame(width: 26, height: 26)
                     }
-                    .buttonStyle(.plain)
-                    .glassEffect(.regular.interactive(), in: .capsule)
-                    .accessibilityIdentifier("assistant.entry")
-                    .help("Ask AI about your collection")
+                        .font(.body.weight(.medium))
+                        .padding(.horizontal, 20)
+                        .frame(minHeight: 48)
+                        .contentShape(Capsule())
                 }
+                .buttonStyle(.plain)
+                .glassEffect(.regular.interactive(), in: .capsule)
+                .accessibilityIdentifier("assistant.entry")
+                .help("Ask AI about your collection")
                 Menu {
                     Button("Camera", systemImage: "camera") { capture(.camera) }
                     Button("Text", systemImage: "text.cursor") { capture(.text) }

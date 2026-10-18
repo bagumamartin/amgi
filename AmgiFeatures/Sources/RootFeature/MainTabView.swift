@@ -64,7 +64,7 @@ struct MainTabView: View {
     let studyTodayDeckID: Int64?
     let onSelectStudyDeck: (DeckID) -> Void
     let onPullCooling: () -> Void
-    let onOpenAssistant: (AssistantContext) -> Void
+    let onOpenAssistant: @MainActor (AssistantContext) -> Void
     var assistantIsPresented = false
     @State private var screenContext: AssistantContext?
     @State private var captureKind: QuickCaptureKind?
@@ -148,11 +148,14 @@ struct MainTabView: View {
             }
         }
         .overlay(alignment: .bottomTrailing) {
-            if usesFloatingEntry && !assistantIsPresented {
-                FloatingAssistantEntry(showsAssistant: screenContext?.kind != "reader", openAssistant: openAssistant, capture: { captureKind = $0 })
+            // Readers own this corner — their menu, card dock, and their own
+            // Ask AI button live there — so the whole entry steps aside.
+            if usesFloatingEntry && !assistantIsPresented && screenContext?.kind != "reader" {
+                FloatingAssistantEntry(openAssistant: openAssistant, capture: { captureKind = $0 })
                     .padding(20)
             }
         }
+        .environment(\.assistantOpener, AssistantOpener(onOpenAssistant))
         .onPreferenceChange(AssistantScreenContextKey.self) { screenContext = $0 }
         .onAppear { sceneActions.presentSettings = { accountDestination = .settings } }
         .sheet(item: $captureKind) { QuickCaptureView(kind: $0) }

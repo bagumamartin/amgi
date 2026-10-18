@@ -123,7 +123,7 @@ struct PDFReaderView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .preference(key: AssistantScreenContextKey.self, value: AssistantContext(title: book.title, reference: "Source book:\(book.id), page:\(navigation.pageIndex + 1). Page text: \(String((model.document?.page(at: navigation.pageIndex)?.string ?? "").prefix(5000))). Selected text: \(selection?.text ?? "")", kind: "reader"))
+        .preference(key: AssistantScreenContextKey.self, value: assistantContext)
         // A tapped capture's menu, over everything, at the capture.
         .overlay { ReaderMarkMenuLayer(session: cards) }
         .animation(AmgiMotion.standard, value: cards.markMenu?.id)
@@ -175,6 +175,12 @@ struct PDFReaderView: View {
         .sensoryFeedback(.impact(weight: .light), trigger: cards.clippedCount)
     }
 
+    private var assistantContext: AssistantContext {
+        AssistantContext(title: book.title, reference: "Source book:\(book.id), page:\(navigation.pageIndex + 1). Page text: \(String((model.document?.page(at: navigation.pageIndex)?.string ?? "").prefix(5000))). Selected text: \(selection?.text ?? "")", kind: "reader")
+    }
+
+    private static let assistantButtonSize: CGFloat = 44
+
     // MARK: - Card Capture
 
     /// The draft dock and the capture toast, floating over the page — the same
@@ -206,10 +212,13 @@ struct PDFReaderView: View {
             )
         }
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, 16)
+        .padding(.leading, 16)
         #if os(macOS)
+        .padding(.trailing, 16)
         .padding(.bottom, 14)
         #else
+        // Leaves Ask AI its column whenever the chrome is showing.
+        .padding(.trailing, chromeVisible ? 16 + Self.assistantButtonSize + 12 : 16)
         // Clears the page scrubber while the chrome is up.
         .padding(.bottom, chromeVisible ? 100 : 14)
         #endif
@@ -319,6 +328,14 @@ struct PDFReaderView: View {
                         onInteractionChanged: { canvasCoordinator.setScrubberActive($0) }
                     )
                     .transition(.opacity)
+
+                    // Over the scrubber's trailing end: the strip is 56pt
+                    // tall with 12pt beneath it, plus a 12pt gap.
+                    ReaderAssistantButton(context: { assistantContext }, size: Self.assistantButtonSize)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .padding(.trailing, 16)
+                        .padding(.bottom, 12 + 56 + 12)
+                        .transition(.opacity)
                 }
             }
             .navigationBarBackButtonHidden(true)
@@ -457,6 +474,8 @@ struct PDFReaderView: View {
                 macToolbarButton("info.circle", label: "Contents and Annotations") {
                     isContentsSheetPresented = true
                 }
+
+                ReaderAssistantButton(context: { assistantContext }, size: 28, floating: false)
 
                 if let managedURL = model.managedURL {
                     ShareLink(item: managedURL) {

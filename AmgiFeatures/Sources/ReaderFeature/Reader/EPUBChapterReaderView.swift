@@ -239,13 +239,14 @@ struct EPUBChapterReaderView: View {
         .overlay(alignment: .top) { topChrome }
         .overlay(alignment: .bottom) { bottomChromeBar }
         .overlay(alignment: .bottom) { cardLayer }
+        .overlay(alignment: .bottomTrailing) { assistantButton }
         .overlay(alignment: .bottomTrailing) { compactMenu }
         .navigationBarBackButtonHidden(true)
         #if os(iOS)
         .toolbarVisibility(.hidden, for: .navigationBar)
         .toolbarVisibility(.hidden, for: .tabBar)
         #endif
-        .preference(key: AssistantScreenContextKey.self, value: AssistantContext(title: book.title, reference: "Source book:\(book.id), chapter:\(currentChapter?.id ?? 0). \(currentChapter?.content ?? "")", kind: "reader"))
+        .preference(key: AssistantScreenContextKey.self, value: assistantContext)
         .task {
             prepareAnnotations()
             prepareCardCapture()
@@ -854,6 +855,24 @@ struct EPUBChapterReaderView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(compactMenuVisible ? "Close reader menu" : "Open reader menu")
+    }
+
+    private var assistantContext: AssistantContext {
+        AssistantContext(title: book.title, reference: "Source book:\(book.id), chapter:\(currentChapter?.id ?? 0). \(currentChapter?.content ?? "")", kind: "reader")
+    }
+
+    /// Ask AI, stacked directly over the menu button in the trailing column
+    /// the card dock and toast already leave free while the chrome is up.
+    /// Goes with the chrome, and steps aside for the open menu, which rises
+    /// from the same spot.
+    @ViewBuilder
+    private var assistantButton: some View {
+        if chromeVisible && !pageTurnAnimationActive && !compactMenuVisible {
+            ReaderAssistantButton(context: { assistantContext }, size: Self.chromeControlSize)
+                .padding(.trailing, 16)
+                .padding(.bottom, Self.footRowCenter + Self.chromeControlSize / 2 + 12)
+                .transition(ReaderChromeSwap.transition)
+        }
     }
 
     @ViewBuilder
