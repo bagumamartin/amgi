@@ -96,6 +96,15 @@ struct HeroStreakIndicator: View {
 
     @State private var showsDetails = false
     @State private var tap: Date?
+    @State private var fire: HeroFireSimulation
+
+    init(summary: HeroStreakSummary, stillTime: Double? = nil) {
+        self.summary = summary
+        self.stillTime = stillTime
+        let fire = HeroFireSimulation(seed: stillTime == nil ? nil : 7)
+        if let stillTime { fire.prewarm(stillTime) }
+        _fire = State(initialValue: fire)
+    }
 
     @Environment(\.palette) private var palette
     @Environment(\.locale) private var locale
@@ -104,11 +113,12 @@ struct HeroStreakIndicator: View {
         let shape = RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous)
         Button {
             tap = .now
+            fire.flare()
             showsDetails = true
         } label: {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 4) {
-                    HeroStreakEmblem(state: summary.state, size: 15, tap: tap, stillTime: stillTime)
+                    HeroStreakEmblem(state: summary.state, size: 15, fire: fire, tap: tap, stillTime: stillTime)
                         .padding(.vertical, -3)
                     Text(summary.headline(locale: locale))
                         .amgiFont(size: 14, weight: .semibold, relativeTo: .footnote)
@@ -128,7 +138,7 @@ struct HeroStreakIndicator: View {
             .background {
                 ZStack {
                     palette.surface
-                    HeroStreakAmbience(mood: mood, milestone: summary.state == .milestone, tap: tap, stillTime: stillTime)
+                    HeroStreakAmbience(mood: mood, fire: fire, milestone: summary.state == .milestone, tap: tap, stillTime: stillTime)
                         .id(mood)
                         .transition(.opacity)
                 }
@@ -207,6 +217,7 @@ struct HeroStreakDetails: View {
     let summary: HeroStreakSummary
 
     @State private var tap: Date?
+    @State private var fire = HeroFireSimulation()
 
     @Environment(\.palette) private var palette
     @Environment(\.locale) private var locale
@@ -215,13 +226,14 @@ struct HeroStreakDetails: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
                 // Tap the emblem for another flare (or gust of snow).
-                HeroStreakEmblem(state: summary.state, size: 20, tap: tap)
+                HeroStreakEmblem(state: summary.state, size: 20, fire: fire, tap: tap)
                     .frame(width: 48, height: 48)
                     .background {
                         ZStack {
                             palette.surface
                             HeroStreakAmbience(
                                 mood: HeroStreakMood(summary.state),
+                                fire: fire,
                                 milestone: summary.state == .milestone,
                                 tap: tap,
                                 source: .center
@@ -230,7 +242,10 @@ struct HeroStreakDetails: View {
                         .clipShape(Circle())
                     }
                     .contentShape(Circle())
-                    .onTapGesture { tap = .now }
+                    .onTapGesture {
+                        tap = .now
+                        fire.flare()
+                    }
                     .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.8), trigger: tap)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(summary.title(locale: locale))
