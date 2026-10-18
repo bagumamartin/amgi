@@ -86,6 +86,8 @@ final class AssistantToolbox {
     var open: (AssistantRoute) -> Void = { _ in }
     /// Sources found during the turn in progress.
     var sources: [AssistantSource] = []
+    /// Whether the turn runs on a cloud model, which gets more retrieval.
+    var isCloud = false
     /// Set when the turn in progress saved something — the head celebrates.
     var savedCount = 0
     /// The user said no to cards in this turn. Small models re-propose after
@@ -135,31 +137,208 @@ final class AssistantToolbox {
 
     // MARK: Find notes
 
-    func findNotes(_ question: String) async -> String {
+    /// Retrieval reach for a turn. Cloud models get more, longer excerpts;
+    /// the on-device model's window is ~4k tokens.
+    private var hitLimit: Int { isCloud ? 8 : 5 }
+    private var excerptLength: Int { isCloud ? 1200 : 320 }
+
+    /// The book a reader chip points at, if any.
+    var readerBookID: String? {
+        for context in contexts {
+            guard let id = context.sourceID else { continue }
+            switch context.type {
+            case .book, .passage: return id
+            case .chapter, .page: return id.split(separator: "#", maxSplits: 1).first.map(String.init) ?? id
+            default: continue
+            }
+        }
+        return nil
+    }
+
+    /// What `scope` means for the chat's chips. "auto" searches the attached
+    /// book or deck when there is one, else everything.
+    private func retrievalFilter(_ scope: String?) async throws -> (RetrievalFilter, grouped: Bool, label: String?) {
+        switch scope?.lowercased() ?? "auto" {
+        case "collection", "everything", "all": return (.all, true, nil)
+        case "cards", "notes": return (RetrievalFilter(sourcePrefixes: ["note:"]), true, nil)
+        case "books", "library": return (RetrievalFilter(sourcePrefixes: ["book:"]), false, nil)
+        default:
+            if let bookID = readerBookID {
+                let title = contexts.first { $0.type == .book }?.title ?? contexts.first { $0.subtitle.isEmpty == false && $0.type != .deck }?.subtitle
+                return (RetrievalFilter(sourcePrefixes: [CollectionRetrievalCoordinator.bookSource(bookID)]), false, title)
+            }
+            if let deck = contexts.first(where: { $0.type == .deck }), let id = deck.deckID {
+                let notes = try await noteSources(inDeck: id)
+                return (RetrievalFilter(sources: notes), true, deck.title)
+            }
+            return (.all, true, nil)
+        }
+    }
+
+    /// The deck's notes, children included, as index sources. `did:` alone
+    /// matches the deck without its subdecks.
+    private func noteSources(inDeck id: Int64) async throws -> Set<String> {
+        let all = try await decks.fetchAll()
+        guard let name = all.first(where: { $0.id.rawValue == id })?.name else { return [] }
+        let ids = all.filter { $0.name == name || $0.name.hasPrefix(name + "::") }.map { String($0.id.rawValue) }
+        let notes = try await self.notes.searchIds("did:" + ids.joined(separator: ","), nil)
+        return Set(notes.map { CollectionRetrievalCoordinator.noteSource($0.rawValue) })
+    }
+
+    private func source(from hit: RetrievalHit) -> AssistantSource { source(from: hit.segment) }
+    private func source(from segment: RetrievalSegment) -> AssistantSource {
+        AssistantSource(
+            id: segment.id, sourceID: segment.sourceID, title: segment.title,
+            excerpt: String(segment.text.prefix(4000)), anchor: segment.anchor,
+            url: segment.sourceURL, modality: segment.modality.rawValue
+        )
+    }
+
+    private func listing(_ found: [AssistantSource]) -> String {
+        found.enumerated().map { index, source in
+            let place = Self.place(source.anchor).map { " (\($0))" } ?? ""
+            return "[\(index + 1)] \(source.title)\(place): \(source.excerpt.prefix(excerptLength))"
+        }.joined(separator: "\n")
+    }
+
+    /// A reader-facing location for an index anchor, when it has one.
+    private static func place(_ anchor: String) -> String? {
+        let parts = anchor.split(separator: ":")
+        guard parts.count >= 2, parts[0] == "page" else { return nil }
+        return "page \(parts[1])"
+    }
+
+    func findNotes(_ question: String, scope: String? = nil) async -> String {
         var step = AssistantStep(icon: "magnifyingglass", text: L10n.text("Searching your notes"), state: .running)
         report(step)
         do {
             try checkProfile()
             guard ReviewSessionActivity.shared.beginExternalRead() else { throw CancellationError() }
             defer { ReviewSessionActivity.shared.endRead() }
-            let hits = try await CollectionRetrievalCoordinator.shared.search(question, limit: 5)
-            let found = hits.map { hit in
-                AssistantSource(
-                    id: hit.segment.id, sourceID: hit.segment.sourceID, title: hit.segment.title,
-                    excerpt: String(hit.segment.text.prefix(4000)), anchor: hit.segment.anchor,
-                    url: hit.segment.sourceURL, modality: hit.segment.modality.rawValue
-                )
-            }
+            let (filter, grouped, label) = try await retrievalFilter(scope)
+            if let label { step.text = L10n.text("Searching \(label)"); report(step) }
+            let hits = try await CollectionRetrievalCoordinator.shared.search(question, limit: hitLimit, filter: filter, groupBySource: grouped)
+            let found = hits.map { source(from: $0) }
             sources.append(contentsOf: found)
             step.text = found.isEmpty ? L10n.text("No matching notes") : L10n.text("Found \(found.count) related notes")
             step.state = .done
             report(step)
-            guard !found.isEmpty else { return "NO_RESULTS: nothing in the collection matches. Say so plainly." }
-            return found.enumerated().map { index, source in
-                "[\(index + 1)] \(source.title): \(source.excerpt.prefix(320))"
-            }.joined(separator: "\n")
+            guard !found.isEmpty else {
+                return label == nil
+                    ? "NO_RESULTS: nothing in the collection matches. Say so plainly."
+                    : "NO_RESULTS: nothing in \(label!) matches. Try findNotes again with scope \"collection\", or say so plainly."
+            }
+            return listing(found)
         } catch {
             return fail(&step, error)
+        }
+    }
+
+    // MARK: Related cards
+
+    /// Cards closest in meaning to the attached card — or to `text`, or to
+    /// the attached passage. For connecting ideas and spotting duplicates.
+    func relatedCards(_ text: String?) async -> String {
+        var step = AssistantStep(icon: "point.3.connected.trianglepath.dotted", text: L10n.text("Finding related cards"), state: .running)
+        report(step)
+        do {
+            try checkProfile()
+            guard ReviewSessionActivity.shared.beginExternalRead() else { throw CancellationError() }
+            defer { ReviewSessionActivity.shared.endRead() }
+            let cardsOnly = RetrievalFilter(sourcePrefixes: ["note:"])
+            let wanted = text?.trimmed ?? ""
+            var hits: [RetrievalHit] = []
+            if wanted.isEmpty, let id = noteID {
+                hits = try await CollectionRetrievalCoordinator.shared.related(toNote: id, limit: hitLimit, filter: cardsOnly)
+            }
+            if hits.isEmpty {
+                let query = wanted.isEmpty ? (contexts.first { !$0.reference.isEmpty && $0.type != .collection && $0.type != .deck }?.reference ?? "") : wanted
+                guard !query.isEmpty else { throw AgentToolError.invalid(L10n.text("Attach a card or passage, or say what to compare")) }
+                var filter = cardsOnly
+                if wanted.isEmpty, let id = noteID { filter.excludedSources.insert(CollectionRetrievalCoordinator.noteSource(id)) }
+                hits = try await CollectionRetrievalCoordinator.shared.search(String(query.prefix(1500)), limit: hitLimit, filter: filter)
+            }
+            let found = hits.map { source(from: $0) }
+            sources.append(contentsOf: found)
+            step.text = found.isEmpty ? L10n.text("No related cards") : L10n.text("Found \(found.count) related cards")
+            step.state = .done
+            report(step)
+            guard !found.isEmpty else { return "NO_RESULTS: no other card is related. Say so plainly." }
+            return "Most similar first. Near-identical wording means a likely duplicate.\n" + listing(found)
+        } catch {
+            return fail(&step, error)
+        }
+    }
+
+    // MARK: Gaps
+
+    /// Index segments the attached chapter, page or book is made of.
+    private var readerTarget: RetrievalFilter? {
+        for context in contexts {
+            guard let id = context.sourceID else { continue }
+            let parts = id.split(separator: "#", maxSplits: 1).map(String.init)
+            let book = CollectionRetrievalCoordinator.bookSource(parts[0])
+            switch context.type {
+            case .chapter where parts.count == 2:
+                return RetrievalFilter(idPrefixes: ["\(book):chapter:\(parts[1]):passage:"])
+            case .page where parts.count == 2 && parts[1].hasPrefix("p"):
+                guard let page = Int(parts[1].dropFirst()) else { continue }
+                return RetrievalFilter(idPrefixes: ["\(book):page:\(page - 1):text:"])
+            case .book, .passage:
+                return RetrievalFilter(idPrefixes: ["\(book):"])
+            default: continue
+            }
+        }
+        return nil
+    }
+
+    /// The parts of the attached reading that no card resembles yet.
+    func findGaps() async -> String {
+        var step = AssistantStep(icon: "rectangle.dashed", text: L10n.text("Checking what your cards cover"), state: .running)
+        report(step)
+        do {
+            try checkProfile()
+            guard let target = readerTarget else {
+                throw AgentToolError.invalid(L10n.text("Open a chapter, page or book first"))
+            }
+            guard ReviewSessionActivity.shared.beginExternalRead() else { throw CancellationError() }
+            defer { ReviewSessionActivity.shared.endRead() }
+            let gaps = try await CollectionRetrievalCoordinator.shared.uncovered(target, limit: isCloud ? 8 : 4)
+            let found = gaps.map { source(from: $0.segment) }
+            sources.append(contentsOf: found)
+            step.text = found.isEmpty ? L10n.text("This reading isn't indexed yet") : L10n.text("Found \(found.count) uncovered passages")
+            step.state = found.isEmpty ? .failed : .done
+            report(step)
+            guard !found.isEmpty else {
+                return "NO_RESULTS: this reading has not been indexed yet. Tell the user it will be searchable once indexing in Settings › AI Assistant finishes."
+            }
+            let lines: [String] = gaps.indices.map { index in
+                let similarity = String(format: "%.2f", gaps[index].nearest)
+                return "[\(index + 1)] closest card similarity \(similarity): \(found[index].excerpt.prefix(excerptLength))"
+            }
+            return "Passages least covered by the user's cards, least first. Similarity below about 0.5 usually means no card covers it.\n" + lines.joined(separator: "\n")
+        } catch {
+            return fail(&step, error)
+        }
+    }
+
+    // MARK: Book passages
+
+    /// For a cloud turn about a whole book (a chip that carries only the
+    /// title): the passages of that book closest to the prompt, as reference
+    /// material. Quiet — the model sees them as context, the chat as sources.
+    func bookPassages(for prompt: String) async -> [AssistantContext] {
+        guard isCloud, let book = contexts.first(where: { $0.type == .book && $0.reference.isEmpty }), let id = book.sourceID,
+              (try? checkProfile()) != nil, ReviewSessionActivity.shared.beginExternalRead() else { return [] }
+        defer { ReviewSessionActivity.shared.endRead() }
+        let filter = RetrievalFilter(sourcePrefixes: [CollectionRetrievalCoordinator.bookSource(id)])
+        guard let hits = try? await CollectionRetrievalCoordinator.shared.search(prompt, limit: 6, filter: filter, groupBySource: false), !hits.isEmpty else { return [] }
+        sources.append(contentsOf: hits.map { source(from: $0) })
+        return hits.map { hit in
+            AssistantContext(
+                title: L10n.text("Excerpt from \(book.title)"), reference: String(hit.segment.text.prefix(2400)),
+                kind: AssistantContext.Kind.passage.rawValue, subtitle: Self.place(hit.segment.anchor) ?? book.title, sourceID: hit.segment.id
+            )
         }
     }
 
@@ -501,10 +680,27 @@ struct FindNotesIntent: Tool {
     @Generable struct Arguments {
         @Guide(description: "What to look for, in the user's words")
         var question: String
+        @Guide(description: "Where to search: auto (the attached book or deck, else everything), collection, cards, or books")
+        var scope: String?
     }
 
     @concurrent func call(arguments: Arguments) async throws -> String {
-        await toolbox.findNotes(arguments.question)
+        await toolbox.findNotes(arguments.question, scope: arguments.scope)
+    }
+}
+
+struct RelatedCardsIntent: Tool {
+    let toolbox: AssistantToolbox
+    let name = "relatedCards"
+    let description = "Other cards similar to the attached card. Use when the user asks what it relates to, or whether it is a duplicate."
+
+    @Generable struct Arguments {
+        @Guide(description: "Text to compare instead of the attached card, if the user gave some")
+        var text: String?
+    }
+
+    @concurrent func call(arguments: Arguments) async throws -> String {
+        await toolbox.relatedCards(arguments.text)
     }
 }
 

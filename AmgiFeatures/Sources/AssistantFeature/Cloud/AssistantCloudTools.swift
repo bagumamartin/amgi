@@ -4,9 +4,10 @@ import Foundation
 /// cloud models. ``AssistantToolbox`` runs them either way, so a cloud model
 /// can't save anything the user hasn't reviewed either.
 enum AssistantCloudTools {
-    static func make(canFixCard: Bool) -> [CloudTool] {
-        var tools = [studyOverview, findNotes, makeFlashcards, openScreen]
+    static func make(canFixCard: Bool, hasReading: Bool) -> [CloudTool] {
+        var tools = [studyOverview, findNotes, relatedCards, makeFlashcards, openScreen]
         if canFixCard { tools.append(fixThisCard) }
+        if hasReading { tools.append(findGaps) }
         return tools
     }
 
@@ -17,7 +18,11 @@ enum AssistantCloudTools {
         case "studyOverview":
             return await toolbox.studyOverview(focus: arguments["deck"]?.string)
         case "findNotes":
-            return await toolbox.findNotes(arguments["question"]?.string ?? "")
+            return await toolbox.findNotes(arguments["question"]?.string ?? "", scope: arguments["scope"]?.string)
+        case "relatedCards":
+            return await toolbox.relatedCards(arguments["text"]?.string)
+        case "findGaps":
+            return await toolbox.findGaps()
         case "makeFlashcards":
             let cards = (arguments["cards"]?.array ?? []).compactMap { card -> (front: String, back: String)? in
                 guard let front = card["front"]?.string else { return nil }
@@ -52,10 +57,32 @@ enum AssistantCloudTools {
         description: "Search the user's own flashcards, notes and books. Use when the answer should come from what they have studied.",
         parameters: [
             "type": "object",
-            "properties": ["question": ["type": "string", "description": "What to look for, in the user's words"]],
+            "properties": [
+                "question": ["type": "string", "description": "What to look for. Rephrase into the key terms; call again with other wording if results are thin."],
+                "scope": [
+                    "type": "string", "enum": ["auto", "collection", "cards", "books"],
+                    "description": "auto (default) searches the attached book or deck when there is one, else everything; collection searches everything; cards only flashcards; books only the reader library.",
+                ],
+            ],
             "required": ["question"],
             "additionalProperties": false,
         ]
+    )
+
+    private static let relatedCards = CloudTool(
+        name: "relatedCards",
+        description: "The user's cards most similar in meaning to the attached card, or to the given text. Use to connect an idea to what they already know, to explain a card through related ones, or to check for duplicates before or after making cards.",
+        parameters: [
+            "type": "object",
+            "properties": ["text": ["type": "string", "description": "Text to compare. Omit to use the attached card or passage."]],
+            "additionalProperties": false,
+        ]
+    )
+
+    private static let findGaps = CloudTool(
+        name: "findGaps",
+        description: "Passages of the attached chapter, page or book that none of the user's cards cover yet, least covered first. Use when the user asks what they have not made cards for, or before making cards for a reading so new cards fill gaps instead of repeating existing ones.",
+        parameters: ["type": "object", "properties": JSONValue.object([:]), "additionalProperties": false]
     )
 
     private static let makeFlashcards = CloudTool(
