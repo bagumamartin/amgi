@@ -29,13 +29,18 @@ package struct DeckListView: View {
     /// Profile switching lives on the root sidebar footer (iPad / Mac) or the
     /// toolbar account menu (iPhone), not here — applying it twice doubled
     /// the leading profile pill.
-    package init() {
+    /// A deck to push once, from a deck-scoped widget. Cleared after use.
+    @Binding private var openDeckID: Int64?
+
+    package init(openDeckID: Binding<Int64?> = .constant(nil)) {
         _model = State(initialValue: DeckListModel())
+        _openDeckID = openDeckID
     }
 
     /// Preview / test seam — internal so the model stays module-private.
     init(model: DeckListModel) {
         _model = State(initialValue: model)
+        _openDeckID = .constant(nil)
     }
 
     private var sortOrderBinding: Binding<DeckSortOrder> {
@@ -107,6 +112,15 @@ package struct DeckListView: View {
         // sync, import, review-end) re-runs the load; `.task` still cancels
         // on disappear.
         .task(id: store.generation) { await model.load(sortOrder: sortOrderBinding.wrappedValue) }
+        .task(id: openDeckID) { await openRequestedDeck() }
+    }
+
+    /// Subdecks are not Library rows, so resolve against the whole tree.
+    private func openRequestedDeck() async {
+        guard let id = openDeckID else { return }
+        defer { openDeckID = nil }
+        guard let deck = try? await store.tree().find(DeckID(id)) else { return }
+        pendingDeck = deck.asDeckInfo
     }
 
     @ToolbarContentBuilder
@@ -121,7 +135,7 @@ package struct DeckListView: View {
                 Image(systemName: "square.and.arrow.down")
             }
             .accessibilityLabel("Import files")
-            .help("Import Anki files")
+            .help("Import deck files")
             Button {
                 ExportRequestRouter.shared.request(
                     scope: .collection,

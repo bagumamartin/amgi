@@ -189,3 +189,31 @@ extension Request where Response == StudyLedger {
         )
     }
 }
+
+private struct ReviewAheadPayload: Decodable {
+    let answers: [ReviewAheadAnswer]
+}
+
+extension Request where Response == [ReviewAheadAnswer] {
+    /// Each card's first review in `[startMs, endMs)` with the answer before
+    /// it, so the caller can tell which day it was due. `scope` is a backend
+    /// search expression (`""` = whole collection).
+    public static func reviewAhead(scope: String, startMs: Int64, endMs: Int64) -> Self {
+        Self(
+            serviceId: ServiceID.aux,
+            methodId: AuxMethod.reviewAhead,
+            encode: {
+                try JSONSerialization.data(withJSONObject: [
+                    "scope_search": scope,
+                    "start_ms": startMs,
+                    "end_ms": endMs,
+                ])
+            },
+            decode: { bytes in
+                let decoder = JSONDecoder()
+                decoder.keyDecodingStrategy = .convertFromSnakeCase
+                return try decoder.decode(ReviewAheadPayload.self, from: bytes).answers
+            }
+        )
+    }
+}

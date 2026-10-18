@@ -232,7 +232,7 @@ final class LocalizationCatalogTests: XCTestCase {
         // Text(String). Testing only Text("Undo") missed this failure.
         let header = SettingsSectionHeader(title: "Language")
         let footnote = SettingsFootnote(
-            "System follows your device language. Changing this also changes the language the Anki engine uses."
+            "System follows your device language. Changing this also changes the language the study engine uses."
         )
         let row = SettingsToggleRow(
             title: "App Language", systemImage: "globe", tone: .info, isOn: .constant(false)

@@ -125,10 +125,6 @@ public enum StudyChartModel: Equatable, Sendable {
     /// Hour numbers sit above the bars. The axis is morning, noon, evening,
     /// and midnight, each centered on its hour.
     case hours(columns: [StudyChartColumn], axis: [StudyAxisLabel])
-    /// A future day has a reliable daily due count, but no reliable forecast
-    /// for how those cards will be distributed across the clock. Render the
-    /// honest daily summary instead of an empty 24-hour chart.
-    case forecastDay(title: String, count: Int)
     case month(headers: [String], cells: [StudyMonthCell])
     case year(months: [StudyYearMonth])
 }
@@ -426,7 +422,13 @@ public enum StudySpan {
         if offsets.contains(0) { return AmgiL10n.text("This week", locale: locale) }
         let start = date(todayStart: todayStart, offset: first, calendar: calendar)
         let end = date(todayStart: todayStart, offset: last, calendar: calendar)
-        return "\(dayMonth(start, calendar: calendar, locale: locale)) – \(dayMonth(end, calendar: calendar, locale: locale))"
+        let range = "\(dayMonth(start, calendar: calendar, locale: locale)) – \(dayMonth(end, calendar: calendar, locale: locale))"
+        guard !sameYear(end, todayStart, calendar: calendar) else { return range }
+        return "\(range) \(calendar.component(.year, from: end))"
+    }
+
+    private static func sameYear(_ day: Date, _ other: Date, calendar: Calendar) -> Bool {
+        calendar.component(.year, from: day) == calendar.component(.year, from: other)
     }
 
     public static func monthTitle(
@@ -544,12 +546,12 @@ public enum StudySpan {
     ) -> String {
         switch grain {
         case .day:
-            return dayTitle(
-                offset: anchor,
-                day: date(todayStart: todayStart, offset: anchor, calendar: calendar),
-                calendar: calendar,
-                locale: locale
-            )
+            let day = date(todayStart: todayStart, offset: anchor, calendar: calendar)
+            let title = dayTitle(offset: anchor, day: day, calendar: calendar, locale: locale)
+            // Like the month title: another year's day names its year, so a
+            // day a year back doesn't read as last week.
+            guard abs(anchor) > 1, !sameYear(day, todayStart, calendar: calendar) else { return title }
+            return "\(title) \(calendar.component(.year, from: day))"
         case .week:
             return weekTitle(todayStart: todayStart, anchor: anchor, calendar: calendar, locale: locale)
         case .month:
@@ -790,7 +792,7 @@ public enum StudySpan {
             detailTitle: "\(AmgiL10n.text("Due", locale: locale)) · \(spanName)",
             emptyMessage: dueEmptyMessage(spanName: spanName, locale: locale),
             reschedulesByDefault: true,
-            subtitle: AmgiL10n.text("Scheduled for this Anki day", locale: locale)
+            subtitle: AmgiL10n.text("Scheduled for this review day", locale: locale)
         )
     }
 

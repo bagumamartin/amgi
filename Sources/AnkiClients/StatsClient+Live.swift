@@ -53,6 +53,11 @@ extension StatsClient: DependencyKey {
                 try await backendOffload {
                     try backend.invoke(.reviewTimes(scope: scope, startMs: startMs, endMs: endMs))
                 }
+            },
+            reviewAhead: { scope, startMs, endMs in
+                try await backendOffload {
+                    try backend.invoke(.reviewAhead(scope: scope, startMs: startMs, endMs: endMs))
+                }
             }
         )
     }()

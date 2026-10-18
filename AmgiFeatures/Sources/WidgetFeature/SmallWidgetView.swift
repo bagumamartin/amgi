@@ -31,11 +31,13 @@ struct SmallWidgetView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Spacer(minLength: 6)
-
-            WidgetConcentricRings(snapshot: snapshot, size: 92)
-
-            Spacer(minLength: 4)
+            // The ring takes whatever height the header and legend leave,
+            // so it grows with the widget instead of a fixed 92pt.
+            GeometryReader { proxy in
+                WidgetConcentricRings(snapshot: snapshot, size: min(proxy.size.width, proxy.size.height))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .padding(.vertical, 4)
 
             // Summary legend: coloured dots and numbers only, no words —
             // with the done-today number at the right end past a divider.
@@ -45,20 +47,19 @@ struct SmallWidgetView: View {
                 legendDot(color: palette.cardStateReview, count: snapshot.reviewCount)
                 Rectangle()
                     .fill(.separator)
-                    .frame(width: 1)
+                    .frame(width: 1, height: 12)
                 Text("\(snapshot.completedToday)")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: legendFontSize(snapshot.completedToday), weight: .semibold))
                     .foregroundStyle(palette.textSecondary)
                     .monospacedDigit()
                     .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                    .minimumScaleFactor(0.7)
             }
             .frame(maxWidth: .infinity, alignment: .center)
-
-            Spacer(minLength: 4)
+            .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.horizontal, 15)
-        .padding(.vertical, 7)
+        // The system's widget content margin already clears the rounded
+        // corners; extra padding inside it only shrank the ring and legend.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .widgetURL(studyURL)
     }
@@ -83,12 +84,17 @@ private extension SmallWidgetView {
                 .fill(color)
                 .frame(width: 6, height: 6)
             Text("\(count)")
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: legendFontSize(count), weight: .semibold))
                 .foregroundStyle(palette.textPrimary)
                 .monospacedDigit()
                 .lineLimit(1)
-                .minimumScaleFactor(0.8)
+                .minimumScaleFactor(0.7)
         }
+    }
+
+    /// Four-digit counts step down so the row keeps every number whole.
+    func legendFontSize(_ count: Int) -> CGFloat {
+        count >= 1_000 ? 9.5 : 11
     }
 }
 

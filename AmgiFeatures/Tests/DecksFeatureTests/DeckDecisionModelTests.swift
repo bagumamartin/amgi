@@ -43,7 +43,12 @@ import Testing
                 cardCount: 100, uncappedCounts: paused ? .zero : DeckCounts(newCount: 20, learnCount: 0, reviewCount: 30))]
         }
         var cards = CardClient()
-        cards.searchIds = { _, _ in await choices.isPaused() ? [CardID(1)] : [] }
+        // A partial pause: one of the deck's 100 cards is suspended, so
+        // the deck must not read as fully paused (archived).
+        cards.searchIds = { search, _ in
+            guard await choices.isPaused() else { return [] }
+            return search.contains("is:suspended") ? [CardID(1)] : (1...100).map { CardID(Int64($0)) }
+        }
         var client = DeckDecisionClient.testValue
         client.read = { _ in await choices.read() }
         client.mutate = { _, mutation in try await choices.mutate(mutation) }
@@ -55,7 +60,7 @@ import Testing
                 var graph = GraphsSnapshot()
                 graph.reviews.count[-47] = .init(learn: 0, relearn: 0, young: 1, mature: 0, filtered: 0)
                 return graph
-            }, graduatedToday: { _ in 0 }, learningDueToday: { _ in 0 }, lastRating: { _ in nil }, studyLedger: { _, _, _, _ in StudyLedger(days: []) }, reviewTimes: { _, _, _ in [] })
+            }, graduatedToday: { _ in 0 }, learningDueToday: { _ in 0 }, lastRating: { _ in nil }, studyLedger: { _, _, _, _ in StudyLedger(days: []) }, reviewTimes: { _, _, _ in [] }, reviewAhead: { _, _, _ in [] })
         } operation: {
             let store = CollectionStore()
             return withDependencies { $0.collectionStore = store } operation: { DeckListModel() }

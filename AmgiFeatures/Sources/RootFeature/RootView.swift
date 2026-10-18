@@ -47,6 +47,9 @@ public struct RootView: View {
     @State private var refreshID = UUID()
     @State private var studyTodayRequest = 0
     @State private var studyTodayDeckID: Int64?
+    /// A deck the Library should open, from a deck-scoped widget. Cleared
+    /// by the Library once it has pushed the deck.
+    @State private var libraryDeckRequest: Int64?
     @State private var launchState = CollectionLaunchState.shared
     @State private var importRequestRouter = ImportRequestRouter.shared
     @State private var pendingImport: ImportRequest?
@@ -63,7 +66,11 @@ public struct RootView: View {
 
     /// Mirrors MainTabView's persisted selection so URL handlers, intents,
     /// and menu commands can switch sections through one source of truth.
-    @SceneStorage(NavigationPreferences.rootSection) private var sectionRaw: String = MainSection.study.rawValue
+    /// The same store `MainTabView` selects tabs from. This was
+    /// `@SceneStorage` under the same key — a different store — so every
+    /// deep link (widget, Browse, Review, file open) wrote a tab the tab
+    /// bar never read.
+    @Shared(.appStorage(NavigationPreferences.rootSection)) private var sectionRaw: String = MainSection.study.rawValue
 
     @Shared(.appStorage(ReaderPreferences.Keys.showTab))
     private var showReaderTab: Bool = true
@@ -83,6 +90,7 @@ public struct RootView: View {
                 pendingExport = nil
                 studyTodayDeckID = nil
                 studyTodayRequest = 0
+                libraryDeckRequest = nil
                 assistantSheet = nil
                 BrowseLauncher.shared.discardPending()
                 readerImportRouter.discardPending()
@@ -106,10 +114,10 @@ public struct RootView: View {
             .onAppear {
                 if isUITesting {
                     $showReaderTab.withLock { $0 = true }
-                    sectionRaw = MainSection.study.rawValue
+                    $sectionRaw.withLock { $0 = MainSection.study.rawValue }
                 }
                 sceneActions.selectSection = { section in
-                    sectionRaw = section.rawValue
+                    $sectionRaw.withLock { $0 = section.rawValue }
                 }
                 sceneActions.presentSync = {
                     syncRequest &+= 1
@@ -241,7 +249,7 @@ public struct RootView: View {
                     profileID: AccountStore.shared.selectedID
                 )
                 $showReaderTab.withLock { $0 = true }
-                sectionRaw = MainSection.read.rawValue
+                $sectionRaw.withLock { $0 = MainSection.read.rawValue }
             } else {
                 importRequestRouter.request(url)
             }
@@ -261,9 +269,16 @@ public struct RootView: View {
             let currentProfileID = AccountStore.shared.selectedContext.id
             guard requestedProfileID == nil || requestedProfileID == currentProfileID else { return }
             guard requestedDeckID == nil || requestedProfileID != nil else { return }
-            studyTodayDeckID = requestedDeckID == 0 ? nil : requestedDeckID
-            studyTodayRequest &+= 1
-            sectionRaw = MainSection.study.rawValue
+            // All Decks opens Study's Today desk; a deck-scoped widget
+            // opens that deck in the Library.
+            if let requestedDeckID, requestedDeckID != 0 {
+                libraryDeckRequest = requestedDeckID
+                $sectionRaw.withLock { $0 = MainSection.library.rawValue }
+            } else {
+                studyTodayDeckID = nil
+                studyTodayRequest &+= 1
+                $sectionRaw.withLock { $0 = MainSection.study.rawValue }
+            }
         case "browse":
             if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
                let value = components.queryItems?.first(where: { $0.name == "deck" })?.value,
@@ -275,7 +290,7 @@ public struct RootView: View {
             } else {
                 BrowseLauncher.shared.launch()
             }
-            sectionRaw = MainSection.browse.rawValue
+            $sectionRaw.withLock { $0 = MainSection.browse.rawValue }
         case "review":
             let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
             guard let deckIDValue = components?.queryItems?
@@ -288,7 +303,7 @@ public struct RootView: View {
                   requestedProfileID == AccountStore.shared.selectedContext.id
             else { return }
             presentReview(deckId: DeckID(deckID))
-            sectionRaw = MainSection.study.rawValue
+            $sectionRaw.withLock { $0 = MainSection.study.rawValue }
         default:
             break
         }
@@ -311,16 +326,16 @@ public struct RootView: View {
         switch request.route {
         case .review(let deckID):
             presentReview(deckId: DeckID(deckID))
-            sectionRaw = MainSection.study.rawValue
+            $sectionRaw.withLock { $0 = MainSection.study.rawValue }
         case .browse(let query):
             BrowseLauncher.shared.launch(query: query)
-            sectionRaw = MainSection.browse.rawValue
+            $sectionRaw.withLock { $0 = MainSection.browse.rawValue }
         case .browseDeck(let deckID):
             BrowseLauncher.shared.launch(deckID: deckID)
-            sectionRaw = MainSection.browse.rawValue
+            $sectionRaw.withLock { $0 = MainSection.browse.rawValue }
         case .openNote(let noteID):
             BrowseLauncher.shared.launch(query: "nid:\(noteID)")
-            sectionRaw = MainSection.browse.rawValue
+            $sectionRaw.withLock { $0 = MainSection.browse.rawValue }
         case .studyAssistant(let prompt):
             assistantSheet = AssistantSheetRequest(prompt: prompt)
         case .presentSync:
@@ -367,6 +382,7 @@ public struct RootView: View {
             showReaderTab: showReaderTab,
             studyTodayRequest: studyTodayRequest,
             studyTodayDeckID: studyTodayDeckID,
+            libraryDeckRequest: $libraryDeckRequest,
             onSelectStudyDeck: { deckID in
                 pullCooling = false
                 presentReview(deckId: deckID)
@@ -411,7 +427,7 @@ public struct RootView: View {
                 if Self.isReaderDocument(url) {
                     readerImportRouter.request(url, profileID: AccountStore.shared.selectedID)
                     $showReaderTab.withLock { $0 = true }
-                    sectionRaw = MainSection.read.rawValue
+                    $sectionRaw.withLock { $0 = MainSection.read.rawValue }
                 } else {
                     importRequestRouter.request(url)
                 }

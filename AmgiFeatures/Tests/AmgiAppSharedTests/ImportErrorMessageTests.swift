@@ -22,7 +22,7 @@ import Testing
             format: .deckPackage,
             at: .staging
         )
-        #expect(message.contains("Anki package"))
+        #expect(message.contains("collection package"))
     }
 
     @Test func classificationDoesNotDependOnTheEnginesLanguage() {

@@ -360,7 +360,7 @@ struct CustomStudyView: View {
                 .foregroundStyle(palette.accent)
             Text("Custom Study Session is ready")
                 .amgiFont(.sectionHeading)
-            Text(L10n.format("Built from %@ and its subdecks. The session is a standard Anki filtered deck.", [deck.name]))
+            Text(L10n.format("Built from %@ and its subdecks. The session is a standard filtered deck.", [deck.name]))
                 .amgiFont(.body)
                 .foregroundStyle(palette.textSecondary)
                 .multilineTextAlignment(.center)

@@ -45,6 +45,24 @@ import Testing
         .init(newCount: 3, learnCount: 0, reviewCount: 42),
     ]
 
+    // MARK: Queue progress
+
+    @Test func queueProgressFillsEachQueueOnItsOwn() {
+        var s = snapshot(forecast: nil)
+        s.dueAtStart = .init(newCount: 6, learnCount: 1, reviewCount: 40)
+        let progress = s.queueProgress
+        #expect(progress.new == 0.5)
+        #expect(progress.learn == 0)
+        #expect(progress.review == 0.5)
+    }
+
+    @Test func projectedDayStartsEveryQueueEmpty() {
+        var s = snapshot(forecast: forecast(days: futureDays))
+        s.dueAtStart = .init(newCount: 6, learnCount: 4, reviewCount: 40)
+        let progress = s.projected(day: 1).queueProgress
+        #expect(progress.new == 0 && progress.learn == 0 && progress.review == 0)
+    }
+
     // MARK: AnkiDay
 
     @Test func dayStartsAtRolloverHourAfterRollover() {

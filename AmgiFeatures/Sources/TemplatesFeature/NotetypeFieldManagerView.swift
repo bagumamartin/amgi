@@ -345,7 +345,7 @@ struct NotetypeFieldManagerView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: { index in
-            Text("Remove \"\(model.fieldNames[index])\"? Anki will update existing notes, and templates that reference it must be updated before saving.")
+            Text("Remove \"\(model.fieldNames[index])\"? Existing notes will be updated, and templates that reference it must be updated before saving.")
         }
     }
 

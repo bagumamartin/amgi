@@ -120,16 +120,19 @@ package struct StudyLandingView: View {
             StudyTimeDetailScreen(row: row, model: model, onOpenDeck: onSelectDeck)
         }
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            // One group that never changes shape: the jump to the present
+            // stays put and only disables on the current period, so paging
+            // through days doesn't slide the sync button around.
+            ToolbarItemGroup(placement: .topBarTrailing) {
                 SyncToolbarButton()
-            }
-            if model.showsJump {
-                if #available(iOS 26.0, macOS 26.0, *) {
-                    ToolbarSpacer(.fixed, placement: .topBarTrailing)
+                Button {
+                    model.returnToNow()
+                } label: {
+                    Image(systemName: "calendar.day.timeline.leading")
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(model.jumpTitle) { model.returnToNow() }
-                }
+                .disabled(!model.showsJump)
+                .help(model.jumpTitle)
+                .accessibilityLabel(model.jumpTitle)
             }
         }
         .sheet(item: $model.selectedBook) { book in

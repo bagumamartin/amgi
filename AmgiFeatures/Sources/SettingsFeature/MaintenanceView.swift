@@ -33,7 +33,7 @@ struct MaintenanceView: View {
                 }
                 .disabled(model.isChecking)
             }
-            SettingsFootnote("Verifies the integrity of your local Anki collection. The check can take a while on a large collection.")
+            SettingsFootnote("Verifies the integrity of your local collection. The check can take a while on a large collection.")
 
             SettingsSectionHeader(title: "AI Model")
             SettingsGroup {

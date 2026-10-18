@@ -252,12 +252,19 @@ import Foundation
     @Test func futureKeepsDueRowMountedWithoutPresentingAnUnknownZero() async {
         let gate = Gate()
         var cards = CardClient()
-        cards.searchIds = { _, _ in
+        cards.searchIds = { search, _ in
+            // The learning split for the segmented ring is a second search;
+            // only the due count is gated.
+            if search.hasPrefix("is:learn") { return [] }
             await gate.pause()
             return [CardID(1)]
         }
+        var stats = StatsClient()
+        stats.reviewTimes = { _, _, _ in [] }
+        stats.reviewAhead = { _, _, _ in [] }
         let model = withDependencies {
             $0.cardClient = cards
+            $0.statsClient = stats
         } operation: { StudyLandingModel() }
         model.dayOffset = -1
         let request = Task { await model.reloadSpanRows() }
@@ -269,6 +276,7 @@ import Foundation
         await request.value
         #expect(model.spanHeroCount == 1)
         #expect(!model.spanRowsLoading)
+        #expect(model.historyLedger?.left.review == 1)
     }
 
     @Test func refreshingSamePeriodRetainsKnownValues() async {

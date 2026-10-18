@@ -71,7 +71,7 @@ public final class AnkiBackend: Sendable {
         }
 
         guard result == 0, ptr != 0 else {
-            throw BackendError(kind: .ioError, message: "Failed to initialize Anki backend")
+            throw BackendError(kind: .ioError, message: "Failed to initialize the study engine")
         }
         self.backendPtr = ptr
     }

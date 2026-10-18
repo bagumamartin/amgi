@@ -5,8 +5,8 @@ import AmgiTheme
 /// The widget-side twin of Study's three-ring visualization. Widgets cannot
 /// import AmgiUI (the extension stays on the engine-free sink), so the small
 /// amount of geometry is intentionally duplicated here and kept deliberately
-/// boring: one dim track per ring plus a bold completed-share arc per ring,
-/// mirroring the Today card's rings, and a compact center.
+/// boring: one dim track per ring plus a bold arc for that queue's cleared
+/// share of the day, mirroring the Today card's rings, and a compact center.
 struct WidgetConcentricRings: View {
     let snapshot: WidgetSnapshot
     var size: CGFloat = 110
@@ -18,18 +18,12 @@ struct WidgetConcentricRings: View {
     private var ringGap: CGFloat { max(1.5, size * 0.018) }
     private var outerDiameter: CGFloat { size - strokeWidth }
 
-    /// Completed share of the day — the single source of truth for every
-    /// ring's fill, matching the Today card. Per-category completion is
-    /// not tracked, so no ring invents its own.
-    private var progress: Double {
-        snapshot.todayProgressFraction
-    }
-
-    private var categories: [(name: String, count: Int, color: Color)] {
-        [
-            ("new", snapshot.newCount, palette.cardStateNew),
-            ("learning", snapshot.learnCount, palette.cardStateLearning),
-            ("review", snapshot.reviewCount, palette.cardStateReview)
+    private var categories: [(name: String, progress: Double, color: Color)] {
+        let progress = snapshot.queueProgress
+        return [
+            ("new", progress.new, palette.cardStateNew),
+            ("learning", progress.learn, palette.cardStateLearning),
+            ("review", progress.review, palette.cardStateReview)
         ]
     }
 
@@ -40,22 +34,19 @@ struct WidgetConcentricRings: View {
                     .stroke(category.color.opacity(0.18), lineWidth: strokeWidth)
                     .frame(width: diameter(for: index), height: diameter(for: index))
             }
-            if progress > 0 {
-                ForEach(Array(categories.enumerated()), id: \.offset) { index, category in
+            ForEach(Array(categories.enumerated()), id: \.offset) { index, category in
+                if category.progress > 0 {
                     Circle()
-                        .trim(from: 0, to: progress)
-                        .stroke(category.color, style: StrokeStyle(lineWidth: strokeWidth, lineCap: progress < 1 ? .round : .butt))
+                        .trim(from: 0, to: category.progress)
+                        .stroke(category.color, style: StrokeStyle(lineWidth: strokeWidth, lineCap: category.progress < 1 ? .round : .butt))
                         .rotationEffect(.degrees(-90))
                         .frame(width: diameter(for: index), height: diameter(for: index))
+                        .shadow(color: category.color.opacity(0.5), radius: category.progress >= 1 ? 4 : 0)
                 }
             }
             center
         }
         .frame(width: size, height: size)
-        .shadow(
-            color: palette.positive.opacity(progress * 0.45),
-            radius: progress >= 1 ? 10 : 0
-        )
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel)
     }

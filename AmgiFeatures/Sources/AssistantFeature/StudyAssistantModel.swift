@@ -227,7 +227,7 @@ public final class StudyAssistantModel {
         try ensureProfileUnchanged(profile)
         guard !records.isEmpty else {
             return AssistantResult(
-                text: "I couldn’t find a matching note. Try a distinctive phrase, tag, or Anki search term.",
+                text: "I couldn’t find a matching note. Try a distinctive phrase, tag, or search term.",
                 citations: []
             )
         }

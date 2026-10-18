@@ -19,6 +19,10 @@ public struct WidgetSnapshot: Codable, Sendable {
     public var snapshotDate: Date
     /// Optional so pre-forecast snapshot files still decode after an update.
     public var forecast: Forecast? = nil
+    /// Per-queue due at the start of the Anki day (the Study ledger's
+    /// `due`). With the live counts as what's left, each ring fills by its
+    /// own queue. Optional so older snapshot files still decode.
+    public var dueAtStart: DayCounts? = nil
 
     public init(
         deckId: Int64,
@@ -32,7 +36,8 @@ public struct WidgetSnapshot: Codable, Sendable {
         streak: Int,
         lastSevenDays: [Int],
         snapshotDate: Date,
-        forecast: Forecast? = nil
+        forecast: Forecast? = nil,
+        dueAtStart: DayCounts? = nil
     ) {
         self.deckId = deckId
         self.profileID = profileID
@@ -46,6 +51,7 @@ public struct WidgetSnapshot: Codable, Sendable {
         self.lastSevenDays = lastSevenDays
         self.snapshotDate = snapshotDate
         self.forecast = forecast
+        self.dueAtStart = dueAtStart
     }
 
     public init(from decoder: any Decoder) throws {
@@ -63,6 +69,7 @@ public struct WidgetSnapshot: Codable, Sendable {
         lastSevenDays = try container.decode([Int].self, forKey: .lastSevenDays)
         snapshotDate = try container.decode(Date.self, forKey: .snapshotDate)
         forecast = try container.decodeIfPresent(Forecast.self, forKey: .forecast)
+        dueAtStart = try container.decodeIfPresent(DayCounts.self, forKey: .dueAtStart)
     }
 
     public var totalDue: Int { newCount + learnCount + reviewCount }
@@ -70,6 +77,25 @@ public struct WidgetSnapshot: Codable, Sendable {
     public var todayProgressFraction: Double {
         let total = max(completedToday + totalDue, 1)
         return min(1, Double(max(completedToday, 0)) / Double(total))
+    }
+
+    /// Each queue's cleared share, `(due at start − left) / due at start`,
+    /// clamped to 0…1 — the same rule as the Study rings. Without
+    /// `dueAtStart` every queue falls back to the day fraction.
+    public var queueProgress: (new: Double, learn: Double, review: Double) {
+        guard let due = dueAtStart else {
+            let all = todayProgressFraction
+            return (all, all, all)
+        }
+        func cleared(_ due: Int, _ left: Int) -> Double {
+            guard due > 0 else { return 0 }
+            return min(1, max(0, Double(due - left) / Double(due)))
+        }
+        return (
+            cleared(due.newCount, newCount),
+            cleared(due.learnCount, learnCount),
+            cleared(due.reviewCount, reviewCount)
+        )
     }
 
     /// Precomputed per-Anki-day due counts. While the app is closed the
@@ -127,7 +153,8 @@ public struct WidgetSnapshot: Codable, Sendable {
             completedToday: 18,
             streak: 7,
             lastSevenDays: [20, 15, 22, 18, 25, 12, 8],
-            snapshotDate: Date()
+            snapshotDate: Date(),
+            dueAtStart: DayCounts(newCount: 15, learnCount: 10, reviewCount: 40)
         )
     }
 
@@ -239,6 +266,8 @@ extension WidgetSnapshot {
         projected.reviewCount = counts.reviewCount
         projected.reviewedToday = 0
         projected.completedToday = 0
+        // A fresh day starts with everything due and nothing cleared.
+        projected.dueAtStart = counts
         // Same rule as StreakCalculator: a streak survives exactly one
         // boundary, and only if the write day itself had reviews.
         projected.streak = (day == 1 && reviewedToday > 0) ? streak : 0

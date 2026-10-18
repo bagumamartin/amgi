@@ -394,7 +394,7 @@ struct ReaderContentsSheet: View {
                 ContentUnavailableView(
                     "No Notes or Highlights",
                     systemImage: "highlighter",
-                    description: Text("Select text while reading to add highlights or make Anki cards.")
+                    description: Text("Select text while reading to add highlights or make flashcards.")
                 )
             } else {
                 ForEach(notes) { item in

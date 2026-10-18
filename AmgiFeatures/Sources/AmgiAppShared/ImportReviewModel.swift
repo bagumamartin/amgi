@@ -579,7 +579,7 @@ package final class ImportReviewModel {
         if point == .staging {
             switch format {
             case .deckPackage, .collectionPackage, .zippedPackage:
-                return L10n.text("This file doesn’t appear to be a valid Anki package. It may be damaged or created by a newer version of Anki.")
+                return L10n.text("This file doesn’t appear to be a valid deck or collection package. It may be damaged or created by a newer app version.")
             case .mnemosyne:
                 return L10n.text("This database is not a readable Mnemosyne collection. Choose a Mnemosyne SQL 1, 2, or 3 database.")
             case .text:
@@ -605,7 +605,7 @@ package enum ImportReviewFailure: Error, Equatable {
         switch self {
         case .unsupported(let extensionName):
             let suffix = extensionName.isEmpty ? "file" : ".\(extensionName) file"
-            return "Ijuka can’t import this \(suffix). Choose an Anki package, collection backup, ZIP package, CSV, TSV, TXT, Anki JSON, or Mnemosyne database."
+            return "Ijuka can’t import this \(suffix). Choose a deck package, collection backup, ZIP package, CSV, TSV, TXT, JSON interchange file, or Mnemosyne database."
         case .missingStagedFile:
             return "The selected file is no longer available. Choose it again and retry."
         case .missingReview:
@@ -613,7 +613,7 @@ package enum ImportReviewFailure: Error, Equatable {
         case .profileChanged:
             return "The active profile changed while this file was being imported. No changes were made. Choose the file again from the new profile."
         case .invalidJSON(let detail):
-            return "This Anki JSON file is invalid. \(detail)"
+            return "This JSON interchange file is invalid. \(detail)"
         }
     }
 }

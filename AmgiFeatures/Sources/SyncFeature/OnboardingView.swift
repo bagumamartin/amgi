@@ -142,7 +142,7 @@ package struct OnboardingView: View {
 
             Text(
                 showServerSetup
-                    ? "Enter your Anki-compatible sync server URL to get started."
+                    ? "Enter your sync server URL to get started."
                     : "Choose how to store and sync your collection."
             )
             .amgiFont(.body)
@@ -167,7 +167,7 @@ package struct OnboardingView: View {
             OnboardingOptionTile(
                 icon: "server.rack",
                 title: "Custom Sync Server",
-                subtitle: "Connect to an Anki-compatible or self-hosted server to sync across devices.",
+                subtitle: "Connect to a hosted or self-hosted sync server to sync across devices.",
                 isElevatedContainer: isRegular
             ) {
                 withAnimation(AmgiMotion.standard) {

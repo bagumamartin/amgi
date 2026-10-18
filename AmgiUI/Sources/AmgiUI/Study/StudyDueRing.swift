@@ -4,13 +4,24 @@ import AmgiTheme
 /// Large circular progress visualization for the Study landing screen.
 ///
 /// Three fixed concentric rings — New outside, Learning middle, Review
-/// inside — so the colors and their positions stay learnable. Each ring
-/// is a day-progress indicator: the bold arc is the completed share of
-/// today (`reviewedToday / dueBaselineToday`, clamped to 1), revealed
-/// clockwise from the top exactly like the ancestor's single segmented
-/// sweep, glowing once the ring closes. The centre keeps the total due
-/// count and today's completion percentage as the compact focal point.
+/// inside — so the colors and their positions stay learnable. Each ring is
+/// its own queue's day progress: the bold arc is the share of that queue's
+/// start-of-day due that is no longer due (`StudySummaryData.queueProgress`),
+/// revealed clockwise from the top, so the rings close independently and
+/// each glows once it does. The centre keeps the total due count and the
+/// whole day's completion percentage as the compact focal point.
+///
+/// `.segmented` draws the original single ring instead: one arc per queue,
+/// sized by its share of what was due (`dueAtStart`, else the counts), in
+/// the subtle tint until cleared. Each arc's cleared share fills in full
+/// color from its own start, so review-ahead progress shows on future days,
+/// where the mix is the information.
 public struct StudyDueRing: View {
+    public enum Style: Sendable {
+        case concentric
+        case segmented
+    }
+
     public let summary: StudySummaryData
     public var diameter: CGFloat
     /// Centre caption override. History spans pass their own tense
@@ -23,6 +34,7 @@ public struct StudyDueRing: View {
     public var isLoading: Bool
     public var animatesChanges: Bool
     public var showsProgress: Bool
+    public var style: Style
 
     @Environment(\.palette) private var palette
     @Environment(\.locale) private var locale
@@ -32,11 +44,10 @@ public struct StudyDueRing: View {
     private var ringSpacing: CGFloat { max(3, diameter * 0.02) }
     private var ringStep: CGFloat { lineWidth + ringSpacing }
 
-    /// Completed share of the day. Single source of truth for every
-    /// ring's fill and the centre percentage — per-category completion
-    /// is not tracked, so no ring invents its own.
-    private var progress: Double {
-        showsProgress ? summary.todayProgressFraction : 0
+    /// Each queue's cleared share. Zero everywhere when the span has no
+    /// measurable progress (multi-day history).
+    private var queueProgress: (new: Double, learn: Double, review: Double) {
+        showsProgress ? summary.queueProgress : (0, 0, 0)
     }
 
     /// Clear width inside the innermost stroke. Centre text is pinned
@@ -58,7 +69,8 @@ public struct StudyDueRing: View {
         centerAccessibility: String? = nil,
         showsProgress: Bool = true,
         isLoading: Bool = false,
-        animatesChanges: Bool = true
+        animatesChanges: Bool = true,
+        style: Style = .concentric
     ) {
         self.summary = summary
         self.diameter = diameter
@@ -67,11 +79,15 @@ public struct StudyDueRing: View {
         self.showsProgress = showsProgress
         self.isLoading = isLoading
         self.animatesChanges = animatesChanges
+        self.style = style
     }
 
     public var body: some View {
         ZStack {
-            categoryRings
+            switch style {
+            case .concentric: categoryRings
+            case .segmented: segmentedRing
+            }
             centerContent
         }
         .frame(width: ringSize, height: ringSize)
@@ -91,27 +107,27 @@ public struct StudyDueRing: View {
     /// New, Learning, and Review are deliberately fixed from outside in so
     /// the colors and their positions remain learnable as counts change.
     private var categoryRings: some View {
-        ZStack {
+        let progress = queueProgress
+        return ZStack {
             categoryRing(
+                progress: progress.new,
                 color: palette.cardStateNew,
                 diameter: ringSize
             )
             categoryRing(
+                progress: progress.learn,
                 color: palette.cardStateLearning,
                 diameter: ringSize - ringStep * 2
             )
             categoryRing(
+                progress: progress.review,
                 color: palette.cardStateReview,
                 diameter: ringSize - ringStep * 4
             )
         }
-        .shadow(
-            color: palette.positive.opacity(progress * 0.45),
-            radius: progress >= 1 ? 10 : 0
-        )
     }
 
-    private func categoryRing(color: Color, diameter: CGFloat) -> some View {
+    private func categoryRing(progress: Double, color: Color, diameter: CGFloat) -> some View {
         ZStack {
             Circle()
                 .stroke(
@@ -134,9 +150,74 @@ public struct StudyDueRing: View {
                     )
                     .rotationEffect(.degrees(-90))
                     .frame(width: diameter, height: diameter)
+                    .shadow(color: color.opacity(0.5), radius: progress >= 1 ? 6 : 0)
             }
         }
         .frame(width: diameter, height: diameter)
+    }
+
+    // MARK: - Segmented ring
+
+    private struct SegmentRange {
+        let color: Color
+        let start: Double
+        let end: Double
+        /// Cleared share of this queue, 0…1.
+        let progress: Double
+    }
+
+    /// The new/learning/review mix laid out clockwise from the top, with a
+    /// small angular gap between non-zero segments.
+    private var segments: [SegmentRange] {
+        let due = summary.dueAtStart
+        let progress = queueProgress
+        let entries: [(Color, Int, Double)] = [
+            (palette.cardStateNew, due?.new ?? summary.newCount, progress.new),
+            (palette.cardStateLearning, due?.learn ?? summary.learnCount, progress.learn),
+            (palette.cardStateReview, due?.review ?? summary.reviewCount, progress.review),
+        ]
+        let active = entries.filter { $0.1 > 0 }
+        guard !active.isEmpty else { return [] }
+
+        let activeTotal = active.reduce(0) { $0 + $1.1 }
+        let gap = 0.008
+        let totalGap = gap * Double(active.count - 1)
+
+        var cursor = 0.0
+        var segments: [SegmentRange] = []
+        for (index, entry) in active.enumerated() {
+            let span = Double(entry.1) / Double(activeTotal) * (1 - totalGap)
+            segments.append(SegmentRange(color: entry.0, start: cursor, end: cursor + span, progress: entry.2))
+            cursor += span
+            if index < active.count - 1 { cursor += gap }
+        }
+        return segments
+    }
+
+    @ViewBuilder
+    private var segmentedRing: some View {
+        let segments = segments
+        if segments.isEmpty {
+            Circle()
+                .stroke(palette.separator, lineWidth: lineWidth)
+                .frame(width: ringSize, height: ringSize)
+        } else {
+            ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+                Circle()
+                    .trim(from: segment.start, to: segment.end)
+                    .stroke(segment.color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .butt))
+                    .rotationEffect(.degrees(-90))
+                    .opacity(0.28)
+                    .frame(width: ringSize, height: ringSize)
+                if segment.progress > 0 {
+                    Circle()
+                        .trim(from: segment.start, to: segment.start + (segment.end - segment.start) * segment.progress)
+                        .stroke(segment.color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .butt))
+                        .rotationEffect(.degrees(-90))
+                        .frame(width: ringSize, height: ringSize)
+                }
+            }
+        }
     }
 
     // MARK: - Centre text
@@ -158,7 +239,7 @@ public struct StudyDueRing: View {
                 .minimumScaleFactor(0.6)
                 .accessibilityHidden(true)
 
-            if showsProgress {
+            if showsProgress, style == .concentric {
                 Text(isLoading ? "—" : "\(summary.todayProgressPercent)%")
                     .amgiFont(.micro)
                     .monospacedDigit()
@@ -215,8 +296,23 @@ public struct StudyDueRing: View {
         subtitleLabel: "Wednesday · 4 decks due",
         deckCount: 4,
         reviewedToday: 118,
-        dueBaselineToday: 305
+        dueBaselineToday: 305,
+        dueAtStart: .init(new: 60, learn: 90, review: 205)
     ))
+    .padding(32)
+    .environment(\.palette, .vividLight)
+}
+
+#Preview("Future — segmented") {
+    StudyDueRing(
+        summary: StudySummaryData(
+            totalDue: 64, newCount: 0, learnCount: 9, reviewCount: 55,
+            todayLabel: "", subtitleLabel: "", deckCount: 0,
+            dueAtStart: .init(new: 0, learn: 9, review: 80)
+        ),
+        centerCaption: "Due",
+        style: .segmented
+    )
     .padding(32)
     .environment(\.palette, .vividLight)
 }
@@ -245,7 +341,8 @@ public struct StudyDueRing: View {
         subtitleLabel: "Thursday · 3 decks due",
         deckCount: 3,
         reviewedToday: 18,
-        dueBaselineToday: 60
+        dueBaselineToday: 60,
+        dueAtStart: .init(new: 10, learn: 8, review: 42)
     ))
     .padding(32)
     .background(Color.black)

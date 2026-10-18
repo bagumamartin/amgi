@@ -34,6 +34,8 @@ final class StudyLandingModel {
     var spanDeckTitle = L10n.text("Relevant decks")
     /// The selected span's last past day, as the deck list showed it.
     var spanLedger: StudyLedger.Day?
+    /// Learning cards among a future span's due cards. Nil until loaded.
+    var spanFutureLearn: Int?
     /// Current decks containing matching cards, before the 12-row cap.
     var spanDeckTotalCount = 0
     /// False until the current-deck membership query completes without errors.
@@ -41,6 +43,7 @@ final class StudyLandingModel {
     var spanDeckCountKnown = false
     /// Due, studied and left for the hero card.
     var historyLedger: StudyHistoryLedger? {
+        if spanHeroIsFuture { return futureLedger }
         guard let day = spanLedger else { return nil }
         let kinds = { (c: StudyLedger.Counts) in StudyHistoryLedger.Kinds(new: c.new, learn: c.learn, review: c.review) }
         return StudyHistoryLedger(
@@ -116,6 +119,7 @@ final class StudyLandingModel {
         let deckCount: Int
         let deckCountKnown: Bool
         let ledger: StudyLedger.Day?
+        let futureLearn: Int?
         let rowsError: String?
         let decksError: String?
 
@@ -126,6 +130,7 @@ final class StudyLandingModel {
             deckCount = model.spanDeckTotalCount
             deckCountKnown = model.spanDeckCountKnown
             ledger = model.spanLedger
+            futureLearn = model.spanFutureLearn
             rowsError = model.spanRowsError
             decksError = model.spanDeckRowsError
         }
@@ -156,6 +161,13 @@ final class StudyLandingModel {
     @ObservationIgnored private var hoursTask: Task<Void, Never>?
     @ObservationIgnored private var hoursRequest: (generation: Int, offset: Int)?
     @ObservationIgnored private var hoursGeneration = 0
+    /// Answer times over the last `StudyHabitForecast.historyDays`, the
+    /// shape of a future day's predicted hours. Nil until a future day asks.
+    private var habitAnswerTimes: [Int64]?
+    /// Cards answered today ahead of schedule, keyed by days ahead of today
+    /// they were due. Nil until a future span asks.
+    private var reviewedAheadByDay: [Int: Int]?
+    @ObservationIgnored private var futureContextTask: Task<Void, Never>?
 
     func load() async {
         loadToken += 1
@@ -169,6 +181,7 @@ final class StudyLandingModel {
             spanDeckTotalCount = 0
             spanDeckCountKnown = false
             spanLedger = nil
+            spanFutureLearn = nil
             spanDeckRowsLoading = false
             spanRowsError = nil
             spanDeckRowsError = nil
@@ -245,7 +258,10 @@ final class StudyLandingModel {
                 streakPending: carried == nil,
                 tomorrowDue: carried?.tomorrowDue,
                 backlogNote: carried?.backlogNote,
-                rolloverNote: carried?.rolloverNote
+                rolloverNote: carried?.rolloverNote,
+                // Start-of-day due is fixed for the day; loadActivity
+                // refetches it once the rollover hour is known.
+                dueAtStart: carried?.dueAtStart
             )
 
             let continueReading = totalDue == 0 ? await loadContinueReading() : nil
@@ -391,6 +407,7 @@ final class StudyLandingModel {
 
     var spanHeroSubtitle: String? {
         if let duration = spanStudiedDuration { return duration }
+        if spanHeroIsFuture { return futureEstimate }
         guard !showsTodayDesk, !spanHeroStats.isFuture else { return nil }
         return L10n.format("%lld min", [0])
     }
@@ -399,7 +416,8 @@ final class StudyLandingModel {
     /// the answered-mix shape. Past spans retain a duration line even when
     /// the recorded mix is unavailable.
     var spanShapeLine: String? {
-        guard !showsTodayDesk, !spanHeroStats.isFuture else { return nil }
+        guard !showsTodayDesk else { return nil }
+        if spanHeroStats.isFuture { return futureShapeLine }
         let duration = spanStudiedDuration ?? L10n.format("%lld min", [0])
         guard grain == .day, let studied = spanLedger?.studied else { return duration }
         let shape = StudySummaryData.localizedSessionShape(
@@ -409,6 +427,34 @@ final class StudyLandingModel {
             locale: AppLocale.current
         )
         return shape.isEmpty ? duration : "\(duration) · \(shape)"
+    }
+
+    /// Time the future span's due cards should take, at today's pace.
+    private var futureEstimate: String? {
+        let count = spanHeroStats.count
+        guard count > 0 else { return L10n.text("Nothing due") }
+        var answers = 0, millis = 0
+        if case .loaded(let summary, _, _) = contentState {
+            answers = summary.answerCount
+            millis = summary.answerMillis
+        }
+        let minutes = StudySummaryData.estimatedMinutes(remaining: count, answerCount: answers, answerMillis: millis)
+        return minutes < 1 ? L10n.text("Under a minute") : L10n.format("About %lld min", [minutes])
+    }
+
+    /// Review-ahead progress plus the serving order of what is left,
+    /// mirroring a past day's "time · shape" line.
+    private var futureShapeLine: String? {
+        guard let ledger = futureLedger else { return nil }
+        let shape = StudySummaryData.localizedSessionShape(
+            newCount: ledger.left.new,
+            learnCount: ledger.left.learn,
+            reviewCount: ledger.left.review,
+            locale: AppLocale.current
+        )
+        let ahead = ledger.studiedCards > 0 ? L10n.format("%lld reviewed ahead", [ledger.studiedCards]) : nil
+        let parts = [ahead, shape.isEmpty ? nil : shape].compactMap { $0 }
+        return parts.isEmpty ? L10n.text("Nothing due") : parts.joined(separator: " · ")
     }
 
     private var spanStudiedDuration: String? {
@@ -427,19 +473,14 @@ final class StudyLandingModel {
         let calendar = Calendar.current
         switch grain {
         case .day:
-            if dayOffset < 0 {
-                return .forecastDay(
-                    title: spanTitle,
-                    count: futureDueCounts[-dayOffset] ?? 0
-                )
-            }
+            let predicted = dayOffset < 0 ? predictedHours : nil
             let twentyFour = StudySpan.uses24HourClock()
             let columns = (0..<24).map { slot in
                 let clock = StudySpan.ankiDayClockHour(rolloverHour: rolloverHour, slot: slot)
                 return StudyChartColumn(
                     offset: clock,
                     label: StudySpan.hourColumnLabel(clock, twentyFourHour: twentyFour),
-                    value: hourCount(clock),
+                    value: predicted?[clock] ?? hourCount(clock),
                     isSelected: false,
                     isToday: false,
                     isFuture: dayOffset < 0
@@ -575,6 +616,7 @@ final class StudyLandingModel {
         spanDeckTotalCount = 0
         spanDeckCountKnown = false
         spanLedger = nil
+        spanFutureLearn = nil
         spanDeckRowsLoading = false
         forecast = nil
         todayAttentionRows = []
@@ -592,6 +634,7 @@ final class StudyLandingModel {
         spanDeckTotalCount = 0
         spanDeckCountKnown = false
         spanLedger = nil
+        spanFutureLearn = nil
         spanDeckRowsLoading = false
         await reloadSpanRows()
     }
@@ -642,11 +685,16 @@ final class StudyLandingModel {
             graphs = nil
         }
 
+        var dueAtStart: StudyHistoryLedger.Kinds?
+        if let graphs {
+            rolloverHour = graphs.rolloverHour
+            dueAtStart = await loadTodayDueAtStart()
+        }
+
         guard token == loadToken,
               case .loaded(let summary, let decks, let reading) = contentState else { return }
 
         if let graphs {
-            rolloverHour = graphs.rolloverHour
             reviewTotals = Self.dayTotals(graphs.reviews.count)
             reviewMillis = Self.dayTotals(graphs.reviews.time)
             futureDueCounts = graphs.futureDue.futureDue
@@ -668,7 +716,8 @@ final class StudyLandingModel {
                 streak: StreakCalculator.streak(reviews: graphs.reviews.count),
                 tomorrowDue: graphs.futureDue.futureDue[1] ?? 0,
                 backlogNote: StudySummaryData.backlogNote(haveBacklog: graphs.futureDue.haveBacklog),
-                rolloverNote: AnkiDay.rolloverNote(now: Date(), rolloverHour: graphs.rolloverHour)
+                rolloverNote: AnkiDay.rolloverNote(now: Date(), rolloverHour: graphs.rolloverHour),
+                dueAtStart: dueAtStart
             )
         } else if summary.streakPending {
             updated = summary.withActivity(
@@ -696,6 +745,33 @@ final class StudyLandingModel {
         workloadError = workload.error
     }
 
+    /// Learning cards due `oldest…newest` days ahead, in the same scope as
+    /// the forecast. Nil on failure — the ring then shows an empty track.
+    private func loadFutureLearn(oldest: Int, newest: Int) async -> Int? {
+        let search = scopedActivitySearch(
+            "is:learn prop:due>=\(max(1, oldest)) prop:due<=\(max(1, newest)) -is:suspended"
+        )
+        return try? await cardClient.searchIds(search, nil).count
+    }
+
+    /// Today's per-queue due at the start of the Anki day, rebuilt by the
+    /// same ledger that drives past days, so each ring can fill by its own
+    /// queue. Nil on failure — the rings then share the day fraction.
+    private func loadTodayDueAtStart() async -> StudyHistoryLedger.Kinds? {
+        let start = todayStart
+        let now = Date()
+        guard now > start else { return nil }
+        let window = StudyLedger.Window(
+            offset: 0,
+            startMs: Int64(start.timeIntervalSince1970 * 1_000),
+            endMs: Int64(now.timeIntervalSince1970 * 1_000)
+        )
+        guard let day = try? await statsClient.studyLedger(landingDeckID ?? 0, rolloverHour, [window], nil).days.first else {
+            return nil
+        }
+        return StudyHistoryLedger.Kinds(new: day.due.new, learn: day.due.learn, review: day.due.review)
+    }
+
     private func scopedActivitySearch(_ base: String) -> String {
         guard !activitySearch.isEmpty else { return base }
         return "\(base) \(activitySearch)"
@@ -710,18 +786,15 @@ final class StudyLandingModel {
         let days = (0..<7).map { offset -> StudyForecastDay in
             let date = StudySpan.date(todayStart: start, offset: -offset, calendar: calendar)
             let count = offset == 0 ? currentDue : graphs.futureDue.futureDue[offset] ?? 0
-            let label: String
-            if offset == 0 {
-                label = L10n.text("Today")
-            } else if offset == 1 {
-                label = L10n.text("Tomorrow")
-            } else {
-                label = date.formatted(.dateTime.weekday(.abbreviated).locale(AppLocale.current))
-            }
-            let spokenDate = date.formatted(.dateTime.weekday(.wide).locale(AppLocale.current))
+            let symbols = calendar.veryShortWeekdaySymbols
+            let weekdayIndex = calendar.component(.weekday, from: date) - 1
+            let spokenDate = offset == 0 ? L10n.text("Today")
+                : offset == 1 ? L10n.text("Tomorrow")
+                : date.formatted(.dateTime.weekday(.wide).locale(AppLocale.current))
             return StudyForecastDay(
                 offset: -offset,
-                label: label,
+                label: String(calendar.component(.day, from: date)),
+                weekday: symbols.indices.contains(weekdayIndex) ? symbols[weekdayIndex] : "",
                 accessibilityLabel: L10n.format("%@, %lld cards", [spokenDate, count]),
                 count: count
             )
@@ -1030,6 +1103,19 @@ final class StudyLandingModel {
         return futureDueCounts[-offset] ?? 0
     }
 
+    /// The future day's still-due cards spread over your usual hours.
+    private var predictedHours: [Int] {
+        let calendar = Calendar.current
+        return StudyHabitForecast.hourly(
+            answeredAtMs: habitAnswerTimes ?? [],
+            scheduled: spanHeroStats.count,
+            targetDayStart: StudySpan.date(todayStart: todayStart, offset: dayOffset, calendar: calendar),
+            todayStart: todayStart,
+            rolloverHour: rolloverHour,
+            calendar: calendar
+        )
+    }
+
     private func hourCount(_ hour: Int) -> Int {
         guard dayOffset >= 0, let counts = hoursByDay[dayOffset], hour < counts.count else { return 0 }
         return counts[hour]
@@ -1040,6 +1126,64 @@ final class StudyLandingModel {
         hoursRequest = nil
         hoursGeneration += 1
         hoursByDay = [:]
+        futureContextTask?.cancel()
+        futureContextTask = nil
+        habitAnswerTimes = nil
+        reviewedAheadByDay = nil
+    }
+
+    /// Habit history and today's review-ahead answers, for future spans.
+    /// Both are one revlog range scan and shared by every future day.
+    private func loadFutureContext() {
+        guard spanOffsets.contains(where: { $0 < 0 }), futureContextTask == nil,
+              habitAnswerTimes == nil || reviewedAheadByDay == nil,
+              profile.isCurrent(AccountStore.shared.selectedContext) else { return }
+        let generation = hoursGeneration
+        let calendar = Calendar.current
+        let start = todayStart
+        let historyStart = StudySpan.date(todayStart: start, offset: StudyHabitForecast.historyDays, calendar: calendar)
+        let scope = activitySearch
+        let rollover = rolloverHour
+        futureContextTask = Task { [statsClient] in
+            async let history = statsClient.reviewTimes(
+                scope,
+                Int64(historyStart.timeIntervalSince1970 * 1_000),
+                Int64(start.timeIntervalSince1970 * 1_000)
+            )
+            async let ahead = statsClient.reviewAhead(
+                scope,
+                Int64(start.timeIntervalSince1970 * 1_000),
+                Int64(Date().timeIntervalSince1970 * 1_000)
+            )
+            let times = try? await history
+            let answers = try? await ahead
+            guard !Task.isCancelled, generation == hoursGeneration else { return }
+            habitAnswerTimes = times ?? []
+            var byDay: [Int: Int] = [:]
+            for answer in answers ?? [] {
+                let days = answer.daysAhead(rolloverHour: rollover, calendar: calendar)
+                if days > 0 { byDay[days, default: 0] += 1 }
+            }
+            reviewedAheadByDay = byDay
+        }
+    }
+
+    /// A future span read like a past day: what was scheduled, what was
+    /// already reviewed ahead, and what is still due. New cards are not
+    /// scheduled by date, so they have no future share.
+    private var futureLedger: StudyHistoryLedger? {
+        guard spanHeroIsFuture, let learn = spanFutureLearn else { return nil }
+        let total = spanHeroStats.count
+        let learning = min(learn, total)
+        let reviews = total - learning
+        let ahead = spanOffsets.filter { $0 < 0 }.reduce(0) { $0 + (reviewedAheadByDay?[-$1] ?? 0) }
+        return StudyHistoryLedger(
+            due: .init(new: 0, learn: learning, review: reviews + ahead),
+            studiedCards: ahead,
+            left: .init(new: 0, learn: learning, review: reviews),
+            isSingleDay: true,
+            isExact: true
+        )
     }
 
     /// Buckets the answers of the day on screen into local clock hours. One
@@ -1087,6 +1231,7 @@ final class StudyLandingModel {
 
     private func scheduleSpanReload() {
         loadDayHours()
+        loadFutureContext()
         spanTask?.cancel()
         prefetchTask?.cancel()
         // Invalidate before the task starts, so a previous selection cannot publish.
@@ -1103,6 +1248,7 @@ final class StudyLandingModel {
     func reloadSpanRows(refresh: Bool = false) async {
         guard profile.isCurrent(AccountStore.shared.selectedContext), !Task.isCancelled else { return }
         loadDayHours()
+        loadFutureContext()
         prefetchTask?.cancel()
         spanToken += 1
         let token = spanToken
@@ -1235,6 +1381,7 @@ final class StudyLandingModel {
                 subtitle: node.children.isEmpty ? nil : L10n.text("Includes subdecks"))
         }
         spanLedger = nil
+        spanFutureLearn = nil
         spanDeckCountKnown = false
         spanDeckTotalCount = 0
         spanRowsError = nil
@@ -1251,6 +1398,7 @@ final class StudyLandingModel {
         spanDeckTotalCount = result.deckCount
         spanDeckCountKnown = result.deckCountKnown
         spanLedger = result.ledger
+        spanFutureLearn = result.futureLearn
         spanRowsError = result.rowsError
         spanDeckRowsError = result.decksError
         spanRowsLoading = false
@@ -1266,6 +1414,7 @@ final class StudyLandingModel {
         spanDeckTotalCount = 0
         spanDeckCountKnown = false
         spanLedger = nil
+        spanFutureLearn = nil
         spanDeckRowsLoading = false
         spanRowsError = nil
         spanDeckRowsError = nil
@@ -1293,7 +1442,9 @@ final class StudyLandingModel {
             } else {
                 count = (try? await cardClient.searchIds(search, nil).count) ?? 0
             }
+            let learn = await loadFutureLearn(oldest: ahead, newest: ahead)
             guard token == spanToken, !Task.isCancelled else { return }
+            spanFutureLearn = learn
             var rows = [StudySpan.dueRow(
                 count: count,
                 daysAhead: ahead,
@@ -1323,7 +1474,10 @@ final class StudyLandingModel {
         }
 
         guard let window = StudySpan.ratingWindow(offsets: spanOffsets) else {
+            let ahead = spanOffsets.map { -$0 }.filter { $0 > 0 }
+            let learn = await ahead.isEmpty ? nil : loadFutureLearn(oldest: ahead.min()!, newest: ahead.max()!)
             guard token == spanToken, !Task.isCancelled else { return }
+            spanFutureLearn = learn
             // An all-future period has no rating window. The chart remains the
             // source of truth for that forecast; avoid manufacturing empty
             // "reviewed" rows that look like real zeroes.

@@ -177,7 +177,9 @@ final class DeckListModel {
             } else {
                 triageReadiness = .unavailable
             }
-            publishLoaded(hero: hero, heatmap: heatmap)
+            // The hero was built concurrently with the archive fetch, so its
+            // deck count predates it; count again now that parked decks are known.
+            publishLoaded(hero: hero.withDeckCount(reviewableDeckCount), heatmap: heatmap)
             Task { await refineRowIcons() }
         } catch {
             guard identity == loadIdentity, profile.isCurrent(AccountStore.shared.selectedContext), !Task.isCancelled else { return }
@@ -555,5 +557,17 @@ private extension DeckListModel {
             )
         )
         return (hero, Self.buildHeatmap(reviews: reviewCounts))
+    }
+}
+
+private extension HeroData {
+    func withDeckCount(_ deckCount: Int) -> HeroData {
+        HeroData(
+            totalDue: totalDue,
+            deckCount: deckCount,
+            streak: streak,
+            recentDayTotals: recentDayTotals,
+            today: today
+        )
     }
 }

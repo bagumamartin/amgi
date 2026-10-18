@@ -512,7 +512,8 @@ public struct StudyLandingContent: View {
                         centerAccessibility: spanRowsLoading ? AmgiL10n.text("Loading this period…", locale: locale) : historyRingAccessibility,
                         showsProgress: spanHeroIsFuture || historyLedger?.isSingleDay == true,
                         isLoading: spanRowsLoading,
-                        animatesChanges: false
+                        animatesChanges: false,
+                        style: spanHeroIsFuture ? .segmented : .concentric
                     )
                     .frame(maxWidth: .infinity)
                     Rectangle()
@@ -529,7 +530,6 @@ public struct StudyLandingContent: View {
                         .foregroundStyle(palette.textSecondary)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: .infinity)
-                        .opacity(spanHeroIsFuture ? 0 : 1)
                 }
                 if let notes = historyLedger?.notes, !notes.isEmpty, !spanRowsLoading {
                     historyNotes(notes)
@@ -567,7 +567,8 @@ public struct StudyLandingContent: View {
                 learnCount: ledger.left.learn, reviewCount: ledger.left.review,
                 todayLabel: "", subtitleLabel: "", deckCount: 0,
                 reviewedToday: ledger.isSingleDay ? max(0, ledger.due.total - ledger.left.total) : 0,
-                dueBaselineToday: ledger.isSingleDay ? max(ledger.due.total, 1) : 0
+                dueBaselineToday: ledger.isSingleDay ? max(ledger.due.total, 1) : 0,
+                dueAtStart: ledger.isSingleDay ? ledger.due : nil
             )
         }
         return StudySummaryData(
@@ -584,6 +585,7 @@ public struct StudyLandingContent: View {
     }
 
     private var historyRingCaption: String? {
+        if spanHeroIsFuture { return AmgiL10n.text("Due", locale: locale) }
         if let ledger = historyLedger {
             let caption = switch (ledger.isSingleDay, ledger.isExact) {
             case (true, true): "Left"
@@ -637,7 +639,7 @@ public struct StudyLandingContent: View {
 
     @ViewBuilder
     private var historyLegend: some View {
-        if !spanHeroIsFuture, spanRowsLoading || historyLedger != nil {
+        if spanRowsLoading || historyLedger != nil {
             VStack(alignment: .leading, spacing: AmgiSpacing.xs) {
                 let ledger = historyLedger
                 let zero = StudyHistoryLedger.Kinds(new: 0, learn: 0, review: 0)
@@ -647,9 +649,13 @@ public struct StudyLandingContent: View {
                 Text(AmgiL10n.text(single ? "Due → left" : "Left at end", locale: locale))
                     .font(.caption2)
                     .foregroundStyle(palette.textTertiary)
-                historyMixRow(title: AmgiL10n.text("New", locale: locale), due: single ? due.new : nil, left: left.new, color: palette.cardStateNew)
-                historyMixRow(title: AmgiL10n.text("Learning", locale: locale), due: single ? due.learn : nil, left: left.learn, color: palette.cardStateLearning)
-                historyMixRow(title: AmgiL10n.text("Review", locale: locale), due: single ? due.review : nil, left: left.review, color: palette.cardStateReview)
+                // A grid, so due, arrow, and left each line up as a
+                // trailing column however many digits a row has.
+                Grid(horizontalSpacing: 6, verticalSpacing: AmgiSpacing.xs) {
+                    historyMixRow(title: AmgiL10n.text("New", locale: locale), due: single ? due.new : nil, left: left.new, color: palette.cardStateNew)
+                    historyMixRow(title: AmgiL10n.text("Learning", locale: locale), due: single ? due.learn : nil, left: left.learn, color: palette.cardStateLearning)
+                    historyMixRow(title: AmgiL10n.text("Review", locale: locale), due: single ? due.review : nil, left: left.review, color: palette.cardStateReview)
+                }
             }
         } else {
             VStack(alignment: .leading, spacing: AmgiSpacing.xs) {
@@ -675,23 +681,39 @@ public struct StudyLandingContent: View {
     }
 
     private func historyMixRow(title: String, due: Int?, left: Int, color: Color) -> some View {
-        let value = due.map { "\($0) → \(left)" } ?? "\(left)"
-        return HStack(spacing: 6) {
+        let accessibility = spanRowsLoading ? "\(title), loading"
+            : due.map { "\(title), \($0) due, \(left) left" } ?? "\(title), \(left) left"
+        // Modifiers on a GridRow would collapse it into one cell, so the
+        // row speaks through its first cell and the rest stay silent.
+        return GridRow {
             Circle()
                 .fill(color)
                 .frame(width: 7, height: 7)
+                .accessibilityElement()
+                .accessibilityLabel(accessibility)
             Text(title)
                 .font(.caption)
                 .foregroundStyle(palette.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Text(spanRowsLoading ? "—" : value)
-                .font(.caption)
-                .monospacedDigit()
-                .foregroundStyle(palette.textPrimary)
+                .accessibilityHidden(true)
+            Group {
+                if let due {
+                    Text(spanRowsLoading ? "—" : "\(due)")
+                        .gridColumnAlignment(.trailing)
+                    Text("→")
+                        .foregroundStyle(palette.textTertiary)
+                } else {
+                    Color.clear.frame(width: 0, height: 0)
+                    Color.clear.frame(width: 0, height: 0)
+                }
+                Text(spanRowsLoading ? "—" : "\(left)")
+                    .gridColumnAlignment(.trailing)
+            }
+            .font(.caption)
+            .monospacedDigit()
+            .foregroundStyle(palette.textPrimary)
+            .accessibilityHidden(true)
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(spanRowsLoading ? "\(title), loading"
-            : due.map { "\(title), \($0) due, \(left) left" } ?? "\(title), \(left) left")
     }
 
     private func historyPrimaryButton(_ row: StudyTimeRow?) -> some View {
@@ -767,7 +789,7 @@ public struct StudyLandingContent: View {
                         .accessibilityLabel("Explore history")
                         .accessibilityHint("Opens yesterday's review history")
                     } else {
-                        Text("Recorded answers")
+                        Text(activityCaption)
                             .amgiFont(.caption)
                             .foregroundStyle(palette.textTertiary)
                             // Match Today's 44pt Explore-history button so
@@ -786,6 +808,13 @@ public struct StudyLandingContent: View {
                 .simultaneousGesture(periodSwipe)
             }
         }
+    }
+
+    /// Past spans show what was answered; a future day shows your habits
+    /// applied to what is scheduled; longer future spans show the schedule.
+    private var activityCaption: String {
+        guard spanHeroIsFuture else { return AmgiL10n.text("Recorded answers", locale: locale) }
+        return AmgiL10n.text(grain == .day ? "Predicted from your habits" : "Scheduled", locale: locale)
     }
 
     private func todayHero(

@@ -59,8 +59,8 @@ public enum ExportFormat: String, Sendable, CaseIterable, Identifiable {
 
     public var title: String {
         switch self {
-        case .collectionPackage: "Anki Collection Package"
-        case .deckPackage: "Anki Deck Package"
+        case .collectionPackage: "Collection Package (.colpkg)"
+        case .deckPackage: "Deck Package (.apkg)"
         case .noteText: "Notes as Text"
         case .cardText: "Cards as Text"
         }

@@ -62,6 +62,7 @@ struct MainTabView: View {
     let showReaderTab: Bool
     let studyTodayRequest: Int
     let studyTodayDeckID: Int64?
+    @Binding var libraryDeckRequest: Int64?
     let onSelectStudyDeck: (DeckID) -> Void
     let onPullCooling: () -> Void
     let onOpenAssistant: @MainActor ([AssistantContext]) -> Void
@@ -290,7 +291,7 @@ struct MainTabView: View {
         switch section {
         case .library:
             NavigationStack {
-                DeckListView()
+                DeckListView(openDeckID: $libraryDeckRequest)
                     .accountChrome(
                         showsMenu: showsAccountMenu,
                         destination: $accountDestination,

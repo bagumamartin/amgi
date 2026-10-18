@@ -117,7 +117,7 @@ public struct StudyTimeDetailContent: View {
             Text(AmgiL10n.format("%lld cards in this historical selection.", [row.count], locale: locale))
             Text(AmgiL10n.text("Based on surviving cards and retained history. Cards inferred to be suspended at the selected boundary from retained modification timestamps are excluded.", locale: locale))
             if row.suspensionUnknownCount > 0 {
-                Text(AmgiL10n.format("Past suspension state is unknown for %lld cards in this historical selection. Anki does not retain suspension changes after a card is modified again.", [row.suspensionUnknownCount], locale: locale))
+                Text(AmgiL10n.format("Past suspension state is unknown for %lld cards in this historical selection. The collection does not retain suspension changes after a card is modified again.", [row.suspensionUnknownCount], locale: locale))
             }
             Text(AmgiL10n.text("Daily new-card selection, past burying, imports, undo, and timezone or day-start changes may leave gaps. This review uses current deck placement and study state; currently suspended, buried, or filtered-deck cards are excluded from this session.", locale: locale))
         }

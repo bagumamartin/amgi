@@ -64,11 +64,11 @@ package enum AnkiImportFormat: Sendable, Equatable, CaseIterable {
 
     package var title: String {
         switch self {
-        case .deckPackage: "Anki Deck Package"
-        case .collectionPackage: "Anki Collection Backup"
-        case .zippedPackage: "Anki ZIP Package"
+        case .deckPackage: "Deck Package (.apkg)"
+        case .collectionPackage: "Collection Backup (.colpkg)"
+        case .zippedPackage: "ZIP Package"
         case .text: "Delimited Text"
-        case .ankiJSON: "Anki JSON"
+        case .ankiJSON: "JSON Interchange"
         case .mnemosyne: "Mnemosyne Database"
         }
     }

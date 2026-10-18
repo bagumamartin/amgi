@@ -239,7 +239,7 @@ package struct ExportReviewView: View {
                 get: { model.packageOptions.includeMedia },
                 set: { model.setPackageMedia($0) }
             ))
-            Toggle("Legacy Anki format", isOn: Binding(
+            Toggle("Legacy package format", isOn: Binding(
                 get: { model.packageOptions.legacy },
                 set: { model.setPackageLegacy($0) }
             ))
@@ -266,15 +266,15 @@ package struct ExportReviewView: View {
                     set: { model.setPackageMedia($0) }
                 ))
             } header: {
-                Text("Anki Package Options")
+                Text("Package Options")
             }
             Section {
-                Toggle("Legacy Anki format", isOn: Binding(
+                Toggle("Legacy package format", isOn: Binding(
                     get: { model.packageOptions.legacy },
                     set: { model.setPackageLegacy($0) }
                 ))
             } footer: {
-                Text("Legacy packages are intended for older Anki versions. New exports should use the current format.")
+                Text("Legacy packages are intended for older app versions. New exports should use the current format.")
             }
         }
     }
@@ -305,7 +305,7 @@ package struct ExportReviewView: View {
             } header: {
                 Text("Note Text Options")
             } footer: {
-                Text("Fields are separated by tabs. Anki's text exporter writes one note per row.")
+                Text("Fields are separated by tabs, with one note per row.")
             }
         }
     }

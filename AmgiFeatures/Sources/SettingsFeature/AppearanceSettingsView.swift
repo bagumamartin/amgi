@@ -94,9 +94,9 @@ struct AppearanceSettingsView: View {
                 }
             }
             if engineRelaunchNeeded {
-                SettingsFootnote("Relaunch Ijuka to apply this language to text that comes from the Anki engine, such as card errors and undo names.")
+                SettingsFootnote("Relaunch Ijuka to apply this language to text that comes from the study engine, such as card errors and undo names.")
             } else {
-                SettingsFootnote("System follows your device language. Changing this also changes the language the Anki engine uses.")
+                SettingsFootnote("System follows your device language. Changing this also changes the language the study engine uses.")
             }
         }
     }

@@ -80,7 +80,7 @@ package struct AccountsSettingsView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: { _ in
-            Text("Files include the Anki collection, media, and per-profile sync state. Deleting only the profile leaves the files on disk; you can re-add the profile to recover.")
+            Text("Files include the collection, media, and per-profile sync state. Deleting only the profile leaves the files on disk; you can re-add the profile to recover.")
         }
         .alert(
             "Couldn't delete profile",

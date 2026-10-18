@@ -664,10 +664,10 @@ package struct ImportReviewView: View {
 
     private func packageFormatName(_ version: Int) -> String {
         switch version {
-        case 1: "Legacy Anki 2"
-        case 2: "Anki 2.1"
-        case 3: "Current Anki"
-        default: "Anki package"
+        case 1: "Legacy (v2)"
+        case 2: "Version 2.1"
+        case 3: "Current format"
+        default: "Package"
         }
     }
 }

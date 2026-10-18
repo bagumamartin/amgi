@@ -296,7 +296,7 @@ final class ReaderCardSession {
             onMarksChanged?()
             onCardAdded?(Self.sourceChapterID(of: draft))
             showToast(.init(
-                message: "Added to \(capture.deckName(destination.deckID) ?? "Anki")",
+                message: "Added to \(capture.deckName(destination.deckID) ?? "your collection")",
                 undo: .saved(noteID: noteID, draft: draft, markIDs: markIDs)
             ))
         } catch {

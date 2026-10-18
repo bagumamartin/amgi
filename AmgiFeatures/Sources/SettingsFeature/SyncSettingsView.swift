@@ -170,7 +170,7 @@ struct SyncSettingsView: View {
             }
         }
         .padding(.top, AmgiSpacing.lg)
-        SettingsFootnote("Amgi works fully offline. Add a server only if you want to sync with AnkiWeb or a self-hosted instance.")
+        SettingsFootnote("Amgi works fully offline. Add a server only if you want to sync with a hosted or self-hosted sync server.")
     }
 }
 
@@ -223,7 +223,7 @@ private struct ServerSetupView: View {
                         .padding(.vertical, AmgiSpacing.md)
                         .frame(minHeight: 44)
                 }
-                SettingsFootnote(endpointError ?? "Enter the URL of your Anki-compatible sync server.")
+                SettingsFootnote(endpointError ?? "Enter the URL of your sync server.")
 
                 SettingsGroup {
                     SettingsButtonRow(

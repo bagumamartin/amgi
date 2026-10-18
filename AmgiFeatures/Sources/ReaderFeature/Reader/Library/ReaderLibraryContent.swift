@@ -93,7 +93,7 @@ private extension ReaderLibraryContent {
         } actions: {
             Button(action: onImport) { Label("Import Book", systemImage: "plus") }
                 .buttonStyle(.borderedProminent)
-            Button(reason == .noBooksConfigured ? "Reconfigure Reader" : "Set Up Anki Library",
+            Button(reason == .noBooksConfigured ? "Reconfigure Reader" : "Set Up Library",
                    action: onConfigure)
         }
     }

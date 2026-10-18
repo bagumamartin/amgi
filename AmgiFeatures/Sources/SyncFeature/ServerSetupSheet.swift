@@ -34,7 +34,7 @@ struct ServerSetupSheet: View {
                 } header: {
                     Text("Sync Server")
                 } footer: {
-                    Text("Enter the URL of your Anki sync server (e.g. https://sync.example.com).")
+                    Text("Enter the URL of your sync server (e.g. https://sync.example.com).")
                 }
 
                 Section {

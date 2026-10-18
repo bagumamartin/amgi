@@ -150,7 +150,7 @@ private final class SearchProbe: @unchecked Sendable {
                 learningDueToday: { _ in 0 },
                 lastRating: { _ in nil },
                 studyLedger: { _, _, _, _ in StudyLedger(days: []) },
-                reviewTimes: { _, _, _ in [] }
+                reviewTimes: { _, _, _ in [] }, reviewAhead: { _, _, _ in [] }
             )
         } operation: {
             let store = CollectionStore()
@@ -259,7 +259,7 @@ private final class SearchProbe: @unchecked Sendable {
                 learningDueToday: { _ in 0 },
                 lastRating: { _ in nil },
                 studyLedger: { _, _, _, _ in StudyLedger(days: []) },
-                reviewTimes: { _, _, _ in [] }
+                reviewTimes: { _, _, _ in [] }, reviewAhead: { _, _, _ in [] }
             )
         } operation: {
             let store = CollectionStore()

@@ -30,6 +30,16 @@ extension StatsClient {
             let hour: Int64 = 3_600_000
             return (0..<12).map { startMs + 5 * hour + $0 * 60_000 }
                 + (0..<20).map { startMs + 15 * hour + $0 * 90_000 }
+        },
+        reviewAhead: { _, startMs, _ in
+            // Six cards due tomorrow, reviewed this morning.
+            (0..<6).map { index in
+                ReviewAheadAnswer(
+                    answeredAtMs: startMs + 3_600_000 + Int64(index) * 60_000,
+                    previousAnswerMs: startMs - 2 * 86_400_000,
+                    intervalDays: 3
+                )
+            }
         }
     )
 }

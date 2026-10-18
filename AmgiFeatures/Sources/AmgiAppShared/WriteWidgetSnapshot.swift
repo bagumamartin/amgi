@@ -73,6 +73,25 @@ public func writeWidgetSnapshot() async -> Bool {
             learnCount: allDecksLearning,
             reviewCount: libraryDecks.reduce(0) { $0 + $1.counts.reviewCount }
         )
+        // Start-of-day due per queue, so each widget ring fills by its own
+        // queue. Same ledger as the Study rings; nil falls back to the day
+        // fraction.
+        let todayWindow = StudyLedger.Window(
+            offset: 0,
+            startMs: Int64(dayZero.timeIntervalSince1970 * 1_000),
+            endMs: Int64(now.timeIntervalSince1970 * 1_000)
+        )
+        func dueAtStart(deckID: Int64) async -> WidgetSnapshot.DayCounts? {
+            guard now > dayZero,
+                  let day = try? await statsClient.studyLedger(deckID, rolloverHour, [todayWindow], nil).days.first
+            else { return nil }
+            return WidgetSnapshot.DayCounts(
+                newCount: day.due.new,
+                learnCount: day.due.learn,
+                reviewCount: day.due.review
+            )
+        }
+
         let allDecksSnapshot = WidgetSnapshot(
             deckId: 0,
             profileID: profileID,
@@ -90,7 +109,8 @@ public func writeWidgetSnapshot() async -> Bool {
                 dayZero: dayZero,
                 days: forecastDays(base: aggregateBase, futureDue: graphs.futureDue.futureDue),
                 futureDue: graphs.futureDue.futureDue
-            )
+            ),
+            dueAtStart: await dueAtStart(deckID: 0)
         )
         guard await MainActor.run(body: { AccountStore.shared.selectedContext.id }) == profileID else {
             return false
@@ -146,7 +166,8 @@ public func writeWidgetSnapshot() async -> Bool {
                         days: forecastDays(base: base, futureDue: futureDue),
                         futureDue: futureDue
                     )
-                }
+                },
+                dueAtStart: await dueAtStart(deckID: deck.id.rawValue)
             )
             guard await MainActor.run(body: { AccountStore.shared.selectedContext.id }) == profileID else {
                 return false

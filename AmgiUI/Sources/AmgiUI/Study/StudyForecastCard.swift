@@ -1,7 +1,7 @@
 public import SwiftUI
 import AmgiTheme
 
-/// A compact, actionable forecast for the next few Anki days. The forecast
+/// A compact, actionable forecast for the next few review days. The forecast
 /// deliberately stays separate from the activity chart: solid bars mean
 /// scheduled work, while the historical chart represents answers already
 /// recorded.
@@ -73,7 +73,7 @@ public struct StudyForecastCard: View {
                     .fontWeight(.semibold)
                     .foregroundStyle(palette.textPrimary)
                     .accessibilityHidden(true)
-                Text("Next 7 Anki days")
+                Text("Next 7 review days")
                     .font(.subheadline)
                     .foregroundStyle(palette.textSecondary)
                     .accessibilityHidden(true)
@@ -86,48 +86,51 @@ public struct StudyForecastCard: View {
         }
     }
 
+    /// Count over each bar, then the date and its weekday letter beneath —
+    /// the week chart's axis, so no label grows with the language. Today
+    /// is the solid bar; empty days sit on the baseline as a hairline.
     private var bars: some View {
         let peak = max(data.days.map(\.count).max() ?? 0, 1)
         return HStack(alignment: .bottom, spacing: AmgiSpacing.sm) {
             ForEach(data.days) { day in
+                let isToday = day.offset == 0
                 Button {
                     onSelectDay(day.offset)
                 } label: {
                     VStack(spacing: AmgiSpacing.xs) {
-                        if day.count > 0 {
-                            Text("\(day.count)")
-                                .font(barLabelFont)
-                                .monospacedDigit()
-                                .foregroundStyle(palette.textPrimary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        } else {
-                            Color.clear
-                                .frame(height: 16)
-                        }
-                        RoundedRectangle(cornerRadius: 4, style: .continuous)
-                            .fill(barColor(for: day))
-                            .frame(height: barHeight(count: day.count, peak: peak))
-                            .frame(maxWidth: .infinity)
-                            .overlay(alignment: .top) {
-                                if day.offset == 0 {
-                                    Capsule()
-                                        .fill(palette.accent)
-                                        .frame(width: 18, height: 3)
-                                        .offset(y: -3)
-                                }
-                            }
-                        Text(compactBarLabel(day.label))
+                        Text(day.count > 0 ? "\(day.count)" : " ")
                             .font(barLabelFont)
-                            .foregroundStyle(palette.textPrimary)
-                            .multilineTextAlignment(.center)
-                            .fixedSize(horizontal: false, vertical: true)
+                            .fontWeight(isToday ? .semibold : .regular)
+                            .monospacedDigit()
+                            .foregroundStyle(isToday ? palette.textPrimary : palette.textSecondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                        UnevenRoundedRectangle(
+                            topLeadingRadius: 5, bottomLeadingRadius: 2,
+                            bottomTrailingRadius: 2, topTrailingRadius: 5,
+                            style: .continuous
+                        )
+                        .fill(barColor(for: day))
+                        .frame(height: barHeight(count: day.count, peak: peak))
+                        .frame(maxWidth: .infinity)
+                        VStack(spacing: 0) {
+                            Text(day.label)
+                                .font(barLabelFont)
+                                .fontWeight(isToday ? .semibold : .regular)
+                                .monospacedDigit()
+                                .foregroundStyle(isToday ? palette.accent : palette.textPrimary)
+                            Text(day.weekday)
+                                .font(.caption2)
+                                .foregroundStyle(palette.textTertiary)
+                        }
+                        .lineLimit(1)
                     }
                     .frame(maxWidth: .infinity)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(day.accessibilityLabel)
-                .accessibilityHint(day.offset == 0 ? AmgiL10n.text("Today", locale: locale) : AmgiL10n.text("Open this day", locale: locale))
+                .accessibilityHint(isToday ? "" : AmgiL10n.text("Open this day", locale: locale))
             }
         }
         .frame(minHeight: forecastBarAreaHeight)
@@ -243,17 +246,14 @@ public struct StudyForecastCard: View {
         }
     }
 
-    private func compactBarLabel(_ label: String) -> String {
-        (presentation == .compact || presentation == .medium) && label == AmgiL10n.text("Tomorrow", locale: locale) ? AmgiL10n.text("Tmrw", locale: locale) : label
-    }
-
     private func barColor(for day: StudyForecastDay) -> Color {
+        if day.count == 0 { return palette.separator }
         if day.offset == 0 { return palette.accent }
-        return palette.accent.opacity(0.42)
+        return palette.accent.opacity(0.35)
     }
 
     private func barHeight(count: Int, peak: Int) -> CGFloat {
-        guard count > 0 else { return 4 }
+        guard count > 0 else { return 3 }
         let availableHeight = max(20, forecastBarAreaHeight - 48)
         return max(10, availableHeight * CGFloat(count) / CGFloat(peak))
     }
@@ -264,13 +264,13 @@ public struct StudyForecastCard: View {
     StudyForecastCard(
         data: StudyForecastData(
             days: [
-                StudyForecastDay(offset: 0, label: "Today", accessibilityLabel: "Today, 55 cards", count: 55),
-                StudyForecastDay(offset: -1, label: "Tomorrow", accessibilityLabel: "Tomorrow, 40 cards", count: 40),
-                StudyForecastDay(offset: -2, label: "Wed", accessibilityLabel: "Wednesday, 22 cards", count: 22),
-                StudyForecastDay(offset: -3, label: "Thu", accessibilityLabel: "Thursday, 60 cards", count: 60),
-                StudyForecastDay(offset: -4, label: "Fri", accessibilityLabel: "Friday, 18 cards", count: 18),
-                StudyForecastDay(offset: -5, label: "Sat", accessibilityLabel: "Saturday, 8 cards", count: 8),
-                StudyForecastDay(offset: -6, label: "Sun", accessibilityLabel: "Sunday, 12 cards", count: 12)
+                StudyForecastDay(offset: 0, label: "19", weekday: "M", accessibilityLabel: "Today, 55 cards", count: 55),
+                StudyForecastDay(offset: -1, label: "20", weekday: "T", accessibilityLabel: "Tomorrow, 40 cards", count: 40),
+                StudyForecastDay(offset: -2, label: "21", weekday: "W", accessibilityLabel: "Wednesday, 22 cards", count: 22),
+                StudyForecastDay(offset: -3, label: "22", weekday: "T", accessibilityLabel: "Thursday, 60 cards", count: 60),
+                StudyForecastDay(offset: -4, label: "23", weekday: "F", accessibilityLabel: "Friday, 18 cards", count: 18),
+                StudyForecastDay(offset: -5, label: "24", weekday: "S", accessibilityLabel: "Saturday, 8 cards", count: 8),
+                StudyForecastDay(offset: -6, label: "25", weekday: "S", accessibilityLabel: "Sunday, 12 cards", count: 12)
             ],
             tomorrowDue: 40,
             dailyLoad: 34,

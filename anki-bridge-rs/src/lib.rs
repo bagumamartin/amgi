@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 mod mnemosyne;
 mod package;
 mod reader_notes;
+mod review_ahead;
 mod review_times;
 mod study_ledger;
 
@@ -177,6 +178,7 @@ fn handle_aux_method(backend: &Backend, method: u32, input: &[u8]) -> Result<Vec
         6 => reader_notes::reader_notes(backend, input),
         7 => review_times::review_times(backend, input),
         8 => study_ledger::study_ledger(backend, input),
+        9 => review_ahead::review_ahead(backend, input),
         other => Err(format!("unknown aux method {other}")),
     }
 }

@@ -66,7 +66,7 @@ public struct BackendError: Error, LocalizedError, CustomStringConvertible, Send
     /// presenters surface the actual Rust-side message instead of
     /// rendering the opaque struct (e.g. "AnkiBackend.BackendError 1").
     public var errorDescription: String? {
-        message.isEmpty ? "Anki backend: \(kindLabel)" : message
+        message.isEmpty ? "Engine error: \(kindLabel)" : message
     }
 
     public var description: String {

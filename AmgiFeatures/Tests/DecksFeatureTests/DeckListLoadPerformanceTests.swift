@@ -78,7 +78,7 @@ final class DeckListLoadPerformanceTests: XCTestCase {
                 learningDueToday: { _ in 0 },
                 lastRating: { _ in nil },
                 studyLedger: { _, _, _, _ in StudyLedger(days: []) },
-                reviewTimes: { _, _, _ in [] }
+                reviewTimes: { _, _, _ in [] }, reviewAhead: { _, _, _ in [] }
             )
         } operation: {
             // Built *inside* the scope, not while assembling DependencyValues:
@@ -145,7 +145,7 @@ final class DeckListLoadPerformanceTests: XCTestCase {
             $0.deckClient = deckClient
             $0.statsClient = StatsClient(
                 fetchGraphs: { _, _ in Self.graphs() }, graduatedToday: { _ in 0 },
-                learningDueToday: { _ in 0 }, lastRating: { _ in nil }, studyLedger: { _, _, _, _ in StudyLedger(days: []) }, reviewTimes: { _, _, _ in [] })
+                learningDueToday: { _ in 0 }, lastRating: { _ in nil }, studyLedger: { _, _, _, _ in StudyLedger(days: []) }, reviewTimes: { _, _, _ in [] }, reviewAhead: { _, _, _ in [] })
         } operation: {
             let store = CollectionStore()
             return withDependencies { $0.collectionStore = store } operation: { DeckListModel() }

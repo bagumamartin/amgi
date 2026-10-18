@@ -157,7 +157,7 @@ package final class ExportReviewModel {
     package var primaryActionTitle: String {
         switch format {
         case .collectionPackage: L10n.text("Create Collection Package")
-        case .deckPackage: L10n.text("Create Anki Package")
+        case .deckPackage: L10n.text("Create Deck Package")
         case .noteText: L10n.text("Export Notes")
         case .cardText: L10n.text("Export Cards")
         }
@@ -187,8 +187,8 @@ package final class ExportReviewModel {
 
     package func localizedFormatTitle(_ format: ExportFormat) -> String {
         switch format {
-        case .collectionPackage: L10n.text("Anki Collection Package")
-        case .deckPackage: L10n.text("Anki Deck Package")
+        case .collectionPackage: L10n.text("Collection Package (.colpkg)")
+        case .deckPackage: L10n.text("Deck Package (.apkg)")
         case .noteText: L10n.text("Notes as Text")
         case .cardText: L10n.text("Cards as Text")
         }
@@ -742,7 +742,7 @@ extension ExportFormat {
         case .collectionPackage:
             "A complete collection backup, including media and settings."
         case .deckPackage:
-            "An Anki package for sharing, merging, or importing into another collection."
+            "A deck package for sharing, merging, or importing into another collection."
         case .noteText:
             "UTF-8 text with one note per row, separated by tabs."
         case .cardText:
@@ -755,7 +755,7 @@ extension ExportFormat {
         case .collectionPackage:
             L10n.text("A complete collection backup, including media and settings.")
         case .deckPackage:
-            L10n.text("An Anki package for sharing, merging, or importing into another collection.")
+            L10n.text("A deck package for sharing, merging, or importing into another collection.")
         case .noteText:
             L10n.text("UTF-8 text with one note per row, separated by tabs.")
         case .cardText:

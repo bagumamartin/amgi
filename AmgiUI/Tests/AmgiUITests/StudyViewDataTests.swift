@@ -40,6 +40,50 @@ final class StudyViewDataTests: XCTestCase {
         XCTAssertEqual(summary.todayProgressPercent, 0)
     }
 
+    func testQueueProgressFillsEachQueueOnItsOwn() {
+        let summary = StudySummaryData(
+            totalDue: 34, newCount: 0, learnCount: 9, reviewCount: 25,
+            todayLabel: "Today", subtitleLabel: "", deckCount: 1,
+            reviewedToday: 66, dueBaselineToday: 100,
+            dueAtStart: .init(new: 20, learn: 5, review: 100)
+        )
+        let progress = summary.queueProgress
+        XCTAssertEqual(progress.new, 1.0)
+        // Learning grew during the day: reads 0, never negative.
+        XCTAssertEqual(progress.learn, 0.0)
+        XCTAssertEqual(progress.review, 0.75)
+    }
+
+    func testQueueProgressEmptyQueueStaysEmpty() {
+        let summary = StudySummaryData(
+            totalDue: 0, newCount: 0, learnCount: 0, reviewCount: 0,
+            todayLabel: "Today", subtitleLabel: "", deckCount: 0,
+            dueAtStart: .init(new: 0, learn: 0, review: 0)
+        )
+        XCTAssertEqual(summary.queueProgress.new, 0.0)
+    }
+
+    func testQueueProgressFallsBackToDayFractionWithoutLedger() {
+        let summary = StudySummaryData(
+            totalDue: 50, newCount: 10, learnCount: 5, reviewCount: 35,
+            todayLabel: "Today", subtitleLabel: "", deckCount: 1,
+            reviewedToday: 25, dueBaselineToday: 100
+        )
+        let progress = summary.queueProgress
+        XCTAssertEqual(progress.new, 0.25)
+        XCTAssertEqual(progress.learn, 0.25)
+        XCTAssertEqual(progress.review, 0.25)
+    }
+
+    func testLiveCountsKeepDueAtStart() {
+        let summary = StudySummaryData(
+            totalDue: 10, newCount: 0, learnCount: 0, reviewCount: 10,
+            todayLabel: "Today", subtitleLabel: "", deckCount: 1,
+            dueAtStart: .init(new: 0, learn: 0, review: 20)
+        ).withLiveCounts(totalDue: 5, newCount: 0, learnCount: 0, reviewCount: 5)
+        XCTAssertEqual(summary.queueProgress.review, 0.75)
+    }
+
     func testCardsRemainingToCloseIsBaselineMinusReviewed() {
         let summary = StudySummaryData(
             totalDue: 50, newCount: 10, learnCount: 5, reviewCount: 35,
@@ -381,5 +425,71 @@ final class StudyViewDataTests: XCTestCase {
             reviewedToday: 130, dueBaselineToday: 100
         )
         XCTAssertEqual(summary.cardsRemainingToClose, 0)
+    }
+}
+
+final class StudyHabitForecastTests: XCTestCase {
+    private var calendar: Calendar {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        return cal
+    }
+
+    private func ms(_ day: Int, _ hour: Int) -> Int64 {
+        let date = DateComponents(calendar: calendar, year: 2026, month: 10, day: day, hour: hour).date!
+        return Int64(date.timeIntervalSince1970 * 1_000)
+    }
+
+    private func dayStart(_ day: Int) -> Date {
+        DateComponents(calendar: calendar, year: 2026, month: 10, day: day, hour: 4).date!
+    }
+
+    func testSpreadsScheduledCardsOverPastHoursAndKeepsTheTotal() {
+        // Past mornings at 8 and evenings at 20, three to one.
+        let history = (10...16).flatMap { [ms($0, 8), ms($0, 8), ms($0, 8), ms($0, 20)] }
+        let hours = StudyHabitForecast.hourly(
+            answeredAtMs: history, scheduled: 41,
+            targetDayStart: dayStart(19), todayStart: dayStart(18),
+            rolloverHour: 4, calendar: calendar
+        )
+        XCTAssertEqual(hours.reduce(0, +), 41)
+        XCTAssertGreaterThan(hours[8], hours[20] * 2)
+        XCTAssertEqual(hours[12], 0)
+    }
+
+    func testSameWeekdayOutweighsOtherDays() {
+        // 19 Oct 2026 is a Monday; 12 Oct was the previous one.
+        let history = [ms(12, 7), ms(13, 21), ms(14, 21)]
+        let hours = StudyHabitForecast.hourly(
+            answeredAtMs: history, scheduled: 100,
+            targetDayStart: dayStart(19), todayStart: dayStart(18),
+            rolloverHour: 4, calendar: calendar
+        )
+        XCTAssertGreaterThan(hours[7], 40)
+    }
+
+    func testNoHistoryOrNothingScheduledIsEmpty() {
+        let empty = StudyHabitForecast.hourly(
+            answeredAtMs: [], scheduled: 30,
+            targetDayStart: dayStart(19), todayStart: dayStart(18), rolloverHour: 4, calendar: calendar
+        )
+        XCTAssertEqual(empty, Array(repeating: 0, count: 24))
+        let none = StudyHabitForecast.hourly(
+            answeredAtMs: [ms(12, 7)], scheduled: 0,
+            targetDayStart: dayStart(19), todayStart: dayStart(18), rolloverHour: 4, calendar: calendar
+        )
+        XCTAssertEqual(none.reduce(0, +), 0)
+    }
+}
+
+final class StudySpanYearTitleTests: XCTestCase {
+    func testDaysAndWeeksOutsideThisYearNameTheirYear() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let today = DateComponents(calendar: calendar, year: 2026, month: 10, day: 18, hour: 4).date!
+        let locale = Locale(identifier: "en_GB")
+        XCTAssertEqual(StudySpan.title(grain: .day, todayStart: today, anchor: 7, calendar: calendar, locale: locale), "11 Oct")
+        XCTAssertEqual(StudySpan.title(grain: .day, todayStart: today, anchor: 372, calendar: calendar, locale: locale), "11 Oct 2025")
+        XCTAssertTrue(StudySpan.title(grain: .week, todayStart: today, anchor: 372, calendar: calendar, locale: locale).hasSuffix("2025"))
     }
 }

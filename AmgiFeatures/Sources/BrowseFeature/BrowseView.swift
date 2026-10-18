@@ -668,7 +668,7 @@ package struct BrowseView: View {
                 }
                 Button("Cancel", role: .cancel) { saveSearchName = "" }
             } message: {
-                Text("Saved searches sync to every device via your collection config — desktop Anki sees them too.")
+                Text("Saved searches sync to every device via your collection config — other compatible apps see them too.")
             }
             .confirmationDialog(
                 "“\(saveSearchName)” already exists. Overwrite it?",

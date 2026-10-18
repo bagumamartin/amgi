@@ -89,6 +89,10 @@ public struct StudySummaryData: Equatable, Sendable {
     public let tomorrowDue: Int?
     public let backlogNote: String?
     public let rolloverNote: String?
+    /// Per-queue due at the start of the day (`StudyLedger.Day.due`). With
+    /// the live counts as what's left, each ring fills by its own queue.
+    /// Nil until the ledger lands; the rings then share the day fraction.
+    public let dueAtStart: StudyHistoryLedger.Kinds?
 
     public init(
         totalDue: Int,
@@ -107,7 +111,8 @@ public struct StudySummaryData: Equatable, Sendable {
         streakPending: Bool = false,
         tomorrowDue: Int? = nil,
         backlogNote: String? = nil,
-        rolloverNote: String? = nil
+        rolloverNote: String? = nil,
+        dueAtStart: StudyHistoryLedger.Kinds? = nil
     ) {
         self.totalDue = totalDue
         self.newCount = newCount
@@ -126,6 +131,7 @@ public struct StudySummaryData: Equatable, Sendable {
         self.tomorrowDue = tomorrowDue
         self.backlogNote = backlogNote
         self.rolloverNote = rolloverNote
+        self.dueAtStart = dueAtStart
     }
 
     public var phase: StudyDeskPhase {
@@ -348,7 +354,8 @@ public struct StudySummaryData: Equatable, Sendable {
             streakPending: streakPending,
             tomorrowDue: tomorrowDue,
             backlogNote: backlogNote,
-            rolloverNote: rolloverNote
+            rolloverNote: rolloverNote,
+            dueAtStart: dueAtStart
         )
     }
 
@@ -358,7 +365,9 @@ public struct StudySummaryData: Equatable, Sendable {
         streak: Int,
         tomorrowDue: Int,
         backlogNote: String?,
-        rolloverNote: String?
+        rolloverNote: String?,
+        // Nil keeps the current value.
+        dueAtStart: StudyHistoryLedger.Kinds? = nil
     ) -> StudySummaryData {
         StudySummaryData(
             totalDue: totalDue,
@@ -377,7 +386,8 @@ public struct StudySummaryData: Equatable, Sendable {
             streakPending: false,
             tomorrowDue: tomorrowDue,
             backlogNote: backlogNote,
-            rolloverNote: rolloverNote
+            rolloverNote: rolloverNote,
+            dueAtStart: dueAtStart ?? self.dueAtStart
         )
     }
 
@@ -386,6 +396,27 @@ public struct StudySummaryData: Equatable, Sendable {
     public var todayProgressFraction: Double {
         let baseline = max(dueBaselineToday, 1)
         return min(1, Double(max(reviewedToday, 0)) / Double(baseline))
+    }
+
+    /// Each queue's cleared share: `(due at start − left) / due at start`,
+    /// clamped to 0…1. A queue that grew during the day (new cards turning
+    /// into learning) reads 0, not negative; a queue with nothing due reads
+    /// 0 so its ring stays an empty track. Without `dueAtStart` every queue
+    /// falls back to the day fraction.
+    public var queueProgress: (new: Double, learn: Double, review: Double) {
+        guard let due = dueAtStart else {
+            let all = todayProgressFraction
+            return (all, all, all)
+        }
+        func cleared(_ due: Int, _ left: Int) -> Double {
+            guard due > 0 else { return 0 }
+            return min(1, max(0, Double(due - left) / Double(due)))
+        }
+        return (
+            cleared(due.new, newCount),
+            cleared(due.learn, learnCount),
+            cleared(due.review, reviewCount)
+        )
     }
 
     public var todayProgressPercent: Int {
@@ -404,15 +435,19 @@ public struct StudySummaryData: Equatable, Sendable {
 /// are in the future.
 public struct StudyForecastDay: Identifiable, Equatable, Sendable {
     public let offset: Int
+    /// Day of the month ("19") — short in every language.
     public let label: String
+    /// Very short weekday ("M"), drawn under the date like the week chart.
+    public let weekday: String
     public let accessibilityLabel: String
     public let count: Int
 
     public var id: Int { offset }
 
-    public init(offset: Int, label: String, accessibilityLabel: String, count: Int) {
+    public init(offset: Int, label: String, weekday: String = "", accessibilityLabel: String, count: Int) {
         self.offset = offset
         self.label = label
+        self.weekday = weekday
         self.accessibilityLabel = accessibilityLabel
         self.count = max(count, 0)
     }
@@ -465,6 +500,7 @@ public struct StudyForecastData: Equatable, Sendable {
             return StudyForecastDay(
                 offset: day.offset,
                 label: day.label,
+                weekday: day.weekday,
                 accessibilityLabel: "Today, \(max(count, 0)) cards",
                 count: count
             )

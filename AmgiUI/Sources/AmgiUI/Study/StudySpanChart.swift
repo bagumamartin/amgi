@@ -43,45 +43,11 @@ public struct StudySpanChart: View {
             bars(columns)
         case .hours(let columns, let axis):
             hourBars(columns, axis: axis)
-        case .forecastDay(let title, let count):
-            forecastDay(title: title, count: count)
         case .month(let headers, let cells):
             month(headers: headers, cells: cells)
         case .year(let months):
             yearWall(months)
         }
-    }
-
-    private func forecastDay(title: String, count: Int) -> some View {
-        VStack(spacing: AmgiSpacing.sm) {
-            Image(systemName: "calendar.badge.clock")
-                .font(.system(size: 22, weight: .medium))
-                .foregroundStyle(palette.accent)
-                .accessibilityHidden(true)
-            Text(count == 0 ? AmgiL10n.text("Nothing scheduled", locale: locale) : AmgiL10n.format("%lld scheduled", [count], locale: locale))
-                .amgiFont(.bodyEmphasis, .monospacedDigits)
-                .foregroundStyle(palette.textPrimary)
-            Text(forecastDetail(title: title, count: count))
-                .amgiFont(.caption)
-                .foregroundStyle(palette.textSecondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, minHeight: 150)
-        .padding(.horizontal, AmgiSpacing.lg)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(forecastAccessibility(title: title, count: count))
-    }
-
-    private func forecastDetail(title: String, count: Int) -> String {
-        let day = title.lowercased(with: locale)
-        if count == 0 { return AmgiL10n.format("No cards are due on %@.", [day], locale: locale) }
-        return AmgiL10n.format("Cards are scheduled for %@.", [day], locale: locale)
-    }
-
-    private func forecastAccessibility(title: String, count: Int) -> String {
-        if count == 0 { return AmgiL10n.format("Nothing scheduled on %@", [title], locale: locale) }
-        return AmgiL10n.format("%lld cards scheduled on %@", [count, title], locale: locale)
     }
 
     private func bars(_ columns: [StudyChartColumn]) -> some View {
@@ -125,7 +91,7 @@ public struct StudySpanChart: View {
         return VStack(spacing: headerGap) {
             HStack(spacing: 1) {
                 ForEach(Array(columns.enumerated()), id: \.element.id) { index, column in
-                    if index % 3 == 0 {
+                    if showsHourLabel(at: index) {
                         Text(column.label)
                             .font(.caption2)
                             .foregroundStyle(palette.textSecondary)
@@ -142,15 +108,26 @@ public struct StudySpanChart: View {
             HStack(alignment: .bottom, spacing: 1) {
                 ForEach(columns) { column in
                     RoundedRectangle(cornerRadius: 2, style: .continuous)
-                        .fill(column.value > 0 ? palette.accent : palette.separator)
+                        .fill(column.value <= 0 ? palette.separator
+                              : column.isFuture ? palette.textTertiary.opacity(0.45) : palette.accent)
                         .frame(height: barHeight(value: column.value, peak: peak))
                         .frame(maxWidth: .infinity)
-                        .accessibilityLabel("\(column.label), \(column.value)")
+                        .accessibilityLabel(column.isFuture
+                            ? "\(column.label), about \(column.value) predicted"
+                            : "\(column.label), \(column.value)")
                 }
             }
             .frame(height: primaryBarAreaHeight, alignment: .bottom)
             hourScale(axis, slots: columns.count)
         }
+    }
+
+    /// iPad and Mac have room for every hour. A phone labels every third
+    /// hour starting from the second slot, so one unlabeled hour sits at
+    /// each end and the row is balanced instead of leaning left.
+    private func showsHourLabel(at index: Int) -> Bool {
+        // .medium only appears inside the wide (iPad/Mac) layout.
+        presentation == .compact ? index % 3 == 1 : true
     }
 
     /// Period labels are positioned by hour and clamped at the edges. This

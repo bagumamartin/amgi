@@ -23,6 +23,9 @@ public struct StatsClient: Sendable {
     /// When each answer in `[startMs, endMs)` was given, as UTC millis,
     /// ascending. Counts the same answers as `fetchGraphs`' review totals.
     public var reviewTimes: @Sendable (_ scope: String, _ startMs: Int64, _ endMs: Int64) async throws -> [Int64]
+    /// Each card's first review in `[startMs, endMs)` with the answer before
+    /// it — how Study tells which future day a review-ahead answer cleared.
+    public var reviewAhead: @Sendable (_ scope: String, _ startMs: Int64, _ endMs: Int64) async throws -> [ReviewAheadAnswer]
 }
 
 extension StatsClient: TestDependencyKey {

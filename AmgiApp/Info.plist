@@ -22,7 +22,7 @@
 			<key>CFBundleTypeIconName</key>
 			<string>AppIcon</string>
 			<key>CFBundleTypeName</key>
-			<string>Anki Package</string>
+			<string>Deck or Collection Package</string>
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>LSHandlerRank</key>
@@ -41,7 +41,7 @@
 				<string>txt</string>
 			</array>
 			<key>CFBundleTypeName</key>
-			<string>Anki Text Import</string>
+			<string>Text Import</string>
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>LSHandlerRank</key>
@@ -61,7 +61,7 @@
 			<key>CFBundleTypeIconName</key>
 			<string>AppIcon</string>
 			<key>CFBundleTypeName</key>
-			<string>Anki JSON</string>
+			<string>JSON Interchange</string>
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>LSHandlerRank</key>
@@ -195,7 +195,7 @@
 				<string>public.data</string>
 			</array>
 			<key>UTTypeDescription</key>
-			<string>Anki Deck Package</string>
+			<string>Deck Package</string>
 			<key>UTTypeIdentifier</key>
 			<string>com.bagumamartin.ijuka.anki-package</string>
 			<key>UTTypeTagSpecification</key>
@@ -215,7 +215,7 @@
 				<string>public.data</string>
 			</array>
 			<key>UTTypeDescription</key>
-			<string>Anki Collection Package</string>
+			<string>Collection Package</string>
 			<key>UTTypeIdentifier</key>
 			<string>com.bagumamartin.ijuka.anki-collection-package</string>
 			<key>UTTypeTagSpecification</key>
@@ -234,7 +234,7 @@
 				<string>public.json</string>
 			</array>
 			<key>UTTypeDescription</key>
-			<string>Anki JSON Interchange Data</string>
+			<string>JSON Interchange Data</string>
 			<key>UTTypeIdentifier</key>
 			<string>com.bagumamartin.ijuka.anki-json</string>
 			<key>UTTypeTagSpecification</key>
