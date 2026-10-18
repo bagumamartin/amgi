@@ -26,6 +26,17 @@ public struct RetrievalHit: Sendable, Identifiable {
     public var id: String { segment.id }
     public let segment: RetrievalSegment
     public let score: Float
+    /// How far the segment's meaning similarity sits above its modality's
+    /// mean, in standard deviations. Nil when it wasn't a semantic
+    /// candidate. `score` is rank fusion and always has a "best" hit even
+    /// when nothing is close; this is the absolute signal for that.
+    public let semanticStrength: Float?
+
+    public init(segment: RetrievalSegment, score: Float, semanticStrength: Float? = nil) {
+        self.segment = segment
+        self.score = score
+        self.semanticStrength = semanticStrength
+    }
 }
 
 /// Which segments a query may return. Empty fields don't restrict.
@@ -232,9 +243,11 @@ public actor RetrievalIndex {
     /// Hybrid lexical + semantic search. With `groupBySource` each source
     /// (a note, a book) contributes its best segment only; turn it off to
     /// get several passages of one book.
-    public func search(_ query: String, vector: [Float]? = nil, limit: Int = 12, filter: RetrievalFilter = .all, groupBySource: Bool = true) throws -> [RetrievalHit] {
+    /// `lexical: false` ranks by meaning alone and skips the keyword index —
+    /// for callers that already have exact-word results of their own.
+    public func search(_ query: String, vector: [Float]? = nil, limit: Int = 12, filter: RetrievalFilter = .all, groupBySource: Bool = true, lexical: Bool = true) throws -> [RetrievalHit] {
         try ready()
-        let match = LexicalForm.match(query)
+        let match = lexical ? LexicalForm.match(query) : nil
         guard match != nil || vector != nil, limit > 0 else { return [] }
         var lexicalRanks: [String: Int] = [:]
         if let match {
@@ -249,6 +262,7 @@ public actor RetrievalIndex {
             }
         }
         var semanticRanks: [String: Int] = [:]
+        var semanticStrengths: [String: Float] = [:]
         if let vector, vector.count == TextEmbedder.dimensionValue {
             // Standardize within modality so no modality dominates solely from
             // its native cosine distribution, then fuse by rank.
@@ -265,7 +279,10 @@ public actor RetrievalIndex {
                 let deviation = max(0.01, (group.reduce(Float(0)) { $0 + pow($1.1 - mean, 2) } / n).squareRoot())
                 standardized += group.map { ($0.0, ($0.1 - mean) / deviation) }
             }
-            for (rank, entry) in Self.top(standardized, count: max(200, limit * 4)).enumerated() { semanticRanks[table.ids[entry.0]] = rank }
+            for (rank, entry) in Self.top(standardized, count: lexical ? max(200, limit * 4) : limit * 4).enumerated() {
+                semanticRanks[table.ids[entry.0]] = rank
+                semanticStrengths[table.ids[entry.0]] = entry.1
+            }
         }
         let candidates = Set(lexicalRanks.keys).union(semanticRanks.keys)
         guard !candidates.isEmpty else { return [] }
@@ -278,7 +295,11 @@ public actor RetrievalIndex {
             let lexical = lexicalRanks[segment.id].map { 1 / Float(20 + $0) } ?? 0
             let semantic = semanticRanks[segment.id].map { 1 / Float(20 + $0) } ?? 0
             let exact = !normalizedQuery.isEmpty && segment.text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil).contains(normalizedQuery) ? Float(0.05) : 0
-            let hit = RetrievalHit(segment: segment, score: lexical + semantic + exact)
+            let hit = RetrievalHit(
+                segment: segment,
+                score: lexical + semantic + exact,
+                semanticStrength: semanticStrengths[segment.id]
+            )
             let key = groupBySource ? segment.sourceID : segment.id
             if best[key].map({ $0.score < hit.score }) ?? true { best[key] = hit }
         }

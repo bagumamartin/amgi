@@ -294,7 +294,7 @@ struct BrowseListColumn: View {
 
     @ViewBuilder
     private var statefulContent: some View {
-        if model.ids.isEmpty && !model.isLoading {
+        if model.ids.isEmpty && model.visibleSuggestedIDs.isEmpty && !model.isLoading {
             emptyState
         } else {
             itemList
@@ -310,17 +310,6 @@ struct BrowseListColumn: View {
                 systemImage: "tray",
                 description: Text("This selection has no \(model.mode.title.lowercased()) yet.")
             )
-        } else if model.mode == .notes && model.searchTextIsPlainFreeText && canOfferSemanticFallback {
-            ContentUnavailableView {
-                Label("No direct matches", systemImage: "magnifyingglass")
-            } description: {
-                Text("Nothing in your collection matches the grammar query.")
-            } actions: {
-                Button("Search meaning of “\(query)”") {
-                    Task { await model.runSemanticFallback() }
-                }
-                .buttonStyle(.borderedProminent)
-            }
         } else {
             ContentUnavailableView.search(text: query)
         }
@@ -334,18 +323,42 @@ struct BrowseListColumn: View {
         #else
         List { listRows }
             .scrollContentBackground(.hidden)
+            .scrollDismissesKeyboard(.immediately)
         #endif
     }
 
     @ViewBuilder
     private var listRows: some View {
-        if let notice = model.semanticNotice {
-            Section {
-                semanticNoticeRow(notice)
+        let suggested = model.visibleSuggestedIDs
+        if suggested.isEmpty {
+            directRows
+        } else {
+            // Mail's search layout: what matched, then what is close in
+            // meaning. Headers only appear when there is something to split.
+            if !model.ids.isEmpty {
+                Section {
+                    directRows
+                } header: {
+                    resultsHeader("Matches", count: model.ids.count)
+                }
             }
-            .selectionDisabled()
+            if !model.hasMorePages {
+                Section {
+                    ForEach(suggested, id: \.self) { idRaw in
+                        if let note = model.suggestedNote(at: idRaw) {
+                            noteRow(note, index: Int.min)
+                                .tag(idRaw)
+                        }
+                    }
+                } header: {
+                    resultsHeader("Suggested", count: nil)
+                }
+            }
         }
+    }
 
+    @ViewBuilder
+    private var directRows: some View {
         ForEach(Array(model.ids.prefix(model.loadedCount).enumerated()),
                 id: \.element) { index, idRaw in
             row(for: idRaw, index: index)
@@ -362,25 +375,16 @@ struct BrowseListColumn: View {
         }
     }
 
-    private func semanticNoticeRow(_ notice: String) -> some View {
+    private func resultsHeader(_ title: LocalizedStringKey, count: Int?) -> some View {
         HStack {
-            Image(systemName: "sparkles").foregroundStyle(palette.accent)
-            Text(notice).amgiFont(.caption)
+            Text(title)
             Spacer()
-            Button {
-                model.clearSemanticNotice()
-                model.searchText = ""
-            } label: {
-                Image(systemName: "xmark")
-                    .amgiFont(.micro)
+            if let count {
+                Text(count, format: .number)
+                    .monospacedDigit()
                     .foregroundStyle(palette.textSecondary)
             }
-            .buttonStyle(.borderless)
         }
-    }
-
-    private var canOfferSemanticFallback: Bool {
-        SemanticNoteIndex.shared.isReady || SemanticNoteIndex.shared.progressDescription != nil
     }
 
     // MARK: - Rows

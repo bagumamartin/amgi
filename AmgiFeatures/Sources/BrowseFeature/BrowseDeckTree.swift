@@ -91,7 +91,7 @@ enum BrowseDeckTree {
         }
 
         // While searching, keep decks that name-match or hold matching cards,
-        // plus their ancestors, and force the tree open so hits are reachable.
+        // plus their ancestors.
         let searching = !filterTokens.isEmpty
         var keep: Set<DeckID>?
         if searching {
@@ -114,7 +114,9 @@ enum BrowseDeckTree {
             if let keep, !keep.contains(deck.id) { return }
             let children = (childrenByParent[deck.name] ?? [])
                 .filter { keep?.contains($0.id) ?? true }
-            let isExpanded = searching || expanded.contains(deck.name)
+            // One expansion state, searching or not: a match under a closed
+            // parent is reached by opening the parent, as in any tree.
+            let isExpanded = expanded.contains(deck.name)
             rows.append(Row(
                 deck: deck,
                 depth: depth,
@@ -156,17 +158,22 @@ struct BrowseDeckRowLabel: View {
     let row: BrowseDeckTree.Row
     let iconName: String?
     var presence: SourcePresence = .empty
-    let onToggleExpand: () -> Void
 
+    /// Icon, name, counts. Indent and the disclosure chevron belong to the
+    /// sidebar's shared tree-row chrome so every section lines up the same.
     var body: some View {
         let leaf = BrowseDeckTree.leafName(row.deck.name)
         HStack(spacing: 6) {
-            disclosure
-            deckTile(leaf: leaf)
-                .frame(width: 22, height: 22)
-            Text(leaf)
-                .lineLimit(1)
-                .truncationMode(.tail)
+            // A Label, like every other sidebar row, so the list puts the
+            // icon and title in the same columns across sections.
+            Label {
+                Text(leaf)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            } icon: {
+                deckTile(leaf: leaf)
+                    .frame(width: 22, height: 22)
+            }
             Spacer(minLength: 4)
             if row.deck.counts.total > 0 {
                 Text("\(row.deck.counts.total)")
@@ -175,31 +182,6 @@ struct BrowseDeckRowLabel: View {
                     .foregroundStyle(palette.textSecondary)
             }
             BrowsePresenceGlyphs(presence: presence)
-        }
-        .padding(.leading, CGFloat(row.depth) * 12)
-    }
-
-    /// Manual chevron rather than `DisclosureGroup`: every row stays a plain
-    /// `List` row, so native selection and the compact-width push behave
-    /// predictably.
-    @ViewBuilder
-    private var disclosure: some View {
-        if row.hasChildren {
-            Button(action: onToggleExpand) {
-                Image(systemName: row.isExpanded ? "chevron.down" : "chevron.right")
-                    .amgiFont(.micro)
-                    .foregroundStyle(palette.textSecondary)
-                    .frame(width: 12, height: 12)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(
-                row.isExpanded
-                    ? "Collapse \(BrowseDeckTree.leafName(row.deck.name))"
-                    : "Expand \(BrowseDeckTree.leafName(row.deck.name))"
-            )
-        } else {
-            Color.clear.frame(width: 12, height: 12)
         }
     }
 

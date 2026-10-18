@@ -292,6 +292,14 @@ package struct BrowseView: View {
                 batchScopeOverride = BatchScope(notes: notes, cards: cards)
                 showTagSheet = true
             },
+            onOpenNote: { id in
+                Task {
+                    await model.focus(noteID: id)
+                    #if os(iOS)
+                    preferredColumn = .detail
+                    #endif
+                }
+            },
             collectionGeneration: store.generation
         )
         .appSidebarWidth()
@@ -530,23 +538,18 @@ package struct BrowseView: View {
             )
             .onSubmit(of: .search) { model.commitSearchHistory() }
             .searchSuggestions {
-                if canSuggestSemanticSearch {
-                    if SemanticNoteIndex.shared.isReady {
-                        Button {
-                            model.commitSearchHistory()
-                            Task { await model.runSemanticFallback() }
-                        } label: {
-                            Label(
-                                "Search by meaning for “\(semanticSuggestionText)”",
-                                systemImage: "sparkles"
-                            )
-                        }
-                    } else if SemanticNoteIndex.shared.progressDescription != nil {
-                        Label("Preparing meaning-based search…", systemImage: "sparkles")
-                            .foregroundStyle(palette.textSecondary)
+                // Completions of the word being typed, from the user's own
+                // notes, ahead of recent searches.
+                ForEach(model.searchCompletions, id: \.self) { query in
+                    Button {
+                        model.searchText = query
+                        model.commitSearchHistory()
+                    } label: {
+                        Label(query, systemImage: "magnifyingglass")
                     }
+                    .searchCompletion(query)
                 }
-                ForEach(model.recentQueries.prefix(8), id: \.self) { query in
+                ForEach(recentSuggestions, id: \.self) { query in
                     Button {
                         model.searchText = query
                         model.commitSearchHistory()
@@ -558,15 +561,19 @@ package struct BrowseView: View {
             }
     }
 
-    private var semanticSuggestionText: String {
-        model.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var canSuggestSemanticSearch: Bool {
-        model.rootDeck == nil
-            && model.mode == .notes
-            && !semanticSuggestionText.isEmpty
-            && model.searchTextIsPlainFreeText
+    /// Mail's recents: all of them in an empty field, then only the ones
+    /// that still extend what's typed — never a fixed list over live results.
+    private var recentSuggestions: [String] {
+        let typed = model.searchText.trimmingCharacters(in: .whitespaces).lowercased()
+        let recents = typed.isEmpty
+            ? model.recentQueries
+            : model.recentQueries.filter {
+                let query = $0.lowercased()
+                return query != typed && query.contains(typed)
+            }
+        // Completions lead while typing; recents fill in without repeating them.
+        let completions = Set(model.searchCompletions)
+        return Array(recents.filter { !completions.contains($0) }.prefix(typed.isEmpty ? 8 : 3))
     }
 
     // MARK: - Loading

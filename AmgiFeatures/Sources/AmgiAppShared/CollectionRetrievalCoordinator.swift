@@ -88,11 +88,11 @@ package final class CollectionRetrievalCoordinator {
         source.hasPrefix("note:") ? Int64(source.dropFirst(5)) : nil
     }
 
-    package func search(_ query: String, limit: Int = 12, filter: RetrievalFilter = .all, groupBySource: Bool = true) async throws -> [RetrievalHit] {
+    package func search(_ query: String, limit: Int = 12, filter: RetrievalFilter = .all, groupBySource: Bool = true, lexical: Bool = true) async throws -> [RetrievalHit] {
         let index = try resolve(), context = AccountStore.shared.selectedContext
         let vector = try? await TextEmbedder.shared.embed(query, prefix: .query)
         guard context.isCurrent(AccountStore.shared.selectedContext) else { throw CancellationError() }
-        return try await index.search(query, vector: vector, limit: limit, filter: filter, groupBySource: groupBySource)
+        return try await index.search(query, vector: vector, limit: limit, filter: filter, groupBySource: groupBySource, lexical: lexical)
     }
 
     /// Notes and passages closest in meaning to a note.

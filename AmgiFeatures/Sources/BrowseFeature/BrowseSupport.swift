@@ -450,7 +450,7 @@ package final class SemanticNoteIndex {
     }
 
     /// All note fields and tags, with markup removed.
-    static func corpusText(of record: NoteRecord) -> String {
+    nonisolated static func corpusText(of record: NoteRecord) -> String {
         let fields = record.flds.split(separator: "\u{1f}", omittingEmptySubsequences: false)
             .map(String.init)
         let raw = fields.joined(separator: "\n") + "\nTags: " + record.tags
@@ -459,18 +459,38 @@ package final class SemanticNoteIndex {
 
     }
 
-    /// Top-k note ids semantically similar to `query`. nil ⇒ engine or
-    /// index unusable right now (UI hides the affordance).
-    func search(_ query: String, topK: Int = 50) async -> [Int64]? {
+    /// Top-k note ids close in meaning to `query`, strongest first. nil ⇒
+    /// engine or index unusable right now.
+    ///
+    /// Two cuts, after DigUp (same EmbeddingGemma 2 model): a note must stand
+    /// out from the collection by `gate` standard deviations for this query,
+    /// and reach `ratio` of the strongest note's strength. Rank fusion alone
+    /// always returns a "best" few even when nothing is close; the gate gives
+    /// an honest "nothing", the ratio drops the long weak tail.
+    func search(
+        _ query: String,
+        topK: Int = 50,
+        gate: Float = 2.0,
+        ratio: Float = 0.5
+    ) async -> [Int64]? {
         do {
-            let hits = try await CollectionRetrievalCoordinator.shared.search(query, limit: topK, filter: RetrievalFilter(sourcePrefixes: ["note:"]))
-            let ids = hits.compactMap { hit -> Int64? in
-                guard hit.segment.sourceID.hasPrefix("note:") else { return nil }
-                return Int64(hit.segment.sourceID.dropFirst(5))
+            // Meaning only: Browse's direct hits already cover exact words, so
+            // the keyword pass would be duplicate work on every keystroke.
+            let hits = try await CollectionRetrievalCoordinator.shared.search(
+                query, limit: topK, filter: RetrievalFilter(sourcePrefixes: ["note:"]), lexical: false
+            )
+            let scored = hits.compactMap { hit -> (id: Int64, strength: Float)? in
+                guard hit.segment.sourceID.hasPrefix("note:"),
+                      let id = Int64(hit.segment.sourceID.dropFirst(5)),
+                      let strength = hit.semanticStrength, strength >= gate else { return nil }
+                return (id, strength)
             }
-            return ids.isEmpty ? nil : ids
+            guard let top = scored.map(\.strength).max() else { return [] }
+            return scored
+                .filter { $0.strength >= top * ratio }
+                .sorted { $0.strength > $1.strength }
+                .map(\.id)
         } catch { return nil }
-
     }
 
     /// Groups of near-duplicate texts (cosine ≥ threshold). Scope-limited:

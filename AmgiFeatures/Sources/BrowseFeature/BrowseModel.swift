@@ -241,8 +241,15 @@ final class BrowseModel {
     var errorMessage: String?
     /// Recent queries for search suggestions (max 30, per profile).
     private(set) var recentQueries: [String] = []
-    /// Semantic fallback banner text; nil hides it.
-    private(set) var semanticNotice: String?
+    /// Meaning-based neighbors of the typed text that the direct search
+    /// missed, with their hydrated records (kept apart from `noteRecords`,
+    /// which every direct search prunes).
+    private(set) var suggestedIDs: [Int64] = []
+    private(set) var suggestedRecords: [Int64: NoteRecord] = [:]
+    /// Text the suggestions were computed for.
+    private var suggestedQuery = ""
+    private static let suggestionLimit = 8
+    @ObservationIgnored private var semanticCache: (text: String, ids: [Int64])?
 
     /// Row driving the detail column. Held as whole records rather than ids
     /// into `noteRecords`/`cardRecords`, because `performSearch` prunes those
@@ -437,6 +444,10 @@ final class BrowseModel {
             hasMorePages = windowEnd < ids.count
             await hydrateWindow()
             resolveResultDecks()
+            // Direct hits are on screen; the list is no longer loading while
+            // the meaning pass runs behind it.
+            isLoading = false
+            await refreshSuggestions()
         } catch is CancellationError {
         } catch {
             ids = []
@@ -531,10 +542,9 @@ final class BrowseModel {
         if let pairs = try? await backendOffload({ try notetypes.getNotetypeNames() }) {
             notetypeNames = Dictionary(uniqueKeysWithValues: pairs.map { ($0.id, $0.name) })
         }
-        // The embedding corpus must build in the background for the
-        // semantic fallback ("Search meaning of…") to ever be offered —
-        // without this kickoff it was dead code and near-miss spellings
-        // ("Levelling" vs "leveling") dead-ended at zero results.
+        // The embedding corpus must build in the background for Suggested
+        // results to ever appear — without it near-miss spellings
+        // ("Levelling" vs "leveling") dead-end at zero results.
         kickOffSemanticIndexBuild()
         // Search itself is driven by BrowseView `.task(id: searchIdentity)`.
     }
@@ -1106,6 +1116,19 @@ final class BrowseModel {
     // MARK: - Semantic fallback (spec D4)
 
     private var semanticKickoffStarted = false
+    /// Observed so completions appear once the index lands mid-typing.
+    private var completionIndex = SearchCompletions.Index.empty
+    @ObservationIgnored private var completionCache: (text: String, values: [String])?
+
+    /// Completions for the text in the field, from the collection index
+    /// alone: instant, and stable while the results load underneath.
+    var searchCompletions: [String] {
+        guard searchTextIsPlainFreeText, !searchText.isEmpty, !completionIndex.isEmpty else { return [] }
+        if let cache = completionCache, cache.text == searchText { return cache.values }
+        let values = SearchCompletions.complete(searchText, index: completionIndex)
+        completionCache = (searchText, values)
+        return values
+    }
 
     /// Builds/refreshes the embedding corpus once per session, bounded,
     /// fully off-main-thread work inside TextEmbedder's actor.
@@ -1120,38 +1143,174 @@ final class BrowseModel {
             let limit: Int? = nil
             guard let records = try? await searchAll("deck:*", limit),
                   !records.isEmpty else { return }
+            // The same full read feeds the completion vocabulary.
+            let index = await Task.detached(priority: .utility) {
+                SearchCompletions.Index(records: records)
+            }.value
+            self.completionIndex = index
             await SemanticNoteIndex.shared.updateCorpus(with: records)
         }
     }
 
-    /// Replaces current results with semantic nearest neighbors of the
-    /// free-text query. Only offered when the grammar path came up empty
-    /// and no structured filters are pinned.
-    func runSemanticFallback() async {
+    /// Mail-style "Suggested" results: notes close in meaning to the typed
+    /// text that the grammar search did not return. Runs after every direct
+    /// search, so there is nothing to ask for — the section simply appears
+    /// under the direct hits (or alone, when there are none).
+    private func refreshSuggestions() async {
         let trimmed = searchText.trimmingCharacters(in: .whitespaces)
-        guard rootDeck == nil, mode == .notes, !trimmed.isEmpty else { return }
-        guard let matches = await SemanticNoteIndex.shared.search(trimmed, topK: 50) else {
-            semanticNotice = "Semantic index still building…"
+        guard mode == .notes, searchTextIsPlainFreeText, !trimmed.isEmpty else {
+            clearSuggestions()
             return
         }
-        guard !matches.isEmpty else {
-            semanticNotice = "No semantically similar notes found."
+        // Per-keystroke runs are cancelled by the view's `.task(id:)`; the
+        // pause keeps embedding work to the text the user settles on.
+        try? await Task.sleep(for: .milliseconds(350))
+        guard !Task.isCancelled else { return }
+        guard var matches = await semanticMatches(for: trimmed), !Task.isCancelled else {
+            clearSuggestions()
             return
         }
-        noteRecords.removeAll()
-        cardRecords.removeAll()
-        // The neighbor ids have to land in `ids` — a local binding shadowed it
-        // here, so the fallback used to re-hydrate the previous (empty) result
-        // window and silently show nothing.
-        ids = matches
-        resultIdentity = UUID()
-        windowEnd = min(ids.count, windowSize)
-        hasMorePages = false
-        semanticNotice = "Meaning-based matches for “\(trimmed)”"
-        await hydrateWindow()
+        let direct = Set(ids)
+        matches.removeAll { direct.contains($0) }
+        // Suggestions respect the selected deck/tag/flag like the direct hits.
+        matches = await notes(matches, inScopeOf: source)
+        matches = Array(matches.prefix(Self.suggestionLimit))
+        let records = await fetchNotes(matches)
+        guard !Task.isCancelled else { return }
+        suggestedRecords = records
+        suggestedIDs = matches.filter { records[$0] != nil }
+        suggestedQuery = trimmed
     }
 
-    func clearSemanticNotice() { semanticNotice = nil }
+    /// Notes close in meaning to `text`, strongest first, cached per text so
+    /// the list and every expanded sidebar group share one embedding pass.
+    /// Nil when the index can't answer right now.
+    func semanticMatches(for text: String) async -> [Int64]? {
+        if let cache = semanticCache, cache.text == text { return cache.ids }
+        guard let ids = await SemanticNoteIndex.shared.search(text, topK: 40),
+              !Task.isCancelled else { return nil }
+        semanticCache = (text, ids)
+        return ids
+    }
+
+    /// `ids`, in order, restricted to notes inside `source`.
+    private func notes(_ ids: [Int64], inScopeOf source: BrowseSource) async -> [Int64] {
+        guard source != .allDecks else { return ids }
+        return await notes(ids, inScope: query(for: source))
+    }
+
+    private func notes(_ ids: [Int64], inScope scope: String) async -> [Int64] {
+        guard !ids.isEmpty else { return ids }
+        let list = ids.map(String.init).joined(separator: ",")
+        let inScope = Set(
+            ((try? await noteClient.searchIds("( \(scope) ) nid:\(list)", nil)) ?? [])
+                .map(\.rawValue)
+        )
+        return ids.filter { inScope.contains($0) }
+    }
+
+    private func fetchNotes(_ ids: [Int64]) async -> [Int64: NoteRecord] {
+        let fetch = noteClient.fetch
+        return await withTaskGroup(of: (Int64, NoteRecord?).self) { group in
+            for nidRaw in ids {
+                group.addTask { (nidRaw, try? await fetch(NoteID(nidRaw)) ?? nil) }
+            }
+            var records: [Int64: NoteRecord] = [:]
+            for await (nidRaw, note) in group {
+                if let note { records[nidRaw] = note }
+            }
+            return records
+        }
+    }
+
+    /// What one sidebar group holds for the typed text: its direct hits
+    /// (count plus the first few), then meaning-based suggestions inside the
+    /// group that the direct search missed. Always notes, in either mode.
+    struct GroupResults {
+        var directIDs: [Int64] = []
+        var directCount = 0
+        var suggestedIDs: [Int64] = []
+        /// Every direct hit, not just those shown — suggestions exclude them.
+        var allDirect: Set<Int64> = []
+        var records: [Int64: NoteRecord] = [:]
+    }
+
+    /// Phase one: the group's direct hits. Exact search only, so it lands
+    /// fast; suggestions follow in `groupSuggestions`.
+    func groupDirect(
+        for source: BrowseSource,
+        excludingChildren: Bool = false,
+        limit: Int = 5
+    ) async -> GroupResults {
+        let text = searchText.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return GroupResults() }
+        let scope = excludingChildren ? ownScope(of: source) : query(for: source)
+        let direct = ((try? await noteClient.searchIds("( \(scope) ) ( \(text) )", order())) ?? [])
+            .map(\.rawValue)
+        guard !Task.isCancelled else { return GroupResults() }
+        let shown = Array(direct.prefix(limit))
+        let records = await fetchNotes(shown)
+        return GroupResults(
+            directIDs: shown.filter { records[$0] != nil },
+            directCount: direct.count,
+            allDirect: Set(direct),
+            records: records
+        )
+    }
+
+    /// Phase two: notes close in meaning inside the group that its direct
+    /// search missed. Shares the per-text semantic cache, so opening more
+    /// groups costs a scope filter each, not another embedding.
+    func groupSuggestions(
+        for source: BrowseSource,
+        excludingChildren: Bool = false,
+        excluding direct: Set<Int64>,
+        limit: Int = 3
+    ) async -> [(Int64, NoteRecord)] {
+        let text = searchText.trimmingCharacters(in: .whitespaces)
+        guard searchTextIsPlainFreeText, !text.isEmpty,
+              var matches = await semanticMatches(for: text) else { return [] }
+        matches.removeAll { direct.contains($0) }
+        if source != .allDecks {
+            let scope = excludingChildren ? ownScope(of: source) : query(for: source)
+            matches = await notes(matches, inScope: scope)
+        }
+        let picked = Array(matches.prefix(limit))
+        let records = await fetchNotes(picked)
+        return picked.compactMap { id in records[id].map { (id, $0) } }
+    }
+
+    /// A parent deck or tag without its children's notes.
+    private func ownScope(of source: BrowseSource) -> String {
+        switch source {
+        case .deck:
+            return query(for: source, includeSubdecks: false)
+        case .tag(let tag):
+            let escaped = tag
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"")
+            return "tag:\"\(escaped)\" -tag:\"\(escaped)::*\""
+        default:
+            return query(for: source)
+        }
+    }
+
+    private func clearSuggestions() {
+        suggestedIDs = []
+        suggestedRecords = [:]
+        suggestedQuery = ""
+    }
+
+    /// Suggested ids valid for the text currently in the field. Stale
+    /// suggestions from a previous keystroke are never shown.
+    var visibleSuggestedIDs: [Int64] {
+        guard mode == .notes,
+              suggestedQuery == searchText.trimmingCharacters(in: .whitespaces) else { return [] }
+        let direct = Set(ids)
+        return suggestedIDs.filter { !direct.contains($0) }
+    }
+
+    func suggestedNote(at id: Int64) -> NoteRecord? { suggestedRecords[id] }
 
     // MARK: - Power-tool plumbing (selection-scope resolution)
 
