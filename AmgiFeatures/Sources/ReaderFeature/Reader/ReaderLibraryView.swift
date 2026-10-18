@@ -48,6 +48,7 @@ package struct ReaderLibraryView: View {
     private var sortModeRaw: String = BookshelfSortMode.recent.rawValue
 
     @State private var searchText: String = ""
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var isImporting: Bool = false
     @State private var showConfiguration: Bool = false
 
@@ -85,6 +86,25 @@ package struct ReaderLibraryView: View {
             if let progress = cell.progress { line += " (\(Int((progress * 100).rounded()))% read)" }
             return line
         }
+    }
+
+    private var searchPlacement: SearchFieldPlacement {
+        #if os(macOS)
+        return .toolbar
+        #else
+        return horizontalSizeClass == .compact
+            ? .navigationBarDrawer(displayMode: .always)
+            : .toolbar
+        #endif
+    }
+
+    /// A search that matched nothing; without it the shelf goes blank under
+    /// its "All Books" heading.
+    private var showsNoResults: Bool {
+        guard case .loaded(let data) = model.state,
+              !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return false }
+        return data.grid.isEmpty && data.continueReading.isEmpty
     }
 
     package var body: some View {
@@ -142,13 +162,19 @@ package struct ReaderLibraryView: View {
                 .accessibilityLabel("Library options")
             }
         }
+        .overlay {
+            if showsNoResults {
+                ContentUnavailableView.search(text: searchText)
+            }
+        }
+        // Books-scoped native search (spec §5.1 v2): no Browse involvement.
+        // Placed like Browse's: a pill pinned under the title on iPhone,
+        // the toolbar field on iPad and Mac.
         .searchable(
             text: $searchText,
-            placement: .navigationBarDrawer(displayMode: .automatic),
-            prompt: "Search books"
+            placement: searchPlacement,
+            prompt: "Search books and authors…"
         )
-        // Books-scoped native search (spec §5.1 v2): no Browse involvement.
-        .searchMinimizedIfAvailable()
         .onChange(of: searchText) { _, _ in model.rebuildViewData(searchText: searchText, sortMode: sortMode) }
         .onChange(of: sortModeRaw) { _, _ in model.rebuildViewData(searchText: searchText, sortMode: sortMode) }
         .onChange(of: deckName) { _, _ in model.startReload(searchText: searchText, sortMode: sortMode) }
