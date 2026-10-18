@@ -101,9 +101,13 @@ struct ReviewCardArea: View {
                     TypedAnswerField(session: session)
                 }
 
-                if session.showAnswer {
+                // Both controls always take part in layout and only the live
+                // one shows, so the region keeps the taller one's height on
+                // either side. Otherwise reveal changes `controlsHeight` and
+                // the assistant button (and card) jump on every answer.
+                ZStack(alignment: .bottom) {
                     answerButtons
-                } else {
+                        .inactiveControl(!session.showAnswer)
                     Button {
                         session.revealAnswer()
                     } label: {
@@ -115,6 +119,7 @@ struct ReviewCardArea: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(session.isAdvancing)
                     .padding()
+                    .inactiveControl(session.showAnswer)
                 }
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { controlsHeight = $0 }
@@ -266,6 +271,17 @@ struct TypedAnswerField: View {
             .focused($focused)
             .padding(.horizontal)
             .onAppear { focused = true }
+    }
+}
+
+private extension View {
+    /// Keeps a control in layout but invisible and inert — disabled too, so
+    /// its keyboard shortcuts (the rating bar's 1–4) can't fire while hidden.
+    func inactiveControl(_ inactive: Bool) -> some View {
+        opacity(inactive ? 0 : 1)
+            .disabled(inactive)
+            .allowsHitTesting(!inactive)
+            .accessibilityHidden(inactive)
     }
 }
 
