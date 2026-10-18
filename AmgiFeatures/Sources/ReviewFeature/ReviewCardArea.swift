@@ -292,7 +292,8 @@ private struct AskAIHeadButton: View {
 
     var body: some View {
         Button(action: action) {
-            AssistantHead(.idle)
+            // Trailing edge, below the card: it watches the card.
+            AssistantHead(.idle, gaze: CGPoint(x: -0.6, y: -0.45))
                 .frame(width: 34, height: 34)
                 .frame(width: 52, height: 52)
                 .contentShape(Circle())

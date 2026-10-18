@@ -86,6 +86,28 @@ struct AssistantHeadTests {
         }
     }
 
+    @MainActor
+    @Test func activityFlickersDoNotSwingTheHead() {
+        let engine = AssistantHeadEngine()
+        var t = 50.0
+        _ = engine.frame(mood: .thinking, gaze: nil, at: t)
+        // Phases flick faster than the settle time: the head stays thinking.
+        let thinking = AssistantMood.thinking.script.steps[0].pose.pitch
+        for index in 0..<40 {
+            t += 0.05
+            let flicker: AssistantMood = index.isMultiple(of: 2) ? .searching : .responding
+            let frame = engine.frame(mood: flicker, gaze: nil, at: t)
+            #expect(abs(frame.pose.pitch - thinking) < 6, "switched on a flicker")
+        }
+    }
+
+    @MainActor
+    @Test func idleGlancesBackAtTheViewer() {
+        // The idle loop includes a beat that ignores the caller's gaze.
+        #expect(AssistantMood.idle.script.steps.contains { $0.pose.attention == 0 })
+        #expect(AssistantMood.idle.script.steps.allSatisfy { abs($0.pose.yaw) < 6 })
+    }
+
     @Test func loopingScriptWrapsSmoothly() {
         let script = AssistantMood.idle.script
         let end = script.pose(at: script.cycleDuration - 0.001)

@@ -9,6 +9,7 @@ import AnkiBackend
 import AnkiServices
 import Dependencies
 import AmgiTheme
+import AssistantFeature
 
 /// Browse container. One three-column `NavigationSplitView` on every
 /// idiom — sources, list, detail. Compact width collapses that split into
@@ -25,6 +26,8 @@ import AmgiTheme
 /// Rendering is delegated to `BrowseSourceColumn` / `BrowseListColumn` /
 /// `BrowseDetailTabs`; the model owns all I/O.
 package struct BrowseView: View {
+    /// The search is offered to the assistant only while Browse shows.
+    @State private var isOnScreen = false
     @State private var model: BrowseModel
     @State private var selectionState = BrowseSelectionState()
     @State private var showAddNote = false
@@ -100,7 +103,15 @@ package struct BrowseView: View {
     }
 
     package var body: some View {
+        let search = isOnScreen ? model.assistantSearchContext : nil
         dialogChrome
+            .onAppear { isOnScreen = true }
+            .onDisappear { isOnScreen = false }
+            // The note open in the inspector, then the search it came from:
+            // deeper in a search, the chat is about both.
+            .transformPreference(AssistantScreenContextKey.self) { value in
+                if let search, !value.contains(where: { $0.id == search.id }) { value.append(search) }
+            }
             .task { await appear() }
             // Identity includes text, source, mode, and sort. SwiftUI cancels
             // the previous run on change *and* when leaving Search, so a

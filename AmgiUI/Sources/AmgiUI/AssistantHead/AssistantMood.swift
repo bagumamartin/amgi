@@ -161,14 +161,19 @@ extension AssistantMood {
 
     // Activities
 
+    /// Mostly attending to where the caller points it (the content beside
+    /// it), with the occasional glance back at the viewer — never an
+    /// arbitrary turn away to one side.
     private static let idleScript: HeadScript = {
         let resting = mouth()
         return HeadScript(steps: [
-            Step(pose: .face(mouth: resting), hold: 3.2),
-            Step(pose: .face(pitch: 3, yaw: -12, look: (-4, 1), mouth: mouth(curve: 0.15)), hold: 2.0),
-            Step(pose: .face(mouth: resting), hold: 2.6),
-            Step(pose: .face(pitch: 8, yaw: 10, roll: -3, look: (3, 3), mouth: mouth(curve: 0.35, skew: 0.2)), hold: 1.8),
-        ], ambient: .init(drift: 2.5, saccade: 1.5))
+            Step(pose: .face(mouth: resting), hold: 4.6, transition: 0.7),
+            // Reading along: a small nod down the content, eyes leading.
+            Step(pose: .face(pitch: -4, look: (1, -2), mouth: resting), hold: 2.2, transition: 0.8),
+            Step(pose: .face(mouth: resting), hold: 3.4, transition: 0.7),
+            // A glance at you, a hint of a smile, then back to it.
+            Step(pose: .face(pitch: 2, roll: 3, mouth: mouth(curve: 0.4), attention: 0), hold: 1.3, transition: 0.55),
+        ], ambient: .init(drift: 1.4, saccade: 0.7))
     }()
 
     private static let listeningScript: HeadScript = {
@@ -181,36 +186,35 @@ extension AssistantMood {
         ], ambient: .init(drift: 1.5, saccade: 0.8))
     }()
 
+    /// Eyes up and off to one side, held — the way people look away to
+    /// recall something. It drifts once, slowly; it doesn't swing.
     private static let thinkingScript: HeadScript = {
         let pondering = eye(height: 40, lid: 0.12)
         return HeadScript(steps: [
             Step(
-                pose: .face(pitch: 16, yaw: -18, roll: 4, look: (-5, 7), eye: pondering,
-                            mouth: mouth(x: -4, width: 11, curve: -0.05, skew: 0.5)),
-                hold: 1.6
+                pose: .face(pitch: 14, yaw: -10, roll: 4, look: (-5, 7), eye: pondering,
+                            mouth: mouth(x: -4, width: 11, curve: -0.05, skew: 0.5), attention: 0.3),
+                hold: 2.6, transition: 0.6
             ),
             Step(
-                pose: .face(pitch: 18, yaw: 14, roll: -3, look: (5, 7), eye: pondering,
-                            mouth: mouth(x: 4, width: 11, curve: -0.05, skew: -0.5)),
-                hold: 1.4, transition: 0.7
+                pose: .face(pitch: 16, yaw: -4, roll: 2, look: (-1, 8), eye: eye(height: 40, lid: 0.22, slant: 0.15),
+                            mouth: mouth(x: -2, width: 10, curve: 0, wave: 0.3), attention: 0.3),
+                hold: 2.2, transition: 1.1
             ),
-            Step(
-                pose: .face(pitch: 10, yaw: -6, look: (-2, 5), eye: eye(height: 40, lid: 0.25, slant: 0.2),
-                            mouth: mouth(width: 10, curve: 0, wave: 0.35)),
-                hold: 1.2, transition: 0.6
-            ),
-        ], blink: .init(minInterval: 3, maxInterval: 6), ambient: .init(drift: 1.5, saccade: 0.8))
+        ], blink: .init(minInterval: 3, maxInterval: 6), ambient: .init(drift: 0.8, saccade: 0.4))
     }()
 
+    /// Reading down results: the head stays put and dips line by line while
+    /// the eyes run across. Small, steady, on the content.
     private static let searchingScript: HeadScript = {
         let scanning = eye(width: 20, height: 42)
         let intent = mouth(width: 13, curve: 0)
         return HeadScript(steps: [
-            Step(pose: .face(yaw: -24, look: (-8, 0), eye: scanning, mouth: intent), hold: 0.5, transition: 0.22),
-            Step(pose: .face(pitch: 1, yaw: 22, look: (8, 1), eye: scanning, mouth: intent), hold: 0.5, transition: 0.26),
-            Step(pose: .face(pitch: -6, yaw: -8, look: (-3, -3), eye: scanning, mouth: mouth(width: 10, open: 0.12)), hold: 0.45, transition: 0.22),
-            Step(pose: .face(pitch: 6, yaw: 18, look: (6, 3), eye: scanning, mouth: intent), hold: 0.5, transition: 0.24),
-        ], blink: .init(minInterval: 2, maxInterval: 4), ambient: .init(drift: 0.8, saccade: 0.6))
+            Step(pose: .face(pitch: -4, yaw: -3, look: (-5, -2), eye: scanning, mouth: intent), hold: 0.6, transition: 0.3),
+            Step(pose: .face(pitch: -4, yaw: 4, look: (5, -2), eye: scanning, mouth: intent), hold: 0.5, transition: 0.45),
+            Step(pose: .face(pitch: -8, yaw: -3, look: (-5, -4), eye: scanning, mouth: intent), hold: 0.6, transition: 0.35),
+            Step(pose: .face(pitch: -8, yaw: 4, look: (5, -4), eye: scanning, mouth: mouth(width: 11, open: 0.08)), hold: 0.5, transition: 0.45),
+        ], blink: .init(minInterval: 2.5, maxInterval: 4.5), ambient: .init(drift: 0.5, saccade: 0.3))
     }()
 
     private static let respondingScript: HeadScript = {
@@ -221,7 +225,7 @@ extension AssistantMood {
             Step(pose: .face(pitch: 3, roll: 3, eye: eye(smile: 0.18), mouth: mouth(width: 21, curve: 0.45)), hold: 0.6, transition: 0.3),
             Step(pose: .face(roll: -2, eye: eye(height: 45), mouth: speaking), hold: 0.5, transition: 0.3),
         ], blink: .init(minInterval: 2.5, maxInterval: 4.5),
-           ambient: .init(drift: 1.2, saccade: 0.8, bob: 1.0, bobRate: 2.2, talk: 0.42))
+           ambient: .init(drift: 1, saccade: 0.6, bob: 0.5, bobRate: 1.2, talk: 0.42))
     }()
 
     private static let sleepingScript = HeadScript(steps: [

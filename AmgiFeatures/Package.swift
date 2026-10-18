@@ -218,6 +218,7 @@ let package = Package(
         .target(
             name: "StatsFeature",
             dependencies: [
+                "AssistantFeature",
                 "AmgiAppCore",
                 "AmgiAppShared",
                 "AmgiCharts",

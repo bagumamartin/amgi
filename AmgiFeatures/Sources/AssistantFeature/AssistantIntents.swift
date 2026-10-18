@@ -324,11 +324,11 @@ final class AssistantToolbox {
 
     // MARK: Book passages
 
-    /// For a cloud turn about a whole book (a chip that carries only the
-    /// title): the passages of that book closest to the prompt, as reference
+    /// For a cloud turn about a whole book (a chip that carries none of its
+    /// text — the reader's or the detail page's): the passages of that book closest to the prompt, as reference
     /// material. Quiet — the model sees them as context, the chat as sources.
     func bookPassages(for prompt: String) async -> [AssistantContext] {
-        guard isCloud, let book = contexts.first(where: { $0.type == .book && $0.reference.isEmpty }), let id = book.sourceID,
+        guard isCloud, let book = contexts.first(where: { $0.type == .book }), let id = book.sourceID,
               (try? checkProfile()) != nil, ReviewSessionActivity.shared.beginExternalRead() else { return [] }
         defer { ReviewSessionActivity.shared.endRead() }
         let filter = RetrievalFilter(sourcePrefixes: [CollectionRetrievalCoordinator.bookSource(id)])
@@ -440,7 +440,22 @@ final class AssistantToolbox {
             let lines = all.prefix(30).map { "\($0.fullName): \($0.counts.newCount) new, \($0.counts.learnCount) learning, \($0.counts.reviewCount) to review" }
             resolved.reference = "The user's flashcard collection has \(all.count) decks. Due today:\n" + lines.joined(separator: "\n")
             resolved.subtitle = all.count == 1 ? L10n.text("1 deck") : L10n.text("\(all.count) decks")
-        case .book, .chapter, .page, .passage:
+        case .library, .today:
+            guard let tree = try? await decks.fetchTree() else { return context }
+            let all = Self.flatten(tree)
+            let total = tree.reduce(0) { $0 + $1.counts.newCount + $1.counts.learnCount + $1.counts.reviewCount }
+            if context.type == .library {
+                let lines = all.prefix(40).map { "\($0.fullName): \($0.counts.newCount) new, \($0.counts.learnCount) learning, \($0.counts.reviewCount) to review" }
+                resolved.reference = "The user is on their Library screen: the list of all \(all.count) decks. Due today, \(total) cards:\n" + lines.joined(separator: "\n")
+                let decks = all.count == 1 ? L10n.text("1 deck") : L10n.text("\(all.count) decks")
+                resolved.subtitle = total == 0 ? decks : L10n.text("\(decks) · \(total) due")
+            } else {
+                let due = all.filter { $0.counts.newCount + $0.counts.learnCount + $0.counts.reviewCount > 0 && $0.children.isEmpty }
+                let lines = due.prefix(30).map { "\($0.fullName): \($0.counts.newCount) new, \($0.counts.learnCount) learning, \($0.counts.reviewCount) to review" }
+                resolved.reference = "The user is on their Study screen, looking at today's queue: \(total) cards due" + (lines.isEmpty ? "." : " across these decks:\n" + lines.joined(separator: "\n"))
+                resolved.subtitle = total == 0 ? L10n.text("All caught up") : L10n.text("\(total) due today")
+            }
+        case .book, .chapter, .page, .passage, .stats, .search, .shelf:
             break
         }
         return resolved

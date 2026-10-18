@@ -33,9 +33,25 @@ final class AssistantHeadEngine {
 
     private var gaze = CGPoint.zero
     private var lastTime: TimeInterval?
+    /// A mood asked for but not yet shown. Activities must hold for
+    /// ``settle`` first: a turn flicks between thinking, working and
+    /// responding many times a second, and following every flick reads as
+    /// a head swinging like a pendulum. Reactions show at once.
+    private var requested: (mood: AssistantMood, since: TimeInterval)?
+    static let settle: TimeInterval = 0.45
 
     func frame(mood: AssistantMood, gaze target: CGPoint?, at now: TimeInterval) -> HeadFrame {
-        if mood != self.mood { begin(mood, at: now) }
+        if self.mood == nil {
+            begin(mood, at: now)
+        } else if mood != self.mood {
+            if requested?.mood != mood { requested = (mood, now) }
+            if !mood.isActivity || now - (requested?.since ?? now) >= Self.settle {
+                begin(mood, at: now)
+                requested = nil
+            }
+        } else {
+            requested = nil
+        }
 
         var pose = script.pose(at: now - scriptStart)
         if let handoff {
@@ -51,7 +67,9 @@ final class AssistantHeadEngine {
         let dt = lastTime.map { min(max(now - $0, 0), 0.1) } ?? 0
         lastTime = now
         let goal = target ?? .zero
-        let follow = 1 - exp(-dt * 7)
+        // Unhurried: a person turns their head to something, they don't
+        // snap to it.
+        let follow = 1 - exp(-dt * 4)
         gaze.x += (goal.x - gaze.x) * follow
         gaze.y += (goal.y - gaze.y) * follow
 
@@ -66,7 +84,8 @@ final class AssistantHeadEngine {
     /// snapshots.
     static func still(mood: AssistantMood, gaze: CGPoint?) -> HeadFrame {
         let pose = mood.script.steps.first?.pose ?? .neutral
-        return HeadFrame(pose: applyGaze(pose, gaze ?? .zero))
+        let target = gaze ?? .zero
+        return HeadFrame(pose: applyGaze(pose, CGPoint(x: target.x * pose.attention, y: target.y * pose.attention)))
     }
 
     private func begin(_ next: AssistantMood, at now: TimeInterval) {
@@ -118,7 +137,7 @@ final class AssistantHeadEngine {
 
     private static func ambient(_ pose: HeadPose, gaze: CGPoint, script: HeadScript, at t: TimeInterval) -> HeadPose {
         let motion = script.ambient
-        var pose = applyGaze(pose, gaze)
+        var pose = applyGaze(pose, CGPoint(x: gaze.x * pose.attention, y: gaze.y * pose.attention))
         pose.yaw += smoothNoise(t, interval: 3.3, seed: 1) * motion.drift
         pose.pitch += smoothNoise(t, interval: 2.6, seed: 2) * motion.drift * 0.7
         pose.roll += smoothNoise(t, interval: 4.1, seed: 3) * motion.drift * 0.45
@@ -177,7 +196,7 @@ final class AssistantHeadEngine {
 
     /// Eyes hold, then dart quickly to a new spot — how real eyes move.
     private static func saccade(_ t: Double, seed: Double) -> Double {
-        let interval = 1.3
+        let interval = 1.9
         let step = (t / interval).rounded(.down)
         let progress = (t - step * interval) / 0.12
         return lerp(noise((step - 1) * 2 + seed), noise(step * 2 + seed), smoothstep(0, 1, progress))

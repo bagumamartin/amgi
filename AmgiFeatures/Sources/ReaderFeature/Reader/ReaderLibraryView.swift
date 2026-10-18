@@ -4,6 +4,7 @@ import AmgiAppShared
 import Sharing
 package import SwiftUI
 import AmgiUI
+import AssistantFeature
 import UniformTypeIdentifiers
 
 // MARK: - Sort mode
@@ -38,6 +39,9 @@ package struct ReaderLibraryView: View {
     private let refreshID: UUID?
 
     @State private var model: ReaderLibraryModel
+    /// Off while a book is pushed on top or another tab shows, so the shelf
+    /// never stands in for what is actually on screen.
+    @State private var isOnScreen = false
 
     @Shared(.appStorage(ReaderPreferenceKey.deckName)) private var deckName: String = ""
     @Shared(.appStorage(ReaderPreferences.Keys.bookshelfSortMode))
@@ -73,6 +77,16 @@ package struct ReaderLibraryView: View {
         BookshelfSortMode(rawValue: sortModeRaw) ?? .recent
     }
 
+    /// The shelf as the grid orders it, for the assistant.
+    private var shelfLines: [String] {
+        model.sortedCells.map { cell in
+            var line = cell.title
+            if let author = cell.author, !author.isEmpty { line += " — \(author)" }
+            if let progress = cell.progress { line += " (\(Int((progress * 100).rounded()))% read)" }
+            return line
+        }
+    }
+
     package var body: some View {
         ReaderLibraryContent(
             state: model.state,
@@ -98,6 +112,9 @@ package struct ReaderLibraryView: View {
         // The grid, collection screens and Move sheet all edit collections
         // through the one model, so they stay in step.
         .environment(model)
+        .preference(key: AssistantScreenContextKey.self, value: isOnScreen ? [.shelf(books: shelfLines)] : [])
+        .onAppear { isOnScreen = true }
+        .onDisappear { isOnScreen = false }
         .navigationTitle("Library")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {

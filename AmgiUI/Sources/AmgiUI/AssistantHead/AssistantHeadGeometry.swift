@@ -84,6 +84,10 @@ struct HeadPose: Equatable, Sendable {
     var left: EyePose
     var right: EyePose
     var mouth = MouthPose()
+    /// How much of the caller's gaze the pose honours: 1 looks where it's
+    /// told (the content it sits beside), 0 turns back to the viewer — the
+    /// glance a person gives you before going back to what they were doing.
+    var attention: Double = 1
 
     /// Builds a pose from the *left* eye; the right defaults to its mirror.
     /// `look` shifts both eyes across the face, on top of the head turn —
@@ -93,13 +97,14 @@ struct HeadPose: Equatable, Sendable {
         look: (x: Double, y: Double) = (0, 0),
         eye: EyePose = EyePose(x: -18),
         right: EyePose? = nil,
-        mouth: MouthPose = MouthPose()
+        mouth: MouthPose = MouthPose(),
+        attention: Double = 1
     ) -> HeadPose {
         var left = eye
         var other = right ?? eye.mirrored
         left.x += look.x; left.y += look.y
         other.x += look.x; other.y += look.y
-        return HeadPose(pitch: pitch, yaw: yaw, roll: roll, left: left, right: other, mouth: mouth)
+        return HeadPose(pitch: pitch, yaw: yaw, roll: roll, left: left, right: other, mouth: mouth, attention: attention)
     }
 
     static let neutral = HeadPose.face()
@@ -109,7 +114,7 @@ struct HeadPose: Equatable, Sendable {
             pitch: lerp(a.pitch, b.pitch, t), yaw: lerp(a.yaw, b.yaw, t),
             roll: lerp(a.roll, b.roll, t),
             left: .mix(a.left, b.left, t), right: .mix(a.right, b.right, t),
-            mouth: .mix(a.mouth, b.mouth, t)
+            mouth: .mix(a.mouth, b.mouth, t), attention: lerp(a.attention, b.attention, t)
         )
     }
 }

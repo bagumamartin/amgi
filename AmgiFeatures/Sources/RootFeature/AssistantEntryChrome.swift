@@ -18,7 +18,8 @@ struct FloatingAssistantEntry: View {
                     Label {
                         Text("Ask AI")
                     } icon: {
-                        AssistantHead(.idle).frame(width: 26, height: 26)
+                        // Bottom-trailing corner: the content is up and left.
+                        AssistantHead(.idle, gaze: CGPoint(x: -0.5, y: -0.6)).frame(width: 26, height: 26)
                     }
                         .font(.body.weight(.medium))
                         .padding(.horizontal, 20)
@@ -74,7 +75,9 @@ struct AssistantEntryRow: View {
             HStack(spacing: 10) {
                 Button(action: openAssistant) {
                     HStack(spacing: 10) {
-                        AssistantHead(.idle).frame(width: 28, height: 28)
+                        // Leading end of the bottom row: it looks up and
+                        // across at the screen, not off its edge.
+                        AssistantHead(.idle, gaze: CGPoint(x: 0.5, y: -0.6)).frame(width: 28, height: 28)
                         Text("Ask AI").foregroundStyle(.secondary)
                         Spacer(minLength: 0)
                     }

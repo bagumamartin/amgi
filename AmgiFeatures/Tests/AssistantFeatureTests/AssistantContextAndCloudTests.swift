@@ -38,6 +38,43 @@ struct AssistantContextTests {
         #expect(![AssistantContext.collection].isReader)
     }
 
+    @Test("a book's detail page keeps the global entry; its reader hides it")
+    func bookDetailIsNotReader() {
+        let detail = AssistantContext.bookDetail(id: "b", title: "Dune", author: "Herbert", currentChapter: nil, chapters: ["One"])
+        #expect(![detail].isReader)
+        #expect([AssistantContext.book(id: "b", title: "Dune")].isReader)
+        #expect(detail.id == AssistantContext.book(id: "b", title: "Dune").id)
+    }
+
+    @Test("an item beats a whole screen, whichever arrives first")
+    func specificBeatsScreen() {
+        let deck = [AssistantContext.deck(id: 7, name: "Spanish")]
+        let shelf = [AssistantContext.shelf(books: ["Dune"])]
+        for (first, second) in [(deck, shelf), (shelf, deck)] {
+            var value = first
+            AssistantScreenContextKey.reduce(value: &value) { second }
+            #expect(value.map(\.id) == deck.map(\.id))
+        }
+        var value: [AssistantContext] = [.library]
+        AssistantScreenContextKey.reduce(value: &value) { [] }
+        #expect(value.map(\.id) == ["library"])
+    }
+
+    @Test("a search chip names the query and its count")
+    func searchChip() {
+        let search = AssistantContext.search(query: "kanji", count: 3, results: "[1] 日")
+        #expect(search.title == "“kanji”")
+        #expect(search.reference.contains("kanji") && search.reference.contains("[1] 日"))
+        #expect(search.isScreen)
+    }
+
+    @Test("instructions follow the app's language")
+    func language() {
+        let prompt = AssistantInstructions.make([], cloud: true, language: "Vietnamese")
+        #expect(prompt.contains("The app is in Vietnamese."))
+        #expect(prompt.contains("reply in Vietnamese"))
+    }
+
     @Test("instructions carry every attached context, bounded on device")
     func instructions() {
         let chapter = AssistantContext.chapter(bookID: "b", bookTitle: "Dune", chapterID: 1, title: "Arrakis", text: String(repeating: "spice ", count: 2_000))
@@ -48,6 +85,11 @@ struct AssistantContextTests {
         let cloud = AssistantInstructions.make([chapter], cloud: true)
         #expect(cloud.count > 10_000)
         #expect(AssistantInstructions.make([], cloud: true).contains("Nothing is attached"))
+        // Inline: the system prompt describes context but carries none, so
+        // it stays identical as chips are added and the prompt cache holds.
+        let inline = AssistantInstructions.make([chapter], cloud: true, inline: true)
+        #expect(!inline.contains("spice"))
+        #expect(inline.contains("<context>"))
     }
 }
 
@@ -97,7 +139,7 @@ struct AssistantCloudRequestTests {
     func openAI() throws {
         let conversation = CloudConversation(
             model: AssistantModel(provider: .chatGPT, slug: "gpt-x", name: "GPT"), instructions: "be kind",
-            tools: AssistantCloudTools.make(canFixCard: false), history: [], prompt: "hi", attachments: [image, pdf]
+            tools: AssistantCloudTools.make(canFixCard: false, hasReading: false), history: [], prompt: "hi", attachments: [image, pdf]
         )
         let request = try conversation.request(.bearer("token"))
         #expect(request.url?.absoluteString == "https://api.openai.com/v1/responses")
@@ -114,7 +156,7 @@ struct AssistantCloudRequestTests {
     func anthropic() throws {
         var conversation = CloudConversation(
             model: AssistantModel(provider: .anthropic, slug: "claude-x", name: "Claude"), instructions: "be kind",
-            tools: AssistantCloudTools.make(canFixCard: true), history: [CloudHistoryTurn(prompt: "a", attachments: [], reply: "b")],
+            tools: AssistantCloudTools.make(canFixCard: true, hasReading: false), history: [CloudHistoryTurn(prompt: "a", attachments: [], reply: "b")],
             prompt: "hi", attachments: [image, pdf]
         )
         var round = CloudRound()
@@ -130,6 +172,20 @@ struct AssistantCloudRequestTests {
         #expect(parts.map { $0["type"]?.string } == ["image", "document", "text"])
         #expect(messages[4]["content"]?.array?.first?["type"]?.string == "tool_result")
         #expect(json["tools"]?.array?.contains { $0["name"]?.string == "fixThisCard" } == true)
+    }
+
+    @Test("context rides on the message it was attached to, before the text")
+    func contextOnMessages() throws {
+        let conversation = CloudConversation(
+            model: AssistantModel(provider: .anthropic, slug: "claude-x", name: "Claude"), instructions: "be kind", tools: [],
+            history: [CloudHistoryTurn(prompt: "a", attachments: [], reply: "b", context: "<context kind=\"deck\">x</context>")],
+            prompt: "hi", attachments: [], context: ""
+        )
+        let messages = try body(conversation, .apiKey("k"))["messages"]?.array ?? []
+        let first = messages[0]["content"]?.array?.compactMap { $0["text"]?.string } ?? []
+        #expect(first == ["<context kind=\"deck\">x</context>", "a"])
+        // A follow-up with nothing new attached sends only what was typed.
+        #expect(messages[2]["content"]?.array?.compactMap { $0["text"]?.string } == ["hi"])
     }
 
     @Test("reasoning items can be dropped for models that refuse them")

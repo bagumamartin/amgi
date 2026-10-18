@@ -4,6 +4,7 @@ import AmgiUI
 import AmgiCharts
 package import AnkiKit
 import AnkiClients
+import AssistantFeature
 import Dependencies
 
 package struct StatsDashboardView: View {
@@ -18,6 +19,9 @@ package struct StatsDashboardView: View {
     @State private var model = StatsDashboardModel()
     @State private var period: StatsPeriod = .month
     @State private var selectedDeck: DeckInfo?
+    /// Publishes to the assistant only while showing — not from a tab in
+    /// the background.
+    @State private var isOnScreen = false
 
     package init(refreshID: UUID? = nil, deck: DeckInfo? = nil, locksDeckScope: Bool = false) {
         self.refreshID = refreshID
@@ -39,6 +43,9 @@ package struct StatsDashboardView: View {
         .scrollContentBackground(.hidden)
         .amgiScreenCanvas()
         .navigationTitle("Statistics")
+        .preference(key: AssistantScreenContextKey.self, value: isOnScreen ? [assistantContext] : [])
+        .onAppear { isOnScreen = true }
+        .onDisappear { isOnScreen = false }
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 SyncToolbarButton()
@@ -66,6 +73,17 @@ private struct StatsQuery: Equatable {
 }
 
 private extension StatsDashboardView {
+    /// The dashboard as filtered, with the figures it is showing.
+    var assistantContext: AssistantContext {
+        let summary: String = if case .loaded(let snapshot) = model.state {
+            StatsAssistantSummary.text(snapshot, period: period, deck: selectedDeck?.name)
+        } else { "" }
+        return .stats(
+            period: period.rawValue, days: period.days, deckID: selectedDeck?.id.rawValue,
+            deckName: selectedDeck?.name, summary: summary
+        )
+    }
+
     var query: StatsQuery {
         StatsQuery(
             refreshID: refreshID,

@@ -19,7 +19,10 @@ struct ReaderAssistantButton: View {
     var body: some View {
         if let opener {
             Button { opener.open(context()) } label: {
-                AssistantHead(.idle)
+                // Floating, it sits in the bottom-trailing corner and reads
+                // the page up and to its left; in a top toolbar it looks
+                // down at the page.
+                AssistantHead(.idle, gaze: floating ? CGPoint(x: -0.55, y: -0.5) : CGPoint(x: -0.15, y: 0.6))
                     .frame(width: size * 0.62, height: size * 0.62)
                     .frame(width: size, height: size)
                     .contentShape(Circle())

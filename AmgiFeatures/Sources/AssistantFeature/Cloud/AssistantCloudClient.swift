@@ -60,6 +60,8 @@ struct CloudHistoryTurn: Sendable {
     let prompt: String
     let attachments: [AssistantAttachment]
     let reply: String
+    /// The `<context>` blocks attached to this message, replayed with it.
+    var context = ""
 }
 
 /// One request/stream cycle. `items` are the provider's own output, kept to
@@ -86,22 +88,28 @@ struct CloudConversation: Sendable {
     /// model rejects it.
     var includeReasoning = true
 
-    init(model: AssistantModel, instructions: String, tools: [CloudTool], history: [CloudHistoryTurn], prompt: String, attachments: [AssistantAttachment]) {
+    init(
+        model: AssistantModel, instructions: String, tools: [CloudTool], history: [CloudHistoryTurn],
+        prompt: String, attachments: [AssistantAttachment], context: String = ""
+    ) {
         self.model = model
         self.instructions = instructions
         self.tools = tools
         for turn in history {
-            input.append(userMessage(turn.prompt, turn.attachments))
+            input.append(userMessage(turn.prompt, turn.attachments, context: turn.context))
             input.append(assistantText(turn.reply))
         }
-        input.append(userMessage(prompt, attachments))
+        input.append(userMessage(prompt, attachments, context: context))
     }
 
     private var isAnthropic: Bool { model.provider == .anthropic }
 
     // MARK: Messages
 
-    private func userMessage(_ text: String, _ attachments: [AssistantAttachment]) -> JSONValue {
+    /// Files first, then the attached context as its own text part, then
+    /// what the user typed — so the context reads as material the message
+    /// is about, not as part of what they said.
+    private func userMessage(_ text: String, _ attachments: [AssistantAttachment], context: String = "") -> JSONValue {
         var parts: [JSONValue] = []
         for attachment in attachments {
             switch (isAnthropic, attachment.kind) {
@@ -115,7 +123,11 @@ struct CloudConversation: Sendable {
                 parts.append(["type": "input_file", "filename": .string(attachment.name), "file_data": .string(attachment.dataURL)])
             }
         }
-        parts.append(isAnthropic ? ["type": "text", "text": .string(text)] : ["type": "input_text", "text": .string(text)])
+        func textPart(_ value: String) -> JSONValue {
+            isAnthropic ? ["type": "text", "text": .string(value)] : ["type": "input_text", "text": .string(value)]
+        }
+        if !context.isEmpty { parts.append(textPart(context)) }
+        parts.append(textPart(text))
         return ["role": "user", "content": .array(parts)]
     }
 

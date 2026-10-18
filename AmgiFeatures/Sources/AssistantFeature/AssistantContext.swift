@@ -9,6 +9,10 @@ import AmgiAppCore
 public struct AssistantContext: Codable, Hashable, Sendable, Identifiable {
     public enum Kind: String, Codable, Sendable, CaseIterable {
         case collection, deck, note, review, book, chapter, page, passage
+        /// Whole screens: what the user is looking at when there is no
+        /// single item — the deck list, today's queue, the stats dashboard,
+        /// a search, the reading shelf.
+        case library, today, stats, search, shelf
     }
 
     /// Raw kind, kept a string so chats saved before ``Kind`` grew still
@@ -48,6 +52,15 @@ public struct AssistantContext: Codable, Hashable, Sendable, Identifiable {
 
     public var type: Kind { Kind(rawValue: kind) ?? .collection }
 
+    /// About a whole screen rather than one item in it. A screen gives way
+    /// to anything more specific shown on top of it.
+    public var isScreen: Bool {
+        switch type {
+        case .collection, .library, .today, .stats, .search, .shelf: true
+        default: false
+        }
+    }
+
     /// Two chips are the same thing when they point at the same item;
     /// re-adding one replaces it rather than stacking a duplicate.
     public var id: String {
@@ -57,6 +70,8 @@ public struct AssistantContext: Codable, Hashable, Sendable, Identifiable {
         case .note, .review: "note:\(noteID ?? 0)"
         case .book, .chapter, .page: "\(kind):\(sourceID ?? title)"
         case .passage: "passage:\(sourceID ?? ""):\(reference.prefix(80))"
+        case .library, .today, .shelf: kind
+        case .stats, .search: "\(kind):\(sourceID ?? "")"
         }
     }
 
@@ -70,6 +85,11 @@ public struct AssistantContext: Codable, Hashable, Sendable, Identifiable {
         case .chapter: "book.pages"
         case .page: "doc.text"
         case .passage: "text.quote"
+        case .library: "books.vertical"
+        case .today: "sun.max"
+        case .stats: "chart.bar"
+        case .search: "magnifyingglass"
+        case .shelf: "books.vertical.fill"
         }
     }
 
@@ -85,12 +105,52 @@ public struct AssistantContext: Codable, Hashable, Sendable, Identifiable {
         case .chapter: L10n.text("Chapter")
         case .page: L10n.text("Page")
         case .passage: L10n.text("Selected text")
+        case .library: L10n.text("All decks")
+        case .today: L10n.text("Today's queue")
+        case .stats: L10n.text("Statistics")
+        case .search: L10n.text("Search")
+        case .shelf: L10n.text("Your books")
         }
     }
 
     // MARK: Factories
 
     public static let collection = AssistantContext(title: L10n.text("Collection"), kind: Kind.collection.rawValue)
+
+    /// The deck list. Named and counted when the chat opens.
+    public static let library = AssistantContext(title: L10n.text("Library"), kind: Kind.library.rawValue)
+
+    /// The Study screen: what is due today. Counted when the chat opens.
+    public static let today = AssistantContext(title: L10n.text("Today"), kind: Kind.today.rawValue)
+
+    /// The stats dashboard as it is filtered on screen, with the figures it
+    /// shows. `summary` is empty while the numbers load.
+    public static func stats(period: String, days: Int, deckID: Int64?, deckName: String?, summary: String) -> AssistantContext {
+        let scope = deckName.map { $0.components(separatedBy: "::").last ?? $0 } ?? L10n.text("All decks")
+        return AssistantContext(
+            title: L10n.text("Statistics"), reference: summary, deckID: deckID, kind: Kind.stats.rawValue,
+            subtitle: "\(period) · \(scope)", sourceID: "\(days):\(deckID ?? 0)"
+        )
+    }
+
+    /// A search and what it found. `results` lists the matches on screen.
+    public static func search(query: String, count: Int?, results: String) -> AssistantContext {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let found = count.map { $0 == 1 ? L10n.text("1 note") : L10n.text("\($0) notes") }
+        return AssistantContext(
+            title: "“\(query.prefix(40))\(query.count > 40 ? "…" : "")”",
+            reference: "The user searched their notes for: \(query)\n" + (count.map { "Matches: \($0)\n" } ?? "") + results,
+            kind: Kind.search.rawValue, subtitle: found.map { L10n.text("Search · \($0)") } ?? L10n.text("Search"), sourceID: query
+        )
+    }
+
+    /// The reading shelf: the books on it, most recent first.
+    public static func shelf(books: [String]) -> AssistantContext {
+        AssistantContext(
+            title: L10n.text("Reading"), reference: books.isEmpty ? "The shelf is empty." : "Books on the user's shelf, most recent first:\n" + books.prefix(40).joined(separator: "\n"),
+            kind: Kind.shelf.rawValue, subtitle: books.count == 1 ? L10n.text("1 book") : L10n.text("\(books.count) books")
+        )
+    }
 
     public static func deck(id: Int64, name: String) -> AssistantContext {
         AssistantContext(title: name.components(separatedBy: "::").last ?? name, deckID: id, kind: Kind.deck.rawValue,
@@ -109,6 +169,21 @@ public struct AssistantContext: Codable, Hashable, Sendable, Identifiable {
 
     public static func book(id: String, title: String) -> AssistantContext {
         AssistantContext(title: title, kind: Kind.book.rawValue, sourceID: id)
+    }
+
+    /// A book's detail page: what it is, where the user is in it, its
+    /// chapters.
+    public static func bookDetail(id: String, title: String, author: String?, currentChapter: String?, chapters: [String]) -> AssistantContext {
+        var lines = ["The user is on the detail page of the book “\(title)”" + (author.map { " by \($0)" } ?? "") + "."]
+        if let currentChapter { lines.append("They are currently reading “\(currentChapter)”.") }
+        if !chapters.isEmpty {
+            lines.append("Chapters:\n" + chapters.prefix(60).enumerated().map { "\($0 + 1). \($1)" }.joined(separator: "\n"))
+        }
+        let subtitle = author ?? (chapters.count == 1 ? L10n.text("1 chapter") : L10n.text("\(chapters.count) chapters"))
+        return AssistantContext(
+            title: title, reference: lines.joined(separator: "\n"), kind: Kind.book.rawValue,
+            subtitle: subtitle, sourceID: id
+        )
     }
 
     public static func chapter(bookID: String, bookTitle: String, chapterID: Int64, title: String, text: String) -> AssistantContext {
@@ -142,18 +217,27 @@ public enum AssistantRoute: Sendable {
 }
 
 /// What the screen on top is about, most specific first. Empty when the
-/// screen has nothing to offer; the chat then starts on the collection.
+/// screen has nothing to offer; the chat then starts on the section's own
+/// context. Screens publish only while visible, and an item (a deck, a book,
+/// a note) beats a whole screen whichever order they arrive in — a pushed
+/// detail always wins over the list it came from.
 public struct AssistantScreenContextKey: PreferenceKey {
     public static var defaultValue: [AssistantContext] { [] }
     public static func reduce(value: inout [AssistantContext], nextValue: () -> [AssistantContext]) {
         let next = nextValue()
-        if !next.isEmpty { value = next }
+        guard !next.isEmpty else { return }
+        if !value.isEmpty, next.allSatisfy(\.isScreen), !value.allSatisfy(\.isScreen) { return }
+        value = next
     }
 }
 
 public extension Array where Element == AssistantContext {
     /// Whether these describe a reader screen, which hides the global entry.
-    var isReader: Bool { contains { [.book, .chapter, .page, .passage].contains($0.type) } }
+    /// A book chip with a reference is the book's detail page, not the
+    /// reader: that page keeps the global entry.
+    var isReader: Bool {
+        contains { [.chapter, .page, .passage].contains($0.type) || ($0.type == .book && $0.reference.isEmpty) }
+    }
 }
 
 public struct AssistantSceneNavigation: Sendable {

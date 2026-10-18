@@ -86,6 +86,11 @@ struct AssistantChatView: View {
     @State private var previewSource: AssistantSource?
     @State private var showContextPicker = false
     @State private var showConnections = false
+    /// The turn sent in this sitting. It is scrolled to the top on send and
+    /// given the viewport's height, so the reply streams down into empty
+    /// space instead of the view chasing every token.
+    @State private var pinnedTurnID: UUID?
+    @State private var viewportHeight: CGFloat = 0
 
     /// What the head is doing: a fresh reaction wins, then the turn's phase,
     /// then whether the user is typing.
@@ -119,6 +124,8 @@ struct AssistantChatView: View {
                                 mood: mood,
                                 openSource: open
                             )
+                            .id(turn.id)
+                            .frame(minHeight: turn.id == pinnedTurnID ? pinnedHeight : nil, alignment: .top)
                         }
                         if let error = engine.errorMessage {
                             Text(error).amgiFont(.caption).foregroundStyle(palette.warning)
@@ -131,9 +138,27 @@ struct AssistantChatView: View {
                     .frame(maxWidth: .infinity)
                 }
                 .scrollDismissesKeyboard(.interactively)
-                .defaultScrollAnchor(.bottom)
-                .onChange(of: engine.turns.last?.reply) { proxy.scrollTo("bottom", anchor: .bottom) }
-                .onChange(of: engine.turns.last?.steps.count) { proxy.scrollTo("bottom", anchor: .bottom) }
+                // A resumed chat opens at its end; after that the view only
+                // moves when the user sends, never per streamed token.
+                .defaultScrollAnchor(.bottom, for: .initialOffset)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewportHeight = $0 }
+                #if os(iOS)
+                // Tapping the conversation puts the keyboard away, as in
+                // Messages. Simultaneous, so links and sources still work.
+                .simultaneousGesture(TapGesture().onEnded { focused = false })
+                #endif
+                .onChange(of: engine.turns.count) { old, new in
+                    // Only a send: it appends while the turn is starting.
+                    // Opening a saved chat replaces turns while idle.
+                    guard new > old, engine.phase != .idle, let last = engine.turns.last else { return }
+                    pinnedTurnID = last.id
+                    withAnimation(.smooth(duration: 0.35)) { proxy.scrollTo(last.id, anchor: .top) }
+                }
+                .onChange(of: engine.activeSession?.id) {
+                    guard engine.phase == .idle else { return }
+                    pinnedTurnID = nil
+                    proxy.scrollTo("bottom", anchor: .bottom)
+                }
             }
             AssistantComposer(
                 engine: engine, focused: $focused, send: send,
@@ -254,27 +279,22 @@ struct AssistantChatView: View {
                     .amgiFont(.caption)
                     .foregroundStyle(palette.textTertiary)
             }
-            VStack(alignment: .leading, spacing: AmgiSpacing.xs) {
+            VStack(alignment: .leading, spacing: AmgiSpacing.sm) {
                 Text("Suggestions")
                     .amgiFont(.captionBold)
                     .foregroundStyle(palette.textSecondary)
                     .padding(.bottom, AmgiSpacing.xs)
                 ForEach(ChatSuggestion.for(engine.contexts.first)) { suggestion in
-                    Button { use(suggestion) } label: {
-                        Label {
-                            Text(suggestion.title).foregroundStyle(palette.textPrimary)
-                        } icon: {
-                            Image(systemName: suggestion.icon).foregroundStyle(palette.accent)
-                        }
-                        .amgiFont(.body)
-                        .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(engine.isBusy)
+                    SuggestionButton(suggestion: suggestion) { use(suggestion) }
+                        .disabled(engine.isBusy)
                 }
             }
         }
+    }
+
+    /// Tall enough that the pinned turn can sit at the very top.
+    private var pinnedHeight: CGFloat {
+        max(0, viewportHeight - AmgiSpacing.lg - AmgiSpacing.xl - 8)
     }
 
     private var greeting: String {
@@ -286,6 +306,11 @@ struct AssistantChatView: View {
         case .passage: L10n.text("Let's look at this passage.")
         case .note, .review: L10n.text("Let's dig into this card.")
         case .collection: L10n.text("What are we learning today?")
+        case .library: L10n.text("Where shall we start?")
+        case .today: L10n.text("Ready for today?")
+        case .stats: L10n.text("Let's read your numbers.")
+        case .search: L10n.text("Let's look at what you found.")
+        case .shelf: L10n.text("What are you reading?")
         }
     }
 
@@ -351,6 +376,19 @@ private struct TurnView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: AmgiSpacing.md) {
+            if !turn.info.contexts.isEmpty || !turn.info.files.isEmpty {
+                // What went with the message sits on top of it, as in Mail
+                // or Messages — not left behind in the composer.
+                ViewThatFits(in: .horizontal) {
+                    sentChips
+                    ScrollView(.horizontal, showsIndicators: false) { sentChips }
+                        .scrollClipDisabled()
+                        .defaultScrollAnchor(.trailing)
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.leading, 48)
+                .padding(.bottom, -AmgiSpacing.xs)
+            }
             Text(turn.prompt)
                 .amgiFont(.body)
                 .foregroundStyle(palette.textPrimary)
@@ -361,18 +399,9 @@ private struct TurnView: View {
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .padding(.leading, 48)
 
-            if !turn.info.files.isEmpty {
-                HStack(spacing: AmgiSpacing.sm) {
-                    ForEach(turn.info.files) { file in
-                        AssistantAttachmentChip(name: file.name, kind: file.kind, thumbnail: file.thumbnail)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .trailing)
-            }
-
             if isLatest {
                 HStack(spacing: AmgiSpacing.sm) {
-                    AssistantHead(mood).frame(width: 28, height: 28)
+                    AssistantHead(mood, gaze: isLive ? headGaze : nil).frame(width: 28, height: 28)
                     if isLive, turn.reply.isEmpty {
                         Text(liveLabel)
                             .amgiFont(.caption)
@@ -435,6 +464,24 @@ private struct TurnView: View {
                 .font(.system(size: 14))
                 .foregroundStyle(palette.textTertiary)
             }
+        }
+    }
+
+    private var sentChips: some View {
+        HStack(spacing: AmgiSpacing.sm) {
+            ForEach(turn.info.contexts) { AssistantContextChip(context: $0) }
+            ForEach(turn.info.files) { file in
+                AssistantAttachmentChip(name: file.name, kind: file.kind, thumbnail: file.thumbnail)
+            }
+        }
+    }
+
+    /// While it works it looks down at the reply forming below and to its
+    /// right; thinking looks away on its own; done, it looks back at you.
+    private var headGaze: CGPoint? {
+        switch phase {
+        case .working, .responding: CGPoint(x: 0.5, y: 0.5)
+        case .thinking, .reviewing, .idle: nil
         }
     }
 
@@ -510,6 +557,54 @@ private struct AssistantHistory: View {
 
 // MARK: - Suggestions
 
+/// One suggestion. The tappable area is the pill around its words, not the
+/// row: a thumb resting at the far end of the line taps nothing.
+private struct SuggestionButton: View {
+    let suggestion: ChatSuggestion
+    let action: () -> Void
+    @Environment(\.palette) private var palette
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: AmgiSpacing.sm) {
+                Image(systemName: suggestion.icon)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(palette.accent)
+                    .frame(width: 20)
+                Text(suggestion.title)
+                    .amgiFont(.body)
+                    .foregroundStyle(palette.textPrimary)
+                    .multilineTextAlignment(.leading)
+                if !suggestion.sends {
+                    Image(systemName: "text.cursor")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(palette.textTertiary)
+                        .accessibilityHidden(true)
+                }
+            }
+            .padding(.leading, AmgiSpacing.md)
+            .padding(.trailing, AmgiSpacing.lg)
+            .frame(minHeight: 40)
+            .background(palette.surfaceElevated, in: Capsule())
+            .overlay { Capsule().strokeBorder(palette.separator.opacity(0.6), lineWidth: 0.5) }
+            .contentShape(Capsule())
+        }
+        .buttonStyle(SuggestionPressStyle())
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityHint(suggestion.sends ? Text("Sends now") : Text("Fills the message box"))
+    }
+}
+
+private struct SuggestionPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .opacity(configuration.isPressed ? 0.75 : 1)
+            .animation(.snappy(duration: 0.18), value: configuration.isPressed)
+    }
+}
+
 struct ChatSuggestion: Identifiable {
     var id: String { title }
     let title: String
@@ -555,8 +650,35 @@ struct ChatSuggestion: Identifiable {
                 .init(title: L10n.text("Make cards from this page"), icon: "rectangle.stack.badge.plus", prompt: L10n.text("Make flashcards from the key ideas on this page."), sends: true),
                 .init(title: L10n.text("Explain a passage…"), icon: "text.quote", prompt: L10n.text("Explain this passage: "), sends: false),
             ]
-        case .collection:
+        case .collection, .library:
             general
+        case .today:
+            [
+                .init(title: L10n.text("Plan today's session"), icon: "list.bullet.clipboard", prompt: L10n.text("Plan today's study session from what's due."), sends: true),
+                .init(title: L10n.text("Which deck first?"), icon: "arrow.up.right", prompt: L10n.text("Which deck should I start with today, and why?"), sends: true),
+                .init(title: L10n.text("Start reviewing"), icon: "play.rectangle", prompt: L10n.text("Start reviewing."), sends: true),
+                .init(title: L10n.text("Quiz me"), icon: "questionmark.bubble", prompt: L10n.text("Quiz me with one question from something due today."), sends: true),
+            ]
+        case .stats:
+            [
+                .init(title: L10n.text("How am I doing?"), icon: "chart.line.uptrend.xyaxis", prompt: L10n.text("Read these statistics and tell me how my studying is going."), sends: true),
+                .init(title: L10n.text("Explain my retention"), icon: "brain.head.profile", prompt: L10n.text("What explains my retention in these statistics, and what should I change?"), sends: true),
+                .init(title: L10n.text("Forecast my workload"), icon: "calendar.badge.clock", prompt: L10n.text("What does my workload look like over the coming week?"), sends: true),
+                .init(title: L10n.text("Suggest a daily goal"), icon: "target", prompt: L10n.text("Suggest a realistic daily goal based on these statistics."), sends: true),
+            ]
+        case .search:
+            [
+                .init(title: L10n.text("Summarize these notes"), icon: "text.alignleft", prompt: L10n.text("Summarize what these search results cover."), sends: true),
+                .init(title: L10n.text("Quiz me on them"), icon: "questionmark.bubble", prompt: L10n.text("Ask me one question at a time about these notes."), sends: true),
+                .init(title: L10n.text("Spot duplicates"), icon: "square.on.square", prompt: L10n.text("Are any of these notes duplicates or near-duplicates?"), sends: true),
+                .init(title: L10n.text("Fill the gaps…"), icon: "rectangle.stack.badge.plus", prompt: L10n.text("Make flashcards about what these notes are missing on "), sends: false),
+            ]
+        case .shelf:
+            [
+                .init(title: L10n.text("What should I read next?"), icon: "book", prompt: L10n.text("Which book on my shelf should I read next, and why?"), sends: true),
+                .init(title: L10n.text("Find a passage about…"), icon: "text.magnifyingglass", prompt: L10n.text("Find a passage in my books about "), sends: false),
+                .init(title: L10n.text("Quiz me on my reading"), icon: "questionmark.bubble", prompt: L10n.text("Quiz me with one question from a book I'm reading."), sends: true),
+            ]
         }
     }
 

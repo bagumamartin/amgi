@@ -200,9 +200,17 @@ struct MainTabView: View {
         }
     }
 
-    /// The screen's own context when it has one; otherwise the collection,
-    /// which the user can remove like any other chip.
-    private func openAssistant() { onOpenAssistant(screenContext.isEmpty ? [.collection] : screenContext) }
+    /// The screen's own context when it has one; otherwise what the section
+    /// itself is about. Either is a chip the user can remove.
+    private func openAssistant() { onOpenAssistant(screenContext.isEmpty ? [sectionContext] : screenContext) }
+
+    private var sectionContext: AssistantContext {
+        switch selection {
+        case .library: .library
+        case .study: .today
+        case .read, .stats, .browse: .collection
+        }
+    }
 
     private var usesFloatingEntry: Bool {
         #if os(macOS)

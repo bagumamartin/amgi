@@ -2,6 +2,7 @@ import AmgiReader
 import AmgiReaderPDF
 import AmgiTheme
 import AmgiUI
+import AssistantFeature
 import Foundation
 import SwiftUI
 
@@ -33,6 +34,7 @@ struct ReaderBookDetailView: View {
         )
         .navigationTitle(activeBook.title)
         .navigationBarTitleDisplayMode(.inline)
+        .preference(key: AssistantScreenContextKey.self, value: [assistantContext])
         .task {
             savedProgress = await progress.resolved(bookID: book.id)
             let hydrated = await model.loadFullBookIfNeeded(book)
@@ -48,6 +50,16 @@ struct ReaderBookDetailView: View {
                 await model.load(book: hydrated)
             }
         }
+    }
+}
+
+private extension ReaderBookDetailView {
+    var assistantContext: AssistantContext {
+        let current = savedProgress.flatMap { saved in activeBook.chapters.first { $0.id == saved.chapterID }?.title }
+        return .bookDetail(
+            id: activeBook.id, title: activeBook.title, author: activeBook.author,
+            currentChapter: current, chapters: activeBook.chapters.map(\.title)
+        )
     }
 }
 

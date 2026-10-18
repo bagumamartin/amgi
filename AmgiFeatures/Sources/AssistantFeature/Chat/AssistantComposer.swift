@@ -40,6 +40,8 @@ struct AssistantComposer: View {
                 .submitLabel(.send)
                 .onSubmit(send)
                 .padding(.horizontal, AmgiSpacing.xs)
+                .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+                .contentShape(Rectangle())
                 .accessibilityIdentifier("assistant.composer")
             if let attachError {
                 Text(attachError)
@@ -51,6 +53,21 @@ struct AssistantComposer: View {
                 plusMenu
                 AssistantModelMenu(engine: engine, showConnections: showConnections)
                 Spacer(minLength: 0)
+                #if os(iOS)
+                if focused.wrappedValue {
+                    Button { focused.wrappedValue = false } label: {
+                        Image(systemName: "keyboard.chevron.compact.down")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(palette.textSecondary)
+                            .frame(width: 34, height: 34)
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                    .accessibilityLabel("Hide keyboard")
+                    .accessibilityIdentifier("assistant.hideKeyboard")
+                }
+                #endif
                 sendButton
             }
             if engine.model.provider == .chatGPT {
@@ -60,6 +77,12 @@ struct AssistantComposer: View {
             }
         }
         .padding(AmgiSpacing.md)
+        // The whole box is the place to type, not just the line of text:
+        // a tap anywhere that isn't a control focuses the field. Buttons,
+        // menus and chip ✕s inside take their own taps first.
+        .contentShape(RoundedRectangle(cornerRadius: AmgiRadius.card, style: .continuous))
+        .onTapGesture { focused.wrappedValue = true }
+        .animation(AmgiMotion.quick, value: focused.wrappedValue)
         .background(palette.surfaceElevated, in: RoundedRectangle(cornerRadius: AmgiRadius.card, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: AmgiRadius.card, style: .continuous)
@@ -88,7 +111,8 @@ struct AssistantComposer: View {
     }
 
     private var placeholder: String {
-        engine.contexts.isEmpty ? L10n.text("Ask anything") : L10n.text("Ask about \(engine.contexts[0].title)")
+        if let first = engine.contexts.first { return L10n.text("Ask about \(first.title)") }
+        return engine.turns.isEmpty ? L10n.text("Ask anything") : L10n.text("Ask a follow-up")
     }
 
     // MARK: Chips
