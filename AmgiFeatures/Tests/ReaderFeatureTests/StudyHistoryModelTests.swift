@@ -33,6 +33,25 @@ import Foundation
         #expect(model.spanRemainingRow == nil)
     }
 
+    @Test func hourCountsBucketAnswersByLocalClockHour() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "Europe/Paris"))
+        // 2026-10-17 in Paris (UTC+2): 03:59, 04:00, 04:30 and 23:15 local.
+        let at = { (hour: Int, minute: Int) -> Int64 in
+            let date = calendar.date(from: DateComponents(year: 2026, month: 10, day: 17, hour: hour, minute: minute))!
+            return Int64(date.timeIntervalSince1970 * 1_000)
+        }
+        let counts = StudyLandingModel.hourCounts(
+            [at(3, 59), at(4, 0), at(4, 30), at(23, 15)],
+            calendar: calendar
+        )
+        #expect(counts.count == 24)
+        #expect(counts[3] == 1)
+        #expect(counts[4] == 2)
+        #expect(counts[23] == 1)
+        #expect(counts.reduce(0, +) == 4)
+    }
+
     @MainActor private final class Probe {
         var boundaries: [Int64] = []
         var scopes: [String] = []
@@ -41,6 +60,7 @@ import Foundation
 
     private func model(probe: Probe, profile: ProfileContext? = nil) -> StudyLandingModel {
         var stats = StatsClient()
+        stats.reviewTimes = { _, _, _ in [] }
         stats.studyHistory = { scope, end, _ in
             await MainActor.run {
                 probe.boundaries.append(end)
@@ -146,6 +166,7 @@ import Foundation
     @Test func partialHistoryStaysHiddenAndOldSelectionCannotPublish() async {
         let gate = Gate()
         var stats = StatsClient()
+        stats.reviewTimes = { _, _, _ in [] }
         stats.studyHistory = { _, _, _ in
             StudyHistory(learningIds: [1], reviewIds: [2], newCandidateIds: [], unresolved: [])
         }
@@ -203,6 +224,7 @@ import Foundation
         let historyGate = Gate()
         let mixGate = Gate()
         var stats = StatsClient()
+        stats.reviewTimes = { _, _, _ in [] }
         stats.studyHistory = { _, _, _ in
             await historyGate.pause()
             return StudyHistory(learningIds: [1], reviewIds: [], newCandidateIds: [], unresolved: [])
@@ -257,6 +279,7 @@ import Foundation
         let gate = Gate()
         let probe = Probe()
         var stats = StatsClient()
+        stats.reviewTimes = { _, _, _ in [] }
         stats.studyHistory = { _, end, _ in
             let calls = await MainActor.run {
                 probe.boundaries.append(end)

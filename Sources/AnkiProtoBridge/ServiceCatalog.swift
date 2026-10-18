@@ -160,6 +160,7 @@ enum AuxMethod {
     static let studyDayMix: UInt32 = 4
     static let studyHistory: UInt32 = 5
     static let readerNotes: UInt32 = 6
+    static let reviewTimes: UInt32 = 7
 }
 
 /// BackendConfigService (9).

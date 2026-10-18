@@ -44,7 +44,7 @@ struct StatsDashboardContentStateTests {
                 },
                 studyHistory: { _, _, _ in
                     StudyHistory(learningIds: [], reviewIds: [], newCandidateIds: [], unresolved: [])
-                }
+                }, reviewTimes: { _, _, _ in [] }
             )
         } operation: {
             StatsDashboardModel()

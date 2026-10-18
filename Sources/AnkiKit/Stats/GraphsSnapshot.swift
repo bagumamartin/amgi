@@ -21,9 +21,6 @@ public struct GraphsSnapshot: Sendable, Hashable {
     public var fsrs: Bool
     public var stability: IntervalsBuckets
     public var trueRetention: TrueRetentionStats
-    /// Local-hour review counts keyed like `reviews.count`: 0 is today,
-    /// negative is days before today. Each value is 24 totals, index = hour.
-    public var hoursByDay: [Int: [Int]]
 
     public init(
         buttons: ButtonsBuckets = ButtonsBuckets(),
@@ -40,8 +37,7 @@ public struct GraphsSnapshot: Sendable, Hashable {
         retrievability: RetrievabilityBuckets = RetrievabilityBuckets(),
         fsrs: Bool = false,
         stability: IntervalsBuckets = IntervalsBuckets(),
-        trueRetention: TrueRetentionStats = TrueRetentionStats(),
-        hoursByDay: [Int: [Int]] = [:]
+        trueRetention: TrueRetentionStats = TrueRetentionStats()
     ) {
         self.buttons = buttons
         self.cardCounts = cardCounts
@@ -58,7 +54,6 @@ public struct GraphsSnapshot: Sendable, Hashable {
         self.fsrs = fsrs
         self.stability = stability
         self.trueRetention = trueRetention
-        self.hoursByDay = hoursByDay
     }
 }
 

@@ -132,8 +132,12 @@ final class StudyLandingModel {
     private var reviewMillis: [Int: Int] = [:]
     /// Cards due on a future Anki day, keyed by days ahead (1 = tomorrow).
     private var futureDueCounts: [Int: Int] = [:]
-    /// Review counts for each local hour, keyed by days-before-today.
+    /// Answers per local clock hour, keyed by days-before-today. Filled on
+    /// demand for the day on screen and cleared on every activity reload.
     private var hoursByDay: [Int: [Int]] = [:]
+    @ObservationIgnored private var hoursTask: Task<Void, Never>?
+    @ObservationIgnored private var hoursRequest: (generation: Int, offset: Int)?
+    @ObservationIgnored private var hoursGeneration = 0
 
     func load() async {
         loadToken += 1
@@ -645,9 +649,7 @@ final class StudyLandingModel {
             reviewTotals = Self.dayTotals(graphs.reviews.count)
             reviewMillis = Self.dayTotals(graphs.reviews.time)
             futureDueCounts = graphs.futureDue.futureDue
-            hoursByDay = Dictionary(uniqueKeysWithValues: graphs.hoursByDay.map { key, hours in
-                (-key, hours)
-            })
+            resetDayHours()
             hasActivitySnapshot = true
             supportsStability = graphs.fsrs
         } else {
@@ -1032,7 +1034,58 @@ final class StudyLandingModel {
         return counts[hour]
     }
 
+    private func resetDayHours() {
+        hoursTask?.cancel()
+        hoursRequest = nil
+        hoursGeneration += 1
+        hoursByDay = [:]
+    }
+
+    /// Buckets the answers of the day on screen into local clock hours. One
+    /// day is a primary-key range over the revlog, so this runs per day
+    /// rather than precomputing hours for every day of history.
+    private func loadDayHours() {
+        guard grain == .day, dayOffset >= 0, hoursByDay[dayOffset] == nil,
+              profile.isCurrent(AccountStore.shared.selectedContext) else { return }
+        let offset = dayOffset
+        let generation = hoursGeneration
+        if let pending = hoursRequest, pending == (generation, offset) { return }
+        hoursTask?.cancel()
+        hoursRequest = (generation, offset)
+        let calendar = Calendar.current
+        let start = StudySpan.date(todayStart: todayStart, offset: offset, calendar: calendar)
+        let end = StudySpan.date(todayStart: todayStart, offset: offset - 1, calendar: calendar)
+        let scope = activitySearch
+        hoursTask = Task { [statsClient] in
+            defer {
+                if let pending = hoursRequest, pending == (generation, offset) { hoursRequest = nil }
+            }
+            do {
+                let times = try await statsClient.reviewTimes(
+                    scope,
+                    Int64(start.timeIntervalSince1970 * 1_000),
+                    Int64(end.timeIntervalSince1970 * 1_000)
+                )
+                guard !Task.isCancelled, generation == hoursGeneration else { return }
+                hoursByDay[offset] = Self.hourCounts(times, calendar: calendar)
+            } catch {
+                guard !Task.isCancelled else { return }
+                Log.reader.error("Hourly activity failed: \(error)")
+            }
+        }
+    }
+
+    static func hourCounts(_ answeredAtMs: [Int64], calendar: Calendar) -> [Int] {
+        var counts = Array(repeating: 0, count: 24)
+        for ms in answeredAtMs {
+            let hour = calendar.component(.hour, from: Date(timeIntervalSince1970: Double(ms) / 1_000))
+            counts[hour] += 1
+        }
+        return counts
+    }
+
     private func scheduleSpanReload() {
+        loadDayHours()
         spanTask?.cancel()
         prefetchTask?.cancel()
         // Invalidate before the task starts, so a previous selection cannot publish.
@@ -1048,6 +1101,7 @@ final class StudyLandingModel {
 
     func reloadSpanRows(refresh: Bool = false) async {
         guard profile.isCurrent(AccountStore.shared.selectedContext), !Task.isCancelled else { return }
+        loadDayHours()
         prefetchTask?.cancel()
         spanToken += 1
         let token = spanToken

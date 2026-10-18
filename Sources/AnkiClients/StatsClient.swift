@@ -24,6 +24,9 @@ public struct StatsClient: Sendable {
     /// Reconstructed work left at the boundary; candidates and unresolved cards
     /// are separate from scheduled work. Uses current deck membership for scope.
     public var studyHistory: @Sendable (_ scope: String, _ dayEndMs: Int64, _ rolloverHour: Int) async throws -> StudyHistory
+    /// When each answer in `[startMs, endMs)` was given, as UTC millis,
+    /// ascending. Counts the same answers as `fetchGraphs`' review totals.
+    public var reviewTimes: @Sendable (_ scope: String, _ startMs: Int64, _ endMs: Int64) async throws -> [Int64]
 }
 
 extension StatsClient: TestDependencyKey {

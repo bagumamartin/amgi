@@ -25,6 +25,12 @@ extension StatsClient {
         },
         studyHistory: { _, _, _ in
             StudyHistory(learningIds: [1, 2], reviewIds: [3, 4, 5], newCandidateIds: [6, 7], unresolved: [])
+        },
+        reviewTimes: { _, startMs, _ in
+            // A morning and an evening session.
+            let hour: Int64 = 3_600_000
+            return (0..<12).map { startMs + 5 * hour + $0 * 60_000 }
+                + (0..<20).map { startMs + 15 * hour + $0 * 90_000 }
         }
     )
 }

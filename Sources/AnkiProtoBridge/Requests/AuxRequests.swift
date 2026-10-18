@@ -151,6 +151,35 @@ extension Request where Response == StudyHistory {
     }
 }
 
+private struct ReviewTimesPayload: Decodable {
+    let answeredAtMs: [Int64]
+}
+
+extension Request where Response == [Int64] {
+    /// When each answer in `[startMs, endMs)` was given, as UTC millis
+    /// (`revlog.id`), ascending. Manual and rescheduled entries are left
+    /// out, matching the engine's review-count graph. `scope` is a backend
+    /// search expression (`""` = whole collection).
+    public static func reviewTimes(scope: String, startMs: Int64, endMs: Int64) -> Self {
+        Self(
+            serviceId: ServiceID.aux,
+            methodId: AuxMethod.reviewTimes,
+            encode: {
+                try JSONSerialization.data(withJSONObject: [
+                    "scope_search": scope,
+                    "start_ms": startMs,
+                    "end_ms": endMs,
+                ])
+            },
+            decode: { bytes in
+                let decoder = JSONDecoder()
+                decoder.keyDecodingStrategy = .convertFromSnakeCase
+                return try decoder.decode(ReviewTimesPayload.self, from: bytes).answeredAtMs
+            }
+        )
+    }
+}
+
 extension Request where Response == StudyDayMix {
     /// Answered/remaining split for one past Anki-day window. Day
     /// boundaries are UTC millis (`revlog.id`); `overdueDays` is how far
