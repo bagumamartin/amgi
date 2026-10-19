@@ -266,22 +266,30 @@ struct DeckDetailView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        // Contextual trailing chrome: Sync · Create Subdeck · ⋯ (Mac puts
-        // Sync last, after the deck's own actions). Add, Stats and Browse
-        // are the row under the study buttons on every platform.
+        // Contextual trailing chrome, in the same order on every platform:
+        // Sync · Create Subdeck · ⋯. Mac has the room to lift the deck's
+        // frequent commands — Deck Options and Export — out of the menu,
+        // between the two; the rest stay behind ⋯. Add, Stats and Browse
+        // are the row under the study buttons everywhere.
         ToolbarItemGroup(placement: .topBarTrailing) {
-            #if os(iOS)
             SyncToolbarButton()
-            #endif
             if !deck.isFiltered {
                 Button {
                     newSubdeckName = ""
                     destination = .alert(.subdeck)
                 } label: {
-                    Image(systemName: "folder.badge.plus")
+                    Label("Create Subdeck", systemImage: "folder.badge.plus")
                 }
-                .accessibilityLabel("Create Subdeck")
+                .help("Create a subdeck")
             }
+            #if os(macOS)
+            if !deck.isFiltered {
+                deckOptionsButton
+                    .help("Deck options")
+            }
+            exportDeckButton
+                .help("Export this deck")
+            #endif
             Menu {
                 Button {
                     destination = .sheet(.addNote)
@@ -293,25 +301,22 @@ struct DeckDetailView: View {
                 } label: {
                     Label("Drafts", systemImage: "doc.text")
                 }
+                #if os(iOS)
                 if !deck.isFiltered {
-                    Button {
-                        destination = .sheet(.showDeckOptions)
-                    } label: {
-                        Label("Deck Options…", systemImage: "slider.horizontal.3")
-                    }
+                    deckOptionsButton
                 }
+                #endif
                 Divider()
                 Button {
                     destination = .importer
                 } label: {
                     Label("Import Files…", systemImage: "square.and.arrow.down")
                 }
-                Button {
-                    runExport()
-                } label: {
-                    Label("Export Deck…", systemImage: "square.and.arrow.up")
-                }
+                #if os(iOS)
+                exportDeckButton
+                #endif
             } label: {
+                #if os(iOS)
                 // No hand-drawn material circle: on iOS 26 the toolbar draws
                 // its own Liquid Glass capsule behind the item, and a material
                 // inside it nests a second surface within the first.
@@ -319,11 +324,30 @@ struct DeckDetailView: View {
                     .font(.system(size: 16, weight: .semibold))
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
+                #else
+                Label("More", systemImage: "ellipsis")
+                #endif
             }
+            // A toolbar menu is already a button; the chevron macOS adds
+            // only widens it.
+            .menuIndicator(.hidden)
             .accessibilityLabel("More")
-            #if os(macOS)
-            SyncToolbarButton()
-            #endif
+        }
+    }
+
+    private var deckOptionsButton: some View {
+        Button {
+            destination = .sheet(.showDeckOptions)
+        } label: {
+            Label("Deck Options…", systemImage: "slider.horizontal.3")
+        }
+    }
+
+    private var exportDeckButton: some View {
+        Button {
+            runExport()
+        } label: {
+            Label("Export Deck…", systemImage: "square.and.arrow.up")
         }
     }
 }

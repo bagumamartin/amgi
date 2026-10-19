@@ -54,11 +54,11 @@ package struct DeckListView: View {
     /// Left edge of this screen in the window. Zero while the portrait
     /// sidebar floats over it; past the sidebar when they sit side by side.
     @State private var arrangementMinX: CGFloat = 0
+    #endif
     /// Each pane's heading has scrolled under the bar, so the bar shows its
     /// title instead — the iPhone large-title behaviour, per pane.
     @State private var listHeadingAway = false
     @State private var deckHeadingAway = false
-    #endif
     /// Nil until the first layout pass has measured the width, so the screen
     /// does not build one arrangement only to swap it for the other.
     @State private var usesSplit: Bool?
@@ -216,24 +216,54 @@ package struct DeckListView: View {
     }
 
     #if os(macOS)
+    /// The iPad panes' layout in the window's own columns: each pane carries
+    /// its heading, and its toolbar section takes the title once the heading
+    /// scrolls away.
     private var splitList: some View {
-        columnChrome(AnyView(listColumn(selection: detail.columnSelection)), true)
-            .navigationSplitViewColumnWidth(LibrarySplitMetrics.listWidth)
+        columnChrome(AnyView(
+            listColumn(selection: detail.columnSelection)
+                .environment(\.amgiOnHeadingScrolledAway) { listHeadingAway = $0 }
+                .toolbar(removing: .title)
+        ), true)
+        .navigationSplitViewColumnWidth(LibrarySplitMetrics.listWidth)
+        .animation(AmgiMotion.standard, value: listHeadingAway)
     }
 
-    /// A fresh stack per selection: picking another deck in the list drops
-    /// the subdecks pushed under the previous one.
+    /// A fresh stack per selection. Subdecks open inside the pane, as on
+    /// iPad, with Back and Forward leading its toolbar section — a push
+    /// put its back button over the list column instead.
     private var detailStack: some View {
         NavigationStack {
-            switch detail {
-            case .today:
-                todayPane
-            case .deck(let deck):
-                DeckDetailView(deck: deck)
-            }
+            detailPane
+                .toolbar(removing: .title)
+                .toolbar { detailToolbar }
         }
         .environment(\.amgiPageIsPane, true)
+        .environment(\.amgiOnHeadingScrolledAway) { deckHeadingAway = $0 }
         .id(detail.columnSelection)
+        .onChange(of: detail.columnSelection) {
+            subdeckPath = []
+            subdeckForward = []
+        }
+        .onChange(of: shownDeckID) { deckHeadingAway = false }
+        .animation(AmgiMotion.standard, value: deckHeadingAway)
+    }
+
+    /// Leads the detail's toolbar section. Not `.navigation`: macOS puts
+    /// that at the window's leading column, over the list. The spacer sends
+    /// the pane's own actions to the trailing edge.
+    @ToolbarContentBuilder
+    private var detailToolbar: some ToolbarContent {
+        if isShowingDeck {
+            ToolbarItemGroup(placement: .primaryAction) {
+                historyButtons
+            }
+        }
+        ToolbarItem(placement: .primaryAction) {
+            LibraryPaneBarTitle(text: detailPaneTitle, isShown: deckHeadingAway)
+        }
+        .sharedBackgroundVisibility(.hidden)
+        ToolbarSpacer(.flexible)
     }
     #endif
 
@@ -290,6 +320,7 @@ package struct DeckListView: View {
         .animation(AmgiMotion.standard, value: listHeadingAway)
         .animation(AmgiMotion.standard, value: deckHeadingAway)
     }
+    #endif
 
     @ViewBuilder
     private var detailPane: some View {
@@ -335,12 +366,20 @@ package struct DeckListView: View {
         subdeckPath.append(next)
     }
 
-    #endif
+    @ViewBuilder
+    private var historyButtons: some View {
+        Button("Back", systemImage: "chevron.left", action: goBack)
+            .keyboardShortcut("[", modifiers: .command)
+            .disabled(subdeckPath.isEmpty)
+        Button("Forward", systemImage: "chevron.right", action: goForward)
+            .keyboardShortcut("]", modifiers: .command)
+            .disabled(subdeckForward.isEmpty)
+    }
 
     private var todayPane: some View {
         LibraryTodayPane(
             state: model.state,
-            showsHeading: columnTitle != nil,
+            showsHeading: true,
             onRefresh: { await model.load(sortOrder: sortOrderBinding.wrappedValue) }
         )
         .toolbar {
@@ -390,15 +429,9 @@ package struct DeckListView: View {
         .toolbar { listToolbar(inPanes: selection != nil) }
     }
 
-    /// iPad panes have no bar title, so the list pane carries the heading.
-    /// Mac shows it in the list column's toolbar section.
-    private var columnTitle: String? {
-        #if os(iOS)
-        "Library"
-        #else
-        nil
-        #endif
-    }
+    /// The split's panes have no bar title, so the list pane carries the
+    /// heading, on iPad and Mac alike.
+    private var columnTitle: String? { "Library" }
 
     // MARK: Selection
 
@@ -505,10 +538,7 @@ package struct DeckListView: View {
             // got the app killed. There they lead the pane's trailing group.
             if isShowingDeck, !sidebarFloatsOverPanes {
                 ToolbarItemGroup(placement: historyPlacement) {
-                    Button("Back", systemImage: "chevron.left", action: goBack)
-                        .disabled(subdeckPath.isEmpty)
-                    Button("Forward", systemImage: "chevron.right", action: goForward)
-                        .disabled(subdeckForward.isEmpty)
+                    historyButtons
                 }
                 // Its own capsule, apart from the deck's actions after it.
                 ToolbarSpacer(.fixed, placement: historyPlacement)
@@ -529,8 +559,16 @@ package struct DeckListView: View {
             }
         }
         #else
-        // Mac's list column has its own toolbar section; Sync belongs to
-        // the detail.
+        // Mac's list column has its own toolbar section: its title once the
+        // heading scrolls away, then its tools at the column's edge. Sync
+        // belongs to the detail.
+        ToolbarItem(placement: .navigation) {
+            LibraryPaneBarTitle(text: Text("Library"), isShown: listHeadingAway)
+        }
+        .sharedBackgroundVisibility(.hidden)
+        // With no bar title to fill the section, macOS packs every item
+        // against its leading edge; the spacer sends the tools to the end.
+        ToolbarSpacer(.flexible)
         ToolbarItemGroup(placement: .topBarTrailing) {
             listActionButtons()
         }
