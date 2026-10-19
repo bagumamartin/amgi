@@ -98,6 +98,7 @@ final class AssistantToolbox {
     @Dependency(\.noteClient) private var notes
     @Dependency(\.notetypesClient) private var notetypes
     @Dependency(\.collectionStore) private var store
+    @Dependency(\.ankiBackend) private var backend
 
     init(profile: ProfileContext, contexts: [AssistantContext]) {
         self.profile = profile
@@ -484,6 +485,7 @@ final class AssistantToolbox {
             guard let id = noteID else {
                 throw AgentToolError.invalid(L10n.text("Open the card you want to fix, then ask again"))
             }
+            guard let activation = backend.collectionActivationID else { throw AssistantError.profileChanged }
             guard let note = try await notes.fetch(NoteID(id)) else {
                 throw AgentToolError.invalid(L10n.text("This card no longer exists"))
             }
@@ -517,8 +519,6 @@ final class AssistantToolbox {
                 declinedThisTurn = true
                 return "DECLINED: the user kept the card unchanged. Nothing was saved. Acknowledge in one short sentence."
             }
-            var values = names.indices.map { $0 < current.count ? current[$0] : "" }
-            for field in approved.fields where field.included { values[field.id] = field.after }
             guard approved.changedCount > 0 else {
                 step.text = L10n.text("No changes were selected")
                 step.state = .declined
@@ -531,7 +531,7 @@ final class AssistantToolbox {
                 throw AgentToolError.invalid(L10n.text("The collection is busy. Try again in a moment"))
             }
             defer { ReviewSessionActivity.shared.endMutation() }
-            try await Self.saveFields(values, noteID: id)
+            try await Self.saveCorrection(approved, expected: note, fieldNames: names, activation: activation)
             store.apply(CollectionChanges(card: true, note: true, studyQueues: false))
             savedCount += 1
             noteSaved()
@@ -558,11 +558,31 @@ final class AssistantToolbox {
         return position < names.count ? position : nil
     }
 
-    @concurrent private static func saveFields(_ values: [String], noteID: Int64) async throws {
+    /// Revalidate and save without allowing another RPC between the two.
+    /// Approval can stay open across syncs, other windows, and profile switches.
+    @concurrent static func saveCorrection(
+        _ approved: NoteFixDraft, expected: NoteRecord, fieldNames: [String], activation: UUID
+    ) async throws {
         @Dependency(\.ankiBackend) var backend
         @Dependency(\.notesService) var notes
         try backend.withLifecycleAccess {
-            var note = try notes.getNote(NoteID(noteID))
+            try Task.checkCancellation()
+            guard backend.collectionActivationID == activation else { throw AssistantError.profileChanged }
+            var note = try notes.getNote(expected.id)
+            let names = try backend.invoke(.notetype(for: note.mid)).fields.map(\.name)
+            var values = note.flds.components(separatedBy: "\u{1f}")
+            guard approved.noteID == expected.id.rawValue,
+                  note.guid == expected.guid, note.mid == expected.mid, note.flds == expected.flds,
+                  names == fieldNames, values.count == names.count,
+                  approved.fields.allSatisfy({ field in
+                      values.indices.contains(field.id)
+                          && field.name == names[field.id] && field.before == values[field.id]
+                  }) else {
+                throw AgentToolError.invalid(L10n.text("This card changed while you were reviewing the correction. Ask again to review the latest version."))
+            }
+            for field in approved.fields where field.included {
+                values[field.id] = field.after
+            }
             note.flds = values.joined(separator: "\u{1f}")
             try notes.saveNote(note)
         }

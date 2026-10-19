@@ -1,6 +1,36 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "This card changed while you were reviewing the correction. Ask again to review the latest version.": {
+      "comment": "Assistant correction rejected because the note or its field layout changed after the review opened.",
+      "extractionState": "manual",
+      "localizations": {
+        "hu": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A kártya megváltozott, amíg a javítást ellenőrizted. Kérd újra a javítást a legfrissebb változathoz."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thẻ đã thay đổi trong lúc bạn xem lại bản sửa. Hãy yêu cầu lại để xem phiên bản mới nhất."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette carte a changé pendant que vous vérifiiez la correction. Faites une nouvelle demande pour vérifier la dernière version."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta tarjeta cambió mientras revisabas la corrección. Vuelve a solicitarla para revisar la versión más reciente."
+          }
+        }
+      }
+    },
     "App Language": {
       "comment": "Settings › Appearance. Title of the row that overrides the system language for the app, the widget, and the watch.",
       "extractionState": "manual",
