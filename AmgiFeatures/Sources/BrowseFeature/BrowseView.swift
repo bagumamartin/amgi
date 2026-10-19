@@ -106,7 +106,7 @@ package struct BrowseView: View {
 
     package var body: some View {
         let search = isOnScreen ? model.assistantSearchContext : nil
-        dialogChrome
+        AnyView(dialogChrome)
             .background { keyboardCommands }
             .onAppear { isOnScreen = true }
             .onDisappear { isOnScreen = false }
@@ -170,9 +170,14 @@ package struct BrowseView: View {
             #endif
     }
 
-    @ViewBuilder
-    private var layout: some View {
-        splitColumns
+    /// Each layer of this screen — chrome, layout, the three split columns —
+    /// is erased to `AnyView`. Unerased, every getter on the path carries the
+    /// whole nested modifier type of the layers inside it, and a Debug build
+    /// copies those resilient SwiftUI values onto the stack with dynamically
+    /// sized allocations at each step. On iPad that exhausted the 1 MB
+    /// main-thread stack while opening Browse (Mac's 8 MB stack hid it).
+    private var layout: AnyView {
+        AnyView(splitColumns)
     }
 
     // MARK: - Split
@@ -235,27 +240,27 @@ package struct BrowseView: View {
             columnVisibility: $columnVisibility,
             preferredCompactColumn: $preferredColumn
         ) {
-            sidebarPane
+            AnyView(sidebarPane)
         } content: {
             if accountDestination != nil, !isBrowseSidebarHidden {
                 NavigationStack {
                     BrowseAccountDestination(destination: $accountDestination)
                 }
             } else {
-                listPane
+                AnyView(listPane)
             }
         } detail: {
             if accountDestination == nil {
-                detailPane
+                AnyView(detailPane)
             }
         }
         #else
         NavigationSplitView {
-            sidebarPane
+            AnyView(sidebarPane)
         } content: {
-            listPane
+            AnyView(listPane)
         } detail: {
-            detailPane
+            AnyView(detailPane)
         }
         #endif
     }
@@ -678,7 +683,7 @@ package struct BrowseView: View {
     // the same sheets.
 
     private var dialogChrome: some View {
-        sheetChrome
+        AnyView(sheetChrome)
             .alert(
                 clearedTagsNotice ?? "",
                 isPresented: Binding(
@@ -1028,8 +1033,13 @@ package struct BrowseView: View {
 
     @ToolbarContentBuilder
     private var listDefaultTrailingItems: some ToolbarContent {
+        // Every toolbar item's content is erased to `AnyView`: unerased, the
+        // toolbar's generic type nests every menu, section and button, and
+        // resolving that metadata recursed deep enough to overflow the iPad's
+        // main-thread stack on navigating to Browse (the Mac's larger stack
+        // hid it).
         ToolbarItem(placement: .topBarTrailing) {
-            Menu {
+            AnyView(Menu {
                 Button("Add Note") { showAddNote = true }
                 Button("Add Image Occlusion") { showAddImageOcclusion = true }
                 Divider()
@@ -1039,10 +1049,10 @@ package struct BrowseView: View {
             } label: {
                 Image(systemName: "plus")
             }
-            .accessibilityLabel("Add or import")
+            .accessibilityLabel("Add or import"))
         }
         ToolbarItem(placement: .topBarTrailing) {
-            Menu {
+            AnyView(Menu {
                 Section {
                     Button {
                         Task { await model.undoLast() }
@@ -1065,7 +1075,7 @@ package struct BrowseView: View {
             } label: {
                 Image(systemName: "ellipsis")
             }
-            .accessibilityLabel("Browse tools")
+            .accessibilityLabel("Browse tools"))
         }
     }
 
@@ -1232,8 +1242,8 @@ package struct BrowseView: View {
 
     /// Flags rendered with their semantic hues (Anki's seven brand colors —
     /// constants on purpose; card states stay palette-driven).
-    private var flagMenu: some View {
-        Menu {
+    private var flagMenu: AnyView {
+        AnyView(Menu {
             flagButton(value: 1, label: "Red", color: BrowseFlagSwatch.color(for: 1) ?? .red)
             flagButton(value: 2, label: "Orange", color: BrowseFlagSwatch.color(for: 2) ?? .orange)
             flagButton(value: 3, label: "Green", color: BrowseFlagSwatch.color(for: 3) ?? .green)
@@ -1250,7 +1260,7 @@ package struct BrowseView: View {
         } label: {
             Label("Flag", systemImage: "flag")
         }
-        .disabled(selectionState.isEmpty)
+        .disabled(selectionState.isEmpty))
     }
 
     private func flagButton(value: UInt32, label: String, color: Color) -> some View {
@@ -1266,8 +1276,8 @@ package struct BrowseView: View {
 
     /// Remaining batch actions in one scrollable menu — no nested `Menu`s,
     /// and nothing that's already on the bar (Suspend / Flag / Tags).
-    private var batchOverflowMenu: some View {
-        Menu {
+    private var batchOverflowMenu: AnyView {
+        AnyView(Menu {
             Section {
                 Button {
                     let notes = batchNotes, cards = batchCards
@@ -1375,7 +1385,7 @@ package struct BrowseView: View {
         }
         .menuIndicator(.hidden)
         .disabled(selectionState.isEmpty)
-        .accessibilityLabel("More actions")
+        .accessibilityLabel("More actions"))
     }
 
     private func consumeBatchScope() -> (Set<NoteID>, Set<CardID>) {
