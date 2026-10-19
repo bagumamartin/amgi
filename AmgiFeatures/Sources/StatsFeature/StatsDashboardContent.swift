@@ -106,6 +106,7 @@ struct StatsDashboardContent: View {
                 label: selectedDeck?.name ?? "Collection"
             )
         }
+        .filterMenuStyle()
     }
 
     private var periodMenu: some View {
@@ -122,6 +123,7 @@ struct StatsDashboardContent: View {
                 label: period.shortLabel
             )
         }
+        .filterMenuStyle()
     }
 
     private func filterCapsule(icon: String, label: String, showsDisclosure: Bool = true) -> some View {
@@ -138,6 +140,7 @@ struct StatsDashboardContent: View {
         }
         .amgiFont(.body)
         .amgiCapsuleControl()
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: - Charts
@@ -183,3 +186,16 @@ struct StatsDashboardContent: View {
     )
 }
 #endif
+
+private extension View {
+    /// Shows only the capsule label. macOS otherwise draws a bordered
+    /// pop-up around a custom menu label, with its own chevron beside the
+    /// capsule's.
+    func filterMenuStyle() -> some View {
+        self
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .fixedSize()
+    }
+}

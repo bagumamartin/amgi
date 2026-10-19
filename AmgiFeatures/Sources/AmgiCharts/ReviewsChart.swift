@@ -101,7 +101,7 @@ public struct ReviewsChart: View {
                 Text("Reviews").amgiFont(.bodyEmphasis)
 
                 if entries.isEmpty {
-                    Text("No review data").foregroundStyle(palette.textSecondary).frame(height: 180)
+                    Text("No review data").foregroundStyle(palette.textSecondary).frame(minHeight: 180, idealHeight: 180, maxHeight: .infinity)
                 } else {
                     Chart {
                         ForEach(entries) { entry in
@@ -124,13 +124,8 @@ public struct ReviewsChart: View {
                                 }
                         }
                     }
-                    .chartForegroundStyleScale([
-                        L10n.text("Learn"): palette.cardStateNew,
-                        L10n.text("Relearn"): palette.cardStateRelearn,
-                        L10n.text("Young"): palette.cardStateLearning,
-                        L10n.text("Mature"): palette.cardStateMature,
-                        L10n.text("Filtered"): palette.textTertiary,
-                    ])
+                    .chartForegroundStyleScale(domain: legendItems.map(\.name), range: legendItems.map(\.color))
+                    .chartLegend(position: .bottom, spacing: 8) { legend.statsChartControlRowHeight() }
                     .chartXAxis {
                         AxisMarks(values: .automatic(desiredCount: 5)) { _ in
                             AxisGridLine()
@@ -148,7 +143,7 @@ public struct ReviewsChart: View {
                             selectedAccessibilityText(for: day, entries: entries)
                         }
                     )
-                    .frame(height: 180)
+                    .frame(minHeight: 180, idealHeight: 180, maxHeight: .infinity)
                 }
 
                 HStack(spacing: 16) {
@@ -161,6 +156,33 @@ public struct ReviewsChart: View {
 }
 
 private extension ReviewsChart {
+    var legendItems: [(name: String, color: Color)] {
+        [
+            (L10n.text("Learn"), palette.cardStateNew),
+            (L10n.text("Relearn"), palette.cardStateRelearn),
+            (L10n.text("Young"), palette.cardStateLearning),
+            (L10n.text("Mature"), palette.cardStateMature),
+            (L10n.text("Filtered"), palette.textTertiary),
+        ]
+    }
+
+    /// Spread across the card, one equal slot per type, rather than packed
+    /// at the leading edge.
+    var legend: some View {
+        HStack(spacing: 0) {
+            ForEach(legendItems, id: \.name) { item in
+                HStack(spacing: 4) {
+                    Circle().fill(item.color).frame(width: 8, height: 8)
+                    Text(item.name)
+                        .amgiFont(.caption)
+                        .foregroundStyle(palette.textSecondary)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity)
+            }
+        }
+    }
+
     func footerItem(_ label: String, value: String) -> some View {
         VStack(spacing: 2) {
             Text(value).amgiFont(.captionBold).monospacedDigit()

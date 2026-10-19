@@ -54,7 +54,8 @@ public struct EaseChart: View {
                 }
 
                 if chartData.isEmpty {
-                    Text("No ease data").foregroundStyle(palette.textSecondary).frame(height: 180)
+                    Text("No ease data").foregroundStyle(palette.textSecondary)
+                        .frame(maxWidth: .infinity, minHeight: 180, idealHeight: 180, maxHeight: .infinity)
                 } else {
                     Chart {
                         ForEach(chartData, id: \.ease) { item in
@@ -94,7 +95,7 @@ public struct EaseChart: View {
                             "\(L10n.format("Ease %lld%%", [ease / 10])), \(L10n.format("%lld cards", [selectedCount(for: ease)]))"
                         }
                     )
-                    .frame(height: 180)
+                    .frame(minHeight: 180, idealHeight: 180, maxHeight: .infinity)
                 }
             }
         }

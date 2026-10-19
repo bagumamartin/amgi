@@ -69,7 +69,7 @@ public struct IntervalsChart: View {
                 Text("Review Intervals").amgiFont(.bodyEmphasis)
 
                 if buckets.isEmpty {
-                    Text("No interval data").foregroundStyle(palette.textSecondary).frame(height: 180)
+                    Text("No interval data").foregroundStyle(palette.textSecondary).frame(minHeight: 180, idealHeight: 180, maxHeight: .infinity)
                 } else {
                     Chart {
                         ForEach(buckets) { bucket in
@@ -108,7 +108,7 @@ public struct IntervalsChart: View {
                             "\(label), \(L10n.format("%lld cards", [selectedCount(for: label)]))"
                         }
                     )
-                    .frame(height: 180)
+                    .frame(minHeight: 180, idealHeight: 180, maxHeight: .infinity)
                 }
             }
         }

@@ -29,6 +29,40 @@ public struct CardCountsChart: View {
 
     private var total: Int { chartData.reduce(0) { $0 + $1.count } }
 
+    /// Fits beside the legend in a phone-width card.
+    private static let donutSize: CGFloat = 160
+    /// Keeps each count close enough to its name to read across.
+    private static let legendMaxWidth: CGFloat = 200
+
+    private var donut: some View {
+        Chart(chartData, id: \.name) { item in
+            SectorMark(
+                angle: .value("Count", item.count),
+                innerRadius: .ratio(0.5),
+                angularInset: 1
+            )
+            .foregroundStyle(item.color)
+        }
+        .frame(width: Self.donutSize, height: Self.donutSize)
+    }
+
+    /// One row per state, names leading and counts trailing in their own
+    /// column, beside the donut rather than under it.
+    private var legend: some View {
+        Grid(alignment: .leading, horizontalSpacing: 6, verticalSpacing: 6) {
+            ForEach(chartData, id: \.name) { item in
+                GridRow {
+                    Circle().fill(item.color).frame(width: 8, height: 8)
+                    Text(item.name).amgiFont(.caption)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Text("\(item.count)").amgiFont(.captionBold).monospacedDigit()
+                        .gridColumnAlignment(.trailing)
+                }
+            }
+        }
+    }
+
     public var body: some View {
         AmgiCard(
             background: .surface,
@@ -46,26 +80,22 @@ public struct CardCountsChart: View {
                 if chartData.isEmpty {
                     Text("No cards").foregroundStyle(palette.textSecondary).frame(height: 180)
                 } else {
-                    Chart(chartData, id: \.name) { item in
-                        SectorMark(
-                            angle: .value("Count", item.count),
-                            innerRadius: .ratio(0.5),
-                            angularInset: 1
-                        )
-                        .foregroundStyle(item.color)
-                    }
-                    .frame(height: 200)
-
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 8)], spacing: 4) {
-                        ForEach(chartData, id: \.name) { item in
-                            HStack(spacing: 4) {
-                                Circle().fill(item.color).frame(width: 8, height: 8)
-                                Text(item.name).amgiFont(.caption)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                Text("\(item.count)").amgiFont(.captionBold).monospacedDigit()
-                            }
+                    // Side by side wherever the legend fits beside the
+                    // donut; stacked on the watch.
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .center, spacing: 16) {
+                            donut
+                                .frame(maxWidth: .infinity)
+                            legend
+                                .frame(maxWidth: Self.legendMaxWidth)
+                                .frame(maxWidth: .infinity)
+                        }
+                        VStack(spacing: 12) {
+                            donut
+                            legend
                         }
                     }
+                    .frame(maxHeight: .infinity)
                 }
             }
         }

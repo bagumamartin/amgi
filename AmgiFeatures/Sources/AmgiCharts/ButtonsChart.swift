@@ -95,7 +95,7 @@ public struct ButtonsChart: View {
                 Text("Answer Buttons").amgiFont(.bodyEmphasis)
 
                 if entries.isEmpty {
-                    Text("No button data").foregroundStyle(palette.textSecondary).frame(height: 180)
+                    Text("No button data").foregroundStyle(palette.textSecondary).frame(minHeight: 180, idealHeight: 180, maxHeight: .infinity)
                 } else {
                     Chart {
                         ForEach(entries) { entry in
@@ -134,7 +134,7 @@ public struct ButtonsChart: View {
                             "\(button), \(L10n.format("Answers: %lld", [selectedCount(for: button)]))"
                         }
                     )
-                    .frame(height: 180)
+                    .frame(minHeight: 180, idealHeight: 180, maxHeight: .infinity)
                 }
             }
         }

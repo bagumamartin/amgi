@@ -15,6 +15,7 @@ public struct FutureDueChart: View {
     }
 
     @Environment(\.palette) private var palette
+    @Environment(\.statsChartIsPaired) private var isPaired
     @State private var includeBacklog = false
     @State private var selectedDay: Int?
 
@@ -69,7 +70,7 @@ public struct FutureDueChart: View {
                 Text("Future Due").amgiFont(.bodyEmphasis)
 
                 if filteredData.isEmpty {
-                    Text("No cards due").foregroundStyle(palette.textSecondary).frame(height: 180)
+                    Text("No cards due").foregroundStyle(palette.textSecondary).frame(minHeight: 180, idealHeight: 180, maxHeight: .infinity)
                 } else {
                     Chart {
                         ForEach(filteredData, id: \.day) { item in
@@ -111,7 +112,7 @@ public struct FutureDueChart: View {
                             "\(statsChartDayTitle(day)), \(L10n.format("Cards due: %lld", [selectedCount(for: day, in: filteredData)]))"
                         }
                     )
-                    .frame(height: 180)
+                    .frame(minHeight: 180, idealHeight: 180, maxHeight: .infinity)
                 }
 
                 if futureDue.haveBacklog {
@@ -123,6 +124,10 @@ public struct FutureDueChart: View {
                         }
                     ))
                     .amgiFont(.caption)
+                } else if isPaired {
+                    // Stands in for the toggle so the plot still ends level
+                    // with Reviews' beside it, whose legend fills this row.
+                    Color.clear.frame(height: 0).statsChartControlRowHeight()
                 }
 
                 HStack(spacing: 16) {

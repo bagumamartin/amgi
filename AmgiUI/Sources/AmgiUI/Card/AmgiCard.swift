@@ -15,6 +15,13 @@ public enum AmgiCardBackground: Sendable {
 
 /// Atomic rounded panel used by every "card" surface in Amgi.
 /// Owns background fill, corner radius, drop shadow, and content insets.
+///
+/// Cards side by side in a row are equal in height, by design: a card
+/// fills the height it is offered, content pinned to the top. A scroll
+/// view, list or stack offers only the card's natural height, so it
+/// stretches only when a row asks it to. Content that can use the room,
+/// such as a chart's plot, takes a flexible height so the card doesn't
+/// end in blank space.
 /// Higher-level shapes (`AmgiHeroSummary`, future tile / streak cards)
 /// compose this primitive — they don't reimplement the chrome.
 public struct AmgiCard<Content: View>: View {
@@ -45,6 +52,7 @@ public struct AmgiCard<Content: View>: View {
 
     public var body: some View {
         content()
+            .frame(maxHeight: .infinity, alignment: .top)
             .padding(contentInsets)
             .background { backgroundView }
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))

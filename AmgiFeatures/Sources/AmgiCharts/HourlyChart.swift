@@ -65,7 +65,7 @@ public struct HourlyChart: View {
                 Text("Hourly Breakdown").amgiFont(.bodyEmphasis)
 
                 if entries.allSatisfy({ $0.total == 0 }) {
-                    Text("No review data").foregroundStyle(palette.textSecondary).frame(height: 180)
+                    Text("No review data").foregroundStyle(palette.textSecondary).frame(minHeight: 180, idealHeight: 180, maxHeight: .infinity)
                 } else {
                     Chart {
                         ForEach(entries) { entry in
@@ -110,7 +110,7 @@ public struct HourlyChart: View {
                             return "\(formatHour(hour)), \(L10n.format("Reviews: %lld", [selected.total])), \(L10n.format("Correct: %.0f%%", [selected.correctPct]))"
                         }
                     )
-                    .frame(height: 150)
+                    .frame(minHeight: 150, idealHeight: 150, maxHeight: .infinity)
 
                     Chart {
                         ForEach(entries) { entry in

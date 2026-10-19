@@ -62,14 +62,27 @@ public struct RetentionChart: View {
                         Text("Mature").amgiFont(.captionBold).foregroundStyle(palette.textSecondary)
                     }
                     Divider()
+                    // Rows share whatever height the card is given, so the
+                    // table spans the plot of the chart beside it.
                     ForEach(rows) { row in
                         GridRow {
                             Text(row.label).amgiFont(.caption)
+                                .frame(maxHeight: .infinity)
                             retentionBadge(row.youngRate)
+                                .frame(maxHeight: .infinity)
                             retentionBadge(row.matureRate)
+                                .frame(maxHeight: .infinity)
                         }
                     }
                 }
+                .frame(maxHeight: .infinity, alignment: .top)
+                // The chart beside this one ends in a row of axis labels
+                // under its plot. Leaving the same band empty puts the last
+                // row on that chart's axis line rather than past it.
+                Text(verbatim: "0%")
+                    .amgiFont(.micro)
+                    .hidden()
+                    .accessibilityHidden(true)
             }
         }
     }

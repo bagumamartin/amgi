@@ -61,7 +61,7 @@ public struct AddedChart: View {
                 Text("Cards Added").amgiFont(.bodyEmphasis)
 
                 if filteredData.isEmpty {
-                    Text("No cards added").foregroundStyle(palette.textSecondary).frame(height: 180)
+                    Text("No cards added").foregroundStyle(palette.textSecondary).frame(minHeight: 180, idealHeight: 180, maxHeight: .infinity)
                 } else {
                     Chart {
                         ForEach(filteredData, id: \.day) { item in
@@ -97,7 +97,7 @@ public struct AddedChart: View {
                         xPosition: { Double($0) },
                         accessibilityText: selectedAccessibilityText
                     )
-                    .frame(height: 180)
+                    .frame(minHeight: 180, idealHeight: 180, maxHeight: .infinity)
                 }
 
                 HStack(spacing: 16) {

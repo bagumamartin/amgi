@@ -51,9 +51,10 @@ public struct StatsChartStack: View {
         }
     }
 
-    /// Same charts as `stackedBody`, in pairs that belong together: what is
+    /// Same charts as `stackedBody`, in pairs of matching height: what is
     /// due beside what was reviewed, the card mix beside its intervals, and
-    /// so on.
+    /// the rest paired so neither card in a row is much taller than the
+    /// other.
     @ViewBuilder
     private var pairedBody: some View {
         PeriodStatsCard(period: period, today: graphs.today, reviews: graphs.reviews)
@@ -74,17 +75,17 @@ public struct StatsChartStack: View {
         StatsChartPair(spacing: pairSpacing) {
             ButtonsChart(buttons: graphs.buttons, period: period)
         } trailing: {
-            HourlyChart(hours: graphs.hours, period: period)
+            EaseChart(eases: graphs.eases)
         }
         StatsChartPair(spacing: pairSpacing) {
             AddedChart(added: graphs.added, period: period)
         } trailing: {
-            RetentionChart(trueRetention: graphs.trueRetention)
+            HourlyChart(hours: graphs.hours, period: period)
         }
         StatsChartPair(spacing: pairSpacing) {
             RetrievabilityChart(retrievability: graphs.retrievability)
         } trailing: {
-            EaseChart(eases: graphs.eases)
+            RetentionChart(trueRetention: graphs.trueRetention)
         }
     }
 
@@ -110,7 +111,8 @@ public struct StatsChartStack: View {
     }
 }
 
-/// Two charts side by side at equal widths, top aligned.
+/// Two charts side by side at equal widths and equal heights: the shorter
+/// card stretches to the taller one, and its plot takes the extra room.
 private struct StatsChartPair<Leading: View, Trailing: View>: View {
     let spacing: CGFloat
     @ViewBuilder let leading: Leading
@@ -119,9 +121,32 @@ private struct StatsChartPair<Leading: View, Trailing: View>: View {
     var body: some View {
         HStack(alignment: .top, spacing: spacing) {
             leading
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             trailing
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .environment(\.statsChartIsPaired, true)
+    }
+}
+
+extension EnvironmentValues {
+    /// Set inside a ``StatsChartPair``: a chart keeps rows its partner has
+    /// (even empty) so both plots end on the same line.
+    @Entry var statsChartIsPaired = false
+}
+
+extension View {
+    /// Holds a row under a plot to the height of a toggle, the tallest thing
+    /// such a row carries (Future Due's Include Backlog). Rows beside each
+    /// other in a pair then match on every platform, whose toggles differ.
+    func statsChartControlRowHeight() -> some View {
+        ZStack {
+            Toggle(isOn: .constant(false)) { EmptyView() }
+                .labelsHidden()
+                .hidden()
+                .accessibilityHidden(true)
+            self
         }
     }
 }
