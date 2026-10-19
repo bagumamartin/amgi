@@ -64,12 +64,72 @@ enum StudyWideColumns {
     static let planWidth: CGFloat = 320
     /// Narrowest left column that still fits the day card beside Plan ahead.
     static let minimumPairedWidth: CGFloat = 700
+    /// Period control to activity card. Tighter than a section gap, so the
+    /// control's centre lands level with the list heading opposite it.
+    static let controlsGap: CGFloat = 0
 
     static func leftWidth(availableWidth: CGFloat) -> CGFloat {
         let layout = StudyContentLayout.wide
         let content = availableWidth - layout.horizontalPadding * 2
         return max(0, content - spacing - rightWidth)
     }
+}
+
+/// Lines the wide desk's two columns up on their first card: the activity
+/// card on the left, the first list card on the right. The period control
+/// and the list's heading then sit on one line above them.
+extension VerticalAlignment {
+    private enum StudyDeskCardTop: AlignmentID {
+        static func defaultValue(in d: ViewDimensions) -> CGFloat { d[.top] }
+    }
+
+    static let studyDeskCardTop = VerticalAlignment(StudyDeskCardTop.self)
+}
+
+/// Where the list column's first card starts, measured from the column's
+/// top. Reported by its headings rather than set as alignment guides: a
+/// stack averages its children's explicit guides, so a second heading
+/// would drag the column off the first.
+private struct StudyDeskListLeadKey: PreferenceKey {
+    static let defaultValue: CGFloat? = nil
+    static func reduce(value: inout CGFloat?, nextValue: () -> CGFloat?) {
+        guard let next = nextValue() else { return }
+        value = min(value ?? next, next)
+    }
+}
+
+private let studyDeskListSpace = "studyDeskList"
+
+extension View {
+    /// Marks a list heading on the wide desk: the card under it, `gap`
+    /// below, is what lines up with the activity card. The topmost
+    /// heading in the column wins.
+    func studyDeskHeading(gap: CGFloat) -> some View {
+        background {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: StudyDeskListLeadKey.self,
+                    value: proxy.frame(in: .named(studyDeskListSpace)).maxY + gap
+                )
+            }
+        }
+    }
+
+    /// The wide desk's list column: lines its first card up with the
+    /// activity card opposite.
+    func studyDeskListColumn(lead: Binding<CGFloat?>) -> some View {
+        coordinateSpace(.named(studyDeskListSpace))
+            .onPreferenceChange(StudyDeskListLeadKey.self) { value in
+                MainActor.assumeIsolated { lead.wrappedValue = value }
+            }
+            .alignmentGuide(.studyDeskCardTop) { d in lead.wrappedValue ?? d[.top] }
+    }
+}
+
+/// Widest the day card's primary button grows. Past this a full-width pill
+/// reads as a banner rather than a button.
+enum StudyPrimaryButton {
+    static let maxWidth: CGFloat = 360
 }
 
 enum StudyDashboardPresentation: Sendable {
@@ -144,6 +204,8 @@ public struct StudyLandingContent: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.locale) private var locale
     @State private var choseToWait = false
+    /// The wide desk list column's first-card offset; see `studyDeskListColumn`.
+    @State private var listLead: CGFloat?
 
     public init(
         state: State,
@@ -365,10 +427,13 @@ public struct StudyLandingContent: View {
             decks: decks,
             continueReading: continueReading
         )
-        return HStack(alignment: .top, spacing: StudyWideColumns.spacing) {
+        return HStack(alignment: .studyDeskCardTop, spacing: StudyWideColumns.spacing) {
             VStack(alignment: .leading, spacing: AmgiPage.sectionSpacing) {
-                todayPeriodControls
-                activityCard(presentation: presentation)
+                VStack(alignment: .leading, spacing: StudyWideColumns.controlsGap) {
+                    todayPeriodControls
+                    activityCard(presentation: presentation)
+                        .alignmentGuide(.studyDeskCardTop) { $0[.top] }
+                }
                 dayAndPlan(summary, sideBySide: leftWidth >= StudyWideColumns.minimumPairedWidth)
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -385,6 +450,7 @@ public struct StudyLandingContent: View {
                     supplementaryTodayContent
                 }
                 .frame(width: StudyWideColumns.rightWidth, alignment: .topLeading)
+                .studyDeskListColumn(lead: $listLead)
             }
         }
     }
@@ -457,10 +523,13 @@ public struct StudyLandingContent: View {
             }
 
             if layout == .wide {
-                HStack(alignment: .top, spacing: StudyWideColumns.spacing) {
+                HStack(alignment: .studyDeskCardTop, spacing: StudyWideColumns.spacing) {
                     VStack(alignment: .leading, spacing: layout.columnSpacing) {
-                        spanControls
-                        activityCard(presentation: .wide)
+                        VStack(alignment: .leading, spacing: StudyWideColumns.controlsGap) {
+                            spanControls
+                            activityCard(presentation: .wide)
+                                .alignmentGuide(.studyDeskCardTop) { $0[.top] }
+                        }
                         historyHeroCard
                     }
                     .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -474,6 +543,7 @@ public struct StudyLandingContent: View {
                         }
                     }
                     .frame(width: StudyWideColumns.rightWidth, alignment: .topLeading)
+                    .studyDeskListColumn(lead: $listLead)
                 }
             } else {
                 activityCard(presentation: layout.presentation)
@@ -753,6 +823,7 @@ public struct StudyLandingContent: View {
             .frame(minHeight: 44)
         }
         .buttonStyle(AmgiPrimaryButtonStyle())
+        .frame(maxWidth: StudyPrimaryButton.maxWidth)
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : 0.5)
         .accessibilityHint(isEnabled ? "" : AmgiL10n.text(spanRowsLoading ? "Loading this period…" : "No scheduled remaining cards", locale: locale))
@@ -763,6 +834,7 @@ public struct StudyLandingContent: View {
             Text("Study cuts")
                 .amgiFont(.sectionHeading)
                 .foregroundStyle(palette.textPrimary)
+                .studyDeskHeading(gap: AmgiSpacing.sm)
             if !spanRows.isEmpty {
                 timeRowsSection
             } else {
@@ -1013,6 +1085,7 @@ public struct StudyLandingContent: View {
             Text(spanDeckTitle)
                 .amgiFont(.sectionHeading)
                 .foregroundStyle(palette.textPrimary)
+                .studyDeskHeading(gap: AmgiSpacing.sm)
             Text("Counts use each card's current deck placement.")
                 .amgiFont(.caption)
                 .foregroundStyle(palette.textTertiary)
@@ -1053,6 +1126,7 @@ public struct StudyLandingContent: View {
             Text(AmgiL10n.text(title, locale: locale))
                 .amgiFont(.sectionHeading)
                 .foregroundStyle(palette.textPrimary)
+                .studyDeskHeading(gap: AmgiSpacing.sm)
             timeRowList(rows)
         }
     }
@@ -1120,6 +1194,7 @@ public struct StudyLandingContent: View {
             // AmgiUI also compiles for the watch, which has neither style.
             .pickerStyle(.segmented)
             #endif
+            .labelsHidden()
             .accessibilityLabel(accessibilityLabel)
             stepButton(
                 systemName: "chevron.right",
@@ -1245,6 +1320,7 @@ public struct StudyLandingContent: View {
                     .frame(minHeight: 44)
                 }
                 .buttonStyle(AmgiPrimaryButtonStyle())
+                .frame(maxWidth: StudyPrimaryButton.maxWidth)
                 .accessibilityHint(AmgiL10n.text("Begins a review session using the current deck limits", locale: locale))
                 if !summary.localizedSessionShape(locale: locale).isEmpty {
                     Text(sessionLine(summary))
@@ -1329,6 +1405,7 @@ public struct StudyLandingContent: View {
             .amgiFont(.sectionHeading)
             .foregroundStyle(palette.textPrimary)
             .padding(.bottom, 8)
+            .studyDeskHeading(gap: 0)
     }
 }
 
