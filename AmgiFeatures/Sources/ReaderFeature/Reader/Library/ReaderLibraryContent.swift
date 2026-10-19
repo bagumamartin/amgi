@@ -154,7 +154,7 @@ private enum ReaderLibraryColumn {
             onConfigure: {},
             onRetry: {}
         )
-        .navigationTitle("Library")
+        .navigationTitle("Read")
     }
 }
 
@@ -168,7 +168,7 @@ private enum ReaderLibraryColumn {
             onConfigure: {},
             onRetry: {}
         )
-        .navigationTitle("Library")
+        .navigationTitle("Read")
     }
 }
 #endif

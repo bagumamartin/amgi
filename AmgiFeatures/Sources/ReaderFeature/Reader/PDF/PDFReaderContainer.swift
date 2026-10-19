@@ -39,14 +39,18 @@ struct PDFReaderView: View {
     @State private var scrubState = PDFScrubState()
     @State private var hasRestoredInitialPage = false
     @State private var chromeVisible: Bool = true
-    @State private var isMarkupActive: Bool = false
     @State private var isContentsSheetPresented = false
     @State private var isStyleSheetPresented = false
     @State private var isSearchVisible = false
     @State private var searchText = ""
     @State private var searchResultCount = 0
-    @State private var macSidebarVisible = true
-    @State private var macThumbnailWidth: CGFloat = 174
+    #if os(macOS)
+    @State private var macSidebarMode: PDFMacSidebarMode = .thumbnails
+    /// What the sidebar button brings back after hiding it.
+    @State private var macLastSidebarMode: PDFMacSidebarMode = .thumbnails
+    @State private var macThumbnailWidth: CGFloat = 120
+    @State private var macHighlightColour: PDFAnnotationColour = .yellow
+    #endif
     @State private var selection: PDFSelectionContext?
     @State private var lookupRequest: LookupRequest?
     @State private var cards = ReaderCardSession()
@@ -66,7 +70,6 @@ struct PDFReaderView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.palette) private var palette
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.pdfReaderWindowState) private var pdfReaderWindowState
 
     private var theme: ReaderTypographyPreferences.Theme {
         ReaderTypographyPreferences.Theme(rawValue: themeRaw) ?? .default
@@ -128,18 +131,10 @@ struct PDFReaderView: View {
         .overlay { ReaderMarkMenuLayer(session: cards) }
         .animation(AmgiMotion.standard, value: cards.markMenu?.id)
         .task { await open() }
-        .onAppear {
-            #if os(macOS)
-            pdfReaderWindowState?.isActive = true
-            #endif
-        }
         .onDisappear {
             model.persistPosition(navigation.pageIndex)
             // Leaving the book saves the cards that are ready.
             Task { [cards] in await cards.saveReadyDrafts() }
-            #if os(macOS)
-            pdfReaderWindowState?.isActive = false
-            #endif
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .inactive || phase == .background {
@@ -220,7 +215,8 @@ struct PDFReaderView: View {
         .frame(maxWidth: .infinity)
         .padding(.leading, 16)
         #if os(macOS)
-        .padding(.trailing, 16)
+        // Leaves Ask AI its corner.
+        .padding(.trailing, 16 + Self.macAssistantButtonSize + 12)
         .padding(.bottom, 14)
         #else
         // Leaves Ask AI its column whenever the chrome is showing.
@@ -363,39 +359,42 @@ struct PDFReaderView: View {
     #if os(macOS)
     private var macReaderBody: some View {
         GeometryReader { geometry in
-            VStack(spacing: 0) {
-                HStack(spacing: 0) {
-                    if macSidebarVisible {
-                        PDFMacThumbnailSidebar(
-                            model: model,
-                            currentPage: navigation.pageIndex,
-                            onSelectPage: { navigate(to: $0, userInitiated: true) },
-                            thumbnailWidth: $macThumbnailWidth
-                        )
-                        Divider()
-                    }
+            HStack(spacing: 0) {
+                if macSidebarMode != .hidden {
+                    PDFMacThumbnailSidebar(
+                        mode: macSidebarMode,
+                        model: model,
+                        currentPage: navigation.pageIndex,
+                        onSelectPage: { navigate(to: $0, userInitiated: true) },
+                        thumbnailWidth: $macThumbnailWidth
+                    )
+                    Divider()
+                }
 
-                    ZStack(alignment: .bottom) {
-                        PDFPageCanvas(
-                            model: model,
-                            navigation: navigation,
-                            coordinator: canvasCoordinator,
-                            searchTerm: !searchText.isEmpty ? searchText : nil,
-                            theme: theme,
-                            onPageChanged: { index in
-                                navigation.move(
-                                    toPage: index,
-                                    label: model.label(forPage: index),
-                                    count: model.pageCount,
-                                    userInitiated: true
-                                )
-                            },
-                            onSearchResultsChanged: { searchResultCount = $0 },
-                            onStepSearchResult: { canvasCoordinator.stepSearchResult(by: $0) },
-                            onSelectionChanged: { selection = $0 }
+                PDFPageCanvas(
+                    model: model,
+                    navigation: navigation,
+                    coordinator: canvasCoordinator,
+                    searchTerm: !searchText.isEmpty ? searchText : nil,
+                    theme: theme,
+                    onPageChanged: { index in
+                        navigation.move(
+                            toPage: index,
+                            label: model.label(forPage: index),
+                            count: model.pageCount,
+                            userInitiated: true
                         )
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    },
+                    onSearchResultsChanged: { searchResultCount = $0 },
+                    onStepSearchResult: { canvasCoordinator.stepSearchResult(by: $0) },
+                    onSelectionChanged: { selection = $0 }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // Ask AI floats over the page's corner, as in the EPUB reader
+                // and the rest of the app, rather than sitting in the toolbar.
+                .overlay(alignment: .bottomTrailing) {
+                    ReaderAssistantButton(context: { assistantContext }, size: Self.macAssistantButtonSize)
+                        .padding(16)
                 }
             }
             .onAppear {
@@ -405,164 +404,247 @@ struct PDFReaderView: View {
                 canvasCoordinator.layoutChanged()
             }
         }
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(Color(nsColor: .underPageBackgroundColor))
+        .background { macKeyboardShortcuts }
         .navigationBarBackButtonHidden(true)
+        // The window's own title and subtitle, as Preview shows them — a
+        // hand-drawn title here sat beside the window title ("Ijuka") and
+        // showed the stored file name ("original.pdf") instead of the book.
+        // Names the window (Window menu, Mission Control). The toolbar draws
+        // the visible title itself, with the page under it, as Preview does:
+        // `navigationSubtitle` is not shown in this toolbar style.
+        .navigationTitle(book.title)
+        .toolbar(removing: .title)
         .toolbar { macToolbar }
+        .searchable(text: $searchText, placement: .toolbar, prompt: "Search")
+        // Typing searches live (`searchTerm` above); Return steps through the
+        // matches, as it does in Preview.
+        .onSubmit(of: .search) { canvasCoordinator.stepSearchResult(by: 1) }
         .onChange(of: pdfPageNavigationRaw) { _, _ in
             navigation.transition = pageNavigationTransition
             canvasCoordinator.apply(navigation)
         }
-        .onChange(of: macSidebarVisible) { _, _ in
+        .onChange(of: macSidebarMode) { _, _ in
             canvasCoordinator.layoutChanged()
         }
     }
 
+    private static let macAssistantButtonSize: CGFloat = 36
+
+    private var macSubtitle: String {
+        let page = "Page \(navigation.pageIndex + 1) of \(max(1, model.pageCount))"
+        guard !searchText.isEmpty else { return page }
+        let matches = searchResultCount == 1 ? "1 match" : "\(searchResultCount) matches"
+        return "\(page) — \(matches)"
+    }
+
+    // MARK: - Mac toolbar
+
     @ToolbarContentBuilder
     private var macToolbar: some ToolbarContent {
-        ToolbarItemGroup(placement: .navigation) {
+        ToolbarItem(placement: .navigation) {
             Button(action: closeReader) {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 13, weight: .semibold))
+                Label("Back to Read", systemImage: "chevron.left")
             }
-            .help("Back to Library")
-            .accessibilityLabel("Back to Library")
+            .help("Back to Read")
+        }
 
-            Button {
-                macSidebarVisible.toggle()
+        ToolbarItem(placement: .navigation) {
+            Menu {
+                ForEach(PDFMacSidebarMode.allCases) { mode in
+                    Toggle(isOn: Binding(
+                        get: { macSidebarMode == mode },
+                        set: { _ in setMacSidebar(mode) }
+                    )) {
+                        Text(mode.title)
+                    }
+                    .keyboardShortcut(mode.shortcut, modifiers: [.option, .command])
+                }
             } label: {
-                Image(systemName: macSidebarVisible ? "sidebar.left" : "sidebar.right")
+                Label("Sidebar", systemImage: "sidebar.left")
+            } primaryAction: {
+                setMacSidebar(macSidebarMode == .hidden ? macLastSidebarMode : .hidden)
             }
-            .help(macSidebarVisible ? "Hide Page Thumbnails" : "Show Page Thumbnails")
-            .accessibilityLabel(macSidebarVisible ? "Hide Page Thumbnails" : "Show Page Thumbnails")
+            .help("Show or hide the sidebar")
+        }
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(model.managedURL?.lastPathComponent ?? book.title)
+        ToolbarItem(placement: .navigation) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(book.title)
                     .font(.system(size: 13, weight: .semibold))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Text("Page \(navigation.pageIndex + 1) of \(max(1, model.pageCount))")
-                    .font(.system(size: 11, weight: .regular, design: .rounded))
+                Text(macSubtitle)
+                    .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
+                    .lineLimit(1)
             }
-            .frame(minWidth: 190, maxWidth: 280, alignment: .leading)
+            .frame(maxWidth: 320, alignment: .leading)
+            .padding(.horizontal, 6)
+            .accessibilityElement(children: .combine)
         }
+        .sharedBackgroundVisibility(.hidden)
 
-        ToolbarItem(placement: .principal) {
-            HStack(spacing: 0) {
-                macToolbarButton("minus.magnifyingglass", label: "Zoom Out") {
-                    canvasCoordinator.zoom(by: 1 / 1.2)
-                }
-                Divider().frame(height: 20)
-                macToolbarButton("1.magnifyingglass", label: "Actual Size") {
-                    canvasCoordinator.useActualSize()
-                }
-                Divider().frame(height: 20)
-                macToolbarButton("plus.magnifyingglass", label: "Zoom In") {
-                    canvasCoordinator.zoom(by: 1.2)
-                }
+        // Title on the left, tools on the right, as in Preview.
+        ToolbarSpacer(.flexible)
+
+        // One capsule, as Preview groups them.
+        ToolbarItemGroup(placement: .primaryAction) {
+            Button { canvasCoordinator.zoom(by: 1 / 1.2) } label: {
+                Label("Zoom Out", systemImage: "minus.magnifyingglass")
             }
-            .padding(.horizontal, 3)
-            .background(Color.primary.opacity(0.055), in: Capsule())
-        }
-
-        ToolbarItemGroup(placement: .automatic) {
-            HStack(spacing: 6) {
-                macToolbarButton("pencil.tip.crop.circle", label: "Markup") {
-                    isMarkupActive.toggle()
-                }
-                .foregroundStyle(isMarkupActive ? Color.accentColor : Color.primary)
-
-                macToolbarButton("a.circle", label: "Themes and Settings") {
-                    isStyleSheetPresented = true
-                }
-
-                macToolbarButton("info.circle", label: "Contents and Annotations") {
-                    isContentsSheetPresented = true
-                }
-
-                ReaderAssistantButton(context: { assistantContext }, size: 28, floating: false)
-
-                if let managedURL = model.managedURL {
-                    ShareLink(item: managedURL) {
-                        Image(systemName: "square.and.arrow.up")
-                            .font(.system(size: 14, weight: .medium))
-                            .frame(width: 28, height: 28)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Share PDF")
-                    .accessibilityLabel("Share PDF")
-                }
+            .help("Zoom Out (⌘−)")
+            Button { canvasCoordinator.useActualSize() } label: {
+                Label("Actual Size", systemImage: "1.magnifyingglass")
             }
-
+            .help("Actual Size (⌘0)")
+            Button { canvasCoordinator.zoom(by: 1.2) } label: {
+                Label("Zoom In", systemImage: "plus.magnifyingglass")
+            }
+            .help("Zoom In (⌘+)")
         }
 
         ToolbarItem(placement: .primaryAction) {
-            macSearchField
+            Menu {
+                ForEach(Self.macHighlightColours) { colour in
+                    Button {
+                        macHighlightColour = colour
+                        highlightCurrentSelection()
+                    } label: {
+                        Label {
+                            Text(colour.label)
+                        } icon: {
+                            Image(systemName: "circle.fill")
+                                .foregroundStyle(Color(nsColor: colour.platformColor))
+                        }
+                    }
+                }
+            } label: {
+                Label("Highlight", systemImage: "highlighter")
+            } primaryAction: {
+                highlightCurrentSelection()
+            }
+            .help("Highlight the selection (⌃⌘H)")
+        }
+
+        ToolbarItem(placement: .primaryAction) {
+            Menu {
+                Button("New Card from Selection") { makeCardFromSelection(.newCard) }
+                    .keyboardShortcut("j", modifiers: .command)
+                Button("Add Selection to Back") { makeCardFromSelection(.addToBack) }
+                    .keyboardShortcut("j", modifiers: [.option, .command])
+                    .disabled(cards.drafts.menuContext.drafts.isEmpty)
+                Button("Add Selection to Front") { makeCardFromSelection(.addToFront) }
+                    .disabled(cards.drafts.menuContext.drafts.isEmpty)
+            } label: {
+                Label("Make Card", systemImage: "rectangle.stack.badge.plus")
+            } primaryAction: {
+                makeCardFromSelection(cards.drafts.menuContext.drafts.isEmpty ? .newCard : .addToBack)
+            }
+            .help(cards.drafts.menuContext.drafts.isEmpty
+                ? "Make a card from the selection (⌘J)"
+                : "Add the selection to the back of the waiting card (⌥⌘J)")
+        }
+
+        ToolbarItem(placement: .primaryAction) {
+            Button { isStyleSheetPresented = true } label: {
+                Label("Themes and Settings", systemImage: "textformat.size")
+            }
+            .help("Themes and Settings")
+        }
+
+        ToolbarItem(placement: .primaryAction) {
+            Button { isContentsSheetPresented = true } label: {
+                Label("Bookmarks and Annotations", systemImage: "info.circle")
+            }
+            .help("Bookmarks, Highlights and Notes")
+        }
+
+        if let managedURL = model.managedURL {
+            ToolbarItem(placement: .primaryAction) {
+                ShareLink(item: managedURL) {
+                    Label("Share", systemImage: "square.and.arrow.up")
+                }
+                .help("Share PDF")
+            }
         }
     }
 
-    private func macToolbarButton(
-        _ symbol: String,
-        label: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 14, weight: .medium))
-                .frame(width: 30, height: 28)
-                .contentShape(Rectangle())
+    private static let macHighlightColours: [PDFAnnotationColour] = [.yellow, .green, .blue, .pink, .purple]
+
+    private func setMacSidebar(_ mode: PDFMacSidebarMode) {
+        if mode != .hidden { macLastSidebarMode = mode }
+        withAnimation(.easeInOut(duration: 0.2)) { macSidebarMode = mode }
+    }
+
+    /// Keyboard equivalents that work whether or not a toolbar menu is open.
+    /// A shortcut on an item inside a toolbar `Menu` only shows the glyph;
+    /// AppKit never looks inside toolbar menus for key equivalents.
+    private var macKeyboardShortcuts: some View {
+        Group {
+            Button("") { makeCardFromSelection(.newCard) }
+                .keyboardShortcut("j", modifiers: .command)
+            Button("") { makeCardFromSelection(.addToBack) }
+                .keyboardShortcut("j", modifiers: [.option, .command])
+            Button("") { highlightCurrentSelection() }
+                .keyboardShortcut("h", modifiers: [.control, .command])
+            ForEach(PDFMacSidebarMode.allCases) { mode in
+                Button("") { setMacSidebar(mode) }
+                    .keyboardShortcut(mode.shortcut, modifiers: [.option, .command])
+            }
+            Button("") { canvasCoordinator.zoom(by: 1.2) }
+                .keyboardShortcut("+", modifiers: .command)
+            Button("") { canvasCoordinator.zoom(by: 1 / 1.2) }
+                .keyboardShortcut("-", modifiers: .command)
+            Button("") { canvasCoordinator.useActualSize() }
+                .keyboardShortcut("0", modifiers: .command)
+            Button("") { canvasCoordinator.stepSearchResult(by: 1) }
+                .keyboardShortcut("g", modifiers: .command)
+            Button("") { canvasCoordinator.stepSearchResult(by: -1) }
+                .keyboardShortcut("g", modifiers: [.shift, .command])
         }
         .buttonStyle(.plain)
-        .help(label)
-        .accessibilityLabel(label)
+        .frame(width: 0, height: 0)
+        .opacity(0)
+        .accessibilityHidden(true)
     }
 
-    private var macSearchField: some View {
-        HStack(spacing: 7) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.secondary)
+    private enum MacCardTarget {
+        case newCard, addToBack, addToFront
+    }
 
-            TextField("Search", text: $searchText)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12))
-                .onSubmit { canvasCoordinator.search(searchText) }
-
-            if searchResultCount > 0 {
-                Text("\(searchResultCount)")
-                    .font(.system(size: 11, design: .rounded))
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-
-                Button { canvasCoordinator.stepSearchResult(by: -1) } label: {
-                    Image(systemName: "chevron.up")
-                }
-                .buttonStyle(.plain)
-                .help("Previous Match")
-
-                Button { canvasCoordinator.stepSearchResult(by: 1) } label: {
-                    Image(systemName: "chevron.down")
-                }
-                .buttonStyle(.plain)
-                .help("Next Match")
-            }
-
-            if !searchText.isEmpty {
-                Button {
-                    searchText = ""
-                    searchResultCount = canvasCoordinator.search(nil)
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .help("Clear Search")
-            }
+    /// The selection straight into a card, without the context menu: a new
+    /// draft, or a side of the waiting one. Nothing selected beeps, as a Mac
+    /// command with nothing to act on does.
+    private func makeCardFromSelection(_ target: MacCardTarget) {
+        guard let context = canvasCoordinator.contextProvider?(.textSelection, nil), context.hasText else {
+            NSSound.beep()
+            return
         }
-        .padding(.horizontal, 10)
-        .frame(width: 250, height: 30)
-        .background(Color.primary.opacity(0.055), in: Capsule())
+        let front = cards.drafts.menuContext.drafts.first
+        let command: ReaderCardMenuCommand
+        switch target {
+        case .newCard:
+            command = .newCard
+        case .addToBack:
+            command = front.map { .add(draftID: $0.id, side: .back) } ?? .newCard
+        case .addToFront:
+            guard let front else { NSSound.beep(); return }
+            command = .add(draftID: front.id, side: .front)
+        }
+        let payload = selectionPayload(for: context)
+        canvasCoordinator.clearSelection()
+        Task { await cards.handle(command, payload: payload, chapterID: nil) }
+    }
+
+    private func highlightCurrentSelection() {
+        guard let context = canvasCoordinator.contextProvider?(.textSelection, nil), context.hasText else {
+            NSSound.beep()
+            return
+        }
+        addHighlight(for: context, colour: macHighlightColour)
+        canvasCoordinator.clearSelection()
     }
     #endif
 

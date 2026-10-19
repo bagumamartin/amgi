@@ -81,6 +81,34 @@ struct PDFScrubberGeometryTests {
         #expect(PDFScrubberGeometry.sampledPageIndices(pageCount: 0, availableWidth: 336).isEmpty)
     }
 
+    @Test("a short document gets a strip that hugs its pages, a long one the full width")
+    func stripWidthHugsShortDocuments() {
+        let inset: CGFloat = 18, minimum: CGFloat = 120
+        // 10 pages: one pitch between each, plus the insets.
+        #expect(PDFScrubberGeometry.stripWidth(
+            pageCount: 10, availableWidth: 800, inset: inset, minimumWidth: minimum
+        ) == inset * 2 + 9 * PDFScrubberGeometry.samplePitch)
+        // Never narrower than the minimum, even for one page.
+        #expect(PDFScrubberGeometry.stripWidth(
+            pageCount: 1, availableWidth: 800, inset: inset, minimumWidth: minimum
+        ) == minimum)
+        // Never wider than the space available.
+        #expect(PDFScrubberGeometry.stripWidth(
+            pageCount: 585, availableWidth: 800, inset: inset, minimumWidth: minimum
+        ) == 800)
+    }
+
+    @Test("every page of a short document is a sample, one pitch apart")
+    func shortDocumentSamplesEveryPage() {
+        let inset: CGFloat = 18
+        let width = PDFScrubberGeometry.stripWidth(pageCount: 29, availableWidth: 1000, inset: inset, minimumWidth: 120)
+        let samples = PDFScrubberGeometry.sampledPageIndices(pageCount: 29, availableWidth: width - inset * 2)
+        #expect(samples == Array(0..<29))
+        let a = PDFScrubberGeometry.centerX(forPage: 3, width: width, inset: inset, pageCount: 29)
+        let b = PDFScrubberGeometry.centerX(forPage: 4, width: width, inset: inset, pageCount: 29)
+        #expect(abs((b - a) - PDFScrubberGeometry.samplePitch) < 0.001)
+    }
+
     @Test("nearest sample stands in for a page that is still drawing")
     func nearestSample() {
         #expect(PDFScrubberGeometry.nearestSample(to: 43, in: [0, 40, 80]) == 40)

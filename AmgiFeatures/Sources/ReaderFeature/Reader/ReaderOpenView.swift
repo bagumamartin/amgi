@@ -42,6 +42,7 @@ struct ReaderOpenView: View {
 
     var body: some View {
         destination
+            .readerTakesWindow()
             // The Ask AI pill reads the screen's context from here when the
             // reader has not published a more specific one.
             .transformPreference(AssistantScreenContextKey.self) { value in

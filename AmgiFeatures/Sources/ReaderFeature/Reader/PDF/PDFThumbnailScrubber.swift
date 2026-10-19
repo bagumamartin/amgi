@@ -45,7 +45,12 @@ struct PDFThumbnailScrubber: View {
     @State private var seeks = PDFScrubSeekCoalescer()
     @State private var haptics = PDFScrubberHaptics()
 
-    private let trackInset: CGFloat = 12
+    /// Room at each end for half a tile plus the capsule's rounded end, so
+    /// the first and last samples sit wholly inside the strip.
+    private let trackInset: CGFloat = 18
+    /// A one- or two-page document still gets a strip wide enough to read
+    /// as a control.
+    private let minimumStripWidth: CGFloat = 120
     private let stripHeight: CGFloat = 56
     private static let sampleSize = CGSize(width: 38, height: 54)
     private static let selectedSize = CGSize(width: 76, height: 108)
@@ -55,7 +60,12 @@ struct PDFThumbnailScrubber: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let width = geometry.size.width
+            let width = PDFScrubberGeometry.stripWidth(
+                pageCount: pageCount,
+                availableWidth: geometry.size.width,
+                inset: trackInset,
+                minimumWidth: minimumStripWidth
+            )
             let sampleIndices = PDFScrubberGeometry.sampledPageIndices(
                 pageCount: pageCount,
                 availableWidth: width - trackInset * 2
@@ -75,19 +85,27 @@ struct PDFThumbnailScrubber: View {
                 margin: 2
             )
 
-            ZStack(alignment: .leading) {
-                HStack(alignment: .center, spacing: 3) {
-                    ForEach(sampleIndices, id: \.self) { index in
-                        // The page the raised tile shows is not shown again
-                        // in the strip. Near either end the raised tile is
-                        // pulled inward to stay inside the capsule, which
-                        // uncovered a sliver of the same page beside it.
-                        sampleTile(at: index)
-                            .opacity(index == displayPage ? 0 : 1)
-                    }
+            ZStack(alignment: .topLeading) {
+                // Each sample sits at its own page's x — the mapping the
+                // finger and the raised tile use — rather than wherever an
+                // HStack happened to centre it.
+                ForEach(sampleIndices, id: \.self) { index in
+                    // The page the raised tile shows is not shown again
+                    // in the strip. Near either end the raised tile is
+                    // pulled inward to stay inside the capsule, which
+                    // uncovered a sliver of the same page beside it.
+                    sampleTile(at: index)
+                        .opacity(index == displayPage ? 0 : 1)
+                        .position(
+                            x: PDFScrubberGeometry.centerX(
+                                forPage: index,
+                                width: width,
+                                inset: trackInset,
+                                pageCount: pageCount
+                            ),
+                            y: geometry.size.height / 2
+                        )
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(.horizontal, trackInset)
 
                 currentPageTile(at: displayPage)
                     .position(x: x, y: geometry.size.height / 2)
@@ -100,6 +118,8 @@ struct PDFThumbnailScrubber: View {
             .amgiMaterialElevation(Capsule())
             .scaleEffect(x: isScrubbing ? 1.025 : 1, y: isScrubbing ? 1.06 : 1)
             .animation(.spring(response: 0.22, dampingFraction: 0.78), value: isScrubbing)
+            // A short document's strip hugs its pages, centred.
+            .frame(maxWidth: .infinity)
             .task(id: Self.sampleTaskKey(documentID: model.documentID, indices: sampleIndices)) {
                 if sampleDocumentID != model.documentID {
                     sampleDocumentID = model.documentID
@@ -140,7 +160,7 @@ struct PDFThumbnailScrubber: View {
             if let image = sampleImages[index] {
                 Image(platformImage: image)
                     .resizable()
-                    .aspectRatio(contentMode: .fit)
+                    .aspectRatio(contentMode: .fill)
             } else {
                 RoundedRectangle(cornerRadius: 2)
                     .fill(Color.white.opacity(0.92))

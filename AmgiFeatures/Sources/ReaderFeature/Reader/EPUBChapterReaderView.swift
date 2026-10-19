@@ -249,6 +249,9 @@ struct EPUBChapterReaderView: View {
         #if os(iOS)
         .toolbarVisibility(.hidden, for: .navigationBar)
         .toolbarVisibility(.hidden, for: .tabBar)
+        #else
+        // The window title read "Ijuka" over an open book.
+        .navigationTitle(book.title)
         #endif
         .preference(key: AssistantScreenContextKey.self, value: assistantContext)
         .task {
@@ -505,7 +508,14 @@ struct EPUBChapterReaderView: View {
                     pagination = ReaderPaginationIndex(chapterCount: book.chapters.count)
                     restoreCachedPagination(size: size)
                 }
+                #if os(macOS)
+                // Only under the toolbar: a sidebar's inset is a horizontal
+                // safe area, and ignoring it laid the spread out beneath the
+                // sidebar, clipping the left page.
+                .ignoresSafeArea(edges: .vertical)
+                #else
                 .ignoresSafeArea()
+                #endif
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 // VoiceOver has no gesture for "turn the page" in a paginated
                 // reader — the web view's scroll view is the only thing it

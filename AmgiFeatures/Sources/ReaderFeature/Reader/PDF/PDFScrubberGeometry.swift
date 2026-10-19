@@ -50,11 +50,31 @@ enum PDFScrubberGeometry {
         return min(max(x, lowest), highest)
     }
 
+    /// Centre-to-centre distance between two sample tiles.
+    static let samplePitch: CGFloat = 22
+
+    /// The strip's own width: the whole of `availableWidth` when the document
+    /// has more pages than fit, otherwise just enough for one tile per page.
+    ///
+    /// A short document used to get a full-width capsule with its few tiles
+    /// bunched in the middle, while the raised tile and the finger still
+    /// mapped across the whole width — so the selected page sat away from its
+    /// own tile. Hugging the pages keeps the strip and the mapping in step.
+    static func stripWidth(
+        pageCount: Int,
+        availableWidth: CGFloat,
+        inset: CGFloat,
+        minimumWidth: CGFloat
+    ) -> CGFloat {
+        let fitted = inset * 2 + CGFloat(max(0, pageCount - 1)) * samplePitch
+        return min(availableWidth, max(fitted, minimumWidth))
+    }
+
     /// Evenly spaced representative pages for a strip of `availableWidth`,
     /// always including the first and last page.
     static func sampledPageIndices(pageCount: Int, availableWidth: CGFloat) -> [Int] {
         guard pageCount > 0 else { return [] }
-        let desiredCount = max(1, min(80, Int(availableWidth / 22)))
+        let desiredCount = max(1, min(80, Int(availableWidth / samplePitch) + 1))
         let sampleCount = min(pageCount, desiredCount)
         guard sampleCount > 1 else { return [0] }
         return (0..<sampleCount).map { sample in

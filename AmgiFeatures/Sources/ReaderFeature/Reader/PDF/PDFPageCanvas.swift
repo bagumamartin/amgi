@@ -104,27 +104,54 @@ final class PDFViewCoordinator: NSObject {
             self.pendingProgrammaticPageIndex = nil
             if index == pendingProgrammaticPageIndex { return }
         }
-        // Refit a completed page turn in paged mode, but never change scale
-        // under a continuous scroll gesture: that changes the scroll geometry
-        // while PDFKit is deciding which page is current.
+        // A completed page turn in paged mode lands at the reader's resting
+        // zoom, at the top of the new page. Never under a continuous scroll
+        // gesture: that changes the scroll geometry while PDFKit is deciding
+        // which page is current.
         if navigation.transition != .continuous {
-            if hasUserZoom {
-                applyUserScale(to: view, scale: savedUserScale)
-            } else {
-                applyFit(to: view)
-            }
+            settle(on: page, in: view)
         }
         onPageChanged?(index)
     }
 
     @objc private func scaleChanged() {
-        guard !isApplyingModelChange, let view else { return }
+        guard !isApplyingModelChange, !isScrubberActive, let view else { return }
+        #if os(iOS)
+        // In paged mode each page sits in its own zooming scroll view, and
+        // PDFKit reports that page's default scale as it swaps pages in. Only
+        // a pinch is the reader choosing a zoom; taking PDFKit's report for
+        // one is what made a scrub show pages at a different size from the
+        // page the reader had zoomed.
+        guard isUserPinching else { return }
+        #endif
         hasUserZoom = true
         savedUserScale = view.scaleFactor
     }
 
+    #if os(iOS)
+    /// True from a pinch's first sample until shortly after it lifts, so the
+    /// scale reports PDFKit sends as it finishes the zoom still count.
+    private var isUserPinching = false
+
+    @objc func handlePinch(_ recognizer: UIPinchGestureRecognizer) {
+        switch recognizer.state {
+        case .began, .changed:
+            isUserPinching = true
+        case .ended, .cancelled, .failed:
+            if let view {
+                hasUserZoom = true
+                savedUserScale = view.scaleFactor
+            }
+            DispatchQueue.main.async { [weak self] in self?.isUserPinching = false }
+        default:
+            break
+        }
+    }
+    #endif
+
     func setScrubberActive(_ active: Bool) {
         isScrubberActive = active
+        if !active, let view { refreshRendering(of: view) }
     }
 
     /// The window changed size. Refit only while the reader is in its initial
@@ -346,6 +373,7 @@ final class PDFViewCoordinator: NSObject {
             pendingProgrammaticPageIndex = navigation.pageIndex
             view.go(to: target)
             isApplyingModelChange = false
+            if didInitialFit { settle(on: target, in: view) }
         }
 
         // The first fit waits for a real width: a view not laid out yet
@@ -365,6 +393,9 @@ final class PDFViewCoordinator: NSObject {
         pendingProgrammaticPageIndex = index
         defer { isApplyingModelChange = false }
         view.go(to: page)
+        // Each page the scrub passes shows at the zoom the reader left, from
+        // its top, rather than at PDFKit's default size for a fresh page.
+        settle(on: page, in: view)
     }
 
     @discardableResult
@@ -431,18 +462,118 @@ final class PDFViewCoordinator: NSObject {
         view.minScaleFactor = 0.25
         view.maxScaleFactor = 5.0
         view.autoScales = false
-        let fit = view.scaleFactorForSizeToFit
-        if let page = view.currentPage ?? view.document?.page(at: navigation.pageIndex),
-           let widthFit = Self.widthFitScale(for: page, in: view, pageFit: fit) {
-            view.scaleFactor = widthFit
-            if scrollToTop {
-                let bounds = page.bounds(for: view.displayBox)
-                view.go(to: PDFDestination(page: page, at: CGPoint(x: bounds.minX, y: bounds.maxY)))
-            }
-        } else if fit > 0 {
-            view.scaleFactor = fit
+        let page = view.currentPage ?? view.document?.page(at: navigation.pageIndex)
+        if let page, let scale = fitScale(for: page, in: view) {
+            view.scaleFactor = scale
+            refreshRendering(of: view)
         }
         isApplyingModelChange = false
+        // Every page opens at its top — a tall page used to open at its
+        // middle, and an ordinary one zoomed in did the same.
+        if scrollToTop, let page { self.scrollToTop(of: page, in: view) }
+    }
+
+    /// The page's resting fit: the whole page, or its width when it is tall.
+    private func fitScale(for page: PDFPage, in view: PDFView) -> CGFloat? {
+        let fit = view.scaleFactorForSizeToFit
+        if let widthFit = Self.widthFitScale(for: page, in: view, pageFit: fit) { return widthFit }
+        return fit > 0 ? fit : nil
+    }
+
+    /// Puts `page` at the reader's resting zoom — the zoom the reader chose,
+    /// or the page's own fit — with its top in view. Used for every page
+    /// change, so swiping, tapping and scrubbing all agree.
+    private func settle(on page: PDFPage, in view: PDFView) {
+        let apply: @MainActor () -> Void = { [weak self, weak view] in
+            guard let self, let view else { return }
+            self.isApplyingModelChange = true
+            if self.hasUserZoom {
+                view.minScaleFactor = 0.25
+                view.maxScaleFactor = 5.0
+                view.autoScales = false
+                view.scaleFactor = min(max(self.savedUserScale, view.minScaleFactor), view.maxScaleFactor)
+            } else if let scale = self.fitScale(for: page, in: view) {
+                view.autoScales = false
+                view.scaleFactor = scale
+            }
+            // Mid-scrub a page is on screen for a frame or two; drawing it
+            // sharp is wasted work. The release redraws the page it lands on.
+            if !self.isScrubberActive { self.refreshRendering(of: view) }
+            self.isApplyingModelChange = false
+            self.scrollToTop(of: page, in: view)
+        }
+        #if os(iOS)
+        if view.isUsingPageViewController {
+            // The page view controller swaps the page in on the next pass;
+            // scaling now would scale the page that is leaving.
+            DispatchQueue.main.async { apply() }
+            return
+        }
+        #endif
+        apply()
+    }
+
+    /// Scrolls so the top of `page` is at the top of the view (and its left
+    /// edge, when zoomed wider than the view).
+    private func scrollToTop(of page: PDFPage, in view: PDFView) {
+        #if os(iOS)
+        if view.isUsingPageViewController {
+            // `go(to: PDFDestination)` does not move the page's own scroll
+            // view in paged mode, which is why tall pages opened mid-page.
+            guard let scroll = Self.currentPageScrollView(in: view) else { return }
+            let inset = scroll.adjustedContentInset
+            var offset = scroll.contentOffset
+            offset.y = -inset.top
+            if scroll.contentSize.width > scroll.bounds.width - inset.left - inset.right {
+                offset.x = -inset.left
+            }
+            scroll.setContentOffset(offset, animated: false)
+            return
+        }
+        #endif
+        let bounds = page.bounds(for: view.displayBox)
+        isApplyingModelChange = true
+        view.go(to: PDFDestination(page: page, at: CGPoint(x: bounds.minX, y: bounds.maxY)))
+        isApplyingModelChange = false
+    }
+
+    #if os(iOS)
+    /// The zooming scroll view of the page on screen in paged mode: the
+    /// deepest scroll view that zooms and covers the view's centre. The page
+    /// view controller's own paging scroll view does not zoom, so it never
+    /// matches.
+    private static func currentPageScrollView(in view: PDFView) -> UIScrollView? {
+        let center = CGPoint(x: view.bounds.midX, y: view.bounds.midY)
+        var found: UIScrollView?
+        func walk(_ node: UIView) {
+            for child in node.subviews where !child.isHidden {
+                if let scroll = child as? UIScrollView, scroll.pinchGestureRecognizer != nil,
+                   scroll.convert(scroll.bounds, to: view).contains(center) {
+                    found = scroll
+                }
+                walk(child)
+            }
+        }
+        walk(view)
+        return found
+    }
+    #endif
+
+    /// Makes PDFKit draw the pages again at the current scale. A zoom set in
+    /// code — the resting fit on each page turn, the zoom buttons — otherwise
+    /// left PDFKit showing the raster it drew at the old scale, stretched:
+    /// text and pencil ink went soft until the reader pinched once.
+    private func refreshRendering(of view: PDFView) {
+        view.layoutDocumentView()
+        #if os(iOS)
+        func redraw(_ node: UIView) {
+            node.setNeedsDisplay()
+            node.subviews.forEach(redraw)
+        }
+        if let document = view.documentView { redraw(document) }
+        #else
+        view.documentView?.needsDisplay = true
+        #endif
     }
 
     /// The scale that makes `page` span the view's width, when fitting the
@@ -463,6 +594,7 @@ final class PDFViewCoordinator: NSObject {
         view.maxScaleFactor = 5.0
         view.autoScales = false
         view.scaleFactor = min(max(scale, view.minScaleFactor), view.maxScaleFactor)
+        refreshRendering(of: view)
         isApplyingModelChange = false
     }
 
@@ -511,14 +643,31 @@ final class PDFViewCoordinator: NSObject {
         let fit = view.currentPage
             .flatMap { Self.widthFitScale(for: $0, in: view, pageFit: pageFit) } ?? pageFit
         let target = (view.scaleFactor > fit * 1.2) ? fit : min(fit * 2.2, view.maxScaleFactor)
+        isApplyingModelChange = true
         UIView.animate(withDuration: 0.25) {
             view.scaleFactor = target
+        } completion: { [weak self, weak view] _ in
+            guard let self, let view else { return }
+            self.refreshRendering(of: view)
+            self.isApplyingModelChange = false
         }
         hasUserZoom = target > fit * 1.05
         savedUserScale = target
     }
     #endif
 }
+
+#if os(iOS)
+extension PDFViewCoordinator: UIGestureRecognizerDelegate {
+    /// The pinch observer runs alongside PDFKit's own zoom, never instead.
+    nonisolated func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        true
+    }
+}
+#endif
 
 /// A region the user is dragging out, not yet an annotation.
 struct PDFDraftRegion: Equatable {
@@ -608,6 +757,13 @@ private struct PlatformCanvas: UIViewRepresentable {
         singleTap.require(toFail: doubleTap)
         view.addGestureRecognizer(singleTap)
         view.addGestureRecognizer(doubleTap)
+        // Watches PDFKit's own pinch without taking it over, so a zoom the
+        // reader makes is told apart from scale changes PDFKit makes itself.
+        let pinch = UIPinchGestureRecognizer(target: coordinator, action: #selector(PDFViewCoordinator.handlePinch(_:)))
+        pinch.delegate = coordinator
+        pinch.cancelsTouchesInView = false
+        pinch.delaysTouchesEnded = false
+        view.addGestureRecognizer(pinch)
         return view
     }
 
@@ -689,7 +845,9 @@ enum PDFPageCanvasSupport {
         }
         #else
         switch theme {
-        case .default: return NSColor(calibratedWhite: 0.15, alpha: 1.0)
+        // Preview's own backdrop, which follows light and dark mode. A fixed
+        // near-black showed as black bars beside the page in a light window.
+        case .default: return .underPageBackgroundColor
         case .sepia: return NSColor(red: 0.96, green: 0.93, blue: 0.85, alpha: 1.0)
         case .dark: return NSColor(red: 0.11, green: 0.11, blue: 0.12, alpha: 1.0)
         }

@@ -142,7 +142,7 @@ package struct ReaderLibraryView: View {
         .preference(key: AssistantScreenContextKey.self, value: isOnScreen ? [.shelf(books: shelfLines)] : [])
         .onAppear { isOnScreen = true }
         .onDisappear { isOnScreen = false }
-        .navigationTitle("Library")
+        .navigationTitle("Read")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
@@ -166,6 +166,7 @@ package struct ReaderLibraryView: View {
                 Menu { libraryMenu } label: {
                     Image(systemName: "ellipsis")
                 }
+                .menuIndicator(.hidden)
                 .accessibilityLabel("Library options")
             }
         }
@@ -223,7 +224,7 @@ package struct ReaderLibraryView: View {
         }
         // Book actions from any level (collection screens included) fail
         // here: one alert for the stack rather than one per grid.
-        .alert("Library", isPresented: Binding(
+        .alert("Read", isPresented: Binding(
             get: { model.actionError != nil },
             set: { if !$0 { model.actionError = nil } }
         )) {

@@ -83,10 +83,11 @@ struct MainTabView: View {
     /// Section to return to when Browse hands a regular-width window back.
     @State private var previousSection: MainSection = .library
 
-    /// The PDF page sidebar takes over the window's single sidebar slot while
-    /// reading on Mac, then restores the app section sidebar on close.
+    /// An open book takes the window on Mac: the section sidebar collapses
+    /// (a PDF shows its own page sidebar instead, as Preview does) and comes
+    /// back when the book closes.
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .all
-    @State private var pdfReaderWindowState = PDFReaderWindowState()
+    @State private var readerWindowState = ReaderWindowState()
 
     /// Settings push from the sidebar footer. On macOS the footer opens the
     /// Settings window instead of writing this.
@@ -220,11 +221,15 @@ struct MainTabView: View {
     private var splitRoot: some View {
         NavigationSplitView(columnVisibility: $splitColumnVisibility) {
             rootSidebar
+                // An open book has the window to itself; a PDF's own page
+                // sidebar has its own button, and a second toggle beside it
+                // would only bring the section list back over the book.
+                .toolbar(removing: readerWindowState.isActive ? .sidebarToggle : nil)
         } detail: {
             sectionContent(selection, showsAccountMenu: false)
         }
-        .environment(\.pdfReaderWindowState, pdfReaderWindowState)
-        .onChange(of: pdfReaderWindowState.isActive) { _, isActive in
+        .environment(\.readerWindowState, readerWindowState)
+        .onChange(of: readerWindowState.isActive) { _, isActive in
             splitColumnVisibility = isActive ? .detailOnly : .all
         }
     }

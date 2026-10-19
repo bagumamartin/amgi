@@ -12,7 +12,9 @@ enum EPUBOrientationLock {
         let orientation = scenes.first?.interfaceOrientation ?? .portrait
         let mask: UIInterfaceOrientationMask
         if !locked {
-            mask = .allButUpsideDown
+            // The app's own mask: an iPad turns every way, a phone stays out
+            // of upside-down.
+            mask = UIDevice.current.userInterfaceIdiom == .pad ? .all : .allButUpsideDown
         } else {
             switch orientation {
             case .landscapeLeft: mask = .landscapeLeft

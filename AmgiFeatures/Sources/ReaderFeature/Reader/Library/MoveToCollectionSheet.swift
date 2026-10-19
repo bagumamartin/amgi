@@ -18,7 +18,7 @@ struct MoveToCollectionSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                destinationRow(name: L10n.text("Library"), id: nil, depth: 0, systemImage: "books.vertical")
+                destinationRow(name: L10n.text("Read"), id: nil, depth: 0, systemImage: "books.vertical")
                 ForEach(flattened(under: nil, depth: 1), id: \.collection.id) { entry in
                     destinationRow(
                         name: entry.collection.name,

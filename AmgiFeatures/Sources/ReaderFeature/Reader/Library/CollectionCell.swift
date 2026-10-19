@@ -71,6 +71,14 @@ struct CollectionCell: View {
                     .frame(width: 24, height: 24)
                     .contentShape(Rectangle())
             }
+            #if os(macOS)
+            // A Mac `Menu` is a bordered pop-up button with a chevron by
+            // default; these are the same bare "…" as on iPhone and iPad.
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            #endif
         }
         .frame(height: 24)
     }

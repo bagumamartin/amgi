@@ -172,6 +172,6 @@ private struct ParentDropChip: View {
     }
 
     private var parentName: String {
-        parentID.flatMap { library.collection($0)?.name } ?? L10n.text("Library")
+        parentID.flatMap { library.collection($0)?.name } ?? L10n.text("Read")
     }
 }
