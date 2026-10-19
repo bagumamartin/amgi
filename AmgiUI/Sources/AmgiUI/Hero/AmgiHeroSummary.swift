@@ -70,6 +70,9 @@ public struct AmgiHeroSummary<Header: View, Footer: View, Sidecar: View>: View {
 enum LibraryHeroMetrics {
     static let compactColumnWidth: CGFloat = 320
     static let compactSparklineHeight: CGFloat = 64
+    /// Card width at which the Today pane's hero puts its four tiles in a row.
+    static let minimumWidePaneWidth: CGFloat = 600
+    static let paneSparklineMinHeight: CGFloat = 72
 }
 
 /// Places the iPhone column at a fixed compact width and the sidecar

@@ -10,6 +10,14 @@ import UIKit
 struct FloatingAssistantEntry: View {
     let openAssistant: () -> Void
     let capture: (QuickCaptureKind) -> Void
+    #if os(iOS)
+    /// iPad opens the same Camera/Text fan-out as iPhone (`QuickCaptureOverlay`)
+    /// rather than a `Menu`, which iPad presents as a popover.
+    @Binding var showsCapture: Bool
+    let onRowFrame: (CGRect) -> Void
+    let onCaptureButtonFrame: (CGRect) -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    #endif
 
     var body: some View {
         GlassEffectContainer(spacing: 10) {
@@ -30,28 +38,53 @@ struct FloatingAssistantEntry: View {
                 .glassEffect(.regular.interactive(), in: .capsule)
                 .accessibilityIdentifier("assistant.entry")
                 .help("Ask AI about your collection")
-                Menu {
-                    Button("Camera", systemImage: "camera") { capture(.camera) }
-                    Button("Text", systemImage: "text.cursor") { capture(.text) }
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.title3.weight(.medium))
-                        .frame(width: 48, height: 48)
-                        .contentShape(Circle())
-                }
-                #if os(macOS)
-                .menuStyle(.borderlessButton)
-                #endif
-                .menuIndicator(.hidden)
-                .buttonStyle(.plain)
-                .frame(width: 48, height: 48)
-                .glassEffect(.regular.interactive(), in: .circle)
-                .accessibilityLabel("Quick Capture")
-                .accessibilityIdentifier("capture.entry")
-                .help("Quick Capture")
+                captureButton
             }
         }
+        #if os(iOS)
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { onRowFrame($0) }
+        #endif
     }
+
+    #if os(iOS)
+    private var captureButton: some View {
+        Button {
+            withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) { showsCapture.toggle() }
+        } label: {
+            Image(systemName: showsCapture ? "xmark" : "plus")
+                .font(.title3.weight(.medium))
+                .contentTransition(.symbolEffect(.replace))
+                .frame(width: 48, height: 48)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .circle)
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { onCaptureButtonFrame($0) }
+        .accessibilityLabel(showsCapture ? "Close Quick Capture options" : "Quick Capture")
+        .accessibilityIdentifier("capture.entry")
+        .help("Quick Capture")
+    }
+    #else
+    private var captureButton: some View {
+        Menu {
+            Button("Camera", systemImage: "camera") { capture(.camera) }
+            Button("Text", systemImage: "text.cursor") { capture(.text) }
+        } label: {
+            Image(systemName: "plus")
+                .font(.title3.weight(.medium))
+                .frame(width: 48, height: 48)
+                .contentShape(Circle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .buttonStyle(.plain)
+        .frame(width: 48, height: 48)
+        .glassEffect(.regular.interactive(), in: .circle)
+        .accessibilityLabel("Quick Capture")
+        .accessibilityIdentifier("capture.entry")
+        .help("Quick Capture")
+    }
+    #endif
 }
 
 #if os(iOS)

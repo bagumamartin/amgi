@@ -75,11 +75,12 @@ private struct AccountMenuControlModifier: ViewModifier {
     let placement: ToolbarItemPlacement
     @Binding var open: AccountMenuDestination?
     var showsName: Bool?
+    var isVisible = true
     @Environment(\.accountMenuProvider) private var provider
 
     func body(content: Content) -> some View {
         content.toolbar {
-            if let provider {
+            if let provider, isVisible {
                 ToolbarItem(placement: placement) {
                     provider.menu(open: $open)
                         .environment(\.accountMenuShowsName, showsName)
@@ -160,15 +161,21 @@ package extension View {
 
     /// Toolbar control only; pair with `accountMenuDestinations(_:)` on an
     /// enclosing stack so Settings pushes as a normal page.
+    ///
+    /// `isVisible` toggles the toolbar item alone. Switching between this and
+    /// another modifier in an `if` would change the content's identity and
+    /// rebuild the whole screen (and its `@State`) on every flip.
     func accountMenuControl(
         placement: ToolbarItemPlacement = .topBarLeading,
         open: Binding<AccountMenuDestination?>,
-        showsName: Bool? = nil
+        showsName: Bool? = nil,
+        isVisible: Bool = true
     ) -> some View {
         modifier(AccountMenuControlModifier(
             placement: placement,
             open: open,
-            showsName: showsName
+            showsName: showsName,
+            isVisible: isVisible
         ))
     }
 

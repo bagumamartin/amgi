@@ -9,6 +9,8 @@ public struct StudyForecastCard: View {
     public let data: StudyForecastData
     public let onSelectDay: (Int) -> Void
     let presentation: StudyDashboardPresentation
+    /// Stretch to the height offered, so it matches the day card beside it.
+    var fillsHeight = false
 
     @Environment(\.palette) private var palette
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -28,11 +30,13 @@ public struct StudyForecastCard: View {
     init(
         data: StudyForecastData,
         onSelectDay: @escaping (Int) -> Void,
-        presentation: StudyDashboardPresentation
+        presentation: StudyDashboardPresentation,
+        fillsHeight: Bool = false
     ) {
         self.data = data
         self.onSelectDay = onSelectDay
         self.presentation = presentation
+        self.fillsHeight = fillsHeight
     }
 
     public var body: some View {
@@ -62,6 +66,7 @@ public struct StudyForecastCard: View {
                     .font(.footnote)
                     .foregroundStyle(palette.textSecondary)
             }
+            .frame(maxHeight: fillsHeight ? .infinity : nil, alignment: .top)
         }
     }
 

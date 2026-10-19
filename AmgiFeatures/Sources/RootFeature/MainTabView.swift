@@ -46,7 +46,7 @@ enum MainSection: String, CaseIterable, Identifiable {
 }
 
 /// Root navigation. Pure layout: each section wraps a feature view in a
-/// `NavigationStack`. `refreshID` is *handed to* the tabs that still reload
+/// `NavigationStack`, except Library and Browse, which own their split. `refreshID` is *handed to* the tabs that still reload
 /// from it (Read, Stats), not applied as `.id()`. As an `.id()` it discarded
 /// each tab's whole subtree — scroll position, search text, selected deck,
 /// pushed navigation. Library and Study reload via `CollectionStore`.
@@ -142,18 +142,46 @@ struct MainTabView: View {
                 browseTakeover
             } else {
                 #if os(macOS)
-                splitRoot
+                if selection == .library {
+                    libraryRoot
+                } else {
+                    splitRoot
+                }
                 #else
                 iosTabView
                 #endif
             }
         }
+        #if os(iOS)
+        // Here rather than on `iosTabView` so the iPad Browse takeover, which
+        // replaces the tab view, still gets the fan-out. Below the floating
+        // entry, so its `×` stays on top.
+        .overlay {
+            QuickCaptureOverlay(
+                isPresented: $showsCaptureOptions,
+                rowFrame: captureRowFrame,
+                buttonFrame: captureButtonFrame,
+                capture: { captureKind = $0 }
+            )
+        }
+        #endif
         .overlay(alignment: .bottomTrailing) {
             // Readers own this corner — their menu, card dock, and their own
             // Ask AI button live there — so the whole entry steps aside.
             if usesFloatingEntry && !assistantIsPresented && !screenContext.isReader {
+                #if os(iOS)
+                FloatingAssistantEntry(
+                    openAssistant: openAssistant,
+                    capture: { captureKind = $0 },
+                    showsCapture: $showsCaptureOptions,
+                    onRowFrame: { captureRowFrame = $0 },
+                    onCaptureButtonFrame: { captureButtonFrame = $0 }
+                )
+                .padding(20)
+                #else
                 FloatingAssistantEntry(openAssistant: openAssistant, capture: { captureKind = $0 })
                     .padding(20)
+                #endif
             }
         }
         .environment(\.assistantOpener, AssistantOpener(onOpenAssistant))
@@ -198,6 +226,34 @@ struct MainTabView: View {
         .environment(\.pdfReaderWindowState, pdfReaderWindowState)
         .onChange(of: pdfReaderWindowState.isActive) { _, isActive in
             splitColumnVisibility = isActive ? .detailOnly : .all
+        }
+    }
+
+    #if os(macOS)
+    /// Library is a list-and-detail screen, so on Mac it takes the window as
+    /// a three-column split around the same section sidebar — the way Mail
+    /// and Notes do — instead of nesting a second split in the detail.
+    private var libraryRoot: some View {
+        DeckListView(
+            openDeckID: $libraryDeckRequest,
+            sidebar: AnyView(rootSidebar),
+            columnChrome: libraryColumnChrome(showsMenu: false)
+        )
+    }
+    #endif
+
+    /// The account chrome for Library's list column. Library owns its
+    /// navigation container (stack or split), so the chrome goes in through
+    /// it rather than around it.
+    private func libraryColumnChrome(showsMenu: Bool) -> (AnyView, Bool) -> AnyView {
+        let destination = $accountDestination
+        let openAssistant: () -> Void = openAssistant
+        return { column, includesMenu in
+            AnyView(column.accountChrome(
+                showsMenu: showsMenu && includesMenu,
+                destination: destination,
+                openAssistant: openAssistant
+            ))
         }
     }
 
@@ -272,14 +328,6 @@ struct MainTabView: View {
                 onCaptureButtonFrame: { captureButtonFrame = $0 }
             )
         }
-        .overlay {
-            QuickCaptureOverlay(
-                isPresented: $showsCaptureOptions,
-                rowFrame: captureRowFrame,
-                buttonFrame: captureButtonFrame,
-                capture: { captureKind = $0 }
-            )
-        }
         .tabViewSidebarBottomBar {
             AccountSidebarFooterHost(open: $accountDestination)
         }
@@ -290,14 +338,12 @@ struct MainTabView: View {
     private func sectionContent(_ section: MainSection, showsAccountMenu: Bool) -> some View {
         switch section {
         case .library:
-            NavigationStack {
-                DeckListView(openDeckID: $libraryDeckRequest)
-                    .accountChrome(
-                        showsMenu: showsAccountMenu,
-                        destination: $accountDestination,
-                        openAssistant: openAssistant
-                    )
-            }
+            // No stack here: Library switches between a stack and a split
+            // on its own, and a split inside a stack loses its columns.
+            DeckListView(
+                openDeckID: $libraryDeckRequest,
+                columnChrome: libraryColumnChrome(showsMenu: showsAccountMenu)
+            )
         case .read:
             NavigationStack {
                 ReaderLibraryView(refreshID: refreshID)
@@ -362,20 +408,22 @@ struct MainTabView: View {
 private extension View {
     /// Combined profile + Settings in the leading toolbar when the adaptable
     /// bar is a tab bar. Sidebar placement uses the bottom-bar chips instead.
-    @ViewBuilder
+    ///
+    /// One modifier chain for both placements: only the toolbar item toggles.
+    /// An `if` choosing between two chains gave the screen a new identity each
+    /// time the iPad sidebar collapsed into the tab bar, so every screen
+    /// rebuilt its model, reloaded, and replayed its entrance animations.
     func accountChrome(
         showsMenu: Bool,
         destination: Binding<AccountMenuDestination?>,
         openAssistant: @escaping () -> Void
     ) -> some View {
-        Group {
-            if showsMenu {
-                accountMenu()
-            } else {
-                accountMenuDestinations(destination)
-            }
-        }
-
+        #if os(iOS)
+        accountMenuControl(open: destination, isVisible: showsMenu)
+            .accountMenuDestinations(destination)
+        #else
+        accountMenuDestinations(destination)
+        #endif
     }
 }
 

@@ -34,9 +34,13 @@ struct StatsDashboardContent: View {
     /// Wider-than-period review history for the heatmap; see `StatsChartStack`.
     var heatmapReviews: ReviewCountsAndTimes? = nil
 
+    /// Charts pair up once each half still fits a phone-width chart.
+    @SwiftUI.State private var pairsCharts = false
+    private static let minimumPairedWidth: CGFloat = 760
+
     var body: some View {
         ScrollView {
-            LazyVStack(spacing: AmgiSpacing.lg) {
+            LazyVStack(spacing: AmgiPage.sectionSpacing) {
                 // Outside the switch: the filters used to render only in
                 // `.loaded`, so during the first load — the slowest case, and
                 // the one where the user most wants a cheaper period — there
@@ -61,8 +65,11 @@ struct StatsDashboardContent: View {
                         .animation(AmgiMotion.standard, value: isRefreshing)
                 }
             }
-            .padding(AmgiSpacing.lg)
+            .amgiPageContent(.fill)
         }
+        .onGeometryChange(for: Bool.self) { proxy in
+            proxy.size.width >= Self.minimumPairedWidth
+        } action: { pairsCharts = $0 }
     }
 
     // MARK: - Filters
@@ -137,7 +144,7 @@ struct StatsDashboardContent: View {
 
     @ViewBuilder
     private func charts(_ graphs: GraphsSnapshot) -> some View {
-        StatsChartStack(graphs: graphs, period: period, heatmapReviews: heatmapReviews)
+        StatsChartStack(graphs: graphs, period: period, pairsCharts: pairsCharts, pairSpacing: AmgiPage.columnSpacing, heatmapReviews: heatmapReviews)
     }
 }
 

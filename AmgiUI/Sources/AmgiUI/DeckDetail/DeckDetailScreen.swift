@@ -35,7 +35,6 @@ public struct DeckDetailScreen<HeatmapSlot: View>: View {
     public let onAction: (Action) -> Void
 
     @Environment(\.palette) private var palette
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var archivedExpanded = false
 
     public init(
@@ -52,26 +51,20 @@ public struct DeckDetailScreen<HeatmapSlot: View>: View {
 
     public var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 18) {
+            LazyVStack(alignment: .leading, spacing: AmgiPage.sectionSpacing) {
                 heroSection
+                    .amgiPageHeading()
                 statsSection
                 ctaSection
-                #if os(iOS)
                 quickActionsSection
-                #else
-                if horizontalSizeClass == .compact { quickActionsSection }
-                #endif
                 customStudySection
                 subdecksSection
                 heatmapSection
                 insightsSection
             }
-            .frame(maxWidth: DeckDetailColumn.maxWidth)
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, 20)
-            .padding(.top, 6)
-            .padding(.bottom, 32)
+            .amgiPageContent()
         }
+        .amgiReportsHeadingScroll()
         .amgiScreenCanvas()
     }
 
@@ -242,12 +235,6 @@ public struct DeckDetailScreen<HeatmapSlot: View>: View {
     }
 }
 
-/// Centered content column for the deck-detail screen, matching the
-/// Library/Study columns so the hero, tiles, and subdeck cards stay
-/// readable on regular-width layouts instead of stretching full-width.
-private enum DeckDetailColumn {
-    static let maxWidth: CGFloat = 800
-}
 
 // MARK: - Previews
 

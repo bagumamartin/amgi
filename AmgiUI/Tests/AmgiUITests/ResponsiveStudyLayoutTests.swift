@@ -57,4 +57,12 @@ struct ResponsiveStudyLayoutTests {
             ) == .wide
         )
     }
+
+    @Test("the day card pairs with Plan ahead only when the left column has room")
+    func dayCardPairing() {
+        // iPad landscape with the tab bar: 1194pt wide.
+        #expect(StudyWideColumns.leftWidth(availableWidth: 1_194) >= StudyWideColumns.minimumPairedWidth)
+        // iPad landscape with the sidebar open leaves about 874pt.
+        #expect(StudyWideColumns.leftWidth(availableWidth: 874) < StudyWideColumns.minimumPairedWidth)
+    }
 }

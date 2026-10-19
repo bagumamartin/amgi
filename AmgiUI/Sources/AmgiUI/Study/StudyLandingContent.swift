@@ -23,7 +23,8 @@ enum StudyContentLayout: Equatable {
     case wide
 
     static let minimumRegularWidth: CGFloat = 700
-    static let minimumWideWidth: CGFloat = 720
+    /// Room for a readable left column beside the 360pt list column.
+    static let minimumWideWidth: CGFloat = 800
 
     static func resolve(
         availableWidth: CGFloat,
@@ -43,27 +44,31 @@ enum StudyContentLayout: Equatable {
         }
     }
 
-    var maximumContentWidth: CGFloat {
-        switch self {
-        case .compact: 640
-        case .regular: 920
-        case .wide: 1_280
-        }
-    }
-
+    /// The page gutter (``AmgiPage``) these widths always get: regular and
+    /// wide are 700pt and up.
     var horizontalPadding: CGFloat {
         switch self {
-        case .compact: AmgiSpacing.lg
-        case .regular: AmgiSpacing.xl
-        case .wide: 20
+        case .compact: AmgiPage.compactGutter
+        case .regular, .wide: AmgiPage.regularGutter
         }
     }
 
-    var columnSpacing: CGFloat {
-        switch self {
-        case .compact, .regular: AmgiSpacing.xl
-        case .wide: 14
-        }
+    var columnSpacing: CGFloat { AmgiPage.sectionSpacing }
+}
+
+/// Column metrics for the wide Study desk: a fill-width left column and a
+/// fixed list column on the right.
+enum StudyWideColumns {
+    static let spacing: CGFloat = AmgiPage.columnSpacing
+    static let rightWidth: CGFloat = 360
+    static let planWidth: CGFloat = 320
+    /// Narrowest left column that still fits the day card beside Plan ahead.
+    static let minimumPairedWidth: CGFloat = 700
+
+    static func leftWidth(availableWidth: CGFloat) -> CGFloat {
+        let layout = StudyContentLayout.wide
+        let content = availableWidth - layout.horizontalPadding * 2
+        return max(0, content - spacing - rightWidth)
     }
 }
 
@@ -296,10 +301,9 @@ public struct StudyLandingContent: View {
                         historyLayout(layout: layout)
                     }
                 }
-                .frame(maxWidth: layout.maximumContentWidth)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, layout.horizontalPadding)
-                .padding(.bottom, 96)
+                // Fills, like every page: a centred cap left the cards 55pt
+                // in from a title at 20pt on iPad landscape.
+                .amgiPageContent(.fill)
             }
             .refreshable { await onRefresh() }
         }
@@ -343,56 +347,64 @@ public struct StudyLandingContent: View {
         }
     }
 
+    /// Two columns. The left one is the desk itself — period control,
+    /// activity, then the day card beside Plan ahead. The right column holds
+    /// the lists: Up next, then Needs attention.
     private func wideTodayLayout(
         summary: StudySummaryData,
         decks: [StudyDeckRowData],
         continueReading: StudyReadingRecData?,
         availableWidth: CGFloat
     ) -> some View {
+        let leftWidth = StudyWideColumns.leftWidth(availableWidth: availableWidth)
         let presentation = StudyDashboardPresentation.resolveWideLayout(
-            availableWidth: availableWidth
+            availableWidth: leftWidth
         )
-        return VStack(alignment: .leading, spacing: 24) {
-            todayPeriodControls
-            activityCard(presentation: presentation)
-            HStack(alignment: .top, spacing: 14) {
-                todayHero(summary, presentation: presentation)
-                    .frame(minWidth: 360, maxWidth: .infinity)
-                forecastCard(presentation: presentation)
-                    .frame(minWidth: 240, idealWidth: 300, maxWidth: 340)
+        let hasQueue = hasTodayQueueContent(
+            summary: summary,
+            decks: decks,
+            continueReading: continueReading
+        )
+        return HStack(alignment: .top, spacing: StudyWideColumns.spacing) {
+            VStack(alignment: .leading, spacing: AmgiPage.sectionSpacing) {
+                todayPeriodControls
+                activityCard(presentation: presentation)
+                dayAndPlan(summary, sideBySide: leftWidth >= StudyWideColumns.minimumPairedWidth)
             }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
 
-            if hasTodayQueueContent(
-                summary: summary,
-                decks: decks,
-                continueReading: continueReading
-            ) {
-                if hasSupplementaryTodayContent {
-                    HStack(alignment: .top, spacing: 14) {
+            if hasQueue || hasSupplementaryTodayContent {
+                VStack(alignment: .leading, spacing: AmgiPage.sectionSpacing) {
+                    if hasQueue {
                         todayQueue(
                             summary: summary,
                             decks: decks,
                             continueReading: continueReading
                         )
-                        .frame(minWidth: 360, maxWidth: .infinity)
-
-                        VStack(alignment: .leading, spacing: 24) {
-                            supplementaryTodayContent
-                        }
-                        .frame(minWidth: 260, idealWidth: 320, maxWidth: 360)
                     }
-                } else {
-                    todayQueue(
-                        summary: summary,
-                        decks: decks,
-                        continueReading: continueReading
-                    )
-                }
-            } else if hasSupplementaryTodayContent {
-                VStack(alignment: .leading, spacing: 24) {
                     supplementaryTodayContent
                 }
+                .frame(width: StudyWideColumns.rightWidth, alignment: .topLeading)
             }
+        }
+    }
+
+    /// The day card keeps the iPhone arrangement at every width. Plan ahead
+    /// sits beside it at the same height when the column has room, and
+    /// under it when it does not.
+    @ViewBuilder
+    private func dayAndPlan(_ summary: StudySummaryData, sideBySide: Bool) -> some View {
+        if sideBySide, forecast != nil {
+            HStack(alignment: .top, spacing: AmgiPage.sectionSpacing) {
+                todayHero(summary, presentation: .compact, fillsHeight: true)
+                    .frame(maxWidth: .infinity)
+                forecastCard(presentation: .compact, fillsHeight: true)
+                    .frame(width: StudyWideColumns.planWidth)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        } else {
+            todayHero(summary, presentation: .compact)
+            forecastCard(presentation: .compact)
         }
     }
 
@@ -407,12 +419,13 @@ public struct StudyLandingContent: View {
     }
 
     @ViewBuilder
-    private func forecastCard(presentation: StudyDashboardPresentation) -> some View {
+    private func forecastCard(presentation: StudyDashboardPresentation, fillsHeight: Bool = false) -> some View {
         if let forecast {
             StudyForecastCard(
                 data: forecast,
                 onSelectDay: onSelectOffset,
-                presentation: presentation
+                presentation: presentation,
+                fillsHeight: fillsHeight
             )
         }
     }
@@ -437,23 +450,30 @@ public struct StudyLandingContent: View {
 
     private func historyLayout(layout: StudyContentLayout) -> some View {
         VStack(alignment: .leading, spacing: layout.columnSpacing) {
-            spanControls
+            // Wide puts the period control at the top of the left column,
+            // the same place as on the Today desk.
+            if layout != .wide {
+                spanControls
+            }
 
             if layout == .wide {
-                HStack(alignment: .top, spacing: 24) {
+                HStack(alignment: .top, spacing: StudyWideColumns.spacing) {
                     VStack(alignment: .leading, spacing: layout.columnSpacing) {
+                        spanControls
                         activityCard(presentation: .wide)
                         historyHeroCard
                     }
-                    .frame(minWidth: 620, maxWidth: .infinity)
-                    studyCutsContent
-                        .frame(minWidth: 340, idealWidth: 400, maxWidth: 440)
-                }
-                if let spanRowsError {
-                    inlineError(spanRowsError)
-                }
-                if showsRelevantDecks {
-                    relevantDecksSection
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                    VStack(alignment: .leading, spacing: AmgiPage.sectionSpacing) {
+                        studyCutsContent
+                        if let spanRowsError {
+                            inlineError(spanRowsError)
+                        }
+                        if showsRelevantDecks {
+                            relevantDecksSection
+                        }
+                    }
+                    .frame(width: StudyWideColumns.rightWidth, alignment: .topLeading)
                 }
             } else {
                 activityCard(presentation: layout.presentation)
@@ -819,7 +839,8 @@ public struct StudyLandingContent: View {
 
     private func todayHero(
         _ summary: StudySummaryData,
-        presentation: StudyDashboardPresentation
+        presentation: StudyDashboardPresentation,
+        fillsHeight: Bool = false
     ) -> some View {
         AmgiCard(
             background: .surfaceElevated,
@@ -836,7 +857,7 @@ public struct StudyLandingContent: View {
                             Rectangle()
                                 .fill(palette.separator)
                                 .frame(width: 1)
-                            categoryLegend(summary)
+                            categoryLegend(summary, stacksItems: true)
                                 .frame(maxWidth: .infinity)
                         }
                         primary(summary)
@@ -866,6 +887,7 @@ public struct StudyLandingContent: View {
                     }
                 }
             }
+            .frame(maxHeight: fillsHeight ? .infinity : nil, alignment: .top)
         }
     }
 
@@ -919,16 +941,20 @@ public struct StudyLandingContent: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func categoryLegend(_ summary: StudySummaryData) -> some View {
+    /// `stacksItems` keeps the iPhone day card's vertical list at any
+    /// width; elsewhere the items sit in a row when they fit.
+    private func categoryLegend(_ summary: StudySummaryData, stacksItems: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: AmgiSpacing.xs) {
             Text("Remaining mix")
                 .font(.caption)
                 .foregroundStyle(palette.textSecondary)
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: AmgiSpacing.lg) {
-                    categoryLegendItem("New", count: summary.newCount, color: palette.cardStateNew)
-                    categoryLegendItem("Learn", count: summary.learnCount, color: palette.cardStateLearning)
-                    categoryLegendItem("Review", count: summary.reviewCount, color: palette.cardStateReview)
+                if !stacksItems {
+                    HStack(spacing: AmgiSpacing.lg) {
+                        categoryLegendItem("New", count: summary.newCount, color: palette.cardStateNew)
+                        categoryLegendItem("Learn", count: summary.learnCount, color: palette.cardStateLearning)
+                        categoryLegendItem("Review", count: summary.reviewCount, color: palette.cardStateReview)
+                    }
                 }
                 VStack(alignment: .leading, spacing: AmgiSpacing.xs) {
                     categoryLegendItem("New", count: summary.newCount, color: palette.cardStateNew)

@@ -11,7 +11,21 @@ import AmgiTheme
 /// The due numeral and sparkline are collection facts. Starting today's
 /// session belongs to Study, so this card does not play the queue.
 public struct LibraryHeroCard: View {
+    /// Where the card sits, which decides its arrangement.
+    public enum Layout: Sendable {
+        /// The Library list: the iPhone column, with the sparkline under it
+        /// on compact and beside it on regular.
+        case list
+        /// The Library's Today pane on iPad landscape and Mac. Wide panes
+        /// put the four tiles in one row with the graph under them, right
+        /// of the due column. Narrow panes keep the iPhone arrangement at a
+        /// larger size: due column and a 2×2 tile grid at equal height, the
+        /// graph full width below.
+        case pane
+    }
+
     let data: HeroData
+    let layout: Layout
     /// True while the review-history fetch that feeds `streak`,
     /// `last14Days` and `today` is still in flight. `totalDue` and
     /// `deckCount` come from the deck tree and are real immediately, so the
@@ -23,16 +37,26 @@ public struct LibraryHeroCard: View {
     @Environment(\.palette) private var palette
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.locale) private var locale
+    @State private var paneIsWide = true
 
     public init(
         data: HeroData,
-        activityPending: Bool = false
+        activityPending: Bool = false,
+        layout: Layout = .list
     ) {
         self.data = data
         self.activityPending = activityPending
+        self.layout = layout
     }
 
     public var body: some View {
+        switch layout {
+        case .list: listBody
+        case .pane: paneBody
+        }
+    }
+
+    private var listBody: some View {
         AmgiHeroSummary(
             header: {
                 // A grid, not two stacks: the streak chip and Retention share
@@ -90,7 +114,129 @@ public struct LibraryHeroCard: View {
         )
     }
 
-    private var paceTile: some View {
+    // MARK: Pane layout
+
+    private var paneBody: some View {
+        AmgiCard(
+            background: .surfaceElevated,
+            shadow: palette.shadows.sm,
+            cornerRadius: AmgiRadius.hero
+        ) {
+            Group {
+                if paneIsWide {
+                    widePane
+                } else {
+                    narrowPane
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .onGeometryChange(for: Bool.self) { proxy in
+                proxy.size.width >= LibraryHeroMetrics.minimumWidePaneWidth
+            } action: { paneIsWide = $0 }
+        }
+    }
+
+    /// Due column | four tiles over the graph.
+    private var widePane: some View {
+        HStack(alignment: .top, spacing: 20) {
+            VStack(alignment: .leading, spacing: 12) {
+                dueBlock
+                Spacer(minLength: 0)
+                streakChip
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .fixedSize(horizontal: true, vertical: false)
+            VStack(spacing: 12) {
+                HStack(spacing: 8) {
+                    tile(.studied)
+                    tile(.time)
+                    tile(.pace)
+                    tile(.retention)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                sparkline
+                    .frame(minHeight: LibraryHeroMetrics.paneSparklineMinHeight, maxHeight: .infinity)
+                    .redacted(reason: activityPending ? .placeholder : [])
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// The iPhone hero, larger: due column and a 2×2 grid at one height,
+    /// then the graph across the whole card.
+    private var narrowPane: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 12) {
+                    dueBlock
+                    Spacer(minLength: 0)
+                    streakChip
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                Grid(horizontalSpacing: 8, verticalSpacing: 8) {
+                    GridRow {
+                        tile(.studied)
+                        tile(.time)
+                    }
+                    GridRow {
+                        tile(.pace)
+                        tile(.retention)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            sparkline
+                .frame(height: LibraryHeroMetrics.paneSparklineMinHeight)
+                .redacted(reason: activityPending ? .placeholder : [])
+        }
+    }
+
+    private var dueBlock: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(AmgiL10n.text("Due today", locale: locale).uppercased(with: locale))
+                .amgiFont(size: 13, weight: .semibold, tracking: 0.4, relativeTo: .footnote)
+                .foregroundStyle(palette.textTertiary)
+            Text("\(data.totalDue)")
+                .amgiFont(size: 56, weight: .bold, tracking: -1.2, relativeTo: .largeTitle)
+                .foregroundStyle(palette.textPrimary)
+                .padding(.top, -4)
+                .padding(.bottom, -7)
+            Text(subtitleText)
+                .amgiFont(size: 15, weight: .regular, relativeTo: .subheadline)
+                .foregroundStyle(palette.textSecondary)
+        }
+        .fixedSize()
+    }
+
+    private var streakChip: some View {
+        HeroStreakIndicator(
+            summary: HeroStreakSummary(streak: data.streak, dayTotals: data.recentDayTotals)
+        )
+        .redacted(reason: activityPending ? .placeholder : [])
+        .disabled(activityPending)
+    }
+
+    private enum PaneTile { case studied, time, pace, retention }
+
+    @ViewBuilder
+    private func tile(_ kind: PaneTile) -> some View {
+        let today = data.today ?? HeroTodayStats()
+        Group {
+            switch kind {
+            case .studied: HeroStudiedTile(today: today, fillsHeight: true)
+            case .time: HeroTimeTile(today: today, fillsHeight: true)
+            case .pace: paceTile(fillsHeight: true)
+            case .retention: HeroRetentionTile(today: today)
+            }
+        }
+        .redacted(reason: activityPending ? .placeholder : [])
+    }
+
+    private var paceTile: some View { paceTile(fillsHeight: false) }
+
+    private func paceTile(fillsHeight: Bool) -> some View {
         let pace = AmgiL10n.format(
             "%.1f s/card",
             [(data.today ?? HeroTodayStats()).paceSecondsPerCard],
@@ -102,7 +248,8 @@ public struct LibraryHeroCard: View {
             accessibilityLabel: AmgiL10n.format("Pace, %@", [pace], locale: locale),
             valueFontSize: 14,
             verticalPadding: 6,
-            horizontalPadding: 4
+            horizontalPadding: 4,
+            fillsHeight: fillsHeight
         )
         .redacted(reason: activityPending ? .placeholder : [])
     }
@@ -220,6 +367,26 @@ private struct SparklineBars: View {
     .frame(width: 720)
     .background(Color.gray.opacity(0.12))
     .environment(\.horizontalSizeClass, .regular)
+    .environment(\.palette, .vividLight)
+}
+
+#Preview("Pane — wide and narrow") {
+    VStack(spacing: 16) {
+        LibraryHeroCard(
+            data: HeroData(totalDue: 413, deckCount: 4, streak: 0,
+                           recentDayTotals: HeroData.sampleDayTotals(), today: .sample),
+            layout: .pane
+        )
+        .frame(width: 760)
+        LibraryHeroCard(
+            data: HeroData(totalDue: 413, deckCount: 4, streak: 0,
+                           recentDayTotals: HeroData.sampleDayTotals(), today: .sample),
+            layout: .pane
+        )
+        .frame(width: 520)
+    }
+    .padding(16)
+    .background(Color.gray.opacity(0.12))
     .environment(\.palette, .vividLight)
 }
 

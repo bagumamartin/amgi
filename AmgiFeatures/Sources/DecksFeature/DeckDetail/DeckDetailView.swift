@@ -23,7 +23,6 @@ struct DeckDetailView: View {
     let deck: DeckInfo
 
     @Environment(\.palette) private var palette
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Dependency(\.collectionStore) private var store
     @Shared(.appStorage(NavigationPreferences.deckSortOrder)) private var sortOrderRaw: String = DeckSortOrder.mostUsed.rawValue
     @State private var model: DeckDetailModel
@@ -36,9 +35,22 @@ struct DeckDetailView: View {
     @State private var deleteSubdeckTarget: DeckSubdeckRowData?
     @State private var deleteError: String?
 
-    init(deck: DeckInfo) {
+    /// Set when this screen is a pane inside Library's iPad layout, which
+    /// shows subdecks in the same pane instead of pushing over the list.
+    private let onOpenSubdeck: ((DeckInfo) -> Void)?
+
+    init(deck: DeckInfo, onOpenSubdeck: ((DeckInfo) -> Void)? = nil) {
         self.deck = deck
+        self.onOpenSubdeck = onOpenSubdeck
         _model = State(initialValue: DeckDetailModel(deck: deck))
+    }
+
+    private func openSubdeck(_ subdeck: DeckInfo) {
+        if let onOpenSubdeck {
+            onOpenSubdeck(subdeck)
+        } else {
+            pendingSubdeck = subdeck
+        }
     }
 
     private var currentSortOrder: DeckSortOrder {
@@ -254,18 +266,13 @@ struct DeckDetailView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        // Contextual trailing chrome: Sync · Create Subdeck · ⋯
+        // Contextual trailing chrome: Sync · Create Subdeck · ⋯ (Mac puts
+        // Sync last, after the deck's own actions). Add, Stats and Browse
+        // are the row under the study buttons on every platform.
         ToolbarItemGroup(placement: .topBarTrailing) {
-            #if !os(iOS)
-            if horizontalSizeClass != .compact {
-                Button { destination = .sheet(.addNote) } label: {
-                    Label("Add", systemImage: "plus")
-                }
-                Button("Stats") { destination = .sheet(.stats) }
-                Button("Browse") { destination = .sheet(.browse) }
-            }
-            #endif
+            #if os(iOS)
             SyncToolbarButton()
+            #endif
             if !deck.isFiltered {
                 Button {
                     newSubdeckName = ""
@@ -314,6 +321,9 @@ struct DeckDetailView: View {
                     .contentShape(Rectangle())
             }
             .accessibilityLabel("More")
+            #if os(macOS)
+            SyncToolbarButton()
+            #endif
         }
     }
 }
@@ -341,7 +351,7 @@ private extension DeckDetailView {
             // an item-bound push rather than the parent's value-bound
             // navigationDestination(for: DeckInfo.self) so this Container
             // owns the dismissal contract for the row tap.
-            pendingSubdeck = DeckInfo(
+            openSubdeck(DeckInfo(
                 id: DeckID(row.id),
                 name: row.fullName,
                 counts: DeckCounts(
@@ -350,7 +360,7 @@ private extension DeckDetailView {
                     reviewCount: row.reviewCount
                 ),
                 isFiltered: row.isFiltered
-            )
+            ))
         case .renameSubdeck(let row):
             renameSubdeckTarget = row
         case .changeSubdeckIcon(let row):
@@ -375,7 +385,7 @@ private extension DeckDetailView {
                 onChanges: { store.apply($0) },
                 onOpenSession: { session in
                     destination = nil
-                    pendingSubdeck = session
+                    openSubdeck(session)
                 },
                 onStudySession: { session in
                     destination = .review(session.id)

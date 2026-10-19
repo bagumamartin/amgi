@@ -38,6 +38,13 @@ public struct LibraryListContent: View {
     /// because the row rendering is useful in previews and tests that have
     /// no navigation stack to anchor to.
     let deckTransition: Namespace.ID?
+    /// Non-nil when this is the list column of the iPad-landscape / Mac
+    /// split. The hero and heatmap move to the Today pane; a Today row
+    /// selects it, and the selected row is highlighted.
+    let columnSelection: LibraryColumnSelection?
+    /// Heading at the top of the list column, for layouts with no bar title.
+    let columnTitle: String?
+    let onSelectToday: () -> Void
 
     // Nested `State` enum shadows SwiftUI's `@State`; qualify the wrapper.
     @SwiftUI.State private var deleteTarget: DeckRowViewData?
@@ -57,7 +64,10 @@ public struct LibraryListContent: View {
         onReviewDecisions: @escaping () -> Void = {},
         onReviewPausedDecks: @escaping () -> Void = {},
         onChangeIconDeck: @escaping (DeckRowViewData) -> Void = { _ in },
-        deckTransition: Namespace.ID? = nil
+        deckTransition: Namespace.ID? = nil,
+        columnSelection: LibraryColumnSelection? = nil,
+        columnTitle: String? = nil,
+        onSelectToday: @escaping () -> Void = {}
     ) {
         self.state = state
         self._sortOrder = sortOrder
@@ -71,6 +81,9 @@ public struct LibraryListContent: View {
         self.onReviewPausedDecks = onReviewPausedDecks
         self.onChangeIconDeck = onChangeIconDeck
         self.deckTransition = deckTransition
+        self.columnSelection = columnSelection
+        self.columnTitle = columnTitle
+        self.onSelectToday = onSelectToday
     }
 
     public var body: some View {
@@ -121,6 +134,15 @@ public struct LibraryListContent: View {
 
     @ViewBuilder
     private func loadedList(rows: [DeckRowViewData], hero: HeroData, heatmap: HeatmapCardData?, triage: DeckTriageData) -> some View {
+        if let columnSelection {
+            columnList(rows: rows, hero: hero, heatmap: heatmap, triage: triage, selection: columnSelection)
+        } else {
+            fullList(rows: rows, hero: hero, heatmap: heatmap, triage: triage)
+        }
+    }
+
+    @ViewBuilder
+    private func fullList(rows: [DeckRowViewData], hero: HeroData, heatmap: HeatmapCardData?, triage: DeckTriageData) -> some View {
         #if os(iOS)
         // Sidebar resizing must not replace the scroll surface when the
         // content width crosses the column's maximum width.
@@ -240,7 +262,7 @@ public struct LibraryListContent: View {
         let active = rows.filter { !$0.isArchived }
         let archived = rows.filter(\.isArchived)
         return ScrollView {
-            LazyVStack(alignment: .leading, spacing: 18) {
+            LazyVStack(alignment: .leading, spacing: AmgiPage.sectionSpacing) {
                 LibraryHeroCard(
                     data: hero,
                     activityPending: heatmap == nil
@@ -274,12 +296,68 @@ public struct LibraryListContent: View {
                 ActivityHeatmapCard(data: heatmap ?? .empty, initialDays: heatmapInitialDays)
                     .redacted(reason: heatmap == nil ? .placeholder : [])
             }
-            .frame(maxWidth: LibraryColumn.maxWidth)
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, 20)
-            .padding(.top, 6)
-            .padding(.bottom, 32)
+            .amgiPageContent()
         }
+        .refreshable { await onRefresh() }
+    }
+
+    /// The split's list column: Today, the decks, archived decks and the
+    /// decisions card. The hero and heatmap live in the Today pane.
+    private func columnList(
+        rows: [DeckRowViewData],
+        hero: HeroData,
+        heatmap: HeatmapCardData?,
+        triage: DeckTriageData,
+        selection: LibraryColumnSelection
+    ) -> some View {
+        let active = rows.filter { !$0.isArchived }
+        let archived = rows.filter(\.isArchived)
+        let selectedID: Int64? = if case .deck(let id) = selection { id } else { nil }
+        return ScrollView {
+            LazyVStack(alignment: .leading, spacing: AmgiPage.sectionSpacing) {
+                if let columnTitle {
+                    Text(LocalizedStringKey(columnTitle))
+                        .font(.largeTitle)
+                        .bold()
+                        .foregroundStyle(palette.textPrimary)
+                        .accessibilityAddTraits(.isHeader)
+                        .amgiPageHeading()
+                }
+                LibraryTodayRow(
+                    hero: hero,
+                    activityPending: heatmap == nil,
+                    isSelected: selection == .today,
+                    onSelect: onSelectToday
+                )
+
+                if !active.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        DeckSectionHeader(title: "Decks", sortOrder: $sortOrder)
+                        deckRowsCard(rows: active, selectedID: selectedID)
+                    }
+                }
+
+                if !archived.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        archivedHeader(count: archived.count)
+                        if archivedExpanded {
+                            deckRowsCard(rows: archived, selectedID: selectedID)
+                        }
+                    }
+                }
+
+                if !triage.isHidden {
+                    DeckTriageCard(
+                        data: triage,
+                        onAction: onDecision,
+                        onReviewAll: onReviewDecisions,
+                        onReviewPaused: onReviewPausedDecks
+                    )
+                }
+            }
+            .amgiPageContent(.fill)
+        }
+        .amgiReportsHeadingScroll()
         .refreshable { await onRefresh() }
     }
 
@@ -287,7 +365,7 @@ public struct LibraryListContent: View {
         ArchivedSectionHeader(count: count, itemNoun: "decks", isExpanded: $archivedExpanded)
     }
 
-    private func deckRowsCard(rows: [DeckRowViewData]) -> some View {
+    private func deckRowsCard(rows: [DeckRowViewData], selectedID: Int64? = nil) -> some View {
         VStack(spacing: 0) {
             ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                 DeckListRowView(
@@ -298,6 +376,12 @@ public struct LibraryListContent: View {
                     onChangeIcon: { onChangeIconDeck(row) }
                 )
                 .padding(.horizontal, 12)
+                .background {
+                    if row.id == selectedID {
+                        palette.accent.opacity(0.12)
+                    }
+                }
+                .accessibilityAddTraits(row.id == selectedID ? .isSelected : [])
                 .modifier(DeckTransitionSource(id: row.id, namespace: deckTransition))
                 .overlay(alignment: .bottom) {
                     if index < rows.count - 1 {
@@ -313,6 +397,7 @@ public struct LibraryListContent: View {
             palette.surfaceElevated,
             in: RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous)
         )
+        .clipShape(RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous)
                 .strokeBorder(palette.border, lineWidth: 0.5)
@@ -469,15 +554,10 @@ extension LibraryListContent: Equatable {
         lhs.state == rhs.state
             && lhs.deckTransition == rhs.deckTransition
             && lhs.sortOrder == rhs.sortOrder
+            && lhs.columnSelection == rhs.columnSelection
     }
 }
 
-/// Shared Library content column width. Hero, decks, and activity all
-/// align to this centered column so they stay readable on regular-width
-/// layouts without pinning the scroll indicator to the column edge.
-private enum LibraryColumn {
-    static let maxWidth: CGFloat = 800
-}
 
 
 // MARK: - Previews

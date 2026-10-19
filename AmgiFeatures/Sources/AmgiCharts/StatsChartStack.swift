@@ -16,6 +16,8 @@ public struct StatsChartStack: View {
     private let graphs: GraphsSnapshot
     private let period: StatsPeriod
     private let isCompact: Bool
+    private let pairsCharts: Bool
+    private let pairSpacing: CGFloat
     private let heatmapReviews: ReviewCountsAndTimes?
 
     /// - Parameter isCompact: watch-sized layout. Omits the activity heatmap,
@@ -23,19 +25,71 @@ public struct StatsChartStack: View {
     /// - Parameter heatmapReviews: a lookback wider than `period`, so the
     ///   heatmap can show days outside the period (muted) instead of blanks.
     ///   Falls back to `graphs.reviews`, which only covers the period.
+    /// - Parameter pairsCharts: iPad landscape and Mac. The summary and the
+    ///   heatmap stay full width; every other chart sits beside its partner.
     public init(
         graphs: GraphsSnapshot,
         period: StatsPeriod,
         isCompact: Bool = false,
+        pairsCharts: Bool = false,
+        pairSpacing: CGFloat = 16,
         heatmapReviews: ReviewCountsAndTimes? = nil
     ) {
         self.graphs = graphs
         self.period = period
         self.isCompact = isCompact
+        self.pairsCharts = pairsCharts && !isCompact
+        self.pairSpacing = pairSpacing
         self.heatmapReviews = heatmapReviews
     }
 
     public var body: some View {
+        if pairsCharts {
+            pairedBody
+        } else {
+            stackedBody
+        }
+    }
+
+    /// Same charts as `stackedBody`, in pairs that belong together: what is
+    /// due beside what was reviewed, the card mix beside its intervals, and
+    /// so on.
+    @ViewBuilder
+    private var pairedBody: some View {
+        PeriodStatsCard(period: period, today: graphs.today, reviews: graphs.reviews)
+        HeatmapChartOptimized(
+            reviews: heatmapReviews ?? graphs.reviews,
+            attentionDays: period.days
+        )
+        StatsChartPair(spacing: pairSpacing) {
+            FutureDueChart(futureDue: graphs.futureDue, period: period)
+        } trailing: {
+            ReviewsChart(reviews: graphs.reviews, period: period)
+        }
+        StatsChartPair(spacing: pairSpacing) {
+            CardCountsChart(cardCounts: graphs.cardCounts)
+        } trailing: {
+            IntervalsChart(intervals: graphs.intervals)
+        }
+        StatsChartPair(spacing: pairSpacing) {
+            ButtonsChart(buttons: graphs.buttons, period: period)
+        } trailing: {
+            HourlyChart(hours: graphs.hours, period: period)
+        }
+        StatsChartPair(spacing: pairSpacing) {
+            AddedChart(added: graphs.added, period: period)
+        } trailing: {
+            RetentionChart(trueRetention: graphs.trueRetention)
+        }
+        StatsChartPair(spacing: pairSpacing) {
+            RetrievabilityChart(retrievability: graphs.retrievability)
+        } trailing: {
+            EaseChart(eases: graphs.eases)
+        }
+    }
+
+    @ViewBuilder
+    private var stackedBody: some View {
         PeriodStatsCard(period: period, today: graphs.today, reviews: graphs.reviews)
         FutureDueChart(futureDue: graphs.futureDue, period: period)
         if !isCompact {
@@ -53,5 +107,21 @@ public struct StatsChartStack: View {
         AddedChart(added: graphs.added, period: period)
         RetentionChart(trueRetention: graphs.trueRetention)
         RetrievabilityChart(retrievability: graphs.retrievability)
+    }
+}
+
+/// Two charts side by side at equal widths, top aligned.
+private struct StatsChartPair<Leading: View, Trailing: View>: View {
+    let spacing: CGFloat
+    @ViewBuilder let leading: Leading
+    @ViewBuilder let trailing: Trailing
+
+    var body: some View {
+        HStack(alignment: .top, spacing: spacing) {
+            leading
+                .frame(maxWidth: .infinity)
+            trailing
+                .frame(maxWidth: .infinity)
+        }
     }
 }
