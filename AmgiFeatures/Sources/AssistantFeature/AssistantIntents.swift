@@ -419,8 +419,10 @@ final class AssistantToolbox {
             guard let id = context.noteID, let note = try? await notes.fetch(NoteID(id)),
                   let type = try? await notetypes.get(note.mid) else { return context }
             let values = note.flds.components(separatedBy: "\u{1f}")
-            resolved.reference = zip(type.fields.map(\.name), values)
-                .map { "\($0): \(String(CardText.plainText($1).prefix(1200)))" }
+            let fields = values.map { AssistantCardMedia.field($0) }
+            resolved.imageSources = fields.flatMap(\.sources)
+            resolved.reference = zip(type.fields.map(\.name), fields)
+                .map { "\($0): \(String($1.text.prefix(1200)))" }
                 .joined(separator: "\n")
             let front = values.first.map { CardText.plainText($0).trimmed } ?? ""
             if !front.isEmpty {

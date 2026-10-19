@@ -28,6 +28,14 @@ Compilation, model parity, and UI and device acceptance are separate checks.
   cloud model; the chosen provider receives the prompt, attached contexts and
   files, conversation history, and relevant tool results. Availability and
   account limits require live provider validation.
+- Card contexts retain image references as well as text. Cloud turns include
+  the referenced local collection images as labelled image inputs, including
+  ChatGPT sign-in. Follow-ups keep them on the original message; resumed chats
+  reload local images from saved references. Image preparation runs off the main
+  thread and shares the message's attachment limit. Missing, unreadable, remote,
+  and omitted images are identified to the model rather than treated as empty
+  fields. Paths are confined to collection media. The on-device text model is
+  told that image fields contain content it cannot see.
 - The assistant shows Swift-generated activity and completed-write results.
   Card creation and correction require editable review sheets before saving;
   closing or stopping interrupts generation and pending review.
@@ -123,6 +131,17 @@ Only relevant DigUp ideas and synthetic fixtures are used. Reference revision:
 Its llama.cpp backend, filesystem crawler and global desktop controls are not
 part of Ijuka. Fixture attribution is alongside the reference inputs in
 `AmgiEmbeddings/Tests/AmgiEmbeddingsTests/Fixtures/DigUpReference`.
+
+## Card-image regression validation: 19 October 2026
+
+The Mac app build and all 30 assistant tests across seven suites passed after
+adding card-image context. The new tests resolve an image-only card, persist and
+reload its references, decode its prepared image, and verify labelled pixels in
+ChatGPT bearer-token, OpenAI API-key, and Claude request bodies and follow-up
+history. They also cover HTML source variants, encoded filenames, duplicate
+references, missing images, remote/traversal/symlink rejection, and attachment
+limits. These are local request and media-loading tests with synthetic images;
+they do not establish a live ChatGPT vision response or installed-device behavior.
 
 ## Correction regression validation: 19 October 2026
 

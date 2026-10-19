@@ -62,6 +62,7 @@ struct CloudHistoryTurn: Sendable {
     let reply: String
     /// The `<context>` blocks attached to this message, replayed with it.
     var context = ""
+    var cardImages: [AssistantAttachment] = []
 }
 
 /// One request/stream cycle. `items` are the provider's own output, kept to
@@ -90,16 +91,16 @@ struct CloudConversation: Sendable {
 
     init(
         model: AssistantModel, instructions: String, tools: [CloudTool], history: [CloudHistoryTurn],
-        prompt: String, attachments: [AssistantAttachment], context: String = ""
+        prompt: String, attachments: [AssistantAttachment], context: String = "", cardImages: [AssistantAttachment] = []
     ) {
         self.model = model
         self.instructions = instructions
         self.tools = tools
         for turn in history {
-            input.append(userMessage(turn.prompt, turn.attachments, context: turn.context))
+            input.append(userMessage(turn.prompt, turn.attachments, context: turn.context, cardImages: turn.cardImages))
             input.append(assistantText(turn.reply))
         }
-        input.append(userMessage(prompt, attachments, context: context))
+        input.append(userMessage(prompt, attachments, context: context, cardImages: cardImages))
     }
 
     private var isAnthropic: Bool { model.provider == .anthropic }
@@ -109,7 +110,7 @@ struct CloudConversation: Sendable {
     /// Files first, then the attached context as its own text part, then
     /// what the user typed — so the context reads as material the message
     /// is about, not as part of what they said.
-    private func userMessage(_ text: String, _ attachments: [AssistantAttachment], context: String = "") -> JSONValue {
+    private func userMessage(_ text: String, _ attachments: [AssistantAttachment], context: String = "", cardImages: [AssistantAttachment] = []) -> JSONValue {
         var parts: [JSONValue] = []
         for attachment in attachments {
             switch (isAnthropic, attachment.kind) {
@@ -125,6 +126,14 @@ struct CloudConversation: Sendable {
         }
         func textPart(_ value: String) -> JSONValue {
             isAnthropic ? ["type": "text", "text": .string(value)] : ["type": "input_text", "text": .string(value)]
+        }
+        for image in cardImages {
+            parts.append(textPart("Card image: \(image.name). This is the image referenced in the attached card fields."))
+            if isAnthropic {
+                parts.append(["type": "image", "source": ["type": "base64", "media_type": .string(image.mimeType), "data": .string(image.data.base64EncodedString())]])
+            } else {
+                parts.append(["type": "input_image", "image_url": .string(image.dataURL)])
+            }
         }
         if !context.isEmpty { parts.append(textPart(context)) }
         parts.append(textPart(text))

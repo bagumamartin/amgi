@@ -26,6 +26,9 @@ public struct AssistantContext: Codable, Hashable, Sendable, Identifiable {
     public var reference: String
     public var deckID: Int64?
     public var noteID: Int64?
+    /// Collection-media references only; image bytes stay out of chat metadata.
+    /// Nil for unresolved contexts and chats saved before card images were supported.
+    public var imageSources: [String]?
     /// A book, chapter or page identity, for de-duplication.
     public var sourceID: String?
 
@@ -45,6 +48,7 @@ public struct AssistantContext: Codable, Hashable, Sendable, Identifiable {
         reference = try values.decodeIfPresent(String.self, forKey: .reference) ?? ""
         deckID = try values.decodeIfPresent(Int64.self, forKey: .deckID)
         noteID = try values.decodeIfPresent(Int64.self, forKey: .noteID)
+        imageSources = try values.decodeIfPresent([String].self, forKey: .imageSources)
         sourceID = try values.decodeIfPresent(String.self, forKey: .sourceID)
         // Chats saved before chapters and pages were told apart.
         if kind == "reader" { kind = Kind.book.rawValue }

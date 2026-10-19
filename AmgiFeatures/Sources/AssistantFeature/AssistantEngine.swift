@@ -1,5 +1,7 @@
 import AmgiAppCore
 import AmgiUI
+import AnkiClients
+import Dependencies
 import Foundation
 import FoundationModels
 import ManifoldKit
@@ -41,6 +43,8 @@ final class AssistantEngine {
         /// Sent with this message. Data only lives for the session; the
         /// stubs are what a reopened chat shows.
         var attachments: [AssistantAttachment] = []
+        /// Pixels for card contexts, cached for follow-ups during this session.
+        var cardMedia: AssistantCardMedia?
         var info = TurnInfo()
     }
 
@@ -112,6 +116,7 @@ final class AssistantEngine {
     }
 
     @ObservationIgnored private let store: AssistantStore
+    @ObservationIgnored @Dependency(\.mediaClient) private var media
     @ObservationIgnored private let fallback = StudyAssistantModel()
     @ObservationIgnored private var languageSession: LanguageModelSession?
     @ObservationIgnored private var turnTask: Task<Void, Never>?
@@ -314,15 +319,27 @@ final class AssistantEngine {
         if !orphans.isEmpty {
             if blocks.isEmpty { current.insert(contentsOf: orphans, at: 0) } else { blocks[0].insert(contentsOf: orphans, at: 0) }
         }
-        let history = zip(kept, blocks).map { turn, block in
-            CloudHistoryTurn(prompt: turn.prompt, attachments: turn.attachments, reply: turn.reply, context: AssistantInstructions.block(block, cloud: true))
+        var history: [CloudHistoryTurn] = []
+        for (earlier, block) in zip(kept, blocks) {
+            let resolved = try await imageContexts(block)
+            let images = try await cardMedia(for: earlier, contexts: resolved)
+            update(earlier.id) { $0.info.contexts = resolved }
+            history.append(CloudHistoryTurn(
+                prompt: earlier.prompt, attachments: earlier.attachments, reply: earlier.reply,
+                context: images.appendingWarnings(to: AssistantInstructions.block(resolved, cloud: true)),
+                cardImages: images.images
+            ))
         }
+        current = try await imageContexts(current)
+        update(turn.id) { $0.info.contexts = current }
+        let images = try await cardMedia(for: turn, contexts: current + retrieved)
         var conversation = CloudConversation(
             model: model,
             instructions: AssistantInstructions.make(contexts + retrieved, cloud: true, inline: true),
             tools: AssistantCloudTools.make(canFixCard: toolbox.noteID != nil, hasReading: contexts.isReader),
             history: history, prompt: turn.prompt, attachments: turn.attachments,
-            context: AssistantInstructions.block(current + retrieved, cloud: true)
+            context: images.appendingWarnings(to: AssistantInstructions.block(current + retrieved, cloud: true)),
+            cardImages: images.images
         )
         for _ in 0..<8 {
             let round = try await streamRound(&conversation, turnID: turn.id)
@@ -337,6 +354,34 @@ final class AssistantEngine {
             update(turn.id) { if !$0.reply.isEmpty, !$0.reply.hasSuffix("\n\n") { $0.reply += "\n\n" } }
             phase = .thinking
         }
+    }
+
+    private func imageContexts(_ contexts: [AssistantContext]) async throws -> [AssistantContext] {
+        var resolved: [AssistantContext] = []
+        for context in contexts {
+            if context.imageSources == nil, context.type == .note || context.type == .review {
+                resolved.append(await toolbox.resolve(context))
+            } else {
+                resolved.append(context)
+            }
+        }
+        try Task.checkCancellation()
+        guard profile.isCurrent(AccountStore.shared.selectedContext) else { throw AssistantError.profileChanged }
+        return resolved
+    }
+
+    private func cardMedia(for turn: Turn, contexts: [AssistantContext]) async throws -> AssistantCardMedia {
+        guard profile.isCurrent(AccountStore.shared.selectedContext) else { throw AssistantError.profileChanged }
+        let sources = AssistantCardMedia.sources(in: contexts)
+        if let cached = turn.cardMedia, cached.sources == sources { return cached }
+        let result = try await AssistantCardMedia.load(
+            sources: sources, mediaRoot: media.folderURL(),
+            availableSlots: AssistantAttachment.limit - turn.attachments.count
+        )
+        try Task.checkCancellation()
+        guard profile.isCurrent(AccountStore.shared.selectedContext) else { throw AssistantError.profileChanged }
+        update(turn.id) { $0.cardMedia = result }
+        return result
     }
 
     private func streamRound(_ conversation: inout CloudConversation, turnID: UUID) async throws -> CloudRound {
@@ -663,8 +708,8 @@ enum AssistantInstructions {
             ? " The excerpts were retrieved from the attached book for this message: ground the answer in them, and say so when they do not answer the question."
             : ""
         let style = cloud
-            ? "Use Markdown when it helps: short paragraphs, lists, **bold** for key terms. Keep answers focused. The user may attach photos or PDFs; read them directly."
-            : "Default to one to four sentences; use a short list only when it really helps."
+            ? "Use Markdown when it helps: short paragraphs, lists, **bold** for key terms. Keep answers focused. Read attached photos, PDFs, and card images directly. A field marked [Image: ...] is not empty. If its image was not attached, explain that it is unavailable instead of calling the card empty."
+            : "Default to one to four sentences; use a short list only when it really helps. A field marked [Image: ...] is not empty, but this on-device text model cannot see its image. Explain that limitation rather than claiming the card is blank."
         return """
         You are the study companion inside Ijuka, a flashcard and reading app. Sound like a friendly, sharp tutor: warm, brief and concrete. \(style)
 
