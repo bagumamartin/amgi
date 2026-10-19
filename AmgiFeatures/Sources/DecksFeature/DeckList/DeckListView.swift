@@ -255,9 +255,19 @@ package struct DeckListView: View {
                     listColumn(selection: detail.columnSelection)
                         .frame(width: LibrarySplitMetrics.listWidth)
                         .environment(\.amgiOnHeadingScrolledAway) { listHeadingAway = $0 }
-                    Rectangle()
-                        .fill(.separator)
-                        .frame(width: 0.5)
+                        // The seam runs the window's full height, through
+                        // the bar above and the home-indicator inset below,
+                        // the way the sidebar's edge does. Only the vertical
+                        // insets are ignored: the stack itself reaches under
+                        // the sidebar, so measuring from its leading edge
+                        // would put the seam inside the list.
+                        .overlay(alignment: .trailing) {
+                            Rectangle()
+                                .fill(.separator)
+                                .frame(width: 0.5)
+                                .ignoresSafeArea(edges: .vertical)
+                                .accessibilityHidden(true)
+                        }
                     detailPane
                         .frame(maxWidth: .infinity)
                         .environment(\.amgiPageIsPane, true)
