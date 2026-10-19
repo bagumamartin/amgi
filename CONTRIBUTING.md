@@ -4,7 +4,7 @@ Thank you for your interest in contributing. This guide covers how to report iss
 
 ## Reporting Bugs
 
-Open a [GitHub Issue](https://github.com/antigluten/anki-ios/issues/new) with:
+Open a [GitHub Issue](https://github.com/bagumamartin/amgi/issues/new) with:
 
 - Steps to reproduce
 - Expected behavior vs. actual behavior
@@ -13,13 +13,13 @@ Open a [GitHub Issue](https://github.com/antigluten/anki-ios/issues/new) with:
 
 ## Suggesting Features
 
-Open a [GitHub Issue](https://github.com/antigluten/anki-ios/issues/new) with the `enhancement` label. Describe the use case and why it would benefit Anki users.
+Open a [GitHub Issue](https://github.com/bagumamartin/amgi/issues/new) with the `enhancement` label. Describe the use case and why it would benefit Anki users.
 
 ## Development Setup
 
 ### Prerequisites
 
-- Xcode 16.0+
+- Xcode 27.0+ with Swift 6.3+ (main app: iOS/iPadOS 26+ or macOS 26+)
 - Rust stable toolchain (`rustup`)
 - `protoc` and `protoc-gen-swift` (`brew install protobuf swift-protobuf`)
 - `xcodegen` (`brew install xcodegen`)
@@ -27,8 +27,8 @@ Open a [GitHub Issue](https://github.com/antigluten/anki-ios/issues/new) with th
 ### Build
 
 ```bash
-git clone --recursive https://github.com/antigluten/anki-ios.git
-cd anki-ios
+git clone --recursive https://github.com/bagumamartin/amgi.git
+cd amgi
 
 # Rust targets for iOS + macOS
 rustup target add aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-darwin x86_64-apple-darwin
@@ -40,24 +40,26 @@ rustup target add aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-darwin x
 ./scripts/generate-protos.sh
 
 # Generate Xcode project and open
-cd AnkiApp && xcodegen generate && cd ..
-open AnkiApp/AnkiApp.xcodeproj
+cd AmgiApp && xcodegen generate && cd ..
+open AmgiApp/AmgiApp.xcodeproj
 ```
 
 ### Running Tests
 
 ```bash
-# SPM library tests (macOS — does not include AnkiBackend)
-swift test
+# Assistant package tests through the app's Mac test plan
+xcodebuild test -project AmgiApp/AmgiApp.xcodeproj -scheme AmgiAppMac \
+  -testPlan AIOverhaul -destination 'platform=macOS' \
+  -only-testing:AssistantFeatureTests
 
 # Full app tests (requires iOS Simulator)
-xcodebuild test -project AnkiApp/AnkiApp.xcodeproj -scheme AnkiApp \
+xcodebuild test -project AmgiApp/AmgiApp.xcodeproj -scheme AmgiApp \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max'
 ```
 
 ## Code Style
 
-- **Swift 6.2** with strict concurrency (language mode v6)
+- **Swift 6 language mode** with strict concurrency; the embedding package requires a Swift 6.3+ toolchain
 - **Struct-closure dependency injection** using `@DependencyClient` -- never protocols
 - **Value types** everywhere above the database layer
 - **`public import`** for modules whose types appear in public API signatures (`InternalImportsByDefault` is enabled)
@@ -104,7 +106,7 @@ The Rust backend is pinned to `anki-upstream/` (tag 25.09.2). Do not update the 
 - Keep PRs focused -- one feature or fix per PR
 - Include a description of what changed and why
 - Add tests for new functionality where possible
-- Make sure `swift test` passes before submitting
+- Run the relevant test plan and report which tests actually ran
 - Screenshots for UI changes
 
 ## Code of Conduct
@@ -113,4 +115,4 @@ This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.
 
 ## Questions?
 
-Open a [Discussion](https://github.com/antigluten/anki-ios/discussions) or file an issue. We are happy to help.
+Open a [Discussion](https://github.com/bagumamartin/amgi/discussions) or file an issue. We are happy to help.

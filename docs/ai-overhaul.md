@@ -1,32 +1,36 @@
 # AI and capture overhaul
 
-Implementation and validation record, 14 October 2026. Work is in progress;
-compilation and model parity are separate from UI and device acceptance.
+Current implementation: 19 October 2026. Current regression checks and the
+historical 14 October validation record are separated below. Historical results
+do not validate the later assistant rewrite, cloud providers, or reader changes.
+Compilation, model parity, and UI and device acceptance are separate checks.
 
 ## Product contract
 
-- iPhone: Ask AI pill above the navigation pill, with a separate Quick Capture
-  circle. Scrolling into content compacts the arrangement to navigation, AI and
-  capture in one row; reverse scrolling and the left control expand navigation.
-  The controls use native Liquid Glass. Scene code owns the coordination: the
-  system's separated Search tab is not repurposed as a capture action.
-- iPad and Mac: a compact floating Ask AI pill and separate capture circle in
-  one bottom-right row, over content rather than in the sidebar or a full-width
-  bottom bar. The assistant opens in a floating corner card; Mac supports card
-  resizing. iPad retains native adaptive navigation and keyboard avoidance.
-  Reader and Review expose a contextual assistant action.
-- Quick Capture has exactly Camera and Text. It reuses the rich note fields in
-  a separate draft. Each fresh session targets deck ID 1, including a renamed
-  Default deck; a missing destination requires selection. Saving keeps capture
-  open, clears the saved content and confirms the destination. Camera inserts
-  media; it does not generate fields or run automatic OCR into the draft.
-- Suggestions precede keyboard focus. Chats retain scope, draft and local
-  history per profile. New chats inherit current screen context; resumed chats
-  keep their saved scope until “Use current screen.” Closing stops generation
-  and pending approvals. Commit receipts record writes that actually completed.
-- Vendors sit behind the assistant provider boundary. Only the existing Apple
-  Foundation Models provider is registered. No API credential, cloud model,
-  ChatGPT sign-in or fictitious provider is added by this change.
+- iPhone uses native tabs with an Ask AI and Quick Capture bottom accessory.
+  iPad adapts between tabs and a sidebar; Mac uses split navigation. Wider
+  screens show a floating Ask AI pill beside a separate capture circle.
+  Readers hide the global entry and provide their own contextual action;
+  Review also exposes Ask AI for the current card.
+- Quick Capture offers Camera and Text and reuses the rich note editor in a
+  separate draft. Each fresh session targets deck ID 1, including a renamed
+  Default deck; a missing destination requires selection. Saving clears the
+  saved content, confirms the destination, and keeps capture open. Camera
+  inserts media rather than automatically generating card fields.
+- Each assistant presentation starts a fresh chat; opening and closing without
+  sending creates no empty history entry. History remains local per profile.
+  Screen context becomes removable chips for a collection, deck, card, book,
+  chapter, page, passage, or whole screen. Sending moves the chips onto that
+  message; later turns retain them, and resumed chats restore saved contexts.
+- Apple Intelligence runs on device. Optional ChatGPT sign-in, OpenAI API keys,
+  and Claude API keys select cloud models through the provider settings. Keys
+  and sign-in credentials live in Keychain. Image/PDF attachments require a
+  cloud model; the chosen provider receives the prompt, attached contexts and
+  files, conversation history, and relevant tool results. Availability and
+  account limits require live provider validation.
+- The assistant shows Swift-generated activity and completed-write results.
+  Card creation and correction require editable review sheets before saving;
+  closing or stopping interrupts generation and pending review.
 
 ## Versions and platform support
 
@@ -48,43 +52,38 @@ preprocessing revision. E5 vectors/tokenizers are not reused.
 
 ## Assistant execution
 
-`AssistantRuntime` owns each window's Manifold bootstrap, chat and history view
-models. Profile windows share a SwiftData container and versioned metadata.
-Send, retry and deterministic turns take a per-chat lease. The sidecar stores
-drafts, scopes, sources, timestamps, interruption state and deletion tombstones.
-Saved source navigation binds to the current profile activation.
+`AssistantEngine` owns the turn loop, streaming replies, context chips,
+attachments, review continuations, and history for a presentation. ManifoldKit
+provides chat persistence and history, rather than running the tool loop.
+`AssistantStore` shares a per-profile SwiftData container configured with
+`cloudKitDatabase: .none`; its JSON sidecar stores contexts, activity, sources,
+and per-turn model/file metadata. Reopened chats show file stubs and thumbnails;
+original attachment bytes live only for the active session.
 
-The small advertised tool catalog is `read_collection`, `change_collection` and
-`open_app`. Typed adapters support note/card/deck/notetype/template operations.
-Reads and navigation use existing services and scene routing. Sync/import/export
-open their existing coordinated workflows; an opened workflow is not reported
-as a completed operation.
+`AssistantToolbox` exposes task-shaped intents: `studyOverview`, `findNotes`,
+`relatedCards`, `findGaps`, `makeFlashcards`, `openScreen`, and `fixThisCard`.
+Swift resolves deck, note type, and field identities. Apple Foundation Models
+uses native tool adapters; `AssistantCloudTools` describes and dispatches the
+same intents for cloud models. `CloudConversation` builds provider-specific
+requests and replays tool results during a bounded loop of up to eight rounds.
+The old `read_collection` / `change_collection` / `open_app` catalog and
+`AssistantRuntime` execution host have been removed.
 
-`AssistantToolCatalog` is shared by all providers: ordinary JSON Schema, JSON
-arguments, Manifold tool results and the same review/execution host. It has no
-Foundation Models dependency. The Apple-only backend translates these schemas
-and transcript entries to native Foundation Models formats. Native tool selection
-only emits an intent into Manifold's dispatch loop; it cannot execute an app
-mutation or authorize one. Completed calls/results replay as native transcript
-entries to avoid repeated reads. Other backends keep their own wire formats and
-use the identical catalog and approval gate. Provider-specific activity/privacy
-copy also stays in the provider rather than being hardcoded into the surface.
-Read operations use explicit list/get names and exclude write-only arguments.
-Deck/notetype results expose JSON numeric IDs, including exact 64-bit values;
-the shared contract is tested independently of any Apple model/session.
-Writes use `fieldContents` for ordered question/answer contents, retaining
-decoding of old persisted `fields` calls. Misplaced note content in the card-only
-`value` parameter is rejected. Created-note results carry the actual backend ID
-and the contents saved after review edits, so later model turns do not assume
-the original draft was saved verbatim.
+Retrieval can target attached decks, books, chapters, or pages, or search the
+whole collection. Related-card search excludes the attached card. Coverage-gap
+results rank passages by their nearest-card similarity; this is a heuristic,
+not proof that a concept is missing. Cloud turns about a whole book retrieve
+relevant excerpts before generation. Source links and activity come from actual
+tool results.
 
-Every assistant collection change requires a fresh, single-use review. The user
-can select targets and edit supported field drafts. The host snapshots profile
-and target state, then revalidates under the backend lifecycle lock immediately
-before synchronous typed RPCs. Concurrent edits invalidate the proposal. Active
-review mutations are excluded. Partial tag batches report actual committed IDs;
-cancellation after an RPC does not erase its outcome. Undo/redo use the backend's
-existing undo stack, not fabricated app-local rollback.
+New cards and field corrections wait for the user's review. A declined proposal
+cannot be repeated within the same turn. Correction commits check the collection
+activation, note identity and contents, and ordered field names under the backend
+lifecycle lock immediately before saving. A changed or deleted note or changed
+field layout requires a new proposal. Only included fields are replaced; current
+tags and untouched rich text are retained. `AssistantStep` records success only
+after the backend write completes. These intents do not expose arbitrary
+collection CRUD, sync, import, or export operations.
 
 ## Retrieval and assets
 
@@ -99,9 +98,11 @@ existing undo stack, not fabricated app-local rollback.
   and known prior model-store locations; it preserves Gemma assets, retrieval
   indexes, and unrelated files.
 - A per-profile SQLite store commits source metadata, vectors and FTS together.
-  Model identity changes invalidate incompatible records. Source hashes and
-  stable segment IDs permit resumed indexing. Pruning follows complete source
-  scans, never a partial Browse window.
+  Model identity changes invalidate incompatible records. Source fingerprints
+  skip extraction and embedding for unchanged notes and files; stable segment
+  IDs permit resumed indexing. Pruning follows complete source scans, never a
+  partial Browse window. Moving a card alone does not update indexed deck-name
+  text until the note changes; deck-scoped queries use current engine membership.
 - The coordinator visits all note IDs, all fields/tags/deck names, owned Anki
   media and managed reader books/annotations. It does not crawl the Mac.
   Text passages overlap; PDF pages retain text/OCR and page anchors. Audio uses
@@ -109,8 +110,10 @@ existing undo stack, not fabricated app-local rollback.
   three seconds, skips near-duplicate frames and indexes its audio independently.
 - Native ordered mixed inputs use a joint forward, not vector averaging.
   Search combines lexical rank with semantic rank standardized by modality.
-  The current search implementation scans stored vectors; large-library latency
-  and memory measurements remain a release gate.
+  Per-row int8 vectors with scales are loaded into a contiguous in-memory table
+  for blocked matrix-vector search, rather than decoding every stored payload
+  for each query. Large-library latency and memory measurements remain a release
+  gate.
 - Settings exposes module downloads, indexing progress, persistent pause/resume
   and failed-source details. Low power mode and high temperature pause background
   indexing. Profile changes cancel indexing and fence collection reads/writes.
@@ -121,7 +124,24 @@ Its llama.cpp backend, filesystem crawler and global desktop controls are not
 part of Ijuka. Fixture attribution is alongside the reference inputs in
 `AmgiEmbeddings/Tests/AmgiEmbeddingsTests/Fixtures/DigUpReference`.
 
-## Evidence so far
+## Correction regression validation: 19 October 2026
+
+The `AmgiAppMac` build and all 25 `AssistantFeatureTests` across six suites
+passed on Xcode 27.1 using the `AIOverhaul` test plan. Five new tests use real
+Rust backends with temporary collections to verify approved-field saves,
+preservation of current tags and untouched rich text, and rejection of concurrent
+field edits, renamed fields, mismatched collection activations, and deleted
+notes. The existing context, request-format, sign-in-helper, markdown, and prompt
+tests also passed. This run does not establish live cloud authentication,
+model-generated correction quality, device behavior, or UI acceptance.
+
+## Historical validation: 14 October 2026
+
+The results below belong to the original overhaul, including tool/approval tests
+and UI flows that the later rewrite replaced. They are retained as historical
+evidence, not current test counts or acceptance of the present assistant. In
+particular, the 15-test assistant result and raw tool-call examples below do not
+establish the current task-shaped intent behavior.
 
 - Mac app and dedicated `AIOverhaul` test targets compile on Xcode 27.
 - iPhone/iPad app compiles for the iOS device SDK. This does not establish an
@@ -197,18 +217,21 @@ part of Ijuka. Fixture attribution is alongside the reference inputs in
 1. Render and interact with the iPhone expanded/compact navigation states,
    manual expansion, capture menu and keyboard transitions; verify iPad/Mac
    geometry, Dynamic Type, Reduce Motion, VoiceOver and narrow windows.
-2. Expand the live model task evaluation beyond the passing Mac note-creation
-   flow; repeat stop/close, history, retry, profile switching, multiple windows,
-   approved/declined writes and source opening across the supported devices.
+2. Evaluate the current task-shaped intents on Apple Intelligence and every
+   connected cloud provider, including sign-in/key handling, streaming,
+   attachments, limits, stop/close, history, profile switching, multiple windows,
+   approved/declined writes, stale corrections, and source opening. The old Mac
+   note-creation result does not validate these rewritten flows.
 3. Run sustained indexing on the user's iPhone/iPad/Mac; record whole-process
    memory, thermal response, latency and idle unload behavior beyond the bounded
    native reference gates already recorded above.
 4. Validate retrieval ranking with representative text/image/audio/video and
    ordered mixed queries, multilingual study terms and exact lookup fixtures.
    Calibrate icon confidence and duplicate thresholds for the new model.
-5. Complete richer EPUB media extraction, note/media joint context, grouped
-   temporal video windows and transient query-attachment entry points. Standalone
-   media indexing and the native mixed-input API do not replace those surfaces.
+5. Evaluate the new reader card-capture, context-chip, and cloud-attachment
+   flows separately from embedding parity. Richer EPUB media extraction,
+   note/media joint context, and grouped temporal video windows still require
+   their own implementation and validation evidence.
 6. Extend the honest tool capability list only alongside concrete typed adapters
    and exact review/commit tests. Unsupported operations retain existing app
    workflows and must never be claimed as completed by the model.

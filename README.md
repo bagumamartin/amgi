@@ -9,9 +9,9 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Swift-6.2-F05138?logo=swift&logoColor=white" alt="Swift 6.2">
-  <img src="https://img.shields.io/badge/iOS-iPadOS-18%2B-000000?logo=apple&logoColor=white" alt="iOS and iPadOS 18+">
-  <img src="https://img.shields.io/badge/macOS-15%2B-000000?logo=apple&logoColor=white" alt="macOS 15+">
+  <img src="https://img.shields.io/badge/Swift-6.3%2B-F05138?logo=swift&logoColor=white" alt="Swift 6.3+">
+  <img src="https://img.shields.io/badge/iOS-iPadOS-26%2B-000000?logo=apple&logoColor=white" alt="iOS and iPadOS 26+">
+  <img src="https://img.shields.io/badge/macOS-26%2B-000000?logo=apple&logoColor=white" alt="macOS 26+">
   <img src="https://img.shields.io/badge/Rust-FFI-DEA584?logo=rust&logoColor=white" alt="Rust FFI">
   <img src="https://img.shields.io/badge/License-AGPL--3.0-blue" alt="AGPL-3.0">
 </p>
@@ -27,10 +27,11 @@ Ijuka wraps the official [ankitects/anki](https://github.com/ankitects/anki) Rus
 - **Dual Card Rendering** -- Rust template engine renders cards exactly like desktop clients; simple cards are auto-detected and drawn by a native SwiftUI renderer (with per-template overrides and a render-mode picker), complex cards fall back to WebKit
 - **Deck Browser** -- hierarchical deck tree with recursive `DisclosureGroup` expand/collapse, new/learn/review count badges on every node
 - **Study Session** -- answer cards with Again/Hard/Good/Easy; elevated rating cards with next-interval labels, session progress bar, rating toast with auto-advance, native typed-answer field, and tap-to-play audio
-- **Note Browser** -- search notes across all decks, deck filter chips (top-level decks auto-include subdecks), lazy-load results (50 per page)
+- **Note Browser** -- search across sidebar sections, decks, tags, saved searches and book-linked notes; trouble-card lists, a shelf, card grids, and local note checks
 - **Note Editor** -- edit note fields with accurate field names from the Rust notetype RPC
-- **Statistics Dashboard** -- full-year review heatmap (auto-scrolls to today), streak counter, retention rate, forecast chart, card count breakdown
-- **Reader** -- read books from your collection chapter-by-chapter; tap any word for a Yomitan-compatible dictionary lookup; chained popups, search history, per-dictionary collapsed memory; TTS speak button with language-aware voice selection; bundled Korean fonts (Sarasa Mono K, Nanum Myeongjo, Nanum Gothic); vertical writing mode and Latin/CJK auto-detection; cross-device progress sync
+- **Study and Statistics** -- historical due/studied/left counts with uncertainty explanations, future workload, review-ahead accounting, queue rings, adaptive heatmaps, retention, forecasts, and card counts
+- **Reader** -- EPUB and PDF reading, nested iCloud library collections, highlights, text/area capture into card drafts, source-linked cards and undo; tap any word for a Yomitan-compatible dictionary lookup; chained popups, search history, per-dictionary collapsed memory; TTS speak button with language-aware voice selection; bundled Korean fonts (Sarasa Mono K, Nanum Myeongjo, Nanum Gothic); vertical writing mode and Latin/CJK auto-detection; cross-device progress sync
+- **AI Assistant** -- contextual chats on Apple Intelligence or connected ChatGPT/OpenAI/Claude models; removable context chips, cloud image/PDF attachments, scoped retrieval, related cards and coverage gaps; card creation and correction require review before saving
 - **Multi-Profile Accounts** -- isolated Anki collections per profile, fast picker in the decks toolbar, per-profile sync credentials and review history
 - **Image Occlusion** -- create and edit notes with rectangle, ellipse, polygon, and text masks; reviewer parity with upstream Anki
 - **Multi-Theme System** -- Vivid + Muted palettes, Light/Dark/Follow-System; persists across app and home-screen widgets via App Group
@@ -38,8 +39,8 @@ Ijuka wraps the official [ankitects/anki](https://github.com/ankitects/anki) Rus
 - **Apple Watch App** -- companion watchOS app with deck list, card review with audio playback, stats, and sync; the Anki engine runs on-device
 - **Safe Sync Merge** -- when local and server collections diverge, merge them (keeping cards from both sides) instead of being forced to overwrite one; destructive choices require explicit confirmation
 - **Adaptive Apple UI** -- touch-first iPhone tabs and sheets; split navigation and inspectors on iPad; Mac windows, menus, keyboard shortcuts, pointer tools, Finder integration, and AppKit editors
-- **Offline-First** -- everything works offline; sync when you have a connection
-- **Swift 6.2 Strict Concurrency** -- zero data races, fully actor-isolated, `Sendable` throughout
+- **Offline-First** -- local flashcards and imported books work offline; sync and connected cloud AI require a connection
+- **Swift Strict Concurrency** -- Swift 6 language mode, actor isolation, and `Sendable` boundaries
 
 ## Screenshots
 
@@ -62,7 +63,7 @@ C FFI (typed RPC)
 Rust dynamic framework (AnkiRustLib)
 ```
 
-Swift owns the UI. Rust owns everything else -- database, sync, FSRS scheduling, card templates, statistics.
+Swift owns the UI, reader library, assistant, and retrieval index. The official Rust engine owns the flashcard collection, sync, FSRS scheduling, and card templates; app-specific bridge queries supply study-history data. See [AI and capture](docs/ai-overhaul.md) for the current assistant architecture and dated validation boundaries.
 
 For the full architecture walkthrough, see **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 
@@ -70,9 +71,9 @@ For the full architecture walkthrough, see **[ARCHITECTURE.md](ARCHITECTURE.md)*
 
 | Tool | Version |
 |------|---------|
-| iOS / iPadOS | 18.0+ |
-| macOS | 15.0+ |
-| Xcode | 16.0+ |
+| iOS / iPadOS | 26.0+ |
+| macOS | 26.0+ |
+| Xcode | 27.0+ with Swift 6.3+ |
 | Rust | 1.92+ (via rustup) |
 | protoc | 3.0+ |
 | protoc-gen-swift | latest |
@@ -83,7 +84,7 @@ For the full architecture walkthrough, see **[ARCHITECTURE.md](ARCHITECTURE.md)*
 ### 1. Clone with submodules
 
 ```bash
-git clone --recursive https://github.com/antigluten/amgi.git
+git clone --recursive https://github.com/bagumamartin/amgi.git
 cd amgi
 ```
 
@@ -128,7 +129,7 @@ Select an iPhone/iPad Simulator or device, or the `AmgiAppMac` scheme, then buil
 
 ## Tech Stack
 
-- **UI**: SwiftUI with strict concurrency (Swift 6.2, language mode v6)
+- **UI**: SwiftUI with strict concurrency (Swift 6 language mode; Swift 6.3+ toolchain)
 - **Dependency Injection**: [swift-dependencies](https://github.com/pointfreeco/swift-dependencies) (`@DependencyClient` struct-closure pattern)
 - **Backend**: [ankitects/anki](https://github.com/ankitects/anki) Rust crate via C FFI
 - **Serialization**: Protocol Buffers (24 .proto service definitions)
