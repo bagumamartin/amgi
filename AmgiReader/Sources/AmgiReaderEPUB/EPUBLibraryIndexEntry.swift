@@ -79,6 +79,11 @@ internal struct EPUBLibraryIndexEntry: Codable, Sendable, Hashable {
     /// Human-readable detail (underlying error text) for the fault. Shown in
     /// the repair sheet; not used for control flow.
     var faultDetail: String?
+    /// Size, modification date and file number of `original.epub` when the
+    /// fault was recorded. A fault is a verdict on those bytes, so once the
+    /// file changes (a finished download, a restore, a manual copy) the store
+    /// re-parses instead of trusting it.
+    var faultSourceFingerprint: String?
 
     init(
         bookID: String,

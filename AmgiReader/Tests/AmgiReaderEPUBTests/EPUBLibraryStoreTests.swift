@@ -423,6 +423,140 @@ struct EPUBLibraryHealthTests {
         )
         #expect(!leftovers.contains(where: { $0.lastPathComponent.hasPrefix(".original-backup-") }))
     }
+
+    // The library's cover pass, a second reload and the reader opening the
+    // book all ask a cold store for the same book at once. Each used to run
+    // its own rebuild, and one stashed the extraction another was still
+    // unzipping into — that parse then failed with `cannotOpen`
+    // ("EPUBParserError error 0") and faulted a perfectly good book.
+    @Test("overlapping cold rebuilds of one book never fault it")
+    func overlappingColdRebuildsDoNotFault() async throws {
+        let fixtureRoot = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+
+        let sourceURL = fixtureRoot.appendingPathComponent("source.epub")
+        try makeValidEPUB(at: sourceURL, paddingFiles: 400)
+        let libraryRoot = fixtureRoot.appendingPathComponent("library", isDirectory: true)
+        let book = try await EPUBLibraryStore(rootDirectory: libraryRoot).importEPUB(from: sourceURL)
+        let chapterID = try #require(book.chapters.first?.id)
+
+        for _ in 0..<3 {
+            // A fresh store is a relaunch: nothing is cached, so every call
+            // below needs a cold rebuild.
+            let coldStore = EPUBLibraryStore(rootDirectory: libraryRoot)
+            let results = await withTaskGroup(of: Bool.self) { group in
+                for index in 0..<9 {
+                    group.addTask {
+                        switch index % 3 {
+                        case 0: await coldStore.contentRootURL(bookID: book.id) != nil
+                        case 1: await coldStore.contentURL(bookID: book.id, chapterID: chapterID) != nil
+                        default: await coldStore.book(bookID: book.id) != nil
+                        }
+                    }
+                }
+                var results: [Bool] = []
+                for await result in group { results.append(result) }
+                return results
+            }
+            #expect(results.allSatisfy { $0 })
+            #expect(await coldStore.bookHealth()[book.id]?.isReady == true)
+        }
+
+        let leftovers = try FileManager.default.contentsOfDirectory(
+            atPath: libraryRoot.appendingPathComponent(book.id, isDirectory: true).path
+        )
+        #expect(!leftovers.contains(where: { $0.hasPrefix(".original-backup-") }))
+    }
+
+    @Test("a fault persisted against an intact book clears on the next launch")
+    func staleFaultOnIntactSourceHeals() async throws {
+        let fixtureRoot = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+
+        let sourceURL = fixtureRoot.appendingPathComponent("source.epub")
+        try makeValidEPUB(at: sourceURL)
+        let libraryRoot = fixtureRoot.appendingPathComponent("library", isDirectory: true)
+        let book = try await EPUBLibraryStore(rootDirectory: libraryRoot).importEPUB(from: sourceURL)
+
+        // The state the user's library was left in: a transient failure
+        // persisted a parse fault, and the source never changed.
+        let indexURL = libraryRoot.appendingPathComponent("index.json")
+        var index = try #require(
+            try JSONSerialization.jsonObject(with: Data(contentsOf: indexURL)) as? [String: Any]
+        )
+        var entries = try #require(index["entries"] as? [[String: Any]])
+        entries[0]["fault"] = "parseFailed"
+        entries[0]["faultDetail"] = "The operation couldn’t be completed. (AmgiReaderEPUB.EPUBParserError error 0.)"
+        index["entries"] = entries
+        try JSONSerialization.data(withJSONObject: index).write(to: indexURL)
+
+        let coldStore = EPUBLibraryStore(rootDirectory: libraryRoot)
+        let listed = await coldStore.books()
+        #expect(listed.first?.id == book.id)
+        #expect(listed.first?.chapters.isEmpty == false)
+        #expect(await coldStore.bookHealth()[book.id]?.isReady == true)
+
+        // Cleared on disk too, not just in this store's memory.
+        let nextLaunch = EPUBLibraryStore(rootDirectory: libraryRoot)
+        #expect(await nextLaunch.bookHealth()[book.id]?.isReady == true)
+    }
+
+    @Test("a faulted book re-parses as soon as its source file changes")
+    func faultClearsWhenSourceIsReplaced() async throws {
+        let fixtureRoot = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+
+        let sourceURL = fixtureRoot.appendingPathComponent("source.epub")
+        try makeValidEPUB(at: sourceURL)
+        let libraryRoot = fixtureRoot.appendingPathComponent("library", isDirectory: true)
+        let store = EPUBLibraryStore(rootDirectory: libraryRoot)
+        let book = try await store.importEPUB(from: sourceURL)
+        let managedSource = libraryRoot
+            .appendingPathComponent(book.id, isDirectory: true)
+            .appendingPathComponent("original.epub")
+
+        try Data("truncated".utf8).write(to: managedSource)
+        let coldStore = EPUBLibraryStore(rootDirectory: libraryRoot)
+        #expect(await coldStore.bookHealth()[book.id]?.fault == .parseFailed)
+        #expect(await coldStore.books().first?.chapters.isEmpty == true)
+
+        // The good bytes come back (a finished download, a manual copy):
+        // the same running store picks that up without a Retry.
+        try FileManager.default.removeItem(at: managedSource)
+        try FileManager.default.copyItem(at: sourceURL, to: managedSource)
+        #expect(await coldStore.books().first?.chapters.isEmpty == false)
+        #expect(await coldStore.bookHealth()[book.id]?.isReady == true)
+    }
+
+    @Test("a damaged local copy is restored from the iCloud backup")
+    func damagedLocalCopyRestoresFromICloud() async throws {
+        let fixtureRoot = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+
+        let sourceURL = fixtureRoot.appendingPathComponent("source.epub")
+        try makeValidEPUB(at: sourceURL)
+        let libraryRoot = fixtureRoot.appendingPathComponent("library", isDirectory: true)
+        let cloudRoot = fixtureRoot.appendingPathComponent("icloud", isDirectory: true)
+        let store = EPUBLibraryStore(testingRootDirectory: libraryRoot, cloudRoot: cloudRoot)
+        let book = try await store.importEPUB(from: sourceURL)
+        #expect(await store.synchronizeWithICloud().uploadedBookIDs == [book.id])
+
+        let managedSource = libraryRoot
+            .appendingPathComponent(book.id, isDirectory: true)
+            .appendingPathComponent("original.epub")
+        try Data("truncated".utf8).write(to: managedSource)
+
+        let coldStore = EPUBLibraryStore(testingRootDirectory: libraryRoot, cloudRoot: cloudRoot)
+        #expect(await coldStore.bookHealth()[book.id]?.fault == .parseFailed)
+
+        let sync = await coldStore.synchronizeWithICloud()
+        #expect(sync.status == .completed)
+        #expect(sync.uploadedBookIDs.isEmpty)
+        #expect(sync.restoredBookIDs == [book.id])
+        #expect(await coldStore.bookHealth()[book.id]?.isReady == true)
+        #expect(await coldStore.books().first?.chapters.isEmpty == false)
+        #expect(try EPUBBookParser.deriveBookID(forFileAt: managedSource) == book.id)
+    }
 }
 #endif
 
@@ -433,7 +567,13 @@ private func makeTemporaryDirectory() throws -> URL {
     return url
 }
 
-private func makeValidEPUB(at archiveURL: URL, title: String = "Test Publication") throws {
+/// `paddingFiles` adds that many filler resources, zipped after META-INF, so
+/// extraction takes long enough for concurrent callers to overlap it.
+private func makeValidEPUB(
+    at archiveURL: URL,
+    title: String = "Test Publication",
+    paddingFiles: Int = 0
+) throws {
     let workDirectory = archiveURL.deletingLastPathComponent()
         .appendingPathComponent("fixture-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(
@@ -511,6 +651,15 @@ private func makeValidEPUB(at archiveURL: URL, title: String = "Test Publication
         atomically: true,
         encoding: .utf8
     )
+
+    if paddingFiles > 0 {
+        let padding = workDirectory.appendingPathComponent("OEBPS/padding", isDirectory: true)
+        try FileManager.default.createDirectory(at: padding, withIntermediateDirectories: true)
+        for index in 0..<paddingFiles {
+            try Data(repeating: UInt8(index % 251), count: 4096)
+                .write(to: padding.appendingPathComponent("filler-\(index).bin"))
+        }
+    }
 
     try runCommand(
         executable: "/usr/bin/zip",
