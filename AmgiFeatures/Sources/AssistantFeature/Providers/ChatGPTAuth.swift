@@ -399,8 +399,11 @@ enum WebAuthenticationRunner {
     /// Throws when the user closes it.
     static func run(url: URL, callbackScheme: String) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            let session = ASWebAuthenticationSession(url: url, callback: .customScheme(callbackScheme)) { _, error in
-                active = nil
+            // `@Sendable` keeps this closure from inheriting main-actor isolation:
+            // on macOS the session calls it on an XPC queue, and the inherited
+            // isolation check traps there.
+            let session = ASWebAuthenticationSession(url: url, callback: .customScheme(callbackScheme)) { @Sendable _, error in
+                Task { @MainActor in active = nil }
                 if let error {
                     if (error as? ASWebAuthenticationSessionError)?.code == .canceledLogin {
                         continuation.resume(throwing: CancellationError())
