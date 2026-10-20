@@ -225,6 +225,10 @@ struct MainTabView: View {
                 // sidebar has its own button, and a second toggle beside it
                 // would only bring the section list back over the book.
                 .toolbar(removing: readerWindowState.isActive ? .sidebarToggle : nil)
+                // The column width must be outermost: under the toolbar
+                // modifier the split stopped reading it and fell back to
+                // the system's narrow default.
+                .appSidebarWidth()
         } detail: {
             sectionContent(selection, showsAccountMenu: false)
         }
