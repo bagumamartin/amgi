@@ -164,6 +164,9 @@ public final class ReviewSession {
     @ObservationIgnored private var activityLease: ReviewSessionLease?
     @ObservationIgnored private var isEnding = false
     @ObservationIgnored private var releaseLeaseAfterMutation = false
+    /// Set while `start()` waits out a closing review's lease, so a second
+    /// rejection surfaces the error instead of waiting again.
+    @ObservationIgnored private var hasWaitedForLease = false
     /// Card IDs graduated past today this session (next review ≥ tomorrow).
     /// Re-answers (Again, mid-step learning) never land here, so the daily
     /// bar completes exactly when today's cards are actually done.
@@ -279,8 +282,23 @@ public final class ReviewSession {
                 sessionID: sessionID,
                 profile: profile
             )
+            hasWaitedForLease = false
             return true
+        } catch ReviewSessionLeaseError.alreadyActive where !hasWaitedForLease {
+            // A review that was just closed keeps its lease through async
+            // teardown (temp-deck cleanup, learn-ahead restore). Opening a
+            // subdeck right after it lands here; wait briefly, then retry once.
+            hasWaitedForLease = true
+            Task { [weak self] in
+                for _ in 0..<60 where ReviewSessionCoordinator.shared.hasActiveSession {
+                    try? await Task.sleep(for: .milliseconds(50))
+                }
+                guard let self, !self.isEnding else { return }
+                self.start()
+            }
+            return false
         } catch {
+            hasWaitedForLease = false
             startError = error.localizedDescription
             isFinished = false
             return false
@@ -383,6 +401,10 @@ public final class ReviewSession {
                     guard profile.isCurrent(AccountStore.shared.selectedContext) else { return }
                     @Dependency(\.schedulerService) var scheduler
                     try? scheduler.setLearnAheadSecs(orig)
+                } else if let lease {
+                    // Busy with another transaction: skip the restore rather
+                    // than strand the lease. Release completes when it ends.
+                    coordinator.releaseSession(lease)
                 }
                 // If the profile drain already revoked the lease, there is
                 // nothing left for this deinit to restore or release.
@@ -605,11 +627,11 @@ public final class ReviewSession {
     /// Fetches today's graduated count and the rollover hour for the current
     /// scope. Best-effort: a failure never blocks the session.
     private func loadStartupStats(statsClient: StatsClient) {
-        guard beginActivityRead() else { return }
+        guard let readLease = activityLease, beginActivityRead() else { return }
         let mutationCountAtStart = successfulMutationCount
         Task {
             defer {
-                ReviewSessionCoordinator.shared.endRead()
+                ReviewSessionCoordinator.shared.endRead(for: readLease)
                 if isEnding { restoreLearnAheadThenRelease() }
             }
             guard isProfileCurrent, !isEnding else { return }

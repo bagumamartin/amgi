@@ -31,11 +31,11 @@ public struct ReviewSessionLease: Hashable, Sendable {
     }
 }
 
-public enum ReviewSessionLeaseError: Error, Equatable, Sendable {
+public enum ReviewSessionLeaseError: LocalizedError, Equatable, Sendable {
     case draining
     case alreadyActive(ReviewSessionIdentity)
 
-    public var localizedDescription: String {
+    public var errorDescription: String? {
         switch self {
         case .draining:
             return L10n.text("The collection is switching profiles. Try the review again when switching finishes.")
@@ -61,7 +61,15 @@ public final class ReviewSessionCoordinator {
 
     private var activeLease: ReviewSessionLease?
     private var activeMutation: Bool = false
-    private var activeReads = 0
+    /// Reads admitted under the active lease. Only these hold the lease open.
+    private var leaseReads = 0
+    /// Lease-less reads (indexer, App Intents). They block a profile drain,
+    /// never a lease release: the indexer reads near-continuously, and
+    /// letting it veto release stranded closed reviews' leases.
+    private var externalReads = 0
+    /// A release that arrived while the lease's own work was in flight. It
+    /// completes when that work ends, so no caller has to retry.
+    private var pendingRelease: ReviewSessionLease?
     private var isDraining = false
 
     /// Public for deterministic isolated tests. Production callers use
@@ -88,6 +96,7 @@ public final class ReviewSessionCoordinator {
             guard activeLease.identity == identity else {
                 throw ReviewSessionLeaseError.alreadyActive(activeLease.identity)
             }
+            pendingRelease = nil
             return activeLease
         }
         let lease = ReviewSessionLease(identity: identity, profile: profile)
@@ -95,13 +104,26 @@ public final class ReviewSessionCoordinator {
         return lease
     }
 
-    /// Releases a lease after its final mutation has completed. A stale token
-    /// can never release a newer session's lease.
+    /// Releases a lease. If a mutation or one of the lease's own reads is in
+    /// flight, the release is deferred to when that work ends and this
+    /// returns `false`. A stale token can never release a newer session's
+    /// lease.
     @discardableResult
     public func releaseSession(_ lease: ReviewSessionLease) -> Bool {
-        guard !activeMutation, activeReads == 0, activeLease == lease else { return false }
+        guard activeLease == lease else { return false }
+        guard !activeMutation, leaseReads == 0 else {
+            pendingRelease = lease
+            return false
+        }
         activeLease = nil
+        pendingRelease = nil
         return true
+    }
+
+    private func completePendingRelease() {
+        guard let pendingRelease, !activeMutation, leaseReads == 0 else { return }
+        self.pendingRelease = nil
+        if activeLease == pendingRelease { activeLease = nil }
     }
 
     /// Admits a profile-scoped read alongside scheduler mutations. Backend
@@ -109,20 +131,26 @@ public final class ReviewSessionCoordinator {
     /// closing the collection while the read is queued or in flight.
     public func beginRead(for lease: ReviewSessionLease) -> Bool {
         guard !isDraining, activeLease == lease else { return false }
-        activeReads += 1
+        leaseReads += 1
         return true
     }
 
     /// App-agent/indexer reads are drained before the collection closes too.
     public func beginExternalRead() -> Bool {
         guard !isDraining else { return false }
-        activeReads += 1
+        externalReads += 1
         return true
     }
 
-    public func endRead() {
-        precondition(activeReads > 0, "Review session read ended without a matching begin")
-        activeReads -= 1
+    public func endRead(for lease: ReviewSessionLease) {
+        precondition(leaseReads > 0, "Review session read ended without a matching begin")
+        leaseReads -= 1
+        completePendingRelease()
+    }
+
+    public func endExternalRead() {
+        precondition(externalReads > 0, "External read ended without a matching begin")
+        externalReads -= 1
     }
 
     /// Starts one lease-owned engine transaction.
@@ -144,6 +172,7 @@ public final class ReviewSessionCoordinator {
     public func endMutation() {
         precondition(activeMutation, "Review session mutation ended without a matching begin")
         activeMutation = false
+        completePendingRelease()
     }
 
     /// Prevents new work, waits for the current serialized transaction, then
@@ -151,10 +180,11 @@ public final class ReviewSessionCoordinator {
     /// with `endDrain()` after closing/reopening the collection.
     public func drain() async {
         isDraining = true
-        while activeMutation || activeReads > 0 {
+        while activeMutation || leaseReads > 0 || externalReads > 0 {
             await Task.yield()
         }
         activeLease = nil
+        pendingRelease = nil
     }
 
     public func endDrain() {

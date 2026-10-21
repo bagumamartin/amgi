@@ -215,7 +215,7 @@ final class AssistantToolbox {
         do {
             try checkProfile()
             guard ReviewSessionActivity.shared.beginExternalRead() else { throw CancellationError() }
-            defer { ReviewSessionActivity.shared.endRead() }
+            defer { ReviewSessionActivity.shared.endExternalRead() }
             let (filter, grouped, label) = try await retrievalFilter(scope)
             if let label { step.text = L10n.text("Searching \(label)"); report(step) }
             let hits = try await CollectionRetrievalCoordinator.shared.search(question, limit: hitLimit, filter: filter, groupBySource: grouped)
@@ -245,7 +245,7 @@ final class AssistantToolbox {
         do {
             try checkProfile()
             guard ReviewSessionActivity.shared.beginExternalRead() else { throw CancellationError() }
-            defer { ReviewSessionActivity.shared.endRead() }
+            defer { ReviewSessionActivity.shared.endExternalRead() }
             let cardsOnly = RetrievalFilter(sourcePrefixes: ["note:"])
             let wanted = text?.trimmed ?? ""
             var hits: [RetrievalHit] = []
@@ -303,7 +303,7 @@ final class AssistantToolbox {
                 throw AgentToolError.invalid(L10n.text("Open a chapter, page or book first"))
             }
             guard ReviewSessionActivity.shared.beginExternalRead() else { throw CancellationError() }
-            defer { ReviewSessionActivity.shared.endRead() }
+            defer { ReviewSessionActivity.shared.endExternalRead() }
             let gaps = try await CollectionRetrievalCoordinator.shared.uncovered(target, limit: isCloud ? 8 : 4)
             let found = gaps.map { source(from: $0.segment) }
             sources.append(contentsOf: found)
@@ -331,7 +331,7 @@ final class AssistantToolbox {
     func bookPassages(for prompt: String) async -> [AssistantContext] {
         guard isCloud, let book = contexts.first(where: { $0.type == .book }), let id = book.sourceID,
               (try? checkProfile()) != nil, ReviewSessionActivity.shared.beginExternalRead() else { return [] }
-        defer { ReviewSessionActivity.shared.endRead() }
+        defer { ReviewSessionActivity.shared.endExternalRead() }
         let filter = RetrievalFilter(sourcePrefixes: [CollectionRetrievalCoordinator.bookSource(id)])
         guard let hits = try? await CollectionRetrievalCoordinator.shared.search(prompt, limit: 6, filter: filter, groupBySource: false), !hits.isEmpty else { return [] }
         sources.append(contentsOf: hits.map { source(from: $0) })

@@ -123,7 +123,7 @@ package final class CollectionRetrievalCoordinator {
     private func read<T>(_ context: ProfileContext, _ body: () async throws -> T) async throws -> T {
         try Task.checkCancellation()
         guard context.isCurrent(AccountStore.shared.selectedContext), ReviewSessionActivity.shared.beginExternalRead() else { throw CancellationError() }
-        defer { ReviewSessionActivity.shared.endRead() }
+        defer { ReviewSessionActivity.shared.endExternalRead() }
         let value = try await body()
         guard context.isCurrent(AccountStore.shared.selectedContext) else { throw CancellationError() }
         return value

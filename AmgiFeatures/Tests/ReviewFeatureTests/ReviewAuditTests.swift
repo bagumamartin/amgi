@@ -36,6 +36,30 @@ struct ReviewAuditTests {
         #expect(coordinator.activeSession == nil)
     }
 
+    @Test("background reads never strand a closed review's lease")
+    @MainActor
+    func externalReadsDoNotBlockRelease() throws {
+        let coordinator = ReviewSessionCoordinator()
+        let profile = Self.profile(id: "default", selectionID: UUID())
+        let lease = try coordinator.acquireSession(sessionID: UUID(), profile: profile)
+
+        // The indexer reads continuously after a sync; a review closing
+        // mid-read must still release.
+        #expect(coordinator.beginExternalRead())
+        #expect(coordinator.releaseSession(lease))
+        coordinator.endExternalRead()
+        #expect(coordinator.activeSession == nil)
+
+        // A release blocked by the lease's own work completes when it ends,
+        // so the next review is never rejected as "already active".
+        let second = try coordinator.acquireSession(sessionID: UUID(), profile: profile)
+        #expect(coordinator.beginMutation(for: second))
+        #expect(!coordinator.releaseSession(second))
+        coordinator.endMutation()
+        #expect(coordinator.activeSession == nil)
+        _ = try coordinator.acquireSession(sessionID: UUID(), profile: profile)
+    }
+
     @Test("profile drain revokes an idle lease for the next activation")
     @MainActor
     func drainRevokesLease() async throws {
