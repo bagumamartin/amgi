@@ -306,6 +306,14 @@ private struct NativeMediaImageView: View {
                 Label(L10n.text("Image unavailable"), systemImage: "photo")
                     .amgiFont(.caption)
                     .foregroundStyle(palette.textSecondary)
+            } else {
+                // Loading placeholder. It must be a real view: `.task` on a
+                // Group with no children never runs, so an empty first state
+                // meant the load never started and the image never appeared.
+                RoundedRectangle(cornerRadius: AmgiRadius.small, style: .continuous)
+                    .fill(palette.surface)
+                    .frame(maxWidth: .infinity)
+                    .aspectRatio(4 / 3, contentMode: .fit)
             }
         }
         .accessibilityElement(children: .ignore)
