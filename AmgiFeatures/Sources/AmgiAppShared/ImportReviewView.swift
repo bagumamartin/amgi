@@ -556,7 +556,7 @@ package struct ImportReviewView: View {
                     VStack(spacing: 0) {
                         summaryRow("New notes", value: summary.newCount, tone: palette.positive)
                         Divider()
-                        summaryRow("Updated notes", value: summary.updatedCount, tone: palette.accent)
+                        summaryRow("Updated notes", value: summary.updatedCount, tone: palette.info)
                         if summary.duplicateCount > 0 {
                             Divider()
                             summaryRow("Duplicates skipped", value: summary.duplicateCount, tone: palette.textSecondary)
@@ -590,7 +590,7 @@ package struct ImportReviewView: View {
             Button("Try Again") {
                 Task { await model.retry() }
             }
-            .buttonStyle(.borderedProminent)
+            .amgiProminentButtonStyle()
             Button("Cancel") { dismiss() }
         }
     }

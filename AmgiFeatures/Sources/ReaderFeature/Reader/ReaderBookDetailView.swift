@@ -291,7 +291,7 @@ private struct ContinueBlock<Destination: View>: View {
             } label: {
                 Text("Continue · \(percent)%")
                     .amgiFont(.cardTitle)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(palette.onAccent)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
                     .background(palette.accent, in: RoundedRectangle(cornerRadius: AmgiRadius.inset))

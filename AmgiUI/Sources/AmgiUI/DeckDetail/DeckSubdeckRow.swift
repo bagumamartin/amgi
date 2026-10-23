@@ -124,7 +124,7 @@ public struct DeckSubdeckRow: View {
                 onChangeIcon()
             } label: {
                 swipeLabel("paintpalette", "Edit Icon")
-                    .tint(.indigo)
+                    .tint(palette.accent)
             }
             Button {
                 onRename()

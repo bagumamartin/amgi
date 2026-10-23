@@ -153,7 +153,7 @@ struct SyncSheetContent: View {
                 .amgiFont(.body)
                 .foregroundStyle(palette.textSecondary)
             Button("Sync Now") { onStartSync() }
-                .buttonStyle(.borderedProminent)
+                .amgiProminentButtonStyle()
         }
     }
 
@@ -189,7 +189,7 @@ struct SyncSheetContent: View {
                 .foregroundStyle(palette.textSecondary)
                 .multilineTextAlignment(.center)
             Button("Set Up Server") { onSetUpServer() }
-                .buttonStyle(.borderedProminent)
+                .amgiProminentButtonStyle()
         }
     }
 
@@ -270,7 +270,7 @@ struct SyncSheetContent: View {
                             .foregroundStyle(.white.opacity(0.85))
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .amgiProminentButtonStyle()
 
                 Button(role: .destructive) {
                     pendingDestructiveChoice = .download
@@ -372,7 +372,7 @@ struct SyncSheetContent: View {
                 .foregroundStyle(palette.textSecondary)
                 .multilineTextAlignment(.center)
             Button("Retry") { onStartSync() }
-                .buttonStyle(.borderedProminent)
+                .amgiProminentButtonStyle()
         }
     }
 

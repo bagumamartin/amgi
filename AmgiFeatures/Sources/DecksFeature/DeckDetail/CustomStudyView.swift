@@ -371,7 +371,7 @@ struct CustomStudyView: View {
             }
             .padding(.vertical, 8)
             Button("Study Now") { onStudySession(session) }
-                .buttonStyle(.borderedProminent)
+                .amgiProminentButtonStyle()
                 .controlSize(.large)
             Button("Open Session") { onOpenSession(session) }
             Button("Edit Settings") { phase = .settings }

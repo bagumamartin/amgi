@@ -186,7 +186,7 @@ struct ModelDownloadToast: View {
 
             HStack(spacing: AmgiSpacing.xs) {
                 Button("Retry", action: onRetry)
-                    .buttonStyle(.borderedProminent)
+                    .amgiProminentButtonStyle()
                     .controlSize(.small)
 
                 Button(action: onDismiss) {

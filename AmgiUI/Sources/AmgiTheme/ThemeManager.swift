@@ -28,7 +28,7 @@ public final class ThemeManager {
         // First-upgrade backfill: read the legacy "theme.selection" key when
         // the new "theme.id" key isn't present yet. The didSet on themeID
         // will write the new key on the next change, so this only fires once.
-        self.themeID = Self.storedThemeID(in: defaults) ?? .minimal
+        self.themeID = Self.storedThemeID(in: defaults) ?? .vivid
         self.appearance = Self.storedAppearance(in: defaults) ?? .system
     }
 

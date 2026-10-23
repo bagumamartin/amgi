@@ -24,11 +24,11 @@ enum SettingsTone {
 
     func color(_ palette: Palette) -> Color {
         switch self {
-        case .accent:   palette.accent             // mock #0a84ff
+        case .accent:   palette.accent             // brand violet
         case .info:     palette.info               // mock #5ac8fa
         case .review:   palette.cardStateReview    // mock #30d158
         case .learning: palette.cardStateLearning  // mock #ff9f0a
-        case .mature:   palette.cardStateMature    // mock #bf5af2
+        case .mature:   palette.cardStateMature    // teal
         case .danger:   palette.cardStateRelearn   // mock #ff453a
         case .neutral:  palette.textSecondary      // mock #8e8e93
         case .link:     palette.link               // mock #5e5ce6

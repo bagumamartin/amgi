@@ -781,7 +781,7 @@ private struct IOPaletteChip: View {
                 .minimumScaleFactor(0.65)
                 .multilineTextAlignment(.center)
         }
-        .foregroundStyle(isSelected ? Color.white : palette.textPrimary)
+        .foregroundStyle(isSelected ? palette.onAccent : palette.textPrimary)
         .frame(maxWidth: .infinity, minHeight: 42)
         .padding(.horizontal, 2)
         .background(

@@ -20,6 +20,7 @@ public struct AssistantHead: View {
 
     @State private var engine = AssistantHeadEngine()
     @Environment(\.palette) private var palette
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// - Parameters:
@@ -35,15 +36,16 @@ public struct AssistantHead: View {
     }
 
     public var body: some View {
-        let bodyColor = style.body ?? palette.textPrimary
-        let eyeColor = style.eyes ?? palette.background
+        let bodyColor = style.body ?? palette.accent
+        let eyeColor = style.eyes ?? palette.onAccent
         TimelineView(.animation(paused: reduceMotion)) { context in
             let frame = reduceMotion
                 ? AssistantHeadEngine.still(mood: mood, gaze: gaze)
                 : engine.frame(mood: mood, gaze: gaze, at: context.date.timeIntervalSinceReferenceDate)
             AssistantHeadCanvas(
                 frame: frame, bodyColor: bodyColor, eyeColor: eyeColor,
-                shading: style.shading, showsMouth: style.showsMouth
+                shading: style.shading ? HeadShading(colorScheme) : nil,
+                showsMouth: style.showsMouth
             )
         }
         .aspectRatio(1, contentMode: .fit)
@@ -52,8 +54,9 @@ public struct AssistantHead: View {
 }
 
 /// Colours for ``AssistantHead``. `nil` colours resolve from the palette:
-/// the body takes `textPrimary` and the eyes `background`, so the head is a
-/// dark ball with light eyes in light mode and the reverse in dark.
+/// the body takes `accent` and the eyes `onAccent`, so the head is the
+/// brand violet in every theme — a deep ball with white eyes in light mode,
+/// a light one with deep violet eyes in dark.
 public struct AssistantHeadStyle: Equatable, Sendable {
     public var body: Color?
     public var eyes: Color?
@@ -81,7 +84,7 @@ struct AssistantHeadCanvas: View {
     let frame: HeadFrame
     let bodyColor: Color
     let eyeColor: Color
-    let shading: Bool
+    let shading: HeadShading?
     var showsMouth = true
 
     var body: some View {
@@ -103,27 +106,8 @@ struct AssistantHeadCanvas: View {
         let ball = Path(ellipseIn: CGRect(x: center.x - r, y: center.y - r, width: 2 * r, height: 2 * r))
         context.fill(ball, with: .color(bodyColor))
 
-        if shading {
-            // Light stays put while the head turns, as a real light would.
-            // Neutral white/black rather than palette roles: this is
-            // lighting on the surface, not chrome.
-            context.fill(ball, with: .radialGradient(
-                Gradient(stops: [
-                    .init(color: Color(white: 1, opacity: 0.26), location: 0),
-                    .init(color: Color(white: 1, opacity: 0.06), location: 0.45),
-                    .init(color: Color(white: 1, opacity: 0), location: 1),
-                ]),
-                center: CGPoint(x: center.x - r * 0.38, y: center.y - r * 0.46),
-                startRadius: 0, endRadius: r * 1.25
-            ))
-            context.fill(ball, with: .radialGradient(
-                Gradient(stops: [
-                    .init(color: Color(white: 0, opacity: 0), location: 0.62),
-                    .init(color: Color(white: 0, opacity: 0.22), location: 1),
-                ]),
-                center: CGPoint(x: center.x - r * 0.15, y: center.y - r * 0.2),
-                startRadius: 0, endRadius: r * 1.18
-            ))
+        if let shading {
+            shading.apply(to: ball, in: &context, center: center, radius: r, body: bodyColor)
         }
 
         for (eye, side) in [(frame.pose.left, -1.0), (frame.pose.right, 1.0)] {
@@ -160,6 +144,81 @@ struct AssistantHeadCanvas: View {
     }
 }
 
+/// Lighting on the ball, tuned per appearance. The light stays put while the
+/// head turns, as a real light would. Shadows are the body colour taken
+/// toward black rather than neutral black, which greys a saturated violet
+/// into mud; highlights stay white, since they're the light, not chrome.
+///
+/// Light mode is a deep ball on a pale page: a satin sheen top-left, a rim
+/// that falls into deep violet, and a faint bounce along the lower edge so
+/// the underside doesn't go flat. Dark mode is a light ball on a near-black
+/// page, where a dark rim would dissolve the silhouette: the shadow sits
+/// low and soft, the sheen is gentler (the body is already light), and a
+/// thin lit edge keeps the outline crisp against the background.
+struct HeadShading: Equatable {
+    var sheen: Double
+    var specular: Double
+    var shadowDepth: Double
+    var shadowOpacity: Double
+    var shadowStart: Double
+    var edgeLight: Double
+
+    init(_ scheme: ColorScheme) {
+        switch scheme {
+        case .dark:
+            sheen = 0.16; specular = 0.30
+            shadowDepth = 0.55; shadowOpacity = 0.30; shadowStart = 0.55
+            edgeLight = 0.22
+        default:
+            sheen = 0.22; specular = 0.42
+            shadowDepth = 0.6; shadowOpacity = 0.42; shadowStart = 0.5
+            edgeLight = 0.16
+        }
+    }
+
+    func apply(to ball: Path, in context: inout GraphicsContext, center: CGPoint, radius r: CGFloat, body: Color) {
+        let shadow = body.mix(with: .black, by: shadowDepth)
+        let key = CGPoint(x: center.x - r * 0.38, y: center.y - r * 0.46)
+
+        // Broad sheen: the ball's lit hemisphere.
+        context.fill(ball, with: .radialGradient(
+            Gradient(stops: [
+                .init(color: .white.opacity(sheen), location: 0),
+                .init(color: .white.opacity(sheen * 0.25), location: 0.5),
+                .init(color: .white.opacity(0), location: 1),
+            ]),
+            center: key, startRadius: 0, endRadius: r * 1.3
+        ))
+        // Form shadow, offset away from the light, in the body's own hue.
+        context.fill(ball, with: .radialGradient(
+            Gradient(stops: [
+                .init(color: shadow.opacity(0), location: shadowStart),
+                .init(color: shadow.opacity(shadowOpacity), location: 1),
+            ]),
+            center: CGPoint(x: center.x - r * 0.22, y: center.y - r * 0.28),
+            startRadius: 0, endRadius: r * 1.22
+        ))
+        // Bounce / lit edge: a thin crescent along the lower-right rim.
+        context.fill(ball, with: .radialGradient(
+            Gradient(stops: [
+                .init(color: .white.opacity(0), location: 0.82),
+                .init(color: .white.opacity(edgeLight), location: 1),
+            ]),
+            center: CGPoint(x: center.x - r * 0.12, y: center.y - r * 0.14),
+            startRadius: 0, endRadius: r * 1.06
+        ))
+        // Specular: small and soft, inside the sheen.
+        context.fill(ball, with: .radialGradient(
+            Gradient(stops: [
+                .init(color: .white.opacity(specular), location: 0),
+                .init(color: .white.opacity(0), location: 1),
+            ]),
+            center: CGPoint(x: center.x - r * 0.42, y: center.y - r * 0.52),
+            startRadius: 0, endRadius: r * 0.34
+        ))
+    }
+}
+
 // MARK: - Previews
 
 #Preview("Every mood") {
@@ -173,6 +232,22 @@ struct AssistantHeadCanvas: View {
             }
         }
         .padding()
+    }
+}
+
+#Preview("Light and dark") {
+    HStack(spacing: 0) {
+        ForEach([ColorScheme.light, .dark], id: \.self) { scheme in
+            HStack(spacing: 16) {
+                AssistantHead(.idle).frame(width: 28, height: 28)
+                AssistantHead(.happy).frame(width: 64, height: 64)
+                AssistantHead(.curious).frame(width: 120, height: 120)
+            }
+            .padding(24)
+            .background(scheme == .dark ? Color.black : Color(white: 0.96))
+            .environment(\.colorScheme, scheme)
+            .environment(\.palette, scheme == .dark ? .vividDark : .vividLight)
+        }
     }
 }
 

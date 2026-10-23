@@ -21,9 +21,9 @@ public final class ThemeRegistry: Sendable {
             byID[data.id] = data
         }
         self.themesByID = byID
-        // The fallback is whichever-one-of-minimal-or-first exists; minimal is
-        // always bundled, so this is safe for the shipped app.
-        self.fallback = byID["minimal"] ?? loaded.first ?? Self.emergencyFallback()
+        // The fallback is whichever-one-of-vivid-or-first exists; vivid is the
+        // default theme and always bundled, so this is safe for the shipped app.
+        self.fallback = byID["vivid"] ?? loaded.first ?? Self.emergencyFallback()
     }
 
     public func allThemes() -> [PaletteData] {
@@ -61,19 +61,19 @@ public final class ThemeRegistry: Sendable {
             textPrimaryHex: "#000000",
             textSecondaryHex: "#000000",
             textTertiaryHex: "#000000",
-            accentHex: "#0071E3",
-            linkHex: "#0071E3",
+            accentHex: "#7B2FF7",
+            linkHex: "#7B2FF7",
             positiveHex: "#34C759",
             warningHex: "#FF9500",
             dangerHex: "#FF3B30",
             infoHex: "#32ADE6",
             customStudyBadgeHex: "#FF9300",
-            accentSoftHex: "#0071E326",
+            accentSoftHex: "#7B2FF726",
             separatorHex: "#0000001F",
             cardStateNewHex: "#0A84FF",
             cardStateLearningHex: "#FF9500",
             cardStateReviewHex: "#30D158",
-            cardStateMatureHex: "#BF5AF2",
+            cardStateMatureHex: "#00A89F",
             cardStateSuspendedHex: "#8E8E93",
             cardStateRelearnHex: "#FF3B30",
             shadows: ShadowSet(sm: zero, md: zero)

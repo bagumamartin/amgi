@@ -16,17 +16,17 @@ struct MinimalThemeTests {
         #expect(light.deckGlyph == .monogram)
     }
 
-    @Test func unknownIDFallsBackToMinimal() {
+    @Test func unknownIDFallsBackToVivid() {
         let fallback = ThemeRegistry.shared.palette(id: ThemeID(rawValue: "nope"), scheme: .light)
-        let minimal = ThemeRegistry.shared.palette(id: .minimal, scheme: .light)
-        #expect(fallback == minimal)
+        let vivid = ThemeRegistry.shared.palette(id: .vivid, scheme: .light)
+        #expect(fallback == vivid)
     }
 
     @MainActor
-    @Test func managerDefaultsToMinimalWhenNothingStored() {
+    @Test func managerDefaultsToVividWhenNothingStored() {
         let suite = UserDefaults(suiteName: "MinimalThemeTests-\(UUID().uuidString)")!
         let manager = ThemeManager(defaults: suite)
-        #expect(manager.themeID == .minimal)
+        #expect(manager.themeID == .vivid)
     }
 
     @Test func minimalShadowsAreZeroed() {

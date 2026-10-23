@@ -52,7 +52,10 @@ import AnkiServices
             fetchGraphs: { _, _ in GraphsSnapshot() },
             graduatedToday: { _ in 0 },
             learningDueToday: { _ in 0 },
-            lastRating: { _ in nil }
+            lastRating: { _ in nil },
+            studyLedger: { _, _, _, _ in StudyLedger(days: []) },
+            reviewTimes: { _, _, _ in [] },
+            reviewAhead: { _, _, _ in [] }
         )
     }
 
@@ -679,7 +682,10 @@ import AnkiServices
                 fetchGraphs: { _, _ in GraphsSnapshot() },
                 graduatedToday: { _ in 0 },
                 learningDueToday: { _ in holder.answered ? 2 : 0 },
-                lastRating: { _ in nil }
+                lastRating: { _ in nil },
+                studyLedger: { _, _, _, _ in StudyLedger(days: []) },
+                reviewTimes: { _, _, _ in [] },
+                reviewAhead: { _, _, _ in [] }
             )
             $0.schedulerService.getQueuedCards = { _ in
                 if holder.answered {
@@ -729,7 +735,10 @@ import AnkiServices
                 fetchGraphs: { _, _ in GraphsSnapshot() },
                 graduatedToday: { _ in 0 },
                 learningDueToday: { _ in 1 },
-                lastRating: { _ in nil }
+                lastRating: { _ in nil },
+                studyLedger: { _, _, _, _ in StudyLedger(days: []) },
+                reviewTimes: { _, _, _ in [] },
+                reviewAhead: { _, _, _ in [] }
             )
             $0.schedulerService.getLearnAheadSecs = { holder.learnAhead }
             $0.schedulerService.setLearnAheadSecs = { secs in holder.learnAhead = secs }
@@ -806,7 +815,10 @@ import AnkiServices
                     }
                     return 0
                 },
-                lastRating: { _ in nil }
+                lastRating: { _ in nil },
+                studyLedger: { _, _, _, _ in StudyLedger(days: []) },
+                reviewTimes: { _, _, _ in [] },
+                reviewAhead: { _, _, _ in [] }
             )
             $0.schedulerService.getQueuedCards = { _ in
                 if holder.currentID == DeckID(10) {

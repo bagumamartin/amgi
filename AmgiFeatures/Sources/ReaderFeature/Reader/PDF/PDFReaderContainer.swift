@@ -116,7 +116,7 @@ struct PDFReaderView: View {
                     Button("Retry") {
                         Task { await open() }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .amgiProminentButtonStyle()
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .ready where hasRestoredInitialPage:

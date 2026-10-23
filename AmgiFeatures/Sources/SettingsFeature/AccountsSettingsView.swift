@@ -335,9 +335,8 @@ private extension AccountsSettingsView {
 
 // MARK: - Monogram
 
-/// The design's gradient profile avatar, at row scale. Uses the same
-/// accent→link ramp as the mock's `linear-gradient(135deg,#0a84ff,#5e5ce6)`,
-/// resolved from the palette so it follows the active theme.
+/// Circular profile mark: the profile's emoji, or its initial on the
+/// theme's accent.
 private struct ProfileMonogram: View {
     @Environment(\.palette) private var palette
 
@@ -357,18 +356,11 @@ private struct ProfileMonogram: View {
                 Text(initial)
                     .amgiFont(.caption)
                     .fontWeight(.semibold)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(palette.onAccent)
             }
         }
         .frame(width: 30, height: 30)
-        .background(
-            LinearGradient(
-                colors: [palette.accent, palette.link],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            ),
-            in: Circle()
-        )
+        .background(palette.accent, in: Circle())
         .accessibilityHidden(true)
     }
 }

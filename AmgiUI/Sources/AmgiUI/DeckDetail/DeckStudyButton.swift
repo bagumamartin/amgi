@@ -25,7 +25,7 @@ public struct DeckStudyButton: View {
                 .amgiFont(size: 15, weight: .semibold)
                 .frame(maxWidth: .infinity, minHeight: 44)
         }
-        .buttonStyle(.borderedProminent)
+        .amgiProminentButtonStyle()
         .tint(palette.accent)
         .disabled(isDisabled)
         .accessibilityLabel("Study now")

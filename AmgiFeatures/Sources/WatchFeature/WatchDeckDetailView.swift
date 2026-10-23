@@ -1,3 +1,4 @@
+import AmgiTheme
 import AnkiClients
 import AnkiKit
 import Dependencies
@@ -32,7 +33,7 @@ struct WatchDeckDetailView: View {
                     Label("Study", systemImage: "play.fill")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .amgiProminentButtonStyle()
                 .disabled(counts.total == 0)
                 Text("Tap to replay audio, double tap to exit.")
             }

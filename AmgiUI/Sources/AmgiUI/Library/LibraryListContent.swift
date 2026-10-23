@@ -98,7 +98,7 @@ public struct LibraryListContent: View {
                 Text("Sync with your server, or create a deck to get started.")
             } actions: {
                 Button("Create Deck", action: onCreateDeck)
-                    .buttonStyle(.borderedProminent)
+                    .amgiProminentButtonStyle()
             }
         case .failed(let message):
             ContentUnavailableView {
@@ -107,7 +107,7 @@ public struct LibraryListContent: View {
                 Text(message)
             } actions: {
                 Button("Try Again") { Task { await onRefresh() } }
-                    .buttonStyle(.borderedProminent)
+                    .amgiProminentButtonStyle()
             }
         case .loaded(let rows, let hero, let heatmap, let triage):
             loadedList(rows: rows, hero: hero, heatmap: heatmap, triage: triage)

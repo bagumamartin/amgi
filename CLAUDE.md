@@ -145,6 +145,23 @@ dictionary UI, widgets.
 | `WatchFeature` (./AmgiFeatures) | Every screen the watchOS app renders: `WatchContentView`, `WatchDeckListView`, `WatchDeckDetailView`, `WatchReviewView`, `WatchStatsView`, `WatchLoginView`, `DeckCountsView`. Only `@main WatchApp` stays in the `AmgiWatchApp` target, holding the backend/collection bootstrap — same split as `WidgetFeature`. Public surface is `WatchContentView` + `WatchLoginView`. Deps: `AmgiCharts`, `AmgiReviewCore`, `AnkiKit`/`AnkiClients`/`AnkiBackend`/`AnkiSync`/`AmgiCardWeb`, `AmgiTheme`. **Must stay watchOS-clean** — no `AmgiAppShared`, no iOS-only API. Extracted 2026-08-23. |
 | `RootFeature` (./AmgiFeatures) | The composition root: `RootView` (root composition + the `MainTabView` tab bar it hosts), `StartupErrorView`, and dependency bootstrap (`AmgiRoot.bootstrap()`, `openCollection`, `switchProfile`). The only iOS-app-facing product — `AmgiApp/Sources/AmgiAppApp.swift` imports nothing else. Public surface is `RootView`, `AmgiRoot`/`AmgiRoot.bootstrap()` — kept `public` because the app target links this product directly, the same reason `WidgetFeature`/`WatchFeature` keep theirs. In the **Cxx chain** (imports `ReaderFeature`). Extracted 2026-08-29, which is what let every other `*Feature` module narrow from `public` to `package` (see the narrowing entry below). |
 
+**Colour roles (`AmgiTheme`).** `palette.accent` is Amgi's brand violet: the
+ramp is `AmgiBrand`, every theme's `accent` (with its `link` and `accentSoft`)
+is picked from or toned off that ramp, and `themedRoot` tints system controls
+with it (the static `AccentColor` asset covers UIKit surfaces SwiftUI's `.tint`
+can't reach). So `accent` means *brand chrome* and nothing else. Blue is the
+review system's, not chrome: it belongs to `cardStateNew` (New counts, the
+Easy rating, review dots, widgets) and must never be used as chrome.
+Text and icons on an `accent` fill use `palette.onAccent` (white on light
+schemes, deep violet on dark, where the accent is too light for white) — for
+system buttons, `.amgiProminentButtonStyle()` instead of
+`.buttonStyle(.borderedProminent)`. Vivid is the default theme (and the
+registry's fallback); Vivid's accent is the saturated `#7B2FF7` / `#B388FF`,
+the rest sit on the `AmgiBrand` ramp.
+`cardStateMature` is teal so Mature stays off the brand hue. Flags use the
+fixed `BrowseFlagSwatch` / `CardFlag` hexes, never palette slots — a slot
+would recolour the Blue flag with the brand.
+
 ### Module naming convention
 Three prefixes/suffixes, each answering a different question:
 - **`Anki*`** — derived from the upstream Anki engine (`AnkiKit`, `AnkiClients`, `AnkiSync`).

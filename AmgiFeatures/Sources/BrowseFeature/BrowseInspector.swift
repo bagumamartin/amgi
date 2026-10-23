@@ -874,17 +874,14 @@ struct CardInfoPane: View {
         }
     }
 
+    /// Anki's seven flag hues are fixed, not theme slots — the Blue flag has
+    /// to stay blue and the Purple flag purple now that `accent` is the brand
+    /// violet and `cardStateMature` is teal. `BrowseFlagSwatch` is the
+    /// canonical set (`BrowseSupport.swift`), already used by the sidebar and
+    /// `BrowseView`'s flag buttons; these tiles were the one place borrowing
+    /// palette slots for meaning instead.
     private func flagColor(_ flag: Int32) -> Color {
-        switch flag {
-        case 1: return palette.danger
-        case 2: return palette.warning
-        case 3: return palette.positive
-        case 4: return palette.accent
-        case 5: return palette.cardStateRelearn
-        case 6: return palette.info
-        case 7: return palette.cardStateMature
-        default: return palette.textTertiary
-        }
+        BrowseFlagSwatch.color(for: UInt32(flag)) ?? palette.textTertiary
     }
 
     private func dueDescription(_ card: CardRecord) -> String {

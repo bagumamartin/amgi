@@ -1,3 +1,4 @@
+import AmgiTheme
 import AmgiUI
 import AnkiClients
 import AnkiKit
@@ -70,7 +71,7 @@ public struct WatchLoginView: View {
                     Text("Sign In")
                 }
             }
-            .buttonStyle(.borderedProminent)
+            .amgiProminentButtonStyle()
             .disabled(username.isEmpty || password.isEmpty || isSubmitting)
         }
     }

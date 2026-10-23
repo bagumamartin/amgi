@@ -63,7 +63,7 @@ public struct DeckListRowView: View {
             Button { onChangeIcon() } label: {
                 Label("Edit Icon", systemImage: "paintpalette")
             }
-            .tint(.indigo)
+            .tint(palette.accent)
         }
         .contextMenu {
             Button {

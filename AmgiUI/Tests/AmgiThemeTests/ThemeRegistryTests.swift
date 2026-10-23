@@ -15,9 +15,9 @@ struct ThemeRegistryTests {
         #expect(palette.accent != palette.background)
     }
 
-    @Test func paletteFallsBackToMinimalWhenIDUnknown() {
+    @Test func paletteFallsBackToVividWhenIDUnknown() {
         let palette = ThemeRegistry.shared.palette(id: ThemeID(rawValue: "no-such-theme"), scheme: .light)
-        #expect(palette.accent == ThemeRegistry.shared.palette(id: .minimal, scheme: .light).accent)
+        #expect(palette.accent == ThemeRegistry.shared.palette(id: .vivid, scheme: .light).accent)
     }
 
     @Test func sepiaDarkSchemeReadsFromJSON() {

@@ -41,7 +41,7 @@ struct ImageOcclusionMaskSummaryCard: View {
                 Button(action: action) {
                     Text("Edit")
                 }
-                .buttonStyle(.borderedProminent)
+                .amgiProminentButtonStyle()
                 .controlSize(.small)
             }
         }

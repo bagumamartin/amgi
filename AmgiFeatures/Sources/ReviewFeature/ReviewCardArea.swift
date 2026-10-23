@@ -116,7 +116,7 @@ struct ReviewCardArea: View {
                             .frame(maxWidth: .infinity)
                             .padding()
                     }
-                    .buttonStyle(.borderedProminent)
+                    .amgiProminentButtonStyle()
                     .disabled(session.isAdvancing)
                     .padding()
                     .inactiveControl(session.showAnswer)

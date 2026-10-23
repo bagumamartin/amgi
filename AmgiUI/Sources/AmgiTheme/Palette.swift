@@ -16,6 +16,9 @@ public struct Palette: Sendable, Equatable {
     public let info: Color
     public let customStudyBadge: Color
     public let accentSoft: Color
+    /// Text and icons on an `accent` fill: white on light schemes, a deep
+    /// violet on dark ones, where the accent is too light for white.
+    public let onAccent: Color
     public let separator: Color
     public let cardStateNew: Color
     public let cardStateLearning: Color
@@ -43,6 +46,7 @@ public struct Palette: Sendable, Equatable {
         info: Color,
         customStudyBadge: Color,
         accentSoft: Color,
+        onAccent: Color = .white,
         separator: Color,
         cardStateNew: Color,
         cardStateLearning: Color,
@@ -69,6 +73,7 @@ public struct Palette: Sendable, Equatable {
         self.info = info
         self.customStudyBadge = customStudyBadge
         self.accentSoft = accentSoft
+        self.onAccent = onAccent
         self.separator = separator
         self.cardStateNew = cardStateNew
         self.cardStateLearning = cardStateLearning
@@ -104,19 +109,19 @@ public extension Palette {
         textPrimary: .hex(0x1D1D1F),
         textSecondary: Color.hex(0x1D1D1F).opacity(0.8),
         textTertiary: Color.hex(0x1D1D1F).opacity(0.48),
-        accent: .hex(0x0071E3),
-        link: .hex(0x0066CC),
+        accent: .hex(0x7B2FF7),
+        link: .hex(0x7B2FF7),
         positive: .hex(0x34C759),
         warning: .hex(0xFF9500),
         danger: .hex(0xFF3B30),
         info: .hex(0x32ADE6),
         customStudyBadge: .hex(0xFF9300),
-        accentSoft: Color.hex(0x0071E3).opacity(0.15),
+        accentSoft: Color.hex(0x7B2FF7).opacity(0.15),
         separator: Color.hex(0x1D1D1F).opacity(0.12),
         cardStateNew: .hex(0x0A84FF),
         cardStateLearning: .hex(0xFF9500),
         cardStateReview: .hex(0x30D158),
-        cardStateMature: .hex(0xBF5AF2),
+        cardStateMature: .hex(0x00A89F),
         cardStateSuspended: .hex(0x8E8E93),
         cardStateRelearn: .hex(0xFF3B30),
         shadows: ShadowSet(
@@ -133,19 +138,20 @@ public extension Palette {
         textPrimary: .white,
         textSecondary: Color.white.opacity(0.8),
         textTertiary: Color.white.opacity(0.48),
-        accent: .hex(0x2997FF),
-        link: .hex(0x2997FF),
+        accent: .hex(0xB388FF),
+        link: .hex(0xB388FF),
         positive: .hex(0x30D158),
         warning: .hex(0xFF9F0A),
         danger: .hex(0xFF453A),
         info: .hex(0x64D2FF),
         customStudyBadge: .hex(0xFF9F0A),
-        accentSoft: Color.hex(0x2997FF).opacity(0.22),
+        accentSoft: Color.hex(0xB388FF).opacity(0.22),
+        onAccent: .hex(0x14102A),
         separator: Color.white.opacity(0.10),
         cardStateNew: .hex(0x2997FF),
         cardStateLearning: .hex(0xFF9F0A),
         cardStateReview: .hex(0x30D158),
-        cardStateMature: .hex(0xBF5AF2),
+        cardStateMature: .hex(0x63E6E2),
         cardStateSuspended: .hex(0x8E8E93),
         cardStateRelearn: .hex(0xFF453A),
         shadows: ShadowSet(
@@ -166,19 +172,19 @@ public extension Palette {
         textPrimary: .hex(0x2A2825),
         textSecondary: Color.hex(0x2A2825).opacity(0.7),
         textTertiary: Color.hex(0x2A2825).opacity(0.45),
-        accent: .hex(0x4A6FA5),
-        link: .hex(0x4A6FA5),
+        accent: .hex(0x7466A8),
+        link: .hex(0x7466A8),
         positive: .hex(0x6B9472),
         warning: .hex(0xC99A55),
         danger: .hex(0xB5615C),
         info: .hex(0x6B92AB),
         customStudyBadge: .hex(0xC99A55),
-        accentSoft: Color.hex(0x4A6FA5).opacity(0.14),
+        accentSoft: Color.hex(0x7466A8).opacity(0.14),
         separator: Color.hex(0x2A2825).opacity(0.10),
         cardStateNew: .hex(0x4A6FA5),
         cardStateLearning: .hex(0xC99A55),
         cardStateReview: .hex(0x6B9472),
-        cardStateMature: .hex(0x8E6CA5),
+        cardStateMature: .hex(0x5E8F86),
         cardStateSuspended: .hex(0x968F85),
         cardStateRelearn: .hex(0xB5615C),
         shadows: ShadowSet(
@@ -195,19 +201,20 @@ public extension Palette {
         textPrimary: .hex(0xE8E4DD),
         textSecondary: Color.hex(0xE8E4DD).opacity(0.7),
         textTertiary: Color.hex(0xE8E4DD).opacity(0.45),
-        accent: .hex(0x8FAACC),
-        link: .hex(0x8FAACC),
+        accent: .hex(0xA99FCC),
+        link: .hex(0xA99FCC),
         positive: .hex(0x8FB597),
         warning: .hex(0xD9B27D),
         danger: .hex(0xD08F8B),
         info: .hex(0x95B7C9),
         customStudyBadge: .hex(0xD9B27D),
-        accentSoft: Color.hex(0x8FAACC).opacity(0.20),
+        accentSoft: Color.hex(0xA99FCC).opacity(0.20),
+        onAccent: .hex(0x14102A),
         separator: Color.white.opacity(0.08),
         cardStateNew: .hex(0x8FAACC),
         cardStateLearning: .hex(0xD9B27D),
         cardStateReview: .hex(0x8FB597),
-        cardStateMature: .hex(0xB39FCC),
+        cardStateMature: .hex(0x8DBDB3),
         cardStateSuspended: .hex(0xA8A19A),
         cardStateRelearn: .hex(0xD08F8B),
         shadows: ShadowSet(
@@ -228,19 +235,19 @@ public extension Palette {
         textPrimary: .hex(0x4A3F2A),
         textSecondary: Color.hex(0x4A3F2A).opacity(0.7),
         textTertiary: Color.hex(0x4A3F2A).opacity(0.45),
-        accent: .hex(0x7A5C40),
-        link: .hex(0x6B4F38),
+        accent: .hex(0x7A4F6E),
+        link: .hex(0x7A4F6E),
         positive: .hex(0x6B9472),
         warning: .hex(0xC99A55),
         danger: .hex(0xB5615C),
         info: .hex(0x6B92AB),
         customStudyBadge: .hex(0xC99A55),
-        accentSoft: Color.hex(0x7A5C40).opacity(0.16),
+        accentSoft: Color.hex(0x7A4F6E).opacity(0.16),
         separator: Color.hex(0x4A3F2A).opacity(0.14),
         cardStateNew: .hex(0x7A5C40),
         cardStateLearning: .hex(0xC99A55),
         cardStateReview: .hex(0x6B9472),
-        cardStateMature: .hex(0x8E6CA5),
+        cardStateMature: .hex(0x5E8F86),
         cardStateSuspended: .hex(0x968F85),
         cardStateRelearn: .hex(0xB5615C),
         shadows: ShadowSet(

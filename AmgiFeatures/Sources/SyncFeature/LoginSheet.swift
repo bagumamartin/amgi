@@ -55,7 +55,7 @@ package struct LoginSheet: View {
                         }
                     }
                     #if os(macOS)
-                    .buttonStyle(.borderedProminent)
+                    .amgiProminentButtonStyle()
                     .controlSize(.large)
                     .keyboardShortcut(.defaultAction)
                     #endif

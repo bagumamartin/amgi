@@ -38,7 +38,7 @@ struct CollectionBusyView: View {
             Button("Try opening now") {
                 launch.retryNow()
             }
-            .buttonStyle(.borderedProminent)
+            .amgiProminentButtonStyle()
         }
         .padding(AmgiSpacing.xl)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

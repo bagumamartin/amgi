@@ -26,7 +26,7 @@ final class ThemeManagerTests {
 
     @Test func defaultValuesOnEmptyStore() {
         let manager = ThemeManager(defaults: defaults)
-        #expect(manager.themeID == .minimal)
+        #expect(manager.themeID == .vivid)
         #expect(manager.appearance == .system)
     }
 
@@ -54,7 +54,7 @@ final class ThemeManagerTests {
         manager.appearance = .light
         // Even with systemScheme=.dark, .light appearance should pick the light palette
         let palette = manager.palette(for: .dark)
-        let expected = ThemeRegistry.shared.palette(id: .minimal, scheme: .light)
+        let expected = ThemeRegistry.shared.palette(id: .vivid, scheme: .light)
         #expect(palette.background == expected.background)
     }
 

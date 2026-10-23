@@ -49,9 +49,9 @@ struct DesignConformanceTests {
         // BrowseFeature/ImageOcclusionWorkspaceView.swift entry, before that file was
         // split up.
         "BrowseFeature/ImageOcclusionWorkspaceView.swift":
-            "Selected tool-palette chip labels are Color.white on palette.accent. " +
-            "Palette has no on-accent text role, so there is no token to use here; " +
-            "drop this entry once one exists.",
+            "Mask Inspector's .headline label and 12pt panel radius, with no AmgiFont/AmgiRadius " +
+            "equivalent (R29 is no-layout). The tool chips' on-accent label now uses " +
+            "palette.onAccent; the Color.white it used to exempt is gone.",
         "BrowseFeature/OcclusionCanvasView.swift":
             "ImageOcclusion UIKit canvas: mask/handle fills are drawing state, not app chrome. " +
             "Chrome radii were fixed; canvas fills are the exempt part.",

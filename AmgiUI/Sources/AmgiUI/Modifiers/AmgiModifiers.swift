@@ -11,7 +11,7 @@ public struct AmgiPrimaryButtonStyle: ButtonStyle {
     public func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .amgiFont(.body)
-            .foregroundStyle(.white)
+            .foregroundStyle(palette.onAccent)
             .padding(.vertical, AmgiSpacing.sm)
             .padding(.horizontal, 20)
             .background(palette.accent, in: Capsule())

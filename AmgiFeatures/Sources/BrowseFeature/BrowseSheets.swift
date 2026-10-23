@@ -484,7 +484,7 @@ struct FindDuplicatesView: View {
                 } label: {
                     Image(systemName: "magnifyingglass")
                 }
-                .buttonStyle(.borderedProminent)
+                .amgiProminentButtonStyle()
                 .disabled(notetypeFields.isEmpty)
             }
             if !duplicateGroups.isEmpty {

@@ -331,7 +331,7 @@ package struct ExportReviewView: View {
                 Label(model.primaryActionTitle, systemImage: "square.and.arrow.up")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
+            .amgiProminentButtonStyle()
             .disabled(!model.canExport)
         } footer: {
             Text("Ijuka creates the file in a private staging location first. You’ll choose where to save it next.")
@@ -428,7 +428,7 @@ package struct ExportReviewView: View {
             Button("Try Again") {
                 Task { await model.retry() }
             }
-            .buttonStyle(.borderedProminent)
+            .amgiProminentButtonStyle()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(32)

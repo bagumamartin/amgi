@@ -317,7 +317,7 @@ struct NoteAudioRecorderSheet: View {
                     Button(recorder.isRecording ? "Stop" : "Record") {
                         recorder.toggle()
                     }
-                    .buttonStyle(.borderedProminent)
+                    .amgiProminentButtonStyle()
                     Button("Play") {
                         recorder.play()
                     }

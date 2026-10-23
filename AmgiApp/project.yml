@@ -297,6 +297,15 @@ targets:
         CODE_SIGN_ENTITLEMENTS: AmgiApp.entitlements
         "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": AmgiApp-macOS.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # Global accent = Vivid's brand violet (Vivid is the default theme).
+        # SwiftUI `.tint` (applied by
+        # `themedRoot`) covers SwiftUI controls, but UIKit-presented surfaces
+        # — alerts, the share sheet, UIKit pickers — read
+        # `UIColor.tintColor`, which only comes from this asset. Static, so it
+        # does not follow a theme switch; that is the accepted limit noted in
+        # CLAUDE.md. The Mac scheme builds this same multiplatform target, so
+        # there is no separate AmgiAppMac target to set it on.
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         # Cxx interop chain. Xcode + SPM under Swift 6 needs an explicit
         # Clang C++ standard alongside SWIFT_CXX_INTEROPERABILITY_MODE —
         # without the language-standard hint Clang's dependency scanner

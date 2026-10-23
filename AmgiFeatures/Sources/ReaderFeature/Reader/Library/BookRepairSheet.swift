@@ -95,7 +95,7 @@ private extension BookRepairSheet {
                         Text("Try Again")
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .amgiProminentButtonStyle()
                 .disabled(isWorking)
             }
 

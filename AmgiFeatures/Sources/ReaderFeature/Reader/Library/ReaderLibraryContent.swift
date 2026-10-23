@@ -1,4 +1,5 @@
 import AmgiReader
+import AmgiTheme
 import AmgiUI
 import SwiftUI
 
@@ -92,7 +93,7 @@ private extension ReaderLibraryContent {
             }
         } actions: {
             Button(action: onImport) { Label("Import Book", systemImage: "plus") }
-                .buttonStyle(.borderedProminent)
+                .amgiProminentButtonStyle()
             Button(reason == .noBooksConfigured ? "Reconfigure Reader" : "Set Up Library",
                    action: onConfigure)
         }

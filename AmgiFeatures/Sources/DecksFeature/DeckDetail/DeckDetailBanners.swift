@@ -12,7 +12,7 @@ struct RebuildFeedbackBanner: View {
         if let feedback {
             Text(feedback)
                 .amgiFont(.bodyEmphasis)
-                .foregroundStyle(.white)
+                .foregroundStyle(palette.onAccent)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
                 .background(palette.accent, in: Capsule())

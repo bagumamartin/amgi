@@ -53,6 +53,9 @@ public struct PaletteScheme: Codable, Sendable, Equatable {
     public let infoHex: String
     public let customStudyBadgeHex: String
     public let accentSoftHex: String
+    /// Text and icons drawn on an `accent` fill. Optional so theme files
+    /// written before the slot existed still decode; they get white.
+    public let onAccentHex: String?
     public let separatorHex: String
     public let cardStateNewHex: String
     public let cardStateLearningHex: String
@@ -78,6 +81,7 @@ public struct PaletteScheme: Codable, Sendable, Equatable {
         case infoHex = "info"
         case customStudyBadgeHex = "customStudyBadge"
         case accentSoftHex = "accentSoft"
+        case onAccentHex = "onAccent"
         case separatorHex = "separator"
         case cardStateNewHex = "cardStateNew"
         case cardStateLearningHex = "cardStateLearning"
@@ -104,6 +108,7 @@ public struct PaletteScheme: Codable, Sendable, Equatable {
         infoHex: String,
         customStudyBadgeHex: String,
         accentSoftHex: String,
+        onAccentHex: String? = nil,
         separatorHex: String,
         cardStateNewHex: String,
         cardStateLearningHex: String,
@@ -128,6 +133,7 @@ public struct PaletteScheme: Codable, Sendable, Equatable {
         self.infoHex = infoHex
         self.customStudyBadgeHex = customStudyBadgeHex
         self.accentSoftHex = accentSoftHex
+        self.onAccentHex = onAccentHex
         self.separatorHex = separatorHex
         self.cardStateNewHex = cardStateNewHex
         self.cardStateLearningHex = cardStateLearningHex
@@ -158,6 +164,7 @@ public struct PaletteScheme: Codable, Sendable, Equatable {
             info: .fromHex(infoHex),
             customStudyBadge: .fromHex(customStudyBadgeHex),
             accentSoft: .fromHex(accentSoftHex),
+            onAccent: .fromHex(onAccentHex ?? "#FFFFFF"),
             separator: .fromHex(separatorHex),
             cardStateNew: .fromHex(cardStateNewHex),
             cardStateLearning: .fromHex(cardStateLearningHex),

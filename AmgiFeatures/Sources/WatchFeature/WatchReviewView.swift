@@ -1,5 +1,6 @@
 import AVFoundation
 import AmgiAppCore
+import AmgiTheme
 import AnkiBackend
 import AnkiKit
 import Dependencies
@@ -25,6 +26,7 @@ struct WatchReviewView: View {
         session.showAnswer ? session.backHTML : session.frontHTML
     }
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.palette) private var palette
     init(deckId: DeckID, onDismiss: @escaping () -> Void) {
         self.deckId = deckId
         self.onDismiss = onDismiss
@@ -52,7 +54,7 @@ struct WatchReviewView: View {
                             ratingButton(.good, color: .green)
                         }
                     } else {
-                        reviewButton(L10n.text("Show Answer"), color: .blue) { session.revealAnswer() }
+                        reviewButton(L10n.text("Show Answer"), color: palette.accent) { session.revealAnswer() }
                     }
                 }
                 .ignoresSafeArea(edges: .bottom)
@@ -115,7 +117,7 @@ struct WatchReviewView: View {
                 Button(L10n.text("Review Ahead")) {
                     session.reviewAhead()
                 }
-                .buttonStyle(.borderedProminent)
+                .amgiProminentButtonStyle()
                 Button(L10n.text("Done")) {
                     session.finishEarly()
                     onDismiss()
