@@ -30,7 +30,7 @@ struct HeroNoise: Sendable {
         let floor = x.rounded(.down)
         let i = Int(floor) & 255
         let u = x - floor
-        let eased = u * u * (3 - 2 * u)
+        let eased = u * u * u * (u * (u * 6 - 15) + 10)
         return values[i] + (values[(i + 1) & 255] - values[i]) * eased
     }
 
@@ -93,7 +93,7 @@ struct HeroFireFrame: Sendable {
 @MainActor
 final class HeroFireSimulation {
     /// Sparks per second, set by the background from the chip's mood.
-    var sparkRate = 5.0
+    var sparkRate = 3.0
 
     private var rng: HeroRandom
     private let noise: HeroNoise
@@ -157,7 +157,7 @@ final class HeroFireSimulation {
     /// A tap: the flame flares and throws a spray of sparks.
     func flare() {
         flaredAt = t
-        for _ in 0..<14 {
+        for _ in 0..<8 {
             sparks.append(HeroSpark(
                 x: tipLean * 3 + random(-2, 2),
                 y: random(-1, 1),
@@ -205,7 +205,7 @@ final class HeroFireSimulation {
         gusty = wind + noise.fbm(t * 0.9 + 3) * (0.08 + 0.18 * abs(wind))
 
         spring(&baseLean, &baseVelocity, toward: gusty, stiffness: 20, damping: 1, dt: dt)
-        spring(&tipLean, &tipVelocity, toward: baseLean * 1.15, stiffness: 7, damping: 0.42, dt: dt)
+        spring(&tipLean, &tipVelocity, toward: baseLean * 1.15, stiffness: 7, damping: 0.65, dt: dt)
 
         let glowTarget = 1 + 0.06 * noise(t * 0.45 + 9)
         glow += (glowTarget - glow) * min(1, dt * 1.5)

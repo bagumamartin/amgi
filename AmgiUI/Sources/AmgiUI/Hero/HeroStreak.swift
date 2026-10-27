@@ -85,9 +85,9 @@ struct HeroStreakSummary: Equatable {
 
 /// The hero's streak chip: emblem + headline over a 7-day strip, today last,
 /// on a living background (`HeroStreakAmbience`) — fire while the streak is
-/// alive, winter once it lapses. Tapping flares it (sparks, or a gust of
-/// snow), plays a haptic, and opens `HeroStreakDetails`. It reads in every
-/// state — a broken or never-started streak still shows the week and says
+/// alive, drifting snow once it lapses. Tapping stirs it, plays a haptic,
+/// and opens `HeroStreakDetails`. A broken or never-started streak still
+/// shows the week and says
 /// how to (re)start it.
 struct HeroStreakIndicator: View {
     let summary: HeroStreakSummary
@@ -108,12 +108,13 @@ struct HeroStreakIndicator: View {
 
     @Environment(\.palette) private var palette
     @Environment(\.locale) private var locale
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: AmgiRadius.inset, style: .continuous)
         Button {
             tap = .now
-            fire.flare()
+            if summary.isLive && !reduceMotion { fire.flare() }
             showsDetails = true
         } label: {
             VStack(alignment: .leading, spacing: 5) {
@@ -196,7 +197,7 @@ struct HeroStreakIndicator: View {
 
     private var mood: HeroStreakMood { HeroStreakMood(summary.state) }
 
-    /// Frozen headlines take an icy tint instead of plain grey.
+    /// Dormant streaks take a quiet, cool tint.
     private var headlineColor: Color {
         summary.isLive ? palette.textPrimary : palette.info.mix(with: palette.textPrimary, by: 0.45)
     }
@@ -206,7 +207,7 @@ struct HeroStreakIndicator: View {
         case .milestone: palette.warning.opacity(0.7)
         case .active: palette.warning.opacity(0.4)
         case .atRisk: palette.warning.opacity(0.3)
-        case .lapsed, .fresh: palette.info.opacity(0.4)
+        case .lapsed, .fresh: palette.info.opacity(0.22)
         }
     }
 }
@@ -221,11 +222,12 @@ struct HeroStreakDetails: View {
 
     @Environment(\.palette) private var palette
     @Environment(\.locale) private var locale
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
-                // Tap the emblem for another flare (or gust of snow).
+                // Tap for a flame flare or a passing gust of snow.
                 HeroStreakEmblem(state: summary.state, size: 20, fire: fire, tap: tap)
                     .frame(width: 48, height: 48)
                     .background {
@@ -244,7 +246,7 @@ struct HeroStreakDetails: View {
                     .contentShape(Circle())
                     .onTapGesture {
                         tap = .now
-                        fire.flare()
+                        if summary.isLive && !reduceMotion { fire.flare() }
                     }
                     .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.8), trigger: tap)
                 VStack(alignment: .leading, spacing: 2) {
@@ -468,6 +470,25 @@ private extension HeroStreakSummary {
     .padding(16)
     .background(Color.gray.opacity(0.12))
     .environment(\.palette, .vividLight)
+}
+
+#Preview("Indicator — light and dark snapshots") {
+    HStack(spacing: 20) {
+        ForEach([false, true], id: \.self) { dark in
+            VStack(spacing: 10) {
+                HeroStreakIndicator(summary: .preview(streak: 36, tail: [5]), stillTime: 2)
+                HeroStreakIndicator(summary: .preview(streak: 30, tail: [5]), stillTime: 2)
+                HeroStreakIndicator(summary: .preview(streak: 12, tail: [5, 0]), stillTime: 2)
+                HeroStreakIndicator(summary: .preview(streak: 0, tail: [5, 0, 0]), stillTime: 2)
+                HeroStreakIndicator(summary: HeroStreakSummary(streak: 0, dayTotals: []), stillTime: 2)
+            }
+            .frame(width: 130)
+            .padding(16)
+            .background(dark ? Palette.vividDark.background : Palette.vividLight.background)
+            .environment(\.palette, dark ? .vividDark : .vividLight)
+            .environment(\.colorScheme, dark ? .dark : .light)
+        }
+    }
 }
 
 #Preview("Details — active") {
