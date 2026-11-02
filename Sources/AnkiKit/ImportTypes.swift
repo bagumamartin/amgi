@@ -204,32 +204,6 @@ public struct ImportPackageInspection: Sendable, Equatable, Codable {
     public let deckNames: [String]
     public let mediaCount: Int
     public let archiveEntryCount: Int
-    public let isCollectionBackup: Bool
-
-    private enum CodingKeys: String, CodingKey {
-        case formatVersion
-        case noteCount
-        case cardCount
-        case notetypeCount
-        case reviewCount
-        case deckNames
-        case mediaCount
-        case archiveEntryCount
-        case isCollectionBackup
-    }
-
-    public init(from decoder: any Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        formatVersion = try container.decode(Int.self, forKey: .formatVersion)
-        noteCount = try container.decode(Int.self, forKey: .noteCount)
-        cardCount = try container.decode(Int.self, forKey: .cardCount)
-        notetypeCount = try container.decode(Int.self, forKey: .notetypeCount)
-        reviewCount = try container.decode(Int.self, forKey: .reviewCount)
-        deckNames = try container.decode([String].self, forKey: .deckNames)
-        mediaCount = try container.decode(Int.self, forKey: .mediaCount)
-        archiveEntryCount = try container.decode(Int.self, forKey: .archiveEntryCount)
-        isCollectionBackup = try container.decodeIfPresent(Bool.self, forKey: .isCollectionBackup) ?? false
-    }
 
     public init(
         formatVersion: Int,
@@ -239,8 +213,7 @@ public struct ImportPackageInspection: Sendable, Equatable, Codable {
         reviewCount: Int,
         deckNames: [String],
         mediaCount: Int,
-        archiveEntryCount: Int,
-        isCollectionBackup: Bool = false
+        archiveEntryCount: Int
     ) {
         self.formatVersion = formatVersion
         self.noteCount = noteCount
@@ -250,7 +223,6 @@ public struct ImportPackageInspection: Sendable, Equatable, Codable {
         self.deckNames = deckNames
         self.mediaCount = mediaCount
         self.archiveEntryCount = archiveEntryCount
-        self.isCollectionBackup = isCollectionBackup
     }
 }
 

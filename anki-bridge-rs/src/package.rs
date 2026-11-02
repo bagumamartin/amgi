@@ -28,7 +28,6 @@ struct PackageInspection {
     deck_names: Vec<String>,
     media_count: usize,
     archive_entry_count: usize,
-    is_collection_backup: bool,
 }
 
 /// Inspect an Anki package without opening or modifying the user's file.
@@ -76,11 +75,6 @@ fn inspect_package(path: &Path) -> Result<PackageInspection, String> {
     })?;
 
     let archive_entry_count = archive.len();
-    // Legacy full-collection backups contain the original on-disk
-    // `collection.anki2`; deck exports contain only the normalized
-    // `collection.anki21[b]` import database. This lets the UI avoid
-    // trusting the user's filename to choose a destructive restore flow.
-    let is_collection_backup = contains_entry(&mut archive, "collection.anki2")?;
     let format_version = detect_format_version(&mut archive)?;
     let collection_name = collection_filename(format_version).to_string();
     let media_count = inspect_media_map(&mut archive, format_version)?;
@@ -96,7 +90,6 @@ fn inspect_package(path: &Path) -> Result<PackageInspection, String> {
         deck_names,
         media_count,
         archive_entry_count,
-        is_collection_backup,
     })
 }
 
@@ -175,7 +168,7 @@ fn inspect_collection(
     let connection = open_collection_read_only(extracted.path())?;
     let note_count = table_count(&connection, "notes")?;
     let card_count = table_count(&connection, "cards")?;
-    let notetype_count = table_count(&connection, "notetypes")?;
+    let notetype_count = notetype_count(&connection)?;
     let review_count = table_count(&connection, "revlog")?;
     let deck_names = deck_names(&connection)?;
     Ok((
@@ -199,8 +192,7 @@ fn table_count(connection: &Connection, table: &str) -> Result<u64, String> {
     let candidates: &[&str] = match table {
         "notes" => &["notes"],
         "cards" => &["cards"],
-        // Very old schema 11 packages called this table `models`.
-        "notetypes" => &["notetypes", "models"],
+        "notetypes" => &["notetypes"],
         "revlog" => &["revlog"],
         _ => return Err(format!("unsupported collection count table: {table}")),
     };
@@ -209,9 +201,8 @@ fn table_count(connection: &Connection, table: &str) -> Result<u64, String> {
         .copied()
         .find(|candidate| table_exists(connection, candidate))
     else {
-        // Old schema-10 packages can omit review history, and very old
-        // packages store note definitions inside `col` rather than a table.
-        if table == "revlog" || table == "notetypes" {
+        // Old schema-10 packages can omit review history.
+        if table == "revlog" {
             return Ok(0);
         }
         return Err(format!(
@@ -226,6 +217,20 @@ fn table_count(connection: &Connection, table: &str) -> Result<u64, String> {
     u64::try_from(count).map_err(|_| {
         format!("Anki collection table {sql_table} contains an invalid count: {count}")
     })
+}
+
+/// Schema 18+ keeps note types in a `notetypes` table; schema 11 (every
+/// legacy `collection.anki2` export) keeps them as JSON in `col.models`.
+fn notetype_count(connection: &Connection) -> Result<u64, String> {
+    if table_exists(connection, "notetypes") || !table_exists(connection, "col") {
+        return table_count(connection, "notetypes");
+    }
+    let json: String = connection
+        .query_row("SELECT models FROM col", [], |row| row.get(0))
+        .map_err(|err| format!("could not inspect legacy Anki note types: {err}"))?;
+    let models: serde_json::Value = serde_json::from_str(&json)
+        .map_err(|err| format!("Anki collection contains invalid legacy note type data: {err}"))?;
+    Ok(models.as_object().map_or(0, |values| values.len() as u64))
 }
 
 fn table_exists(connection: &Connection, table: &str) -> bool {
@@ -416,7 +421,6 @@ mod tests {
                 deck_names: vec!["Parent::Child".to_string(), "Zulu".to_string()],
                 media_count: 1,
                 archive_entry_count: 3,
-                is_collection_backup: false,
             })
         );
     }
@@ -454,16 +458,32 @@ mod tests {
     }
 
     #[test]
-    fn identifies_legacy_full_collection_backup_by_contents() {
+    fn inspects_schema_11_deck_package_notetypes_from_col() {
+        // Legacy deck exports (`collection.anki2`, schema 11) keep note types
+        // and decks as JSON in `col`. Such a file is a deck, not a backup:
+        // only the filename can tell those apart, as in desktop Anki.
         let directory = tempdir().expect("temp directory");
         let collection_path = directory.path().join("collection.anki2");
-        make_collection(&collection_path);
+        let connection = Connection::open(&collection_path).expect("create collection");
+        connection
+            .execute_batch(
+                r#"CREATE TABLE notes (id INTEGER PRIMARY KEY);
+                 CREATE TABLE cards (id INTEGER PRIMARY KEY);
+                 CREATE TABLE revlog (id INTEGER PRIMARY KEY);
+                 CREATE TABLE col (models TEXT NOT NULL, decks TEXT NOT NULL);
+                 INSERT INTO notes VALUES (1);
+                 INSERT INTO cards VALUES (1);
+                 INSERT INTO col VALUES (
+                     '{"1": {"name": "Basic"}, "2": {"name": "Cloze"}}',
+                     '{"1": {"name": "Default"}, "5": {"name": "Shared"}}'
+                 );"#,
+            )
+            .expect("create schema 11 collection");
+        drop(connection);
         let collection_bytes = fs::read(&collection_path).expect("read collection");
         let media = serde_json::to_vec(&serde_json::json!({})).expect("encode media map");
 
-        // Filename intentionally does not use `collection.apkg`; classification
-        // must come from the archive contents rather than a naming convention.
-        let package_path = directory.path().join("renamed-backup.apkg");
+        let package_path = directory.path().join("Shared Deck.apkg");
         let file = File::create(&package_path).expect("create package");
         let mut zip = ZipWriter::new(file);
         let options = SimpleFileOptions::default();
@@ -475,8 +495,10 @@ mod tests {
         zip.finish().expect("finish package");
 
         let inspection = inspect_path(package_path.to_str().expect("UTF-8 path"))
-            .expect("inspect collection backup");
-        assert!(inspection.is_collection_backup);
+            .expect("inspect legacy deck package");
+        assert_eq!(inspection.format_version, 1);
+        assert_eq!(inspection.notetype_count, 2);
+        assert_eq!(inspection.deck_names, vec!["Default", "Shared"]);
     }
 
     #[test]

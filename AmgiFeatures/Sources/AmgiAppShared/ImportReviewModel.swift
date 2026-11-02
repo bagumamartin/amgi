@@ -384,12 +384,8 @@ package final class ImportReviewModel {
         case .deckPackage, .zippedPackage:
             async let inspection = importExportService.inspectPackage(path)
             async let presets = importExportService.ankiPackageImportPresets()
-            let resolvedInspection = try await inspection
-            packageInspection = resolvedInspection
+            packageInspection = try await inspection
             packageOptions = try await presets
-            if resolvedInspection.isCollectionBackup {
-                self.format = .collectionPackage
-            }
         case .collectionPackage:
             packageInspection = try await importExportService.inspectPackage(path)
         case .text:
